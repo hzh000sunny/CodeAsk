@@ -96,6 +96,10 @@ class LLMGateway:
         self._max_retries = max_retries
         self._base_delay = base_delay
 
+    @property
+    def client_factory(self) -> ClientFactory:
+        return self._factory
+
     async def stream(self, request: LLMRequest) -> AsyncIterator[LLMEvent]:
         config = await self._repo.get_default_or(request.config_id)
         client = self._factory.create(
