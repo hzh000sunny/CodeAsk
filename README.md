@@ -1,0 +1,196 @@
+# CodeAsk
+
+CodeAsk 是一个私有部署的研发问答系统，帮助团队把内部文档、代码和已验证的工程经验组织成可检索的知识库，并基于这些真实知识提供带证据的可信回答。
+
+它面向需要私有部署的研发团队，解决“知识卡在某个人脑子里”的问题：提问者可以自助获得答案，资深工程师也可以把反复回答的问题低成本沉淀下来，减少重复打断。
+
+## 当前状态
+
+CodeAsk 目前处于 v1.0 MVP 的文档完成与实现启动阶段。
+
+产品需求、系统设计和实现计划位于 `docs/v1.0/`。当前代码尚未初始化，第一阶段会从 `foundation` plan 开始，搭建后端应用骨架、数据库基础、迁移系统、配置、加密、自报身份中间件、结构化日志和健康检查接口。
+
+## 产品目标
+
+CodeAsk 的核心目标是：
+
+> 让团队知识不再卡在某个人脑子里。
+
+它服务于两类同等重要的用户：
+
+- Maintainer：负责模块、系统或特性的资深工程师，把文档、经验、排障结论沉淀进知识库。
+- Asker：新人、跨模块协作者、oncall 工程师等，通过自然语言提问获得带证据的回答。
+
+CodeAsk 不是通用代码助手，也不是无知识库支撑的零样本代码理解工具。它的重点是基于团队自己的文档、代码和已验证经验回答问题。
+
+## 核心工作流
+
+CodeAsk 采用“知识库优先，代码深入分析兜底”的主链路：
+
+1. 用户创建特性，作为知识和代码检索的边界。
+2. Maintainer 上传文档、规范、排障手册等知识材料。
+3. 团队注册代码仓库，并把仓库关联到对应特性。
+4. Asker 用自然语言提问，不需要选择场景或问题类型。
+5. Agent 自动判断问题属于哪个特性。
+6. 系统优先检索知识库，包括已验证报告和普通文档。
+7. 如果知识库不足以回答，Agent 进入代码层，通过独立 worktree、grep、文件读取、符号查找等工具分析代码。
+8. 系统生成带证据的回答，引用文档、代码片段和 commit 信息。
+9. 有价值的问答可以沉淀为报告草稿，经人工验证后进入知识库，成为后续检索的高优先级内容。
+
+## v1.0 MVP 范围
+
+v1.0 MVP 包含：
+
+- 私有部署
+- 一期无登录、无鉴权
+- 基于自报身份的会话归属
+- SQLite 本地存储
+- 知识库文档管理与检索
+- 已验证报告作为高优先级知识
+- 全局代码仓库池
+- 特性与仓库关联
+- 会话级 git worktree 隔离
+- Agent 自动定界到特性
+- Agent 自动判断知识库是否足够
+- 代码工具调用，包括 grep、读取文件、符号查找
+- 带证据的答案生成
+- 报告草稿与人工验证闭环
+- Maintainer dashboard
+- 单机部署与 Docker 部署
+
+v1.0 MVP 暂不包含：
+
+- 多租户 SaaS
+- 登录与权限系统
+- 自动修 PR
+- IDE 插件
+- 实时监控或告警系统
+- 外部向量数据库作为核心依赖
+- 与 ELK、Loki、Splunk 等日志平台的直接对接
+
+## 技术方向
+
+后端计划采用：
+
+- Python 3.11+
+- FastAPI
+- SQLAlchemy 2.0 async
+- Alembic
+- SQLite + FTS5
+- Pydantic v2
+- pydantic-settings
+- cryptography / Fernet
+- structlog
+- pytest / pytest-asyncio
+- uv
+
+前端计划采用：
+
+- React 19
+- Vite
+- TypeScript
+- Tailwind CSS v4
+- shadcn/ui
+- TanStack Query
+- TanStack Router 或 React Router
+- Zustand
+- Vitest
+- Playwright
+
+部署目标是单进程、单端口、低依赖，优先满足小团队私有部署和 30 秒启动体验。
+
+## 当前仓库结构
+
+当前仓库以文档为主：
+
+```text
+CodeAsk/
+├── README.md
+├── docs/
+│   ├── README.md
+│   ├── STRUCTURE.md
+│   └── v1.0/
+│       ├── README.md
+│       ├── prd/
+│       │   └── codeask.md
+│       ├── design/
+│       ├── plans/
+│       └── specs/
+└── .claude/
+```
+
+后续实现完成后，计划形成如下结构：
+
+```text
+CodeAsk/
+├── README.md
+├── start.sh
+├── pyproject.toml
+├── uv.lock
+├── alembic.ini
+├── alembic/
+├── src/
+│   └── codeask/
+├── tests/
+├── frontend/
+├── docker/
+├── .github/
+└── docs/
+```
+
+## 文档入口
+
+推荐阅读顺序：
+
+1. `docs/README.md`：文档版本入口
+2. `docs/STRUCTURE.md`：文档结构与版本规则
+3. `docs/v1.0/prd/codeask.md`：产品需求文档，定义产品契约
+4. `docs/v1.0/design/overview.md`：系统设计总览
+5. `docs/v1.0/plans/roadmap.md`：v1.0 实施路线图
+6. `docs/v1.0/plans/foundation.md`：第一阶段实现计划
+
+在 v1.0 中，PRD 是产品契约。如果 PRD 与 SDD 冲突，以 PRD 为准，SDD 应同步更新。
+
+## 实施路线
+
+v1.0 实现被拆成七个 plan：
+
+1. `foundation`：后端应用骨架、配置、存储、数据库、迁移、加密、身份、日志、健康检查。
+2. `wiki-knowledge`：特性、文档、文档切块、报告、FTS 检索、知识库召回。
+3. `code-index`：仓库注册、异步 clone、worktree、grep、文件读取、符号索引。
+4. `agent-runtime`：LLM 网关、会话、Agent 状态机、工具调用、SSE、轨迹记录。
+5. `frontend-workbench`：React 工作台、会话界面、证据展示、配置页面、Maintainer dashboard。
+6. `metrics-eval`：反馈、前端事件、审计日志、Agent eval、质量门禁。
+7. `deployment`：前端静态挂载、Docker、docker-compose、CI、安全检查和发布 smoke test。
+
+第一阶段应从 `docs/v1.0/plans/foundation.md` 开始。
+
+## 开发约定
+
+建议先提交当前文档基线：
+
+```bash
+git init
+git add README.md docs .claude
+git commit -m "docs: add v1.0 product and implementation plans"
+```
+
+后续按 plan 文件逐步实现，每个任务保持小步提交，并优先遵循对应 plan 中的测试步骤和验收标准。
+
+Foundation 阶段完成后，计划支持如下本地启动方式：
+
+```bash
+export CODEASK_DATA_KEY="<fernet-key>"
+uv sync
+./start.sh
+```
+
+健康检查接口：
+
+```text
+http://127.0.0.1:8000/api/healthz
+```
+
+## License
+
+License 尚未确定。
