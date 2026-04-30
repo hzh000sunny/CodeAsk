@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import inspect
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from codeask.migrations import run_migrations
@@ -32,3 +33,28 @@ async def test_wiki_migrations_idempotent(tmp_path: Path) -> None:
     sync_url = f"sqlite:///{db_path}"
     run_migrations(sync_url)
     run_migrations(sync_url)
+
+
+@pytest.mark.asyncio
+async def test_fts_tables_created(tmp_path: Path) -> None:
+    db_path = tmp_path / "fts.db"
+    sync_url = f"sqlite:///{db_path}"
+    async_url = f"sqlite+aiosqlite:///{db_path}"
+
+    run_migrations(sync_url)
+
+    engine = create_async_engine(async_url)
+    async with engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name IN "
+                    "('docs_fts','docs_ngram_fts','reports_fts')"
+                )
+            )
+        ).all()
+    await engine.dispose()
+
+    names = {row[0] for row in rows}
+    assert names == {"docs_fts", "docs_ngram_fts", "reports_fts"}
