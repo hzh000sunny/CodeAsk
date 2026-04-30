@@ -13,8 +13,9 @@ CodeAsk 目前处于 v1.0 MVP 的后端增量实现阶段。
 - `foundation`：后端应用骨架、配置、存储布局、数据库、Alembic 迁移、加密、自报身份中间件、结构化日志和健康检查。
 - `wiki-knowledge`：特性、文档上传与切块、SQLite FTS5 检索、已验证报告、报告验证 / 撤销闭环，以及 `/api/features`、`/api/documents`、`/api/reports`。
 - `code-index`：全局仓库池、异步 clone、会话级 worktree、`/api/repos`、`/api/code/grep`、`/api/code/read`、`/api/code/symbols`，以及 24 小时闲置 worktree 清理。
+- `agent-runtime`：LLM 配置、会话、Skill、9 阶段 Agent 状态机、LLM Gateway、ToolRegistry、SSE 事件、agent_traces 轨迹记录，以及 `/api/llm-configs`、`/api/skills`、`/api/sessions`。
 
-下一阶段是 `agent-runtime`：会话、LLM 网关、Agent 状态机、工具调用、SSE 和轨迹记录。
+下一阶段是 `frontend-workbench`：React 工作台、会话界面、SSE 实时显示、证据展示、配置页面和 Maintainer dashboard。
 
 ## 产品目标
 
@@ -107,7 +108,7 @@ v1.0 MVP 暂不包含：
 
 ## 当前仓库结构
 
-当前仓库已经包含文档、foundation 后端地基、wiki-knowledge 后端知识库能力和 code-index 代码索引能力：
+当前仓库已经包含文档、foundation 后端地基、wiki-knowledge 后端知识库能力、code-index 代码索引能力和 agent-runtime 后端问答运行时：
 
 ```text
 CodeAsk/
@@ -120,8 +121,10 @@ CodeAsk/
 ├── src/
 │   └── codeask/
 │       ├── api/
+│       ├── agent/
 │       ├── code_index/
 │       ├── db/
+│       ├── llm/
 │       └── wiki/
 ├── tests/
 ├── docs/
@@ -158,6 +161,8 @@ CodeAsk/
 6. `docs/v1.0/plans/foundation.md`：已完成的后端地基计划
 7. `docs/v1.0/plans/wiki-knowledge.md`：已完成的知识库计划
 8. `docs/v1.0/plans/code-index.md`：已完成的代码索引计划
+9. `docs/v1.0/plans/agent-runtime.md`：已完成的 Agent 运行时计划
+10. `docs/v1.0/plans/agent-runtime-handoff.md`：交给前端、metrics-eval、deployment 的运行时契约
 
 在 v1.0 中，PRD 是产品契约。如果 PRD 与 SDD 冲突，以 PRD 为准，SDD 应同步更新。
 
@@ -170,12 +175,12 @@ v1.0 实现被拆成七个 plan：
 | 1 | `foundation` | 已完成 | 后端应用骨架、配置、存储、数据库、迁移、加密、身份、日志、健康检查 |
 | 2 | `wiki-knowledge` | 已完成 | 特性、文档、文档切块、报告、FTS 检索、知识库召回 |
 | 3 | `code-index` | 已完成 | 仓库注册、异步 clone、worktree、grep、文件读取、符号索引 |
-| 4 | `agent-runtime` | 下一阶段 | LLM 网关、会话、Agent 状态机、工具调用、SSE、轨迹记录 |
-| 5 | `frontend-workbench` | 未开始 | React 工作台、会话界面、证据展示、配置页面、Maintainer dashboard |
+| 4 | `agent-runtime` | 已完成 | LLM 网关、会话、Agent 状态机、工具调用、SSE、轨迹记录、运行时 API |
+| 5 | `frontend-workbench` | 下一阶段 | React 工作台、会话界面、证据展示、配置页面、Maintainer dashboard |
 | 6 | `metrics-eval` | 未开始 | 反馈、前端事件、审计日志、Agent eval、质量门禁 |
 | 7 | `deployment` | 未开始 | 前端静态挂载、Docker、docker-compose、CI、安全检查和发布 smoke test |
 
-下一阶段应从 `docs/v1.0/plans/agent-runtime.md` 开始。
+下一阶段应从 `docs/v1.0/plans/frontend-workbench.md` 开始。
 
 ## 快速启动
 

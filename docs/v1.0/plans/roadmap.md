@@ -35,8 +35,8 @@
 | foundation | 已完成 | 已合入 `main`，本地 tag：`foundation-v0.1.0` |
 | wiki-knowledge | 已完成 | 已合入 `main`，本地 tag：`wiki-knowledge-v0.1.0`，Alembic head 到 `0005` |
 | code-index | 已完成 | 已合入 `main`，本地 tag：`code-index-v0.1.0`，Alembic head 到 `0006` |
-| agent-runtime | 下一阶段 | 从 `agent-runtime.md` 开始，migration 从 `0007` 起 |
-| frontend-workbench | 未开始 | 等待后端 API / SSE |
+| agent-runtime | 已完成 | 本地分支 `agent-runtime` 已完成，Alembic head 到 `0012`，REST + SSE API 已暴露 |
+| frontend-workbench | 下一阶段 | 消费 agent-runtime 的 REST + SSE |
 | metrics-eval | 未开始 | 等待 agent traces / audit hooks |
 | deployment | 未开始 | 全部前置 plan 完成后收口 |
 
@@ -165,10 +165,10 @@ deployment        : —（不动 schema）
 - [x] alembic head = `0006`
 
 ### 5.4 agent-runtime 验收
-- [ ] `tests/integration/test_agent_e2e_mock.py` 跑通三条路径：sufficient（不进代码层）/ insufficient（进代码层）/ ask_user
-- [ ] `agent_traces` 表每个阶段有一行；含 ScopeDetection 输入/输出 + SufficiencyJudgement 输入/输出（A2 / A3 eval 数据来源）
-- [ ] LLM API key 落库为加密；`GET /api/llm-configs` 返回 mask 后的 key
-- [ ] alembic head = `0012`
+- [x] `tests/integration/test_orchestrator_sufficient.py` / `test_orchestrator_insufficient.py` / `test_orchestrator_ask_user.py` 跑通三条路径：sufficient（不进代码层）/ insufficient（进代码层）/ ask_user
+- [x] `agent_traces` 表每个阶段有一行；含 ScopeDetection 输入/输出 + SufficiencyJudgement 输入/输出（A2 / A3 eval 数据来源）
+- [x] LLM API key 落库为加密；`GET /api/llm-configs` 返回 mask 后的 key
+- [x] alembic head = `0012`
 
 ### 5.5 frontend-workbench 验收
 - [ ] 浏览器开 / → 跳 /sessions → 新建会话 → 提问 → SSE 实时显示阶段 + tool_calls + scope_detection + sufficiency_judgement → 答案出现含证据折叠 → 点 ✓ 已解决

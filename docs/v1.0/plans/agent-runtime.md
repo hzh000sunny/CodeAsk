@@ -3193,18 +3193,18 @@ git commit -m "docs(plans): agent-runtime hand-off conventions for downstream pl
 
 ## 验收标志（计划完整通过后应满足）
 
-- [ ] 8 张表全部建立，Alembic head 是 `0012`
-- [ ] `/api/llm-configs` POST/GET/PATCH/DELETE 通；list 永远 mask key；最多一条 is_default=True
-- [ ] `/api/skills` CRUD 通；scope/feature_id 一致性 check 生效
-- [ ] `/api/sessions/{id}/messages` 返回 SSE 流；MockLLMClient 注入下三条路径都能跑通：
+- [x] 8 张表全部建立，Alembic head 是 `0012`
+- [x] `/api/llm-configs` POST/GET/PATCH/DELETE 通；list 永远 mask key；最多一条 is_default=True
+- [x] `/api/skills` CRUD 通；scope/feature_id 一致性 check 生效
+- [x] `/api/sessions/{id}/messages` 返回 SSE 流；MockLLMClient 注入下三条路径都能跑通：
   - 知识库充分 → AnswerFinalization
   - 知识库不足 → CodeInvestigation → AnswerFinalization
   - ScopeDetection low confidence → AskUser，等待用户回复
-- [ ] agent_traces 写入：每条 LLM 调用、每个工具调用、ScopeDetection 决策、SufficiencyJudgement 决策都能落库
-- [ ] LLM 网关 retry：流式开始前的 retryable error 重试 ≤ 3 次；首 token 后不重试
-- [ ] 全量 `uv run pytest` PASS（≥84 测试）
-- [ ] `uv run ruff check && uv run pyright src/codeask` 零错误
-- [ ] git tag `agent-runtime-v0.1.0` 已打
+- [x] agent_traces 写入：每条 LLM 调用、每个工具调用、ScopeDetection 决策、SufficiencyJudgement 决策都能落库
+- [x] LLM 网关 retry：流式开始前的 retryable error 重试 ≤ 3 次；首 token 后不重试
+- [x] 全量 `uv run pytest` PASS（≥84 测试）
+- [x] `uv run ruff check && uv run pyright src/codeask` 零错误
+- [x] git tag `agent-runtime-v0.1.0` 已打
 
 ---
 
