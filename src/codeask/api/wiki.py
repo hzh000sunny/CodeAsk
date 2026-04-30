@@ -363,7 +363,7 @@ async def verify_report(
         await ReportService().verify(session, report_id=report_id, subject_id=request.state.subject_id)
     except ReportVerificationError as exc:
         await session.rollback()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     await session.commit()
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
