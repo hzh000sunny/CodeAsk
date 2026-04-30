@@ -3,7 +3,7 @@
 # pyright: reportMissingTypeStubs=false
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Protocol, cast
@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from codeask.api.code_index import router as code_index_router
 from codeask.api.healthz import router as healthz_router
 from codeask.api.wiki import router as wiki_router
+from codeask.code_index.cleanup import build_cleanup_job
 from codeask.code_index.cloner import RepoCloner
 from codeask.code_index.worktree import WorktreeManager
 from codeask.db import create_engine, session_factory
@@ -26,6 +27,8 @@ from codeask.storage import ensure_layout
 
 
 class _Scheduler(Protocol):
+    def add_job(self, func: Callable[[], None], trigger: str, **kwargs: object) -> object: ...
+
     def start(self) -> None: ...
 
     def shutdown(self, wait: bool = True) -> None: ...
@@ -52,7 +55,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         factory = session_factory(engine)
         scheduler = cast(_Scheduler, BackgroundScheduler())
         repo_cloner = RepoCloner(factory)
-        worktree_manager = WorktreeManager(repo_root=Path(settings.data_dir) / "repos")
+        repo_root = Path(settings.data_dir) / "repos"
+        worktree_manager = WorktreeManager(repo_root=repo_root)
+        cleanup_job = build_cleanup_job(worktree_manager, repo_root)
+        scheduler.add_job(
+            cleanup_job,
+            "interval",
+            hours=6,
+            id="worktree_cleanup",
+            misfire_grace_time=3600,
+        )
         scheduler.start()
 
         app.state.engine = engine

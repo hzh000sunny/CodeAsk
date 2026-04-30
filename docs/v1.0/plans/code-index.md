@@ -2688,7 +2688,7 @@ git commit -m "feat(code-index): /api/code/{grep,read,symbols} with worktree pro
 
 清理后**保留 DB 中的 session 相关行**——本 plan 不持有 `session_repo_bindings`，只动文件系统。
 
-- [ ] **Step 1: 写测试 `tests/integration/test_cleanup.py`**
+- [x] **Step 1: 写测试 `tests/integration/test_cleanup.py`**
 
 ```python
 """24h idle worktree cleanup."""
@@ -2769,12 +2769,12 @@ def test_cleanup_job_no_op_when_pool_missing(tmp_path: Path) -> None:
     job()  # must not raise
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `uv run pytest tests/integration/test_cleanup.py -v`
 Expected: ImportError on `codeask.code_index.cleanup`
 
-- [ ] **Step 3: 实现 `src/codeask/code_index/cleanup.py`**
+- [x] **Step 3: 实现 `src/codeask/code_index/cleanup.py`**
 
 ```python
 """APScheduler-driven idle worktree janitor.
@@ -2854,12 +2854,12 @@ def build_cleanup_job(
     return _run
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `uv run pytest tests/integration/test_cleanup.py -v`
 Expected: 三个测试 PASS
 
-- [ ] **Step 5: 验证 lifespan 已经把 cleanup_job 挂到 scheduler**
+- [x] **Step 5: 验证 lifespan 已经把 cleanup_job 挂到 scheduler**
 
 确认 Task 9 step 2 中 `lifespan` 内已经有：
 
@@ -2871,7 +2871,7 @@ scheduler.add_job(cleanup_job, "interval", hours=6, id="worktree_cleanup",
 
 如果 Task 9 时漏掉了，现在补上。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/codeask/code_index/cleanup.py tests/integration/test_cleanup.py
