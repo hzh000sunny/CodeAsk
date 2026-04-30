@@ -867,7 +867,7 @@ git commit -m "feat(code-index): RepoCloner with state machine + stderr capture"
 
 注意：本 plan 不创建 `sessions` 表（04 agent-runtime 负责），所以 `session_id` 在本 plan 是参数串、不做外键校验。
 
-- [ ] **Step 1: 写测试 `tests/integration/test_worktree.py`**
+- [x] **Step 1: 写测试 `tests/integration/test_worktree.py`**
 
 ```python
 """WorktreeManager against a real bare repo."""
@@ -961,12 +961,12 @@ def test_ensure_worktree_rejects_unsafe_session_id(tmp_path: Path) -> None:
         mgr.ensure_worktree("r", "../escape", "main")
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `uv run pytest tests/integration/test_worktree.py -v`
 Expected: ImportError on `codeask.code_index.worktree`
 
-- [ ] **Step 3: 实现 `src/codeask/code_index/worktree.py`**
+- [x] **Step 3: 实现 `src/codeask/code_index/worktree.py`**
 
 ```python
 """Worktree lifecycle: resolve ref, ensure_worktree, destroy_worktree, list."""
@@ -1141,12 +1141,12 @@ class WorktreeManager:
         return None
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `uv run pytest tests/integration/test_worktree.py -v`
 Expected: 五个测试 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/codeask/code_index/worktree.py tests/integration/test_worktree.py
