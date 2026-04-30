@@ -1823,18 +1823,19 @@ git commit -m "feat(code-index): FileReader with whitelist + range + truncation"
 ## Task 8: Pydantic v2 schemas（请求 / 响应模型）
 
 **Files:**
-- Create: `src/codeask/api/schemas/__init__.py`
+- Reuse: `src/codeask/api/schemas/__init__.py`（已由 wiki-knowledge 阶段创建）
 - Create: `src/codeask/api/schemas/code_index.py`
+- Create: `tests/unit/test_code_index_schemas.py`
 
 锚点：`api-data-model.md` §2 + `tools.md` §5（`ToolResult` 标准结构）。本 task 仅落 schemas，HTTP 路由在 Task 9 / Task 10 接入。
 
-- [ ] **Step 1: 创建 `src/codeask/api/schemas/__init__.py`（空）**
+- [x] **Step 1: 确认 `src/codeask/api/schemas/__init__.py` 已存在**
 
 ```python
 """Pydantic schemas for API request / response bodies."""
 ```
 
-- [ ] **Step 2: 创建 `src/codeask/api/schemas/code_index.py`**
+- [x] **Step 2: 创建 `src/codeask/api/schemas/code_index.py`**
 
 ```python
 """Pydantic v2 models for /api/repos and /api/code/* endpoints."""
@@ -1966,7 +1967,7 @@ class ApiError(BaseModel):
     recoverable: bool = True
 ```
 
-- [ ] **Step 3: import-only smoke check**
+- [x] **Step 3: import-only smoke check**
 
 ```bash
 uv run python -c "from codeask.api.schemas.code_index import CodeGrepIn, RepoCreateIn; \
@@ -1975,7 +1976,7 @@ uv run python -c "from codeask.api.schemas.code_index import CodeGrepIn, RepoCre
 ```
 Expected: 输出 `ok`
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add src/codeask/api/schemas/__init__.py src/codeask/api/schemas/code_index.py
