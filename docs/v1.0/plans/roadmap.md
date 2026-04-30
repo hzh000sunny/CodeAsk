@@ -28,6 +28,18 @@
 
 7 份 plan，101 任务，645 TDD 步骤。Foundation 是地基；其余 6 份按 DAG 依次落地，每份产出"可跑、可测、可演示"的中间产物。
 
+**当前实现状态（2026-04-30）：**
+
+| Plan | 状态 | 当前结论 |
+|---|---|---|
+| foundation | 已完成 | 已合入 `main`，本地 tag：`foundation-v0.1.0` |
+| wiki-knowledge | 已完成 | 已合入 `main`，本地 tag：`wiki-knowledge-v0.1.0`，Alembic head 到 `0005` |
+| code-index | 下一阶段 | 从 `code-index.md` 开始，migration 从 `0006` 起 |
+| agent-runtime | 未开始 | 等待 `code-index` |
+| frontend-workbench | 未开始 | 等待后端 API / SSE |
+| metrics-eval | 未开始 | 等待 agent traces / audit hooks |
+| deployment | 未开始 | 全部前置 plan 完成后收口 |
+
 ## 2. 执行顺序与阶段产出
 
 | # | Plan | 文件 | 任务 / 步骤 | 主产出 | 阶段交付状态 |
@@ -125,16 +137,16 @@ deployment        : —（不动 schema）
 每份 plan 在文件末尾有**自家"验收标志"清单**。本文只列**最关键的 1-3 条**作快速核对：
 
 ### 5.1 foundation 验收
-- [ ] `./start.sh` 在 30 秒内（首次 `uv sync` 之后）跑起服务
-- [ ] `curl /api/healthz` 返回 `{"status":"ok","db":"ok","version":"0.1.0","subject_id":...}`
-- [ ] 缺失 `CODEASK_DATA_KEY` 时 `start.sh` 给清晰错误，**不**启动到一半
-- [ ] 23 测试 PASS / ruff + pyright 零错
+- [x] `./start.sh` 在 30 秒内（首次 `uv sync` 之后）跑起服务
+- [x] `curl /api/healthz` 返回 `{"status":"ok","db":"ok","version":"0.1.0","subject_id":...}`
+- [x] 缺失 `CODEASK_DATA_KEY` 时 `start.sh` 给清晰错误，**不**启动到一半
+- [x] 23 测试 PASS / ruff + pyright 零错
 
 ### 5.2 wiki-knowledge 验收
-- [ ] 上传 markdown → `document_chunks` 表落地 → `docs_fts` / `docs_ngram_fts` 同步索引
-- [ ] `GET /api/documents/search?q=订单` 同时命中 BM25 通道和 n-gram 通道
-- [ ] 报告 verify → `reports_fts` 命中；unverify → `reports_fts` 不命中
-- [ ] alembic head = `0005`
+- [x] 上传 markdown → `document_chunks` 表落地 → `docs_fts` / `docs_ngram_fts` 同步索引
+- [x] `GET /api/documents/search?q=订单` 同时命中 BM25 通道和 n-gram 通道
+- [x] 报告 verify → `reports_fts` 命中；unverify → `reports_fts` 不命中
+- [x] alembic head = `0005`
 
 ### 5.3 code-index 验收
 - [ ] `POST /api/repos`（local_dir 来源）→ 后台 cloning → `status=ready`，bare git 数据落 `~/.codeask/repos/<repo_id>/bare/`
@@ -250,7 +262,7 @@ deployment        : —（不动 schema）
 
 ```text
 foundation 完成 → tag foundation-v0.1.0 → 跑跨 plan smoke → 进入下一 plan
-wiki-knowledge 完成 → tag wiki-v0.1.0 → 跨 plan smoke → 下一 plan
+wiki-knowledge 完成 → tag wiki-knowledge-v0.1.0 → 跨 plan smoke → 下一 plan
 ...
 全部完成 → 跑 §6 v1.0 整体验收 → tag v1.0.0 → 出货
 ```
@@ -293,7 +305,7 @@ wiki-knowledge 完成 → tag wiki-v0.1.0 → 跨 plan smoke → 下一 plan
 
 ## 10. 后续操作建议
 
-- 每完成一个 plan 在 git 打 tag：`foundation-v0.1.0` / `wiki-v0.1.0` / ...
+- 每完成一个 plan 在 git 打 tag：`foundation-v0.1.0` / `wiki-knowledge-v0.1.0` / ...
 - 每个 plan 的子任务在 feature branch 跑、PR review、合入 main
 - alpha 第 1 周：回填 `metrics-collection.md` TODO 项 + 第一次 deflection rate 阈值校准
 - alpha 第 1 月：A2 / A3 eval 集种子从 30 扩到 100 / 80 条

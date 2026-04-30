@@ -6,6 +6,7 @@
 | 起始日期 | 2026-04-29 |
 | 状态 | Active |
 | 主题 | 初始 MVP — 知识库 + 代码混合问答 |
+| 当前实现进度 | `foundation`、`wiki-knowledge` 已完成；下一阶段 `code-index` |
 
 ## 目录结构
 
@@ -31,10 +32,29 @@ v1.0/
 │   ├── metrics-collection.md
 │   └── dependencies.md
 ├── plans/                    ← 实现计划（拆 SDD → bite-sized TDD task）
-│   └── foundation.md
+│   ├── roadmap.md
+│   ├── foundation.md
+│   ├── wiki-knowledge.md
+│   ├── code-index.md
+│   ├── agent-runtime.md
+│   ├── frontend-workbench.md
+│   ├── metrics-eval.md
+│   └── deployment.md
 └── specs/                    ← 早期草稿 / 过程性产物
     └── codeask-initial-draft.md
 ```
+
+## 实现进度
+
+| Plan | 状态 | 备注 |
+|---|---|---|
+| `foundation` | 已完成 | 本地 tag：`foundation-v0.1.0` |
+| `wiki-knowledge` | 已完成 | 本地 tag：`wiki-knowledge-v0.1.0`；Alembic head 到 `0005` |
+| `code-index` | 下一阶段 | 从 `plans/code-index.md` 开始 |
+| `agent-runtime` | 未开始 | 依赖 `code-index` |
+| `frontend-workbench` | 未开始 | 依赖后端 API / SSE |
+| `metrics-eval` | 未开始 | 替换 `AuditWriter` stub 为真实 `audit_log` 落表 |
+| `deployment` | 未开始 | 前置 plan 完成后收口部署 |
 
 ## 推荐阅读顺序
 

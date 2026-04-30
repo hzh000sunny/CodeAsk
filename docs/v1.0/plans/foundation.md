@@ -1,5 +1,7 @@
 # Foundation Implementation Plan
 
+> **Implementation status:** 已完成并合入 `main`。本地 tag：`foundation-v0.1.0`。后续 plan 应遵循 `foundation-handoff.md` 的接口契约。
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 落地 CodeAsk 单进程地基——FastAPI 应用骨架、SQLAlchemy 2.0 async + Alembic、`~/.codeask/` 存储布局、Fernet 加密、自报身份中间件、structlog、`/api/healthz` 走通端到端。
@@ -1788,14 +1790,14 @@ git commit -m "docs(plans): foundation hand-off conventions for follow-on plans"
 
 ## 验收标志（计划完整通过后应满足）
 
-- [ ] `./start.sh` 在 30 秒内（本机首次 `uv sync` 之后）跑起服务
-- [ ] `curl http://127.0.0.1:8000/api/healthz` 返回 `{"status":"ok","db":"ok","version":"0.1.0","subject_id":...}`
-- [ ] `~/.codeask/data.db` 创建，含 `system_settings` 表，`alembic_version` 表显示 head 是 `0001`
-- [ ] `~/.codeask/{wiki,skills,sessions,repos,index,logs}` 目录就绪
-- [ ] 缺失 `CODEASK_DATA_KEY` 时 `start.sh` 给清晰错误，**不**启动到一半
-- [ ] 全量 `uv run pytest` 23 测试 PASS
-- [ ] `uv run ruff check && uv run pyright src/codeask` 零错误
-- [ ] git tag `foundation-v0.1.0` 已打
+- [x] `./start.sh` 在 30 秒内（本机首次 `uv sync` 之后）跑起服务
+- [x] `curl http://127.0.0.1:8000/api/healthz` 返回 `{"status":"ok","db":"ok","version":"0.1.0","subject_id":...}`
+- [x] `~/.codeask/data.db` 创建，含 `system_settings` 表，`alembic_version` 表显示 head 是 `0001`
+- [x] `~/.codeask/{wiki,skills,sessions,repos,index,logs}` 目录就绪
+- [x] 缺失 `CODEASK_DATA_KEY` 时 `start.sh` 给清晰错误，**不**启动到一半
+- [x] 全量 `uv run pytest` 23 测试 PASS
+- [x] `uv run ruff check && uv run pyright src/codeask` 零错误
+- [x] git tag `foundation-v0.1.0` 已打
 
 ---
 

@@ -6,9 +6,14 @@ CodeAsk 是一个私有部署的研发问答系统，帮助团队把内部文档
 
 ## 当前状态
 
-CodeAsk 目前处于 v1.0 MVP 的文档完成与实现启动阶段。
+CodeAsk 目前处于 v1.0 MVP 的后端增量实现阶段。
 
-产品需求、系统设计和实现计划位于 `docs/v1.0/`。当前已进入第一阶段 `foundation` 实现：后端应用骨架、数据库基础、迁移系统、配置、加密、自报身份中间件、结构化日志和健康检查接口会先落地，后续功能按 plan 继续增量实现。
+产品需求、系统设计和实现计划位于 `docs/v1.0/`。当前已完成：
+
+- `foundation`：后端应用骨架、配置、存储布局、数据库、Alembic 迁移、加密、自报身份中间件、结构化日志和健康检查。
+- `wiki-knowledge`：特性、文档上传与切块、SQLite FTS5 检索、已验证报告、报告验证 / 撤销闭环，以及 `/api/features`、`/api/documents`、`/api/reports`。
+
+下一阶段是 `code-index`：仓库注册、异步 clone、会话级 worktree、grep / read / symbols 等代码检索工具。
 
 ## 产品目标
 
@@ -101,7 +106,7 @@ v1.0 MVP 暂不包含：
 
 ## 当前仓库结构
 
-当前仓库已经包含文档和 foundation 后端地基：
+当前仓库已经包含文档、foundation 后端地基和 wiki-knowledge 后端知识库能力：
 
 ```text
 CodeAsk/
@@ -113,6 +118,9 @@ CodeAsk/
 ├── alembic/
 ├── src/
 │   └── codeask/
+│       ├── api/
+│       ├── db/
+│       └── wiki/
 ├── tests/
 ├── docs/
 │   ├── README.md
@@ -145,7 +153,9 @@ CodeAsk/
 3. `docs/v1.0/prd/codeask.md`：产品需求文档，定义产品契约
 4. `docs/v1.0/design/overview.md`：系统设计总览
 5. `docs/v1.0/plans/roadmap.md`：v1.0 实施路线图
-6. `docs/v1.0/plans/foundation.md`：第一阶段实现计划
+6. `docs/v1.0/plans/foundation.md`：已完成的后端地基计划
+7. `docs/v1.0/plans/wiki-knowledge.md`：已完成的知识库计划
+8. `docs/v1.0/plans/code-index.md`：下一阶段代码索引计划
 
 在 v1.0 中，PRD 是产品契约。如果 PRD 与 SDD 冲突，以 PRD 为准，SDD 应同步更新。
 
@@ -153,15 +163,17 @@ CodeAsk/
 
 v1.0 实现被拆成七个 plan：
 
-1. `foundation`：后端应用骨架、配置、存储、数据库、迁移、加密、身份、日志、健康检查。
-2. `wiki-knowledge`：特性、文档、文档切块、报告、FTS 检索、知识库召回。
-3. `code-index`：仓库注册、异步 clone、worktree、grep、文件读取、符号索引。
-4. `agent-runtime`：LLM 网关、会话、Agent 状态机、工具调用、SSE、轨迹记录。
-5. `frontend-workbench`：React 工作台、会话界面、证据展示、配置页面、Maintainer dashboard。
-6. `metrics-eval`：反馈、前端事件、审计日志、Agent eval、质量门禁。
-7. `deployment`：前端静态挂载、Docker、docker-compose、CI、安全检查和发布 smoke test。
+| # | Plan | 状态 | 说明 |
+|---|---|---|---|
+| 1 | `foundation` | 已完成 | 后端应用骨架、配置、存储、数据库、迁移、加密、身份、日志、健康检查 |
+| 2 | `wiki-knowledge` | 已完成 | 特性、文档、文档切块、报告、FTS 检索、知识库召回 |
+| 3 | `code-index` | 下一阶段 | 仓库注册、异步 clone、worktree、grep、文件读取、符号索引 |
+| 4 | `agent-runtime` | 未开始 | LLM 网关、会话、Agent 状态机、工具调用、SSE、轨迹记录 |
+| 5 | `frontend-workbench` | 未开始 | React 工作台、会话界面、证据展示、配置页面、Maintainer dashboard |
+| 6 | `metrics-eval` | 未开始 | 反馈、前端事件、审计日志、Agent eval、质量门禁 |
+| 7 | `deployment` | 未开始 | 前端静态挂载、Docker、docker-compose、CI、安全检查和发布 smoke test |
 
-第一阶段应从 `docs/v1.0/plans/foundation.md` 开始。
+下一阶段应从 `docs/v1.0/plans/code-index.md` 开始。
 
 ## 快速启动
 

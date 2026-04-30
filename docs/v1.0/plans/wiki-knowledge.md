@@ -1,5 +1,7 @@
 # Wiki Knowledge Implementation Plan
 
+> **Implementation status:** 已完成并合入 `main`。本地 tag：`wiki-knowledge-v0.1.0`。当前 Alembic head 已到 `0005`，后续 `code-index` plan 从 `0006` 起步。
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 落地 CodeAsk 知识库底座——特性 / 文档 / 报告三套 ORM 模型 + Alembic migrations、文档解析切块流水线、SQLite FTS5（分词 + n-gram + 报告）三表索引、`WikiSearchService` 多路召回、报告 draft → verified 闭环 + 一键回退、Pydantic v2 schemas 与 `/api/features` `/api/documents` `/api/reports` REST endpoints 全套打通。
@@ -3571,16 +3573,16 @@ git tag -a wiki-knowledge-v0.1.0 -m "Wiki milestone: features + documents + repo
 
 ## 验收标志（计划完整通过后应满足）
 
-- [ ] `alembic upgrade head` 把 head 推到 `0005`，`docs_fts` / `docs_ngram_fts` / `reports_fts` 三张 FTS5 虚拟表存在
-- [ ] `POST /api/features` 创建特性，`owner_subject_id` 来自 `X-Subject-Id` header
-- [ ] `POST /api/documents`（multipart）上传 .md 文档：保存原文 → 切 chunk → 写 `documents` + `document_chunks` + `document_references` → 索引 `docs_fts` + `docs_ngram_fts`
-- [ ] `GET /api/documents/search?q=...` 返回融合排序的多路命中（含 `source_channel` 字段）
-- [ ] `POST /api/reports` 建草稿，`POST /api/reports/{id}/verify` 通过 4 项闸门后入 `reports_fts`
-- [ ] `GET /api/reports/search?q=...` 命中 verified 报告，附 `verified_by` / `verified_at` / `commit_sha`
-- [ ] `POST /api/reports/{id}/unverify` 把报告下架且 audit 事件写入 structlog
-- [ ] 全量 `uv run pytest` 72 条全 PASS（foundation 23 + 本计划 49）
-- [ ] `uv run ruff check && uv run pyright src/codeask` 零错误
-- [ ] git tag `wiki-knowledge-v0.1.0` 已打
+- [x] `alembic upgrade head` 把 head 推到 `0005`，`docs_fts` / `docs_ngram_fts` / `reports_fts` 三张 FTS5 虚拟表存在
+- [x] `POST /api/features` 创建特性，`owner_subject_id` 来自 `X-Subject-Id` header
+- [x] `POST /api/documents`（multipart）上传 .md 文档：保存原文 → 切 chunk → 写 `documents` + `document_chunks` + `document_references` → 索引 `docs_fts` + `docs_ngram_fts`
+- [x] `GET /api/documents/search?q=...` 返回融合排序的多路命中（含 `source_channel` 字段）
+- [x] `POST /api/reports` 建草稿，`POST /api/reports/{id}/verify` 通过 4 项闸门后入 `reports_fts`
+- [x] `GET /api/reports/search?q=...` 命中 verified 报告，附 `verified_by` / `verified_at` / `commit_sha`
+- [x] `POST /api/reports/{id}/unverify` 把报告下架且 audit 事件写入 structlog
+- [x] 全量 `uv run pytest` 72 条全 PASS（foundation 23 + 本计划 49）
+- [x] `uv run ruff check && uv run pyright src/codeask` 零错误
+- [x] git tag `wiki-knowledge-v0.1.0` 已打
 
 ---
 

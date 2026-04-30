@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-[**v1.0**](./v1.0/) — MVP 初始版本（Active，2026-04-29 起）
+[**v1.0**](./v1.0/) — MVP 初始版本（Active，2026-04-29 起；当前实现进度：`foundation`、`wiki-knowledge` 已完成，下一阶段 `code-index`）
 
 进入版本目录后请先读该目录下的 `README.md`。
 
