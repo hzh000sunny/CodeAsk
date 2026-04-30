@@ -204,6 +204,19 @@ http://127.0.0.1:8000
 curl -s http://127.0.0.1:8000/api/healthz -H 'X-Subject-Id: alice@dev-1' | python -m json.tool
 ```
 
+## Python 依赖源
+
+项目已在 `pyproject.toml` 配置 uv 默认包索引：
+
+```toml
+[[tool.uv.index]]
+name = "tuna"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
+default = true
+```
+
+因此新环境中直接执行 `uv sync` 即会使用清华 TUNA PyPI 镜像源，不需要额外追加 `--default-index`。如需临时改回官方 PyPI，可用命令行参数或本机用户级 uv 配置覆盖。
+
 ## 文档解析依赖
 
 后端解析上传文档时使用以下库（已通过 `uv sync` 安装，无需手工配置）：

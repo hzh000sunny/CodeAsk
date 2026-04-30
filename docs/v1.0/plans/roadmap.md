@@ -125,7 +125,7 @@ deployment        : —（不动 schema）
 | foundation | `./start.sh` 起服务 → `curl /api/healthz` 通 |
 | wiki-knowledge | curl 上传 / 搜索 / 创建报告 / 验证全链路 |
 | code-index | curl 注册本机 git 仓 → 等 `ready` → grep 命中已知字符串 |
-| agent-runtime | 跑 `tests/integration/test_agent_e2e_mock.py`：MockLLM 回放完整 9 阶段 |
+| agent-runtime | 跑 `tests/integration/test_orchestrator_sufficient.py` / `test_orchestrator_insufficient.py` / `test_orchestrator_ask_user.py`：MockLLM 回放三条运行时路径 |
 | frontend-workbench | `pnpm dev` + 后端跑着 → 浏览器手动走 happy path（自动 Playwright 已覆盖核心） |
 | metrics-eval | `uv run python -m evals.run --suite scope_detection --quick`（用 MockLLM）拿到 score |
 | deployment | `docker compose up -d` → curl healthz + 看日志 → `docker compose down` |
