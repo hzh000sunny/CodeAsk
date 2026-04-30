@@ -26,9 +26,7 @@ def test_defaults_applied(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     assert settings.database_url == f"sqlite+aiosqlite:///{tmp_path / 'data.db'}"
 
 
-def test_database_url_explicit_override(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_database_url_explicit_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("CODEASK_DATA_KEY", "TGltSXRlc3Rrcm5hYmFzZTY0LXVybHNhZmUtMzJieXRlcw==")
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CODEASK_DATABASE_URL", "sqlite+aiosqlite:///:memory:")

@@ -30,7 +30,9 @@ async def test_insert_and_select(engine: AsyncEngine) -> None:
         await session.commit()
 
     async with factory() as session:
-        result = await session.execute(select(SystemSetting).where(SystemSetting.key == "install_id"))
+        result = await session.execute(
+            select(SystemSetting).where(SystemSetting.key == "install_id")
+        )
         row = result.scalar_one()
         assert row.value == {"id": "abc-123"}
         assert row.created_at is not None

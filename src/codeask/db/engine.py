@@ -14,14 +14,14 @@ def create_engine(database_url: str, echo: bool = False) -> AsyncEngine:
         pool_pre_ping=True,
     )
 
-    if database_url.startswith("sqlite"):
+    def _enable_wal(dbapi_conn: Any, _record: Any) -> None:
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.close()
 
-        @event.listens_for(engine.sync_engine, "connect")
-        def _enable_wal(dbapi_conn: Any, _record: Any) -> None:
-            cur = dbapi_conn.cursor()
-            cur.execute("PRAGMA journal_mode=WAL")
-            cur.execute("PRAGMA foreign_keys=ON")
-            cur.execute("PRAGMA synchronous=NORMAL")
-            cur.close()
+    if database_url.startswith("sqlite"):
+        event.listen(engine.sync_engine, "connect", _enable_wal)
 
     return engine

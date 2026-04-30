@@ -1,7 +1,7 @@
 """FastAPI application factory."""
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import structlog
@@ -27,7 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     log = structlog.get_logger("codeask.app")
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         ensure_layout(settings)
         sync_url = _sync_database_url(settings.database_url or "")
         log.info("running_migrations", url=sync_url)
