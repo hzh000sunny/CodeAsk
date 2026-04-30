@@ -278,6 +278,25 @@ uv run ruff format --check src tests
 uv run pyright src/codeask
 ```
 
+## 新会话接手
+
+新会话或新环境接手时，建议先确认本地 `main` 已同步到 `origin/main`，然后直接执行：
+
+```bash
+uv sync
+uv run pytest -q
+```
+
+项目级 `pyproject.toml` 已配置清华 TUNA PyPI 镜像源，`uv sync` 默认会使用该镜像。
+
+下一阶段从 `docs/v1.0/plans/frontend-workbench.md` 开始。进入实现前建议按顺序快速重读：
+
+1. `README.md`
+2. `docs/v1.0/plans/roadmap.md`
+3. `docs/v1.0/plans/frontend-workbench.md`
+4. `docs/v1.0/plans/agent-runtime-handoff.md`
+5. `docs/v1.0/design/` 下与前端、API、Agent 运行时相关的设计文档
+
 ## License
 
 License 尚未确定。

@@ -35,7 +35,7 @@
 | foundation | 已完成 | 已合入 `main`，本地 tag：`foundation-v0.1.0` |
 | wiki-knowledge | 已完成 | 已合入 `main`，本地 tag：`wiki-knowledge-v0.1.0`，Alembic head 到 `0005` |
 | code-index | 已完成 | 已合入 `main`，本地 tag：`code-index-v0.1.0`，Alembic head 到 `0006` |
-| agent-runtime | 已完成 | 本地分支 `agent-runtime` 已完成，Alembic head 到 `0012`，REST + SSE API 已暴露 |
+| agent-runtime | 已完成 | 已合入 `main`，tag：`agent-runtime-v0.1.0`，Alembic head 到 `0012`，REST + SSE API 已暴露 |
 | frontend-workbench | 下一阶段 | 消费 agent-runtime 的 REST + SSE |
 | metrics-eval | 未开始 | 等待 agent traces / audit hooks |
 | deployment | 未开始 | 全部前置 plan 完成后收口 |

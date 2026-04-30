@@ -6,7 +6,7 @@
 | 起始日期 | 2026-04-29 |
 | 状态 | Active |
 | 主题 | 初始 MVP — 知识库 + 代码混合问答 |
-| 当前实现进度 | `foundation`、`wiki-knowledge` 已完成；下一阶段 `code-index` |
+| 当前实现进度 | `foundation`、`wiki-knowledge`、`code-index`、`agent-runtime` 已完成；下一阶段 `frontend-workbench` |
 
 ## 目录结构
 
@@ -37,6 +37,7 @@ v1.0/
 │   ├── wiki-knowledge.md
 │   ├── code-index.md
 │   ├── agent-runtime.md
+│   ├── agent-runtime-handoff.md
 │   ├── frontend-workbench.md
 │   ├── metrics-eval.md
 │   └── deployment.md
@@ -48,11 +49,11 @@ v1.0/
 
 | Plan | 状态 | 备注 |
 |---|---|---|
-| `foundation` | 已完成 | 本地 tag：`foundation-v0.1.0` |
-| `wiki-knowledge` | 已完成 | 本地 tag：`wiki-knowledge-v0.1.0`；Alembic head 到 `0005` |
-| `code-index` | 下一阶段 | 从 `plans/code-index.md` 开始 |
-| `agent-runtime` | 未开始 | 依赖 `code-index` |
-| `frontend-workbench` | 未开始 | 依赖后端 API / SSE |
+| `foundation` | 已完成 | tag：`foundation-v0.1.0` |
+| `wiki-knowledge` | 已完成 | tag：`wiki-knowledge-v0.1.0`；Alembic head 到 `0005` |
+| `code-index` | 已完成 | tag：`code-index-v0.1.0`；Alembic head 到 `0006` |
+| `agent-runtime` | 已完成 | tag：`agent-runtime-v0.1.0`；Alembic head 到 `0012`；REST + SSE API 已暴露 |
+| `frontend-workbench` | 下一阶段 | 从 `plans/frontend-workbench.md` 开始，消费 agent-runtime 的 REST + SSE |
 | `metrics-eval` | 未开始 | 替换 `AuditWriter` stub 为真实 `audit_log` 落表 |
 | `deployment` | 未开始 | 前置 plan 完成后收口部署 |
 
