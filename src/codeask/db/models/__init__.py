@@ -5,7 +5,14 @@ from codeask.db.models.document import Document, DocumentChunk, DocumentReferenc
 from codeask.db.models.feature import Feature
 from codeask.db.models.llm import LLMConfig
 from codeask.db.models.report import Report
-from codeask.db.models.session import Session, SessionFeature, SessionRepoBinding
+from codeask.db.models.session import (
+    Session,
+    SessionAttachment,
+    SessionFeature,
+    SessionRepoBinding,
+    SessionTurn,
+)
+from codeask.db.models.skill import Skill
 from codeask.db.models.system_settings import SystemSetting
 
 __all__ = [
@@ -18,7 +25,10 @@ __all__ = [
     "Repo",
     "Report",
     "Session",
+    "SessionAttachment",
     "SessionFeature",
     "SessionRepoBinding",
+    "SessionTurn",
+    "Skill",
     "SystemSetting",
 ]
