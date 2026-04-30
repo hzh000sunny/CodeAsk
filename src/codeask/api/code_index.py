@@ -9,7 +9,24 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
 
-from codeask.api.schemas.code_index import ApiError, RepoCreateIn, RepoListOut, RepoOut
+from codeask.api.schemas.code_index import (
+    ApiError,
+    CodeGrepHitOut,
+    CodeGrepIn,
+    CodeGrepOut,
+    CodeReadIn,
+    CodeReadOut,
+    CodeSymbolHitOut,
+    CodeSymbolsIn,
+    CodeSymbolsOut,
+    RepoCreateIn,
+    RepoListOut,
+    RepoOut,
+)
+from codeask.code_index.ctags import CtagsClient, CtagsError
+from codeask.code_index.file_reader import FileReader, FileReadError
+from codeask.code_index.ripgrep import RipgrepClient, RipgrepError
+from codeask.code_index.worktree import InvalidRefError, WorktreeError
 from codeask.db.models import Repo
 
 log = structlog.get_logger("codeask.api.code_index")
@@ -128,3 +145,128 @@ async def _load_repo(request: Request, repo_id: str) -> Repo:
     if repo is None:
         raise _http_error(status.HTTP_404_NOT_FOUND, "REPO_NOT_FOUND", f"no repo {repo_id}")
     return repo
+
+
+async def _load_ready_repo(request: Request, repo_id: str) -> Repo:
+    repo = await _load_repo(request, repo_id)
+    if repo.status != Repo.STATUS_READY:
+        raise _http_error(
+            status.HTTP_409_CONFLICT,
+            "REPO_NOT_READY",
+            f"repo {repo_id} status is {repo.status}",
+        )
+    return repo
+
+
+def _ensure_worktree(
+    request: Request, repo: Repo, session_id: str, ref: str | None
+) -> tuple[str, object]:
+    worktree_manager = request.app.state.worktree_manager
+    try:
+        path = worktree_manager.ensure_worktree(repo.id, session_id, ref)
+        commit_sha = worktree_manager.resolve_ref(repo.id, ref)
+    except InvalidRefError as exc:
+        raise _http_error(status.HTTP_400_BAD_REQUEST, "INVALID_REF", str(exc)) from exc
+    except WorktreeError as exc:
+        raise _http_error(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "WORKTREE_ERROR",
+            str(exc),
+        ) from exc
+    return commit_sha, path
+
+
+@router.post("/code/grep", response_model=CodeGrepOut)
+async def code_grep(payload: CodeGrepIn, request: Request) -> CodeGrepOut:
+    repo = await _load_ready_repo(request, payload.repo_id)
+    commit_sha, worktree_path = _ensure_worktree(request, repo, payload.session_id, payload.commit)
+
+    client = RipgrepClient(timeout_seconds=30)
+    try:
+        hits = client.grep(
+            base=worktree_path,  # type: ignore[arg-type]
+            pattern=payload.pattern,
+            paths=payload.paths,
+            max_count=payload.max_count,
+        )
+    except RipgrepError as exc:
+        message = str(exc)
+        if "timed out" in message:
+            raise _http_error(status.HTTP_504_GATEWAY_TIMEOUT, "TOOL_TIMEOUT", message) from exc
+        raise _http_error(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "TOOL_FAILED",
+            message,
+        ) from exc
+
+    return CodeGrepOut(
+        ok=True,
+        repo_id=repo.id,
+        commit=commit_sha,
+        hits=[
+            CodeGrepHitOut(path=hit.path, line_number=hit.line_number, line_text=hit.line_text)
+            for hit in hits
+        ],
+        truncated=len(hits) >= payload.max_count,
+    )
+
+
+@router.post("/code/read", response_model=CodeReadOut)
+async def code_read(payload: CodeReadIn, request: Request) -> CodeReadOut:
+    repo = await _load_ready_repo(request, payload.repo_id)
+    commit_sha, worktree_path = _ensure_worktree(request, repo, payload.session_id, payload.commit)
+
+    reader = FileReader(max_bytes=4096)
+    try:
+        segment = reader.read_segment(
+            base=worktree_path,  # type: ignore[arg-type]
+            rel_path=payload.path,
+            line_range=payload.line_range,
+        )
+    except FileReadError as exc:
+        raise _http_error(status.HTTP_400_BAD_REQUEST, "INVALID_PATH", str(exc)) from exc
+
+    return CodeReadOut(
+        ok=True,
+        repo_id=repo.id,
+        commit=commit_sha,
+        path=segment.path,
+        start_line=segment.start_line,
+        end_line=segment.end_line,
+        text=segment.text,
+        truncated=segment.truncated,
+    )
+
+
+@router.post("/code/symbols", response_model=CodeSymbolsOut)
+async def code_symbols(payload: CodeSymbolsIn, request: Request) -> CodeSymbolsOut:
+    repo = await _load_ready_repo(request, payload.repo_id)
+    commit_sha, worktree_path = _ensure_worktree(request, repo, payload.session_id, payload.commit)
+
+    client = CtagsClient(cache_dir=request.app.state.settings.data_dir / "index")
+    try:
+        tags = client.find_symbols(
+            worktree_path=worktree_path,  # type: ignore[arg-type]
+            repo_id=repo.id,
+            commit=commit_sha,
+            symbol=payload.symbol,
+        )
+    except CtagsError as exc:
+        message = str(exc)
+        if "timed out" in message:
+            raise _http_error(status.HTTP_504_GATEWAY_TIMEOUT, "TOOL_TIMEOUT", message) from exc
+        raise _http_error(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "TOOL_FAILED",
+            message,
+        ) from exc
+
+    return CodeSymbolsOut(
+        ok=True,
+        repo_id=repo.id,
+        commit=commit_sha,
+        symbols=[
+            CodeSymbolHitOut(name=tag.name, path=tag.path, line=tag.line, kind=tag.kind)
+            for tag in tags
+        ],
+    )

@@ -2346,7 +2346,7 @@ git commit -m "feat(code-index): /api/repos CRUD + APScheduler-driven async clon
 4. 调用对应 client（rg / file / ctags），timeout/失败 → 504/500
 5. 返回标准响应 schema
 
-- [ ] **Step 1: 在 `src/codeask/api/code_index.py` 末尾追加路由**
+- [x] **Step 1: 在 `src/codeask/api/code_index.py` 末尾追加路由**
 
 ```python
 # ============================================================
@@ -2503,7 +2503,7 @@ async def code_symbols(payload: CodeSymbolsIn, request: Request) -> CodeSymbolsO
 
 > 在文件顶部追加 `from pathlib import Path`（如果还没有）。
 
-- [ ] **Step 2: 写测试 `tests/integration/test_code_api.py`**
+- [x] **Step 2: 写测试 `tests/integration/test_code_api.py`**
 
 ```python
 """End-to-end /api/code/grep + read + symbols."""
@@ -2664,12 +2664,12 @@ async def test_invalid_ref_rejected(client: AsyncClient, tmp_path: Path) -> None
     assert r.json()["detail"]["error_code"] == "INVALID_REF"
 ```
 
-- [ ] **Step 3: 跑测试确认通过**
+- [x] **Step 3: 跑测试确认通过**
 
 Run: `uv run pytest tests/integration/test_code_api.py -v`
 Expected: 五个测试 PASS
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add src/codeask/api/code_index.py tests/integration/test_code_api.py
