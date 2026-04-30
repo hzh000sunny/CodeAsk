@@ -185,6 +185,18 @@ http://127.0.0.1:8000
 curl -s http://127.0.0.1:8000/api/healthz -H 'X-Subject-Id: alice@dev-1' | python -m json.tool
 ```
 
+## 文档解析依赖
+
+后端解析上传文档时使用以下库（已通过 `uv sync` 安装，无需手工配置）：
+
+| 文件类型 | 解析库 |
+|---|---|
+| Markdown / 文本 | `markdown-it-py` |
+| PDF | `pypdfium2` |
+| DOCX | `python-docx` |
+
+未来扩展类型（Excel 等）参考 `docs/v1.0/design/dependencies.md` §2.5。
+
 ## 配置项
 
 | 环境变量 | 必填 | 默认值 | 说明 |
