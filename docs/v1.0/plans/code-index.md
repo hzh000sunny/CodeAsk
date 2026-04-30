@@ -107,9 +107,9 @@ CodeAsk/
 - Create: `alembic/versions/20260430_0006_code_index.py`
 - Create: `tests/integration/test_repo_models.py`
 
-锚点：`api-data-model.md` §3 + `code-index.md` §2。`feature_repos` 用复合主键（`feature_id` + `repo_id`），落 PRD §4.1/§4.2 多对多关联。`feature_id` 用 FK 引用 `features.id`（由 wiki-knowledge plan 创建）。
+锚点：`api-data-model.md` §3 + `code-index.md` §2。`feature_repos` 用复合主键（`feature_id` + `repo_id`），落 PRD §4.1/§4.2 多对多关联。`feature_id` 用 FK 引用 `features.id`（由 wiki-knowledge plan 创建，当前实现为 `Integer` 自增主键）。
 
-- [ ] **Step 1: 写测试 `tests/integration/test_repo_models.py`**
+- [x] **Step 1: 写测试 `tests/integration/test_repo_models.py`**
 
 ```python
 """ORM round-trip for repos + feature_repos."""
@@ -121,7 +121,7 @@ import pytest_asyncio
 from sqlalchemy import select
 
 from codeask.db import Base, create_engine, session_factory
-from codeask.db.models import Repo, FeatureRepo
+from codeask.db.models import Feature, FeatureRepo, Repo
 
 
 @pytest_asyncio.fixture()
@@ -175,7 +175,12 @@ async def test_status_constants_match_db_strings() -> None:
 async def test_feature_repo_composite_pk(engine) -> None:  # type: ignore[no-untyped-def]
     factory = session_factory(engine)
     async with factory() as s:
-        s.add(Repo(
+        feature_a = Feature(name="Payment", slug="payment", owner_subject_id="owner@dev")
+        feature_b = Feature(name="Checkout", slug="checkout", owner_subject_id="owner@dev")
+        s.add_all([feature_a, feature_b])
+        await s.flush()
+
+        repo = Repo(
             id="r-002",
             name="payment-gw",
             source=Repo.SOURCE_LOCAL_DIR,
@@ -183,31 +188,34 @@ async def test_feature_repo_composite_pk(engine) -> None:  # type: ignore[no-unt
             local_path="/srv/payment-gw",
             bare_path="/tmp/codeask/repos/r-002/bare",
             status=Repo.STATUS_READY,
-        ))
-        s.add(FeatureRepo(feature_id="f-100", repo_id="r-002"))
-        s.add(FeatureRepo(feature_id="f-200", repo_id="r-002"))
+        )
+        s.add(repo)
+        await s.flush()
+
+        s.add(FeatureRepo(feature_id=feature_a.id, repo_id="r-002"))
+        s.add(FeatureRepo(feature_id=feature_b.id, repo_id="r-002"))
         await s.commit()
 
     async with factory() as s:
         rows = (await s.execute(
             select(FeatureRepo).where(FeatureRepo.repo_id == "r-002")
         )).scalars().all()
-        assert {r.feature_id for r in rows} == {"f-100", "f-200"}
+        assert {r.feature_id for r in rows} == {feature_a.id, feature_b.id}
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `uv run pytest tests/integration/test_repo_models.py -v`
 Expected: ImportError on `Repo` / `FeatureRepo`
 
-- [ ] **Step 3: 创建 `src/codeask/db/models/code_index.py`**
+- [x] **Step 3: 创建 `src/codeask/db/models/code_index.py`**
 
 ```python
 """ORM models for the global repo pool and feature ↔ repo association."""
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from codeask.db.base import Base, TimestampMixin
@@ -243,8 +251,8 @@ class Repo(Base, TimestampMixin):
 class FeatureRepo(Base):
     __tablename__ = "feature_repos"
 
-    feature_id: Mapped[str] = mapped_column(
-        String(64),
+    feature_id: Mapped[int] = mapped_column(
+        Integer,
         ForeignKey("features.id", ondelete="CASCADE"),
         primary_key=True,
     )
@@ -255,18 +263,30 @@ class FeatureRepo(Base):
     )
 ```
 
-- [ ] **Step 4: 修改 `src/codeask/db/models/__init__.py` 暴露新模型**
+- [x] **Step 4: 修改 `src/codeask/db/models/__init__.py` 暴露新模型**
 
 ```python
 """ORM model definitions."""
 
 from codeask.db.models.code_index import FeatureRepo, Repo
+from codeask.db.models.document import Document, DocumentChunk, DocumentReference
+from codeask.db.models.feature import Feature
+from codeask.db.models.report import Report
 from codeask.db.models.system_settings import SystemSetting
 
-__all__ = ["FeatureRepo", "Repo", "SystemSetting"]
+__all__ = [
+    "Document",
+    "DocumentChunk",
+    "DocumentReference",
+    "Feature",
+    "FeatureRepo",
+    "Repo",
+    "Report",
+    "SystemSetting",
+]
 ```
 
-- [ ] **Step 5: 创建 migration `alembic/versions/20260430_0006_code_index.py`**
+- [x] **Step 5: 创建 migration `alembic/versions/20260430_0006_code_index.py`**
 
 > **NOTE:** `revision = "0006"` 与 `down_revision = "0005"` 衔接 wiki-knowledge plan（0002–0005）。
 
@@ -332,7 +352,7 @@ def upgrade() -> None:
 
     op.create_table(
         "feature_repos",
-        sa.Column("feature_id", sa.String(length=64), nullable=False),
+        sa.Column("feature_id", sa.Integer(), nullable=False),
         sa.Column("repo_id", sa.String(length=64), nullable=False),
         sa.ForeignKeyConstraint(
             ["feature_id"], ["features.id"], ondelete="CASCADE"
@@ -352,12 +372,12 @@ def downgrade() -> None:
     op.drop_table("repos")
 ```
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 Run: `uv run pytest tests/integration/test_repo_models.py -v`
 Expected: 三个测试 PASS
 
-- [ ] **Step 7: 验证 alembic 链路完整**
+- [x] **Step 7: 验证 alembic 链路完整**
 
 ```bash
 mkdir -p /tmp/codeask-code-index-mig
@@ -367,7 +387,7 @@ uv run alembic upgrade head
 ```
 Expected: alembic 输出包含 `Running upgrade 0005 -> 0006, code_index`，无错误。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add src/codeask/db/models/code_index.py src/codeask/db/models/__init__.py \
