@@ -8,6 +8,7 @@ import structlog
 from fastapi import FastAPI
 
 from codeask.api.healthz import router as healthz_router
+from codeask.api.wiki import router as wiki_router
 from codeask.db import create_engine, session_factory
 from codeask.identity import SubjectIdMiddleware
 from codeask.logging_config import configure_logging
@@ -47,4 +48,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="CodeAsk", lifespan=lifespan)
     app.add_middleware(SubjectIdMiddleware)
     app.include_router(healthz_router, prefix="/api")
+    app.include_router(wiki_router, prefix="/api")
     return app
