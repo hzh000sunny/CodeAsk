@@ -51,3 +51,14 @@
 ## 6. SDD 文档同步
 
 凡是改动了某个 SDD 文档对应的实现，要同步更新该文档的“与 PRD 的对齐”小节。本计划没有改动任何 SDD，因为它就是 SDD 的第一次实现。
+
+## 7. 02 wiki-knowledge 已落地的 hook
+
+| Hook | 形态 | 后续计划如何使用 |
+|---|---|---|
+| `WikiIndexer` | `src/codeask/wiki/indexer.py` | 03 / 04 计划如需把自家内容加进 FTS5（比如代码符号），在新增 FTS 表后参考此模块加 `index_xxx` / `unindex_xxx` 方法 |
+| `AuditWriter` | `src/codeask/wiki/audit.py`（stub） | 06 metrics-eval 计划替换为写 `audit_log` 表的实现；调用方接口不变 |
+| `WikiSearchService` | `src/codeask/wiki/search.py` | 04 agent-runtime 的 `search_wiki` / `search_reports` tool 直接调用 |
+| `DocumentChunker` | `src/codeask/wiki/chunker.py` | 03 / 04 如有新文档类型，在 `chunk_file` 的 dispatcher 加 `kind` 分支即可 |
+| `tokenize` / `to_ngrams` | `src/codeask/wiki/tokenizer.py` | 任何写 FTS5 内容的模块都先过这两个函数，保持索引与查询同 tokenization |
+| Alembic 链 | head 现在是 `0005` | 后续 plan 第一份 migration 的 `down_revision = "0005"` |
