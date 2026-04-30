@@ -2888,34 +2888,35 @@ git commit -m "feat(code-index): 24h idle worktree cleanup job"
 
 锚点：`testing-eval.md` + 复制 foundation Task 13 的检查列表。
 
-- [ ] **Step 1: 跑 ruff + format check**
+- [x] **Step 1: 跑 ruff + format check**
 
 Run: `uv run ruff check src tests && uv run ruff format --check src tests`
 Expected: 无错误。如有 format diff，运行 `uv run ruff format src tests` 后重跑。
 
-- [ ] **Step 2: 跑 pyright**
+- [x] **Step 2: 跑 pyright**
 
 Run: `uv run pyright src/codeask`
 Expected: `0 errors, 0 warnings`
 
-- [ ] **Step 3: 跑全量 pytest**
+- [x] **Step 3: 跑全量 pytest**
 
 Run: `uv run pytest -v`
 Expected: foundation 23 个 + wiki-knowledge plan（如已落地）+ 本 plan 全部通过。本 plan 新增测试文件预期数量：
 
 - `tests/unit/test_path_safety.py`: 7
 - `tests/unit/test_ripgrep.py`: 5（rg 缺失则 skip）
-- `tests/unit/test_ctags.py`: 4（ctags 缺失则 skip）
+- `tests/unit/test_ctags.py`: 5（ctags 缺失则 skip）
 - `tests/unit/test_file_reader.py`: 7
+- `tests/unit/test_code_index_schemas.py`: 5
 - `tests/integration/test_repo_models.py`: 3
 - `tests/integration/test_cloner.py`: 3
 - `tests/integration/test_worktree.py`: 5
 - `tests/integration/test_repos_api.py`: 5
 - `tests/integration/test_code_api.py`: 5（rg+ctags 任一缺失则全部 skip）
 - `tests/integration/test_cleanup.py`: 3
-- 合计：47（命中外部工具时）
+- 合计：53（命中外部工具时）
 
-- [ ] **Step 4: 在 `README.md` 的 Configuration 段落后追加"系统依赖"小节**
+- [x] **Step 4: 在 `README.md` 的 Configuration 段落后追加"系统依赖"小节**
 
 ```markdown
 ## System dependencies
@@ -2933,7 +2934,7 @@ Install on macOS: `brew install git ripgrep universal-ctags`
 The Docker image (07 deployment plan) bakes all three.
 ```
 
-- [ ] **Step 5: 验证 health check + 端到端流程仍走得通**
+- [x] **Step 5: 验证 health check + 端到端流程仍走得通**
 
 ```bash
 export CODEASK_DATA_KEY="$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
@@ -2954,7 +2955,7 @@ kill $SERVER_PID
 ```
 Expected: 注册返回 `status: registered`，几秒后 list 应当看到 `status: ready`。
 
-- [ ] **Step 6: 如果有 ruff format 改动，提交**
+- [x] **Step 6: 如果有 ruff format 改动，提交**
 
 ```bash
 git status
@@ -2963,14 +2964,14 @@ git add -u
 git commit -m "style: ruff format"
 ```
 
-- [ ] **Step 7: 提交 README**
+- [x] **Step 7: 提交 README**
 
 ```bash
 git add README.md
 git commit -m "docs(readme): document code-index system dependencies"
 ```
 
-- [ ] **Step 8: 打 tag 标记 code-index milestone**
+- [x] **Step 8: 打 tag 标记 code-index milestone**
 
 ```bash
 git tag -a code-index-v0.1.0 -m "Code index milestone: repos + worktrees + grep/read/symbols"
@@ -2980,19 +2981,19 @@ git tag -a code-index-v0.1.0 -m "Code index milestone: repos + worktrees + grep/
 
 ## 验收标志（计划完整通过后应满足）
 
-- [ ] `POST /api/repos` 返回 201 + `repo_id`，几秒后 `status` 变为 `ready`
-- [ ] `~/.codeask/repos/<repo_id>/bare/HEAD` 存在
-- [ ] `POST /api/code/grep` 在 ready 仓上能拿到带 `path / line_number / line_text` 的命中
-- [ ] `POST /api/code/read` 可读片段且越狱路径返回 400 `INVALID_PATH`
-- [ ] `POST /api/code/symbols` 命中 `def foo()` 等定义
-- [ ] 任意 `/api/code/*` 在 `repo.status != ready` 时返回 409 `REPO_NOT_READY`
-- [ ] `~/.codeask/repos/<repo_id>/worktrees/<session_id>/` 在调用代码工具后被建出
-- [ ] `find_idle_worktrees` 单测验证 24h mtime 阈值生效
-- [ ] APScheduler `worktree_cleanup` job 在 lifespan 启动时已注册（每 6h 跑一次）
-- [ ] `~/.codeask/index/<repo_id>/<commit>.tags.json` 在第一次 symbols 查询后产生
-- [ ] alembic head = `0006`（或 wiki-knowledge 顺延后的对应数）
-- [ ] `uv run pytest -v` 全绿；`uv run ruff check && uv run pyright src/codeask` 零错误
-- [ ] git tag `code-index-v0.1.0` 已打
+- [x] `POST /api/repos` 返回 201 + `repo_id`，几秒后 `status` 变为 `ready`
+- [x] `~/.codeask/repos/<repo_id>/bare/HEAD` 存在
+- [x] `POST /api/code/grep` 在 ready 仓上能拿到带 `path / line_number / line_text` 的命中
+- [x] `POST /api/code/read` 可读片段且越狱路径返回 400 `INVALID_PATH`
+- [x] `POST /api/code/symbols` 命中 `def foo()` 等定义
+- [x] 任意 `/api/code/*` 在 `repo.status != ready` 时返回 409 `REPO_NOT_READY`
+- [x] `~/.codeask/repos/<repo_id>/worktrees/<session_id>/` 在调用代码工具后被建出
+- [x] `find_idle_worktrees` 单测验证 24h mtime 阈值生效
+- [x] APScheduler `worktree_cleanup` job 在 lifespan 启动时已注册（每 6h 跑一次）
+- [x] `~/.codeask/index/<repo_id>/<commit>.tags.json` 在第一次 symbols 查询后产生
+- [x] alembic head = `0006`（或 wiki-knowledge 顺延后的对应数）
+- [x] `uv run pytest -v` 全绿；`uv run ruff check && uv run pyright src/codeask` 零错误
+- [x] git tag `code-index-v0.1.0` 已打
 
 ---
 
