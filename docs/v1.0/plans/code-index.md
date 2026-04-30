@@ -556,7 +556,7 @@ git commit -m "feat(code-index): is_safe_path / resolve_within helpers"
 
 `RepoCloner.run_clone(repo_id)` 是同步函数（subprocess + DB 写），由 APScheduler `add_job(...)` 即时投递，不阻塞 HTTP 响应。状态机：`registered`（DB 默认值）→ enqueue → `cloning`（job 开始时写）→ `ready`（exit 0）/ `failed`（exit 非 0 或超时，stderr 写入 `error_message`）。
 
-- [ ] **Step 1: 写测试 `tests/integration/test_cloner.py`**
+- [x] **Step 1: 写测试 `tests/integration/test_cloner.py`**
 
 ```python
 """End-to-end clone with a real local git repo as the source."""
@@ -691,12 +691,12 @@ async def test_clone_marks_cloning_then_ready(tmp_path: Path, db_engine) -> None
     assert observed == [Repo.STATUS_CLONING, Repo.STATUS_READY]
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `uv run pytest tests/integration/test_cloner.py -v`
 Expected: ImportError on `codeask.code_index.cloner`
 
-- [ ] **Step 3: 实现 `src/codeask/code_index/cloner.py`**
+- [x] **Step 3: 实现 `src/codeask/code_index/cloner.py`**
 
 ```python
 """Background git clone worker (sync; intended to run via APScheduler thread pool)."""
@@ -843,12 +843,12 @@ class RepoCloner:
         asyncio.run(_go())
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `uv run pytest tests/integration/test_cloner.py -v`
 Expected: 三个测试 PASS（确保系统装了 `git`；本计划假定 deployment 镜像已带，详见 `dependencies.md` §5）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/codeask/code_index/cloner.py tests/integration/test_cloner.py
