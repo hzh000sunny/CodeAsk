@@ -407,13 +407,13 @@ git commit -m "feat(code-index): repos + feature_repos ORM and migration 0006"
 
 锚点：`deployment-security.md` §6"所有路径读取做根目录校验"。本 helper 是 `FileReader` / `WorktreeManager` / `RipgrepClient` 在收到外部路径时的统一入口。
 
-- [ ] **Step 1: 创建 `src/codeask/code_index/__init__.py`（空，仅作包标识）**
+- [x] **Step 1: 创建 `src/codeask/code_index/__init__.py`（空，仅作包标识）**
 
 ```python
 """Code index subsystem: repo pool, worktrees, code search tools."""
 ```
 
-- [ ] **Step 2: 写测试 `tests/unit/test_path_safety.py`**
+- [x] **Step 2: 写测试 `tests/unit/test_path_safety.py`**
 
 ```python
 """Tests for is_safe_path."""
@@ -478,12 +478,12 @@ def test_symlink_escape_rejected(tmp_path: Path) -> None:
     assert is_safe_path(base, "link") is False
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run: `uv run pytest tests/unit/test_path_safety.py -v`
 Expected: ImportError on `codeask.code_index.path_safety`
 
-- [ ] **Step 4: 实现 `src/codeask/code_index/path_safety.py`**
+- [x] **Step 4: 实现 `src/codeask/code_index/path_safety.py`**
 
 ```python
 """Path whitelist helpers. Blocks ``..`` traversal and symlink escapes."""
@@ -531,12 +531,12 @@ def resolve_within(base: Path, candidate: str | Path) -> Path:
     return cand_path.resolve(strict=True)
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `uv run pytest tests/unit/test_path_safety.py -v`
 Expected: 七个测试全部 PASS
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/codeask/code_index/__init__.py src/codeask/code_index/path_safety.py \
