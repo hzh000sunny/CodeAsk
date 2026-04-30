@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from codeask.agent.prompts import FeatureDigest, PromptContext, RepoBinding
 from codeask.agent.sse import AgentEvent
 from codeask.agent.stages import (
+    Evidence,
     StageContext,
     StageResult,
     answer_finalization,
@@ -162,13 +163,14 @@ class AgentOrchestrator:
 
             previous = state
             state = result.next_state
+            if state == AgentState.AskUser:
+                return
             yield AgentEvent(
                 type="stage_transition",
                 data={"from": previous.value, "to": state.value, "message": None},
             )
-            if state == AgentState.AskUser:
-                return
 
+        await self._persist_turn_evidence(turn_id, ctx.collected_evidence)
         yield AgentEvent(type="done", data={"turn_id": turn_id})
 
     async def _build_context(
@@ -256,6 +258,20 @@ class AgentOrchestrator:
             collected_evidence=[*ctx.collected_evidence, *result.evidence_added],
         )
 
+    async def _persist_turn_evidence(
+        self,
+        turn_id: str,
+        evidence: list[Evidence],
+    ) -> None:
+        async with self._session_factory() as session:
+            turn = (
+                await session.execute(select(SessionTurn).where(SessionTurn.id == turn_id))
+            ).scalar_one_or_none()
+            if turn is None:
+                return
+            turn.evidence = _serialize_evidence(evidence)
+            await session.commit()
+
 
 def _turn_history(
     turns: list[SessionTurn],
@@ -274,3 +290,19 @@ def _turn_history(
             )
         )
     return messages
+
+
+def _serialize_evidence(evidence: list[Evidence]) -> dict[str, Any]:
+    return {
+        "items": [
+            {
+                "id": item.id,
+                "type": item.type,
+                "summary": item.summary,
+                "relevance": item.relevance,
+                "confidence": item.confidence,
+                "data": item.data,
+            }
+            for item in evidence
+        ]
+    }
