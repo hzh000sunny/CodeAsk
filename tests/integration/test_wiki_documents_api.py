@@ -31,7 +31,11 @@ async def test_upload_then_list_then_search(client: AsyncClient, tmp_path: Path)
     with markdown_path.open("rb") as file:
         response = await client.post(
             "/api/documents",
-            data={"feature_id": str(feature_id), "title": "Submit Order Spec", "tags": "order,spec"},
+            data={
+                "feature_id": str(feature_id),
+                "title": "Submit Order Spec",
+                "tags": "order,spec",
+            },
             files={"file": ("submit.md", file, "text/markdown")},
             headers={"X-Subject-Id": "alice@dev-1"},
         )

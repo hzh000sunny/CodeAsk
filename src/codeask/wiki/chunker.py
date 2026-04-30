@@ -169,7 +169,7 @@ class DocumentChunker:
         return chunks
 
     def chunk_pdf(self, path: Path) -> list[ParsedChunk]:
-        import pypdfium2 as pdfium
+        import pypdfium2 as pdfium  # pyright: ignore[reportMissingTypeStubs]
 
         pdf = pdfium.PdfDocument(str(path))
         try:
@@ -196,7 +196,8 @@ class DocumentChunker:
             text = paragraph.text.strip()
             if not text:
                 continue
-            style_name = paragraph.style.name if paragraph.style is not None else ""
+            style = paragraph.style
+            style_name = style.name if style is not None and style.name is not None else ""
             if style_name.startswith("Heading"):
                 if current_paragraphs:
                     sections.append((current_heading, current_paragraphs))

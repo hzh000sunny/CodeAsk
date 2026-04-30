@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from codeask.db import Base, create_engine, session_factory
 from codeask.db.models import Document, DocumentChunk, DocumentReference, Feature, Report
@@ -84,11 +85,19 @@ async def test_document_with_chunks_and_refs(engine) -> None:  # type: ignore[no
 
     async with factory() as s:
         chunks = (
-            await s.execute(select(DocumentChunk).where(DocumentChunk.document_id == doc_id))
-        ).scalars().all()
+            (await s.execute(select(DocumentChunk).where(DocumentChunk.document_id == doc_id)))
+            .scalars()
+            .all()
+        )
         refs = (
-            await s.execute(select(DocumentReference).where(DocumentReference.document_id == doc_id))
-        ).scalars().all()
+            (
+                await s.execute(
+                    select(DocumentReference).where(DocumentReference.document_id == doc_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert len(chunks) == 1
         assert chunks[0].signals_json == {"routes": ["/api/order/submit"]}
         assert refs[0].kind == "image"
@@ -102,7 +111,7 @@ async def test_feature_slug_unique(engine) -> None:  # type: ignore[no-untyped-d
         await s.commit()
     async with factory() as s:
         s.add(Feature(name="B", slug="dup", owner_subject_id="x@y"))
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             await s.commit()
 
 

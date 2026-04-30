@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,22 +47,26 @@ def _bm25_to_score(bm25_value: float, weight: float) -> float:
     return (-1.0 * bm25_value) * weight
 
 
-def _metadata(value: object) -> dict[str, Any]:
+def _metadata(value: object) -> Mapping[str, object]:
     if isinstance(value, dict):
-        return value
+        return cast(Mapping[str, object], value)
     if isinstance(value, str) and value:
         try:
-            parsed = json.loads(value)
+            parsed: object = json.loads(value)
         except json.JSONDecodeError:
             return {}
-        return parsed if isinstance(parsed, dict) else {}
+        return cast(Mapping[str, object], parsed) if isinstance(parsed, dict) else {}
     return {}
 
 
-def _first_commit_sha(metadata: dict[str, Any]) -> str | None:
-    repo_commits = metadata.get("repo_commits") or []
-    if repo_commits and isinstance(repo_commits, list) and isinstance(repo_commits[0], dict):
-        commit = repo_commits[0].get("commit_sha")
+def _first_commit_sha(metadata: Mapping[str, object]) -> str | None:
+    raw_repo_commits = metadata.get("repo_commits")
+    if not isinstance(raw_repo_commits, list):
+        return None
+    repo_commits = cast(list[object], raw_repo_commits)
+    if repo_commits and isinstance(repo_commits[0], dict):
+        first_commit = cast(Mapping[str, object], repo_commits[0])
+        commit = first_commit.get("commit_sha")
         return str(commit) if commit else None
     return None
 

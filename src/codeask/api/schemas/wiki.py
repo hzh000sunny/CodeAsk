@@ -105,6 +105,14 @@ class ReportSearchHit(BaseModel):
     score: float
 
 
+def _empty_document_hits() -> list[DocumentSearchHit]:
+    return []
+
+
+def _empty_report_hits() -> list[ReportSearchHit]:
+    return []
+
+
 class SearchResults(BaseModel):
-    documents: list[DocumentSearchHit] = Field(default_factory=list)
-    reports: list[ReportSearchHit] = Field(default_factory=list)
+    documents: list[DocumentSearchHit] = Field(default_factory=_empty_document_hits)
+    reports: list[ReportSearchHit] = Field(default_factory=_empty_report_hits)

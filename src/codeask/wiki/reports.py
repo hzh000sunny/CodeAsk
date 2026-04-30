@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,19 +22,36 @@ def _non_empty_text(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def _check_gate(metadata: dict[str, Any]) -> None:
-    evidence = metadata.get("evidence") or []
-    if not isinstance(evidence, list) or not any(
-        isinstance(item, dict) and item.get("type") == "log" for item in evidence
-    ):
+def _as_mapping(value: object) -> Mapping[str, object]:
+    if isinstance(value, dict):
+        return cast(Mapping[str, object], value)
+    return {}
+
+
+def _as_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return cast(list[object], value)
+    return []
+
+
+def _is_log_evidence(item: object) -> bool:
+    evidence = _as_mapping(item)
+    return evidence.get("type") == "log"
+
+
+def _check_gate(metadata: Mapping[str, object]) -> None:
+    evidence = _as_list(metadata.get("evidence"))
+    if not any(_is_log_evidence(item) for item in evidence):
         raise ReportVerificationError(
             "report must include at least one log evidence before verification"
         )
 
     for item in evidence:
-        if isinstance(item, dict) and item.get("type") == "code":
-            source = item.get("source") if isinstance(item.get("source"), dict) else {}
-            if not source.get("commit_sha"):
+        evidence_item = _as_mapping(item)
+        if evidence_item.get("type") == "code":
+            source = _as_mapping(evidence_item.get("source"))
+            commit_sha = source.get("commit_sha")
+            if not _non_empty_text(commit_sha):
                 raise ReportVerificationError(
                     "all code evidence must bind a commit_sha before verification"
                 )
@@ -108,7 +126,7 @@ class ReportService:
         subject_id: str,
     ) -> None:
         report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
-        metadata = report.metadata_json if isinstance(report.metadata_json, dict) else {}
+        metadata = _as_mapping(cast(object, report.metadata_json))
         _check_gate(metadata)
 
         report.verified = True

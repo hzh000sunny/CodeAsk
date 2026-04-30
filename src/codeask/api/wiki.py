@@ -16,14 +16,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.api.schemas.wiki import (
     DocumentRead,
-    DocumentSearchHit as DocumentSearchHitSchema,
     FeatureCreate,
     FeatureRead,
     FeatureUpdate,
     ReportCreate,
     ReportRead,
-    ReportSearchHit as ReportSearchHitSchema,
     ReportUpdate,
+)
+from codeask.api.schemas.wiki import (
+    DocumentSearchHit as DocumentSearchHitSchema,
+)
+from codeask.api.schemas.wiki import (
+    ReportSearchHit as ReportSearchHitSchema,
 )
 from codeask.db.models import Document, DocumentChunk, DocumentReference, Feature, Report
 from codeask.wiki.chunker import DocumentChunker
@@ -167,7 +171,9 @@ async def upload_document(
     tags: Annotated[str | None, Form()] = None,
 ) -> DocumentRead:
     if not file.filename:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file must have a filename")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="file must have a filename"
+        )
     feature = (
         await session.execute(select(Feature).where(Feature.id == feature_id))
     ).scalar_one_or_none()
@@ -257,7 +263,9 @@ async def search_documents(
     feature_id: int | None = None,
     limit: int = 20,
 ) -> list[DocumentSearchHitSchema]:
-    hits = await WikiSearchService().search_documents(session, q, feature_id=feature_id, limit=limit)
+    hits = await WikiSearchService().search_documents(
+        session, q, feature_id=feature_id, limit=limit
+    )
     return [DocumentSearchHitSchema(**asdict(hit)) for hit in hits]
 
 
@@ -360,10 +368,14 @@ async def verify_report(
     session: SessionDep,
 ) -> ReportRead:
     try:
-        await ReportService().verify(session, report_id=report_id, subject_id=request.state.subject_id)
+        await ReportService().verify(
+            session, report_id=report_id, subject_id=request.state.subject_id
+        )
     except ReportVerificationError as exc:
         await session.rollback()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
     await session.commit()
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
@@ -375,7 +387,9 @@ async def unverify_report(
     request: Request,
     session: SessionDep,
 ) -> ReportRead:
-    await ReportService().unverify(session, report_id=report_id, subject_id=request.state.subject_id)
+    await ReportService().unverify(
+        session, report_id=report_id, subject_id=request.state.subject_id
+    )
     await session.commit()
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)

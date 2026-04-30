@@ -3,8 +3,7 @@
 from pathlib import Path
 
 import pytest
-from sqlalchemy import inspect
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from codeask.migrations import run_migrations
