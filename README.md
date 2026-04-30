@@ -8,7 +8,7 @@ CodeAsk 是一个私有部署的研发问答系统，帮助团队把内部文档
 
 CodeAsk 目前处于 v1.0 MVP 的文档完成与实现启动阶段。
 
-产品需求、系统设计和实现计划位于 `docs/v1.0/`。当前代码尚未初始化，第一阶段会从 `foundation` plan 开始，搭建后端应用骨架、数据库基础、迁移系统、配置、加密、自报身份中间件、结构化日志和健康检查接口。
+产品需求、系统设计和实现计划位于 `docs/v1.0/`。当前已进入第一阶段 `foundation` 实现：后端应用骨架、数据库基础、迁移系统、配置、加密、自报身份中间件、结构化日志和健康检查接口会先落地，后续功能按 plan 继续增量实现。
 
 ## 产品目标
 
@@ -101,11 +101,19 @@ v1.0 MVP 暂不包含：
 
 ## 当前仓库结构
 
-当前仓库以文档为主：
+当前仓库已经包含文档和 foundation 后端地基：
 
 ```text
 CodeAsk/
 ├── README.md
+├── start.sh
+├── pyproject.toml
+├── uv.lock
+├── alembic.ini
+├── alembic/
+├── src/
+│   └── codeask/
+├── tests/
 ├── docs/
 │   ├── README.md
 │   ├── STRUCTURE.md
@@ -119,23 +127,13 @@ CodeAsk/
 └── .claude/
 ```
 
-后续实现完成后，计划形成如下结构：
+后续前端、部署和 CI 计划完成后，还会补充如下目录：
 
 ```text
 CodeAsk/
-├── README.md
-├── start.sh
-├── pyproject.toml
-├── uv.lock
-├── alembic.ini
-├── alembic/
-├── src/
-│   └── codeask/
-├── tests/
 ├── frontend/
 ├── docker/
-├── .github/
-└── docs/
+└── .github/
 ```
 
 ## 文档入口
@@ -165,30 +163,51 @@ v1.0 实现被拆成七个 plan：
 
 第一阶段应从 `docs/v1.0/plans/foundation.md` 开始。
 
-## 开发约定
-
-建议先提交当前文档基线：
+## 快速启动
 
 ```bash
-git init
-git add README.md docs .claude
-git commit -m "docs: add v1.0 product and implementation plans"
-```
+# 1) 生成一次加密密钥，并把它保存到安全位置
+export CODEASK_DATA_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 
-后续按 plan 文件逐步实现，每个任务保持小步提交，并优先遵循对应 plan 中的测试步骤和验收标准。
-
-Foundation 阶段完成后，计划支持如下本地启动方式：
-
-```bash
-export CODEASK_DATA_KEY="<fernet-key>"
-uv sync
+# 2) 启动服务
 ./start.sh
 ```
 
-健康检查接口：
+服务默认监听：
 
 ```text
-http://127.0.0.1:8000/api/healthz
+http://127.0.0.1:8000
+```
+
+健康检查：
+
+```bash
+curl -s http://127.0.0.1:8000/api/healthz -H 'X-Subject-Id: alice@dev-1' | python -m json.tool
+```
+
+## 配置项
+
+| 环境变量 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `CODEASK_DATA_KEY` | 是 | — | Fernet key，base64-url-safe 32 bytes。用于加密敏感字段；丢失后已加密字段不可恢复。 |
+| `CODEASK_DATA_DIR` | 否 | `~/.codeask` | SQLite、上传文件、worktree、日志等本地数据根目录。 |
+| `CODEASK_HOST` | 否 | `127.0.0.1` | 默认只监听本机，一期无鉴权时不要随意改成公网监听。 |
+| `CODEASK_PORT` | 否 | `8000` | HTTP 服务端口。 |
+| `CODEASK_LOG_LEVEL` | 否 | `INFO` | 可设为 `DEBUG` / `INFO` / `WARNING` / `ERROR`。 |
+| `CODEASK_DATABASE_URL` | 否 | 基于 `CODEASK_DATA_DIR` 派生 | 默认是本地 SQLite；通常只在测试或迁移数据库时覆盖。 |
+
+## 开发约定
+
+后续按 plan 文件逐步实现，每个任务保持小步提交，并优先遵循对应 plan 中的测试步骤和验收标准。
+
+常用检查命令：
+
+```bash
+uv sync
+uv run pytest
+uv run ruff check src tests
+uv run ruff format --check src tests
+uv run pyright src/codeask
 ```
 
 ## License
