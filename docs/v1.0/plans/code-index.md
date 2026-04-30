@@ -21,6 +21,8 @@
 
 **Revision 衔接说明：** wiki-knowledge plan 占用 alembic revision `0002`–`0005`，本计划以 `0006` 起步（一份 migration）。后续 04 agent-runtime plan 接 `0007` 起。
 
+**Demo Scope Lock:** 本计划只交付 v1.0 代码访问底座，不实现成熟 Agent IDE 级工具智能。`ripgrep` / `ctags` / file reader 只负责安全、稳定、结构化地返回底层结果；Agent 多轮工具规划、搜索结果重排、上下文预算、跨轮去重和自动下一步判断进入后续 `tool-intelligence` / `agent-runtime` 优化阶段。二期规划必须回看 `../design/code-index.md` §7.1/§7.2、`../design/tools.md` §8 和 `roadmap.md` 的二期锚点。
+
 ---
 
 ## File Structure
@@ -2997,4 +2999,3 @@ git tag -a code-index-v0.1.0 -m "Code index milestone: repos + worktrees + grep/
 3. **命名一致性**：`repos.status` 取值 `registered/cloning/ready/failed` 在 ORM 常量、migration `CheckConstraint`、Pydantic `Literal`、API 集成测试断言四处共享同一份字面量；`source` 同。
 4. **Migration 链**：`down_revision = "0005"` 与 `revision = "0006"` 配对，链头注释明示了如果 wiki-knowledge 实际占用 revision 不同时如何顺延。
 5. **独立性**：每个 task 的"Files"段都列出 Create/Modify 列表；步骤代码完整可拷贝；只引用 foundation.md 已落地的 fixtures（`tests/conftest.py` 提供的 `client` / `app` / `settings`）和本 plan 之前 task 已落地的模块；不依赖未在前序 task 中创建的对象。
-

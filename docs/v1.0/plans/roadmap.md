@@ -40,6 +40,16 @@
 | metrics-eval | 未开始 | 等待 agent traces / audit hooks |
 | deployment | 未开始 | 全部前置 plan 完成后收口 |
 
+**二期规划锚点（不属于 v1.0 必交付）：**
+
+v1.0 出货后可单独规划 `tool-intelligence` / `code-context-optimization` 阶段，用于优化 Agent 使用代码工具的智能程度。该阶段规划前必须回看：
+
+- `../design/code-index.md` §7.1 / §7.2：一期 Demo 边界与二期优化参考原则。
+- `../design/tools.md` §8：工具系统一期 / 二期边界。
+- `../design/agent-runtime.md`：Agent 状态机、工具调用轨迹和上下文预算的落点。
+
+二期优化只能在不改变底层工具安全边界、不引入重型外部服务、不破坏单进程低部署门槛的前提下吸收开源实现经验。
+
 ## 2. 执行顺序与阶段产出
 
 | # | Plan | 文件 | 任务 / 步骤 | 主产出 | 阶段交付状态 |
