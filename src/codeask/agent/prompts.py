@@ -1,5 +1,7 @@
 """L0-L6 prompt assembly for agent stages."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -11,6 +13,34 @@ You are CodeAsk, a private R&D question-answering agent.
 Answer only from collected knowledge, code evidence, or explicit uncertainty.
 Use tools only through the provided tool protocol and keep evidence ids stable.
 """
+
+
+def _empty_paths() -> list[str]:
+    return []
+
+
+def _empty_feature_digests() -> list[FeatureDigest]:
+    return []
+
+
+def _empty_repo_bindings() -> list[RepoBinding]:
+    return []
+
+
+def _empty_knowledge_hits() -> list[KnowledgeHit]:
+    return []
+
+
+def _empty_messages() -> list[LLMMessage]:
+    return []
+
+
+def _empty_attachment_summaries() -> list[dict[str, Any]]:
+    return []
+
+
+def _empty_extra_context() -> dict[str, Any]:
+    return {}
 
 
 @dataclass(frozen=True)
@@ -25,7 +55,7 @@ class FeatureDigest:
 class RepoBinding:
     repo_id: str
     commit_sha: str
-    paths: list[str] = field(default_factory=list)
+    paths: list[str] = field(default_factory=_empty_paths)
 
 
 @dataclass(frozen=True)
@@ -39,14 +69,14 @@ class KnowledgeHit:
 @dataclass(frozen=True)
 class PromptContext:
     user_question: str
-    feature_digests: list[FeatureDigest] = field(default_factory=list)
+    feature_digests: list[FeatureDigest] = field(default_factory=_empty_feature_digests)
     global_skill: str | None = None
-    repo_bindings: list[RepoBinding] = field(default_factory=list)
-    pre_retrieval_hits: list[KnowledgeHit] = field(default_factory=list)
-    turn_history: list[LLMMessage] = field(default_factory=list)
+    repo_bindings: list[RepoBinding] = field(default_factory=_empty_repo_bindings)
+    pre_retrieval_hits: list[KnowledgeHit] = field(default_factory=_empty_knowledge_hits)
+    turn_history: list[LLMMessage] = field(default_factory=_empty_messages)
     log_analysis: dict[str, Any] | None = None
-    attachment_summaries: list[dict[str, Any]] = field(default_factory=list)
-    extra_context: dict[str, Any] = field(default_factory=dict)
+    attachment_summaries: list[dict[str, Any]] = field(default_factory=_empty_attachment_summaries)
+    extra_context: dict[str, Any] = field(default_factory=_empty_extra_context)
 
 
 def assemble_messages(stage: AgentState, ctx: PromptContext) -> list[LLMMessage]:

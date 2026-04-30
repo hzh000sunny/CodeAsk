@@ -1,8 +1,9 @@
 """LLM gateway protocol dispatch and retry policy."""
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Protocol
 
 from codeask.llm.client import (
     AnthropicClient,
@@ -14,24 +15,72 @@ from codeask.llm.repo import LLMConfigRepo
 from codeask.llm.types import LLMEvent, LLMRequest
 
 
+class ClientBuilder(Protocol):
+    def __call__(
+        self,
+        *,
+        api_key: str,
+        model_name: str,
+        base_url: str | None = None,
+    ) -> LLMClient: ...
+
+
+def _openai_client(
+    *,
+    api_key: str,
+    model_name: str,
+    base_url: str | None = None,
+) -> LLMClient:
+    return OpenAIClient(api_key=api_key, model_name=model_name, base_url=base_url)
+
+
+def _openai_compatible_client(
+    *,
+    api_key: str,
+    model_name: str,
+    base_url: str | None = None,
+) -> LLMClient:
+    return OpenAICompatibleClient(api_key=api_key, model_name=model_name, base_url=base_url)
+
+
+def _anthropic_client(
+    *,
+    api_key: str,
+    model_name: str,
+    base_url: str | None = None,
+) -> LLMClient:
+    return AnthropicClient(api_key=api_key, model_name=model_name, base_url=base_url)
+
+
 @dataclass(frozen=True)
 class ClientFactory:
-    provider_clients: dict[str, Callable[..., LLMClient]]
+    provider_clients: dict[str, ClientBuilder]
 
     @classmethod
     def default(cls) -> "ClientFactory":
         return cls(
             provider_clients={
-                "openai": lambda **kwargs: OpenAIClient(**kwargs),
-                "openai_compatible": lambda **kwargs: OpenAICompatibleClient(**kwargs),
-                "anthropic": lambda **kwargs: AnthropicClient(**kwargs),
+                "openai": _openai_client,
+                "openai_compatible": _openai_compatible_client,
+                "anthropic": _anthropic_client,
             }
         )
 
-    def create(self, protocol: str, **kwargs: object) -> LLMClient:
+    def create(
+        self,
+        protocol: str,
+        *,
+        api_key: str,
+        model_name: str,
+        base_url: str | None = None,
+    ) -> LLMClient:
         if protocol not in self.provider_clients:
             raise ValueError(f"unknown protocol {protocol!r}")
-        return self.provider_clients[protocol](**kwargs)
+        return self.provider_clients[protocol](
+            api_key=api_key,
+            model_name=model_name,
+            base_url=base_url,
+        )
 
 
 class LLMGateway:

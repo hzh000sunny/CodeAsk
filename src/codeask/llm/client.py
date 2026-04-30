@@ -1,10 +1,10 @@
 """LiteLLM-backed adapters for provider-neutral streaming."""
 
 import json
-from collections.abc import AsyncIterator
-from typing import Any, Protocol
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any, Protocol, cast
 
-from litellm import acompletion
+from litellm import acompletion as _raw_acompletion  # type: ignore[reportUnknownVariableType]
 
 from codeask.llm.types import (
     LLMError,
@@ -23,6 +23,8 @@ _OPENAI_TO_INTERNAL_STOP: dict[str, StopReason] = {
     "length": "max_tokens",
     "content_filter": "content_filter",
 }
+_ACompletion = Callable[..., Awaitable[object]]
+acompletion: _ACompletion = cast(_ACompletion, _raw_acompletion)
 
 
 def _normalize_stop_reason(reason: str | None) -> StopReason:
@@ -93,7 +95,7 @@ def _tools_to_litellm(tools: list[ToolDef]) -> list[dict[str, Any]]:
 
 
 class LLMClient(Protocol):
-    async def stream(
+    def stream(
         self,
         messages: list[LLMMessage],
         tools: list[ToolDef],
@@ -138,7 +140,7 @@ class _BaseClient:
             kwargs["tools"] = _tools_to_litellm(tools)
 
         try:
-            stream = await acompletion(**kwargs)
+            stream = cast(AsyncIterator[Any], await acompletion(**kwargs))
         except Exception as exc:
             yield LLMEvent(type="error", data=self._error_payload(exc, retryable=False))
             return
@@ -156,7 +158,8 @@ class _BaseClient:
                     )
                     emitted_start = True
 
-                choice = chunk.choices[0] if getattr(chunk, "choices", None) else None
+                choices: Any = getattr(chunk, "choices", None)
+                choice = choices[0] if choices else None
                 if choice is None:
                     continue
                 delta = getattr(choice, "delta", None)
@@ -167,12 +170,19 @@ class _BaseClient:
                 if content:
                     yield LLMEvent(type="text_delta", data={"delta": content})
 
-                tool_calls = getattr(delta, "tool_calls", None) or []
+                tool_calls = cast(list[Any], getattr(delta, "tool_calls", None) or [])
                 for tool_call in tool_calls:
                     fn = getattr(tool_call, "function", None)
-                    name = getattr(fn, "name", None) if fn else None
-                    args_delta = getattr(fn, "arguments", "") if fn else ""
-                    tool_call_id = getattr(tool_call, "id", None) or active_tool_call_id
+                    raw_name = getattr(fn, "name", None) if fn else None
+                    name = raw_name if isinstance(raw_name, str) else None
+                    raw_args_delta = getattr(fn, "arguments", "") if fn else ""
+                    args_delta = raw_args_delta if isinstance(raw_args_delta, str) else ""
+                    raw_tool_call_id = getattr(tool_call, "id", None)
+                    tool_call_id = (
+                        raw_tool_call_id
+                        if isinstance(raw_tool_call_id, str)
+                        else active_tool_call_id
+                    )
 
                     if tool_call_id and tool_call_id not in tool_accumulators:
                         tool_accumulators[tool_call_id] = {
@@ -202,10 +212,13 @@ class _BaseClient:
                 finish_reason = getattr(choice, "finish_reason", None)
                 if finish_reason is not None:
                     for tool_call_id, acc in tool_accumulators.items():
+                        arguments: dict[str, Any] = {}
                         try:
-                            arguments = json.loads(acc["args_str"]) if acc["args_str"] else {}
+                            loaded: object = json.loads(acc["args_str"]) if acc["args_str"] else {}
                         except json.JSONDecodeError:
-                            arguments = {}
+                            loaded = {}
+                        if isinstance(loaded, dict):
+                            arguments = cast(dict[str, Any], loaded)
                         yield LLMEvent(
                             type="tool_call_done",
                             data={
@@ -217,7 +230,11 @@ class _BaseClient:
 
                     yield LLMEvent(
                         type="message_stop",
-                        data={"stop_reason": _normalize_stop_reason(finish_reason)},
+                        data={
+                            "stop_reason": _normalize_stop_reason(
+                                finish_reason if isinstance(finish_reason, str) else None
+                            )
+                        },
                     )
                     usage = getattr(chunk, "usage", None)
                     if usage is not None:

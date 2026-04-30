@@ -1,11 +1,13 @@
 """Phase-aware tool registry for agent runtime."""
 
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from jsonschema import Draft7Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
@@ -15,11 +17,15 @@ from codeask.agent.state import AgentState
 from codeask.llm.types import ToolDef
 
 
+def _empty_evidence() -> list[dict[str, Any]]:
+    return []
+
+
 class ToolResult(BaseModel):
     ok: bool
     data: dict[str, Any] | None = None
     summary: str | None = None
-    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: list[dict[str, Any]] = Field(default_factory=_empty_evidence)
     truncated: bool = False
     hint: str | None = None
     error_code: str | None = None
@@ -128,7 +134,7 @@ class ToolRegistry:
             )
 
         try:
-            tool.validator.validate(args)
+            cast(Any, tool.validator).validate(args)
         except JsonSchemaValidationError as exc:
             return ToolResult(
                 ok=False,
@@ -180,10 +186,15 @@ class ToolRegistry:
             description="Pause the agent and ask the user for missing information.",
         )
         async def ask_user(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-            options = args.get("options")
+            raw_options = args.get("options")
+            options = (
+                [str(option) for option in cast(list[object], raw_options)]
+                if isinstance(raw_options, list)
+                else None
+            )
             raise AskUserSignal(
                 question=str(args["question"]),
-                options=options if isinstance(options, list) else None,
+                options=options,
                 ask_id=str(args["ask_id"]),
             )
 
@@ -399,9 +410,10 @@ def _coerce_tool_result(value: object) -> ToolResult:
     if isinstance(value, ToolResult):
         return value
     if isinstance(value, dict):
-        if "ok" in value:
-            return ToolResult.model_validate(value)
-        return ToolResult(ok=True, data=value)
+        data = {str(key): item for key, item in cast(dict[object, Any], value).items()}
+        if "ok" in data:
+            return ToolResult.model_validate(data)
+        return ToolResult(ok=True, data=data)
     if isinstance(value, list):
-        return ToolResult(ok=True, data={"items": value})
+        return ToolResult(ok=True, data={"items": cast(list[object], value)})
     return ToolResult(ok=True, data={"result": value})

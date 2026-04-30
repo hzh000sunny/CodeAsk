@@ -1,5 +1,7 @@
 """Provider-neutral LLM types."""
 
+from __future__ import annotations
+
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -26,6 +28,14 @@ EventType = Literal[
 ]
 
 ProviderProtocol = Literal["openai", "openai_compatible", "anthropic"]
+
+
+def _empty_tools() -> list[ToolDef]:
+    return []
+
+
+def _empty_metadata() -> dict[str, Any]:
+    return {}
 
 
 class TextBlock(BaseModel):
@@ -70,16 +80,16 @@ class ToolChoice(BaseModel):
 class LLMRequest(BaseModel):
     config_id: str | None = None
     messages: list[LLMMessage]
-    tools: list[ToolDef] = Field(default_factory=list)
+    tools: list[ToolDef] = Field(default_factory=_empty_tools)
     tool_choice: ToolChoice | None = None
     max_tokens: int
     temperature: float
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=_empty_metadata)
 
 
 class LLMEvent(BaseModel):
     type: EventType
-    data: dict[str, Any] = Field(default_factory=dict)
+    data: dict[str, Any] = Field(default_factory=_empty_metadata)
 
 
 class LLMError(BaseModel):
