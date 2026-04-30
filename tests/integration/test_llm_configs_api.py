@@ -47,6 +47,14 @@ async def test_create_list_default_flip_and_delete_llm_config(client: AsyncClien
     assert by_id[second["id"]]["is_default"] is True
     assert by_id[second["id"]]["api_key_masked"] == "loc...ret"
 
+    patched = await client.patch(
+        f"/api/llm-configs/{second['id']}",
+        json={"model_name": "local-model-v2", "api_key": "rotated-secret"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["model_name"] == "local-model-v2"
+    assert patched.json()["api_key_masked"] == "rot...ret"
+
     deleted = await client.delete(f"/api/llm-configs/{first['id']}")
     assert deleted.status_code == 204
 

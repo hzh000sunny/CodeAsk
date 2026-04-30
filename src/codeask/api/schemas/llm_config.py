@@ -16,6 +16,17 @@ class LLMConfigCreate(BaseModel):
     is_default: bool = False
 
 
+class LLMConfigUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    protocol: ProviderProtocol | None = None
+    base_url: str | None = None
+    api_key: str | None = Field(default=None, min_length=1)
+    model_name: str | None = Field(default=None, min_length=1, max_length=128)
+    max_tokens: int | None = Field(default=None, ge=1)
+    temperature: float | None = Field(default=None, ge=0.0)
+    is_default: bool | None = None
+
+
 class LLMConfigResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
