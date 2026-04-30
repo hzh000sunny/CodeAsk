@@ -1633,7 +1633,7 @@ git commit -m "feat(code-index): CtagsClient with on-disk + LRU cache"
 
 锚点：`tools.md` §4"所有路径必须通过 `resolve_within(base, user_path)` 校验"。FileReader 接 `(worktree_path, relative_path, line_range)`，返回片段文本 + 命中行号。`line_range = (start, end)`，1-indexed，inclusive；越界自动 clamp。
 
-- [ ] **Step 1: 写测试 `tests/unit/test_file_reader.py`**
+- [x] **Step 1: 写测试 `tests/unit/test_file_reader.py`**
 
 ```python
 """FileReader read_segment."""
@@ -1708,12 +1708,12 @@ def test_binary_file_rejected(tmp_path: Path) -> None:
         fr.read_segment(base=tmp_path, rel_path="binary.bin", line_range=(1, 5))
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `uv run pytest tests/unit/test_file_reader.py -v`
 Expected: ImportError on `codeask.code_index.file_reader`
 
-- [ ] **Step 3: 实现 `src/codeask/code_index/file_reader.py`**
+- [x] **Step 3: 实现 `src/codeask/code_index/file_reader.py`**
 
 ```python
 """Read line ranges from text files inside a worktree base."""
@@ -1806,12 +1806,12 @@ class FileReader:
         )
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `uv run pytest tests/unit/test_file_reader.py -v`
 Expected: 七个测试全部 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/codeask/code_index/file_reader.py tests/unit/test_file_reader.py
