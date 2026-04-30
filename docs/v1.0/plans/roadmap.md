@@ -34,8 +34,8 @@
 |---|---|---|
 | foundation | 已完成 | 已合入 `main`，本地 tag：`foundation-v0.1.0` |
 | wiki-knowledge | 已完成 | 已合入 `main`，本地 tag：`wiki-knowledge-v0.1.0`，Alembic head 到 `0005` |
-| code-index | 下一阶段 | 从 `code-index.md` 开始，migration 从 `0006` 起 |
-| agent-runtime | 未开始 | 等待 `code-index` |
+| code-index | 已完成 | 已合入 `main`，本地 tag：`code-index-v0.1.0`，Alembic head 到 `0006` |
+| agent-runtime | 下一阶段 | 从 `agent-runtime.md` 开始，migration 从 `0007` 起 |
 | frontend-workbench | 未开始 | 等待后端 API / SSE |
 | metrics-eval | 未开始 | 等待 agent traces / audit hooks |
 | deployment | 未开始 | 全部前置 plan 完成后收口 |
@@ -159,10 +159,10 @@ deployment        : —（不动 schema）
 - [x] alembic head = `0005`
 
 ### 5.3 code-index 验收
-- [ ] `POST /api/repos`（local_dir 来源）→ 后台 cloning → `status=ready`，bare git 数据落 `~/.codeask/repos/<repo_id>/bare/`
-- [ ] `POST /api/code/grep` 找到已知字符串、行号匹配
-- [ ] 模拟 25h 后 cleanup job 移除 worktree、保留 DB 中的 binding 记录但 path 置 null
-- [ ] alembic head = `0006`
+- [x] `POST /api/repos`（local_dir 来源）→ 后台 cloning → `status=ready`，bare git 数据落 `~/.codeask/repos/<repo_id>/bare/`
+- [x] `POST /api/code/grep` 找到已知字符串、行号匹配
+- [x] 模拟 25h 后 cleanup job 移除 worktree、保留 DB 中的 binding 记录但 path 置 null
+- [x] alembic head = `0006`
 
 ### 5.4 agent-runtime 验收
 - [ ] `tests/integration/test_agent_e2e_mock.py` 跑通三条路径：sufficient（不进代码层）/ insufficient（进代码层）/ ask_user
