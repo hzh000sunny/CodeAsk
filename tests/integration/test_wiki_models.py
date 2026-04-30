@@ -7,7 +7,7 @@ import pytest_asyncio
 from sqlalchemy import select
 
 from codeask.db import Base, create_engine, session_factory
-from codeask.db.models import Document, DocumentChunk, DocumentReference, Feature
+from codeask.db.models import Document, DocumentChunk, DocumentReference, Feature, Report
 
 
 @pytest_asyncio.fixture()
@@ -104,3 +104,35 @@ async def test_feature_slug_unique(engine) -> None:  # type: ignore[no-untyped-d
         s.add(Feature(name="B", slug="dup", owner_subject_id="x@y"))
         with pytest.raises(Exception):
             await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_report_round_trip(engine) -> None:  # type: ignore[no-untyped-def]
+    factory = session_factory(engine)
+    async with factory() as s:
+        f = Feature(name="X", slug="x", owner_subject_id="x@y")
+        s.add(f)
+        await s.flush()
+        r = Report(
+            feature_id=f.id,
+            title="ERR_ORDER_CONTEXT_EMPTY incident",
+            body_markdown="# Summary\n\nUser context was missing.",
+            metadata_json={
+                "feature_ids": [f.id],
+                "repo_commits": [{"repo_id": "repo_order", "commit_sha": "abc123"}],
+                "error_signatures": ["ERR_ORDER_CONTEXT_EMPTY"],
+                "trace_signals": [],
+            },
+            status="draft",
+            verified=False,
+            created_by_subject_id="alice@dev-7f2c",
+        )
+        s.add(r)
+        await s.commit()
+        report_id = r.id
+
+    async with factory() as s:
+        row = (await s.execute(select(Report).where(Report.id == report_id))).scalar_one()
+        assert row.status == "draft"
+        assert row.verified is False
+        assert row.metadata_json["error_signatures"] == ["ERR_ORDER_CONTEXT_EMPTY"]

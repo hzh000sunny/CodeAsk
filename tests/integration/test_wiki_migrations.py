@@ -22,7 +22,7 @@ async def test_wiki_tables_created(tmp_path: Path) -> None:
         tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
     await engine.dispose()
 
-    for name in ("features", "documents", "document_chunks", "document_references"):
+    for name in ("features", "documents", "document_chunks", "document_references", "reports"):
         assert name in tables, f"missing table {name}"
 
 
