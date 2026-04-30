@@ -1163,7 +1163,7 @@ git commit -m "feat(code-index): WorktreeManager (ref resolve + add/remove/list)
 
 锚点：`dependencies.md` §2.4 + `tools.md` §6 截断策略。**永远 `shell=False`**；超时必带；按行解析 `rg --json` 输出。
 
-- [ ] **Step 1: 写测试 `tests/unit/test_ripgrep.py`**
+- [x] **Step 1: 写测试 `tests/unit/test_ripgrep.py`**
 
 ```python
 """RipgrepClient against a real ripgrep on disk."""
@@ -1231,12 +1231,12 @@ def test_grep_timeout_raises(tmp_path: Path, monkeypatch) -> None:  # type: igno
         rg.grep(base=tmp_path, pattern="foo", paths=None, max_count=10)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `uv run pytest tests/unit/test_ripgrep.py -v`
 Expected: ImportError on `codeask.code_index.ripgrep`
 
-- [ ] **Step 3: 实现 `src/codeask/code_index/ripgrep.py`**
+- [x] **Step 3: 实现 `src/codeask/code_index/ripgrep.py`**
 
 ```python
 """ripgrep wrapper. Always argv-list (shell=False). JSON event parser."""
@@ -1347,12 +1347,12 @@ class RipgrepClient:
         return hits
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `uv run pytest tests/unit/test_ripgrep.py -v`
 Expected: 五个测试 PASS（如果 `rg` 没装，`pytest` 会 skip 整个文件）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/codeask/code_index/ripgrep.py tests/unit/test_ripgrep.py
