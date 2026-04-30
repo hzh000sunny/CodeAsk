@@ -2002,7 +2002,7 @@ git commit -m "feat(code-index): pydantic v2 schemas for repos + code endpoints"
 5. `app.state.scheduler.add_job(repo_cloner.run_clone, args=[repo_id])` 立即投递（不阻塞）
 6. 返回 201 + RepoOut
 
-- [ ] **Step 1: 实现 `src/codeask/api/code_index.py`（先放 repos CRUD，code 路由在 Task 10 追加）**
+- [x] **Step 1: 实现 `src/codeask/api/code_index.py`（先放 repos CRUD，code 路由在 Task 10 追加）**
 
 ```python
 """HTTP endpoints for the global repo pool and code search tools."""
@@ -2143,7 +2143,7 @@ async def refresh_repo(repo_id: str, request: Request) -> RepoOut:
     return _to_out(repo)
 ```
 
-- [ ] **Step 2: 修改 `src/codeask/app.py` 在 lifespan 内创建 APScheduler 与 RepoCloner**
+- [x] **Step 2: 修改 `src/codeask/app.py` 在 lifespan 内创建 APScheduler 与 RepoCloner**
 
 替换原 `lifespan` 定义为下面的版本：
 
@@ -2164,17 +2164,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Background scheduler + cloner — declared here so that it stops cleanly
     # on shutdown and so that tests using the lifespan fixture get a real
     # scheduler instance.
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.schedulers.background import BackgroundScheduler
     from codeask.code_index.cloner import RepoCloner
-    from codeask.code_index.cleanup import build_cleanup_job
     from codeask.code_index.worktree import WorktreeManager
 
-    scheduler = AsyncIOScheduler()
+    scheduler = BackgroundScheduler()
     repo_cloner = RepoCloner(factory)
     worktree_mgr = WorktreeManager(repo_root=Path(settings.data_dir) / "repos")
-    cleanup_job = build_cleanup_job(worktree_mgr, Path(settings.data_dir) / "repos")
-    scheduler.add_job(cleanup_job, "interval", hours=6, id="worktree_cleanup",
-                      misfire_grace_time=3600)
     scheduler.start()
 
     app.state.scheduler = scheduler
@@ -2185,10 +2181,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        scheduler.shutdown(wait=False)
+        scheduler.shutdown(wait=True)
         await engine.dispose()
         log.info("app_shutdown")
 ```
+
+> **Implementation note:** `cleanup.py` is Task 11, so Task 9 only starts the scheduler and exposes `repo_cloner` / `worktree_manager`. Task 11 registers `worktree_cleanup` after `build_cleanup_job` exists.
 
 并在 `create_app` 中追加 router 注册：
 
@@ -2209,7 +2207,7 @@ dependencies = [
 ]
 ```
 
-- [ ] **Step 3: 写测试 `tests/integration/test_repos_api.py`**
+- [x] **Step 3: 写测试 `tests/integration/test_repos_api.py`**
 
 ```python
 """End-to-end POST /api/repos + GET + DELETE + refresh."""
@@ -2315,17 +2313,17 @@ async def test_refresh_enqueues(client: AsyncClient, tmp_path: Path) -> None:
     assert r2.json()["id"] == repo_id
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `uv run pytest tests/integration/test_repos_api.py -v`
 Expected: 五个测试 PASS。如果 APScheduler 还没装：`uv add apscheduler`。
 
-- [ ] **Step 5: 验证全量回归**
+- [x] **Step 5: 验证全量回归**
 
 Run: `uv run pytest -v`
 Expected: foundation + 本计划已实现 task 全部 PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/codeask/api/code_index.py src/codeask/app.py pyproject.toml uv.lock \
