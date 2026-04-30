@@ -1369,7 +1369,7 @@ git commit -m "feat(code-index): RipgrepClient with rg --json parsing"
 
 锚点：`code-index.md` §7"按 repo + commit 缓存 tags"。`CtagsClient.find_symbols(worktree_path, repo_id, commit, symbol_name)` 第一次调用时跑 `ctags -R --output-format=json` 把结果缓存到 `~/.codeask/index/<repo_id>/<commit>.tags.json`，后续命中缓存。LRU 缓存 key = `(repo_id, commit)`，默认容量 32。
 
-- [ ] **Step 1: 写测试 `tests/unit/test_ctags.py`**
+- [x] **Step 1: 写测试 `tests/unit/test_ctags.py`**
 
 ```python
 """CtagsClient against a real universal-ctags."""
@@ -1442,12 +1442,12 @@ def test_invalid_worktree_raises(tmp_path: Path) -> None:
         )
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `uv run pytest tests/unit/test_ctags.py -v`
 Expected: ImportError on `codeask.code_index.ctags`
 
-- [ ] **Step 3: 实现 `src/codeask/code_index/ctags.py`**
+- [x] **Step 3: 实现 `src/codeask/code_index/ctags.py`**
 
 ```python
 """universal-ctags wrapper with on-disk + in-memory LRU cache."""
@@ -1611,12 +1611,12 @@ class CtagsClient:
         return out
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `uv run pytest tests/unit/test_ctags.py -v`
 Expected: 四个测试 PASS（universal-ctags 缺失则 skip）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/codeask/code_index/ctags.py tests/unit/test_ctags.py
