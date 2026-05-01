@@ -2,11 +2,13 @@
 
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from codeask.db import Base
-from codeask.db import models  # noqa: F401  ensure all models are registered with Base
+from alembic import context
+from codeask.db import (
+    Base,
+    models,  # noqa: F401  ensure all models are registered with Base
+)
 from codeask.settings import Settings
 
 config = context.config

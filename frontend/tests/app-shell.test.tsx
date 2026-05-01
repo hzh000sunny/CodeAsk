@@ -6,7 +6,7 @@ import { App } from "../src/App";
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
-    headers: { "Content-Type": "application/json" }
+    headers: { "Content-Type": "application/json" },
   });
 }
 
@@ -21,7 +21,7 @@ describe("CodeAsk AppShell information architecture", () => {
             subject_id: "client_test",
             display_name: "client_test",
             role: "member",
-            authenticated: false
+            authenticated: false,
           });
         }
         if (path === "/api/sessions") {
@@ -34,7 +34,7 @@ describe("CodeAsk AppShell information architecture", () => {
           return jsonResponse([]);
         }
         return jsonResponse({});
-      })
+      }),
     );
   });
 
@@ -46,9 +46,15 @@ describe("CodeAsk AppShell information architecture", () => {
     render(<App />);
 
     const navigation = screen.getByRole("navigation", { name: "主导航" });
-    expect(within(navigation).getByRole("button", { name: "会话" })).toBeInTheDocument();
-    expect(within(navigation).getByRole("button", { name: "特性" })).toBeInTheDocument();
-    expect(within(navigation).getByRole("button", { name: "设置" })).toBeInTheDocument();
+    expect(
+      within(navigation).getByRole("button", { name: "会话" }),
+    ).toBeInTheDocument();
+    expect(
+      within(navigation).getByRole("button", { name: "特性" }),
+    ).toBeInTheDocument();
+    expect(
+      within(navigation).getByRole("button", { name: "设置" }),
+    ).toBeInTheDocument();
     expect(within(navigation).queryByText("Wiki")).not.toBeInTheDocument();
     expect(within(navigation).queryByText("全局配置")).not.toBeInTheDocument();
   });
@@ -57,7 +63,9 @@ describe("CodeAsk AppShell information architecture", () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "收起主导航" }));
-    expect(screen.getByRole("button", { name: "展开主导航" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "展开主导航" }),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "收起会话列表" }));
     expect(screen.queryByPlaceholderText("搜索会话")).not.toBeInTheDocument();
@@ -72,22 +80,34 @@ describe("CodeAsk AppShell information architecture", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
     fireEvent.click(screen.getByRole("button", { name: "收起设置导航" }));
-    expect(screen.queryByRole("button", { name: "用户设置" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "用户设置" }),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "展开设置导航" }));
-    expect(await screen.findByRole("button", { name: "用户设置" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "用户设置" }),
+    ).toBeInTheDocument();
   });
 
   it("shows the session workspace as a three-column page with search, create, and progress", () => {
     render(<App />);
 
     expect(screen.getByPlaceholderText("搜索会话")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "新建会话" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "新建会话" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("我的会话")).not.toBeInTheDocument();
     expect(screen.queryByText("全部会话")).not.toBeInTheDocument();
 
-    expect(screen.getByRole("region", { name: "会话列表" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "会话消息" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "调查进度" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "会话列表" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "会话消息" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "调查进度" }),
+    ).toBeInTheDocument();
   });
 
   it("opens the feature workbench with list search, create, and same-page detail tabs", () => {
@@ -96,8 +116,13 @@ describe("CodeAsk AppShell information architecture", () => {
     fireEvent.click(screen.getByRole("button", { name: "特性" }));
 
     expect(screen.getByPlaceholderText("搜索特性")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "添加特性" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "设置" })).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("button", { name: "添加特性" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "设置" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     expect(screen.getByRole("tab", { name: "知识库" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "问题报告" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "关联仓库" })).toBeInTheDocument();
@@ -109,9 +134,15 @@ describe("CodeAsk AppShell information architecture", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
 
-    expect(await screen.findByRole("heading", { name: "用户配置" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "全局配置" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "全局配置" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "用户配置" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "全局配置" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "全局配置" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("搜索会话")).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("搜索特性")).not.toBeInTheDocument();
   });

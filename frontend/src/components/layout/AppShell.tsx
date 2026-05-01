@@ -25,7 +25,10 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
-      <TopBar onLoginRequest={() => setActiveView("login")} onNavigate={navigate} />
+      <TopBar
+        onLoginRequest={() => setActiveView("login")}
+        onNavigate={navigate}
+      />
       <div className="app-body" data-primary-collapsed={primaryCollapsed}>
         <Sidebar
           activeSection={activeSection}
@@ -43,7 +46,9 @@ export function AppShell() {
               }}
             />
           ) : null}
-          {activeView === "features" ? <FeatureWorkbench reportTarget={reportTarget} /> : null}
+          {activeView === "features" ? (
+            <FeatureWorkbench reportTarget={reportTarget} />
+          ) : null}
           {activeView === "settings" ? <SettingsPage /> : null}
           {activeView === "login" ? (
             <AdminLoginPage

@@ -13,13 +13,13 @@ describe("session runtime stage model", () => {
       "knowledge_retrieval",
       "sufficiency_judgement",
       "code_investigation",
-      "answer_finalization"
+      "answer_finalization",
     ]);
-    expect(stages.find((stage) => stage.key === "scope_detection")?.detail).toBe(
-      "识别问题关联的特性和上下文范围"
-    );
-    expect(stages.find((stage) => stage.key === "sufficiency_judgement")?.detail).toBe(
-      "判断知识证据是否足够回答"
-    );
+    expect(
+      stages.find((stage) => stage.key === "scope_detection")?.detail,
+    ).toBe("识别问题关联的特性和上下文范围");
+    expect(
+      stages.find((stage) => stage.key === "sufficiency_judgement")?.detail,
+    ).toBe("判断知识证据是否足够回答");
   });
 });

@@ -1,4 +1,10 @@
-import { ChevronLeft, ChevronRight, MessageSquareText, Settings, Sparkles } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  MessageSquareText,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 
 export type SectionId = "sessions" | "features" | "settings";
 
@@ -12,14 +18,18 @@ interface SidebarProps {
 const items = [
   { id: "sessions", label: "会话", icon: MessageSquareText },
   { id: "features", label: "特性", icon: Sparkles },
-  { id: "settings", label: "设置", icon: Settings }
-] satisfies Array<{ id: SectionId; label: string; icon: typeof MessageSquareText }>;
+  { id: "settings", label: "设置", icon: Settings },
+] satisfies Array<{
+  id: SectionId;
+  label: string;
+  icon: typeof MessageSquareText;
+}>;
 
 export function Sidebar({
   activeSection,
   collapsed,
   onSectionChange,
-  onToggleCollapsed
+  onToggleCollapsed,
 }: SidebarProps) {
   return (
     <aside className="source-sidebar" data-collapsed={collapsed}>
@@ -50,7 +60,11 @@ export function Sidebar({
         title={collapsed ? "展开主导航" : "收起主导航"}
         type="button"
       >
-        {collapsed ? <ChevronRight aria-hidden="true" size={15} /> : <ChevronLeft aria-hidden="true" size={15} />}
+        {collapsed ? (
+          <ChevronRight aria-hidden="true" size={15} />
+        ) : (
+          <ChevronLeft aria-hidden="true" size={15} />
+        )}
       </button>
     </aside>
   );

@@ -26,7 +26,7 @@ export function AdminLoginPage({ onSuccess }: AdminLoginPageProps) {
     },
     onError: () => {
       setError("登录失败，请检查用户名和密码");
-    }
+    },
   });
 
   return (
@@ -72,11 +72,19 @@ export function AdminLoginPage({ onSuccess }: AdminLoginPageProps) {
               onClick={() => setShowPassword((value) => !value)}
               type="button"
             >
-              {showPassword ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
+              {showPassword ? (
+                <EyeOff aria-hidden="true" size={16} />
+              ) : (
+                <Eye aria-hidden="true" size={16} />
+              )}
             </button>
           </span>
         </div>
-        {error ? <div className="inline-alert danger in-dialog" role="alert">{error}</div> : null}
+        {error ? (
+          <div className="inline-alert danger in-dialog" role="alert">
+            {error}
+          </div>
+        ) : null}
         <Button
           disabled={!username.trim() || !password || loginMutation.isPending}
           icon={<LogIn size={16} />}

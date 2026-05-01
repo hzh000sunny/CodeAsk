@@ -7,7 +7,7 @@ import {
   MessageSquareText,
   Pencil,
   Trash2,
-  XCircle
+  XCircle,
 } from "lucide-react";
 
 import type { RuntimeInsight, RuntimeStage } from "./session-model";
@@ -34,7 +34,7 @@ export function InvestigationPanel({
   onDescribeAttachment,
   onDeleteAttachment,
   onRenameAttachment,
-  stages
+  stages,
 }: InvestigationPanelProps) {
   return (
     <aside className="progress-panel" role="region" aria-label="调查进度">
@@ -65,12 +65,18 @@ export function InvestigationPanel({
           </ul>
         )}
       </section>
-      <section className="attachment-section" role="region" aria-label="会话数据">
+      <section
+        className="attachment-section"
+        role="region"
+        aria-label="会话数据"
+      >
         <div className="panel-subheading">
           <FileText aria-hidden="true" size={16} />
           <h3>会话数据</h3>
         </div>
-        {isLoadingAttachments ? <p className="empty-note">正在加载会话数据</p> : null}
+        {isLoadingAttachments ? (
+          <p className="empty-note">正在加载会话数据</p>
+        ) : null}
         {!isLoadingAttachments && attachments.length === 0 ? (
           <p className="empty-note">暂无上传数据</p>
         ) : null}
@@ -81,7 +87,8 @@ export function InvestigationPanel({
                 <div className="attachment-summary">
                   <strong>{attachment.display_name}</strong>
                   <span>
-                    {attachment.kind} · {formatAttachmentSize(attachment.size_bytes)} ·{" "}
+                    {attachment.kind} ·{" "}
+                    {formatAttachmentSize(attachment.size_bytes)} ·{" "}
                     {shortAttachmentId(attachment.id)}
                   </span>
                   {attachment.original_filename &&
@@ -89,7 +96,9 @@ export function InvestigationPanel({
                     <span>原名 {attachment.original_filename}</span>
                   ) : null}
                   {attachment.description ? (
-                    <span className="attachment-description">{attachment.description}</span>
+                    <span className="attachment-description">
+                      {attachment.description}
+                    </span>
                   ) : null}
                 </div>
                 <div className="row-actions">
@@ -141,7 +150,11 @@ function StageItem({ stage }: { stage: RuntimeStage }) {
           : Clock3;
 
   return (
-    <li className="stage-item" data-done={stage.status === "done"} data-status={stage.status}>
+    <li
+      className="stage-item"
+      data-done={stage.status === "done"}
+      data-status={stage.status}
+    >
       <Icon aria-hidden="true" size={17} />
       <div>
         <strong>{stage.label}</strong>

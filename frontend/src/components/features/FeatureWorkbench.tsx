@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
-  WandSparkles
+  WandSparkles,
 } from "lucide-react";
 
 import {
@@ -33,7 +33,13 @@ import {
   updateSkill,
   uploadDocument,
 } from "../../lib/api";
-import type { DocumentRead, FeatureRead, RepoOut, ReportRead, SkillResponse } from "../../types/api";
+import type {
+  DocumentRead,
+  FeatureRead,
+  RepoOut,
+  ReportRead,
+  SkillResponse,
+} from "../../types/api";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -45,7 +51,7 @@ const tabs = [
   { id: "knowledge", label: "知识库" },
   { id: "reports", label: "问题报告" },
   { id: "repos", label: "关联仓库" },
-  { id: "skill", label: "特性 Skill" }
+  { id: "skill", label: "特性 Skill" },
 ];
 
 interface ReportTarget {
@@ -65,17 +71,19 @@ export function FeatureWorkbench({ reportTarget }: FeatureWorkbenchProps) {
   const [listCollapsed, setListCollapsed] = useState(false);
   const [createdFeatures, setCreatedFeatures] = useState<FeatureRead[]>([]);
   const [deletedFeatureIds, setDeletedFeatureIds] = useState<number[]>([]);
-  const [deleteCandidate, setDeleteCandidate] = useState<FeatureRead | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<FeatureRead | null>(
+    null,
+  );
   const [deleteError, setDeleteError] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [featureName, setFeatureName] = useState("");
   const [featureDescription, setFeatureDescription] = useState("");
   const { data: fetchedFeatures = [], isLoading } = useQuery({
     queryKey: ["features"],
-    queryFn: listFeatures
+    queryFn: listFeatures,
   });
   const features = mergeById(fetchedFeatures, createdFeatures).filter(
-    (feature) => !deletedFeatureIds.includes(feature.id)
+    (feature) => !deletedFeatureIds.includes(feature.id),
   );
 
   useEffect(() => {
@@ -91,7 +99,7 @@ export function FeatureWorkbench({ reportTarget }: FeatureWorkbenchProps) {
     mutationFn: () =>
       createFeature({
         name: featureName.trim(),
-        description: featureDescription.trim() || undefined
+        description: featureDescription.trim() || undefined,
       }),
     onSuccess: (feature) => {
       setCreatedFeatures((current) => mergeById(current, [feature]));
@@ -100,13 +108,15 @@ export function FeatureWorkbench({ reportTarget }: FeatureWorkbenchProps) {
       setFeatureName("");
       setFeatureDescription("");
       void queryClient.invalidateQueries({ queryKey: ["features"] });
-    }
+    },
   });
   const deleteMutation = useMutation({
     mutationFn: (featureId: number) => deleteFeature(featureId),
     onSuccess: (_unused, featureId) => {
       setDeletedFeatureIds((current) => [...new Set([...current, featureId])]);
-      setCreatedFeatures((current) => current.filter((feature) => feature.id !== featureId));
+      setCreatedFeatures((current) =>
+        current.filter((feature) => feature.id !== featureId),
+      );
       if (selectedId === featureId) {
         setSelectedId(null);
       }
@@ -116,20 +126,33 @@ export function FeatureWorkbench({ reportTarget }: FeatureWorkbenchProps) {
     },
     onError: (error) => {
       setDeleteError(`删除特性失败：${messageFromError(error)}`);
-    }
+    },
   });
 
   const visibleFeatures = useMemo(() => {
     return features.filter((feature) => {
-      const haystack = `${feature.name} ${feature.slug} ${feature.description ?? ""}`.toLowerCase();
+      const haystack =
+        `${feature.name} ${feature.slug} ${feature.description ?? ""}`.toLowerCase();
       return haystack.includes(query.toLowerCase());
     });
   }, [features, query]);
-  const selected = visibleFeatures.find((item) => item.id === selectedId) ?? visibleFeatures[0] ?? null;
+  const selected =
+    visibleFeatures.find((item) => item.id === selectedId) ??
+    visibleFeatures[0] ??
+    null;
 
   return (
-    <section className="workspace feature-workspace" data-list-collapsed={listCollapsed} aria-label="特性工作台">
-      <aside className="list-panel" data-collapsed={listCollapsed} role="region" aria-label="特性列表">
+    <section
+      className="workspace feature-workspace"
+      data-list-collapsed={listCollapsed}
+      aria-label="特性工作台"
+    >
+      <aside
+        className="list-panel"
+        data-collapsed={listCollapsed}
+        role="region"
+        aria-label="特性列表"
+      >
         <button
           aria-label={listCollapsed ? "展开特性列表" : "收起特性列表"}
           className="edge-collapse-button secondary"
@@ -138,7 +161,11 @@ export function FeatureWorkbench({ reportTarget }: FeatureWorkbenchProps) {
           title={listCollapsed ? "展开特性列表" : "收起特性列表"}
           type="button"
         >
-          {listCollapsed ? <ChevronRight aria-hidden="true" size={15} /> : <ChevronLeft aria-hidden="true" size={15} />}
+          {listCollapsed ? (
+            <ChevronRight aria-hidden="true" size={15} />
+          ) : (
+            <ChevronLeft aria-hidden="true" size={15} />
+          )}
         </button>
         {listCollapsed ? (
           <div className="collapsed-panel-label">特性</div>
@@ -183,7 +210,9 @@ export function FeatureWorkbench({ reportTarget }: FeatureWorkbenchProps) {
                   <label className="field-label compact">
                     描述
                     <Textarea
-                      onChange={(event) => setFeatureDescription(event.target.value)}
+                      onChange={(event) =>
+                        setFeatureDescription(event.target.value)
+                      }
                       placeholder="补充边界、负责人和常见问题"
                       value={featureDescription}
                     />
@@ -201,7 +230,9 @@ export function FeatureWorkbench({ reportTarget }: FeatureWorkbenchProps) {
               {!isLoading && visibleFeatures.length === 0 ? (
                 <div className="empty-block">
                   <p>暂无特性</p>
-                  <span>点击右上角加号创建业务特性，再上传 Wiki、报告和仓库关联。</span>
+                  <span>
+                    点击右上角加号创建业务特性，再上传 Wiki、报告和仓库关联。
+                  </span>
                 </div>
               ) : null}
               {visibleFeatures.map((feature) => (
@@ -226,7 +257,10 @@ export function FeatureWorkbench({ reportTarget }: FeatureWorkbenchProps) {
         <div className="page-header">
           <div>
             <h1>{selected?.name ?? "选择或创建特性"}</h1>
-            <p>{selected?.description ?? "特性内统一管理设置、知识库、问题报告、仓库关联和专属 Skill。"}</p>
+            <p>
+              {selected?.description ??
+                "特性内统一管理设置、知识库、问题报告、仓库关联和专属 Skill。"}
+            </p>
           </div>
           <Badge>{selected?.slug ?? "feature"}</Badge>
         </div>
@@ -262,7 +296,7 @@ function FeatureListItem({
   feature,
   onClick,
   onDelete,
-  pendingDelete
+  pendingDelete,
 }: {
   active: boolean;
   feature: FeatureRead;
@@ -272,7 +306,12 @@ function FeatureListItem({
 }) {
   return (
     <div className="list-row" data-active={active}>
-      <button className="list-item" data-active={active} onClick={onClick} type="button">
+      <button
+        className="list-item"
+        data-active={active}
+        onClick={onClick}
+        type="button"
+      >
         <span className="item-title">{feature.name}</span>
         <span className="item-meta">{feature.slug}</span>
       </button>
@@ -295,7 +334,7 @@ function DeleteFeatureDialog({
   featureName,
   isDeleting,
   onCancel,
-  onConfirm
+  onConfirm,
 }: {
   errorMessage: string;
   featureName: string;
@@ -317,7 +356,8 @@ function DeleteFeatureDialog({
         <div className="dialog-content">
           <h2 id="delete-feature-title">删除特性</h2>
           <p>
-            确认删除“{featureName}”？删除后该特性的设置、关联关系和知识资料将不再从特性列表进入。
+            确认删除“{featureName}
+            ”？删除后该特性的设置、关联关系和知识资料将不再从特性列表进入。
           </p>
           {errorMessage ? (
             <div className="inline-alert danger in-dialog" role="alert">
@@ -325,10 +365,20 @@ function DeleteFeatureDialog({
             </div>
           ) : null}
           <div className="dialog-actions">
-            <Button disabled={isDeleting} onClick={onCancel} type="button" variant="secondary">
+            <Button
+              disabled={isDeleting}
+              onClick={onCancel}
+              type="button"
+              variant="secondary"
+            >
               取消
             </Button>
-            <Button disabled={isDeleting} onClick={onConfirm} type="button" variant="danger">
+            <Button
+              disabled={isDeleting}
+              onClick={onConfirm}
+              type="button"
+              variant="danger"
+            >
               {isDeleting ? "删除中" : "确认删除"}
             </Button>
           </div>
@@ -341,7 +391,7 @@ function DeleteFeatureDialog({
 function FeatureTabContent({
   activeTab,
   feature,
-  selectedReportId
+  selectedReportId,
 }: {
   activeTab: string;
   feature: FeatureRead | null;
@@ -354,7 +404,12 @@ function FeatureTabContent({
     return <KnowledgePanel featureId={feature?.id} />;
   }
   if (activeTab === "reports") {
-    return <ReportsPanel featureId={feature?.id} selectedReportId={selectedReportId} />;
+    return (
+      <ReportsPanel
+        featureId={feature?.id}
+        selectedReportId={selectedReportId}
+      />
+    );
   }
   if (activeTab === "repos") {
     return <ReposPanel featureId={feature?.id} />;
@@ -372,11 +427,19 @@ function FeatureSettings({ feature }: { feature: FeatureRead | null }) {
         </div>
         <label className="field-label">
           名称
-          <Input readOnly value={feature?.name ?? ""} placeholder="选择一个特性后显示" />
+          <Input
+            readOnly
+            value={feature?.name ?? ""}
+            placeholder="选择一个特性后显示"
+          />
         </label>
         <label className="field-label">
           描述
-          <Textarea readOnly value={feature?.description ?? ""} placeholder="维护特性的业务边界和常见问题" />
+          <Textarea
+            readOnly
+            value={feature?.description ?? ""}
+            placeholder="维护特性的业务边界和常见问题"
+          />
         </label>
       </section>
       <section className="surface">
@@ -388,7 +451,9 @@ function FeatureSettings({ feature }: { feature: FeatureRead | null }) {
           <dt>Owner</dt>
           <dd>{feature?.owner_subject_id ?? "未创建"}</dd>
           <dt>更新时间</dt>
-          <dd>{feature ? new Date(feature.updated_at).toLocaleString() : "-"}</dd>
+          <dd>
+            {feature ? new Date(feature.updated_at).toLocaleString() : "-"}
+          </dd>
         </dl>
       </section>
     </div>
@@ -398,11 +463,13 @@ function FeatureSettings({ feature }: { feature: FeatureRead | null }) {
 function KnowledgePanel({ featureId }: { featureId?: number }) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState("");
-  const [selectedDocument, setSelectedDocument] = useState<DocumentRead | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<DocumentRead | null>(
+    null,
+  );
   const { data: fetchedDocuments = [] } = useQuery({
     queryKey: ["documents", featureId],
     queryFn: () => listDocuments(featureId),
-    enabled: Boolean(featureId)
+    enabled: Boolean(featureId),
   });
   const uploadMutation = useMutation({
     mutationFn: async (files: File[]) => {
@@ -413,24 +480,28 @@ function KnowledgePanel({ featureId }: { featureId?: number }) {
           await uploadDocument({
             feature_id: featureId ?? 0,
             file,
-            title: relativePath
-          })
+            title: relativePath,
+          }),
         );
       }
       return uploaded;
     },
     onSuccess: (documents) => {
       setStatus(`已上传 ${documents.length} 个 Wiki 文件`);
-      void queryClient.invalidateQueries({ queryKey: ["documents", featureId] });
-    }
+      void queryClient.invalidateQueries({
+        queryKey: ["documents", featureId],
+      });
+    },
   });
   const deleteMutation = useMutation({
     mutationFn: deleteDocument,
     onSuccess: () => {
       setSelectedDocument(null);
       setStatus("已删除 Wiki 文档");
-      void queryClient.invalidateQueries({ queryKey: ["documents", featureId] });
-    }
+      void queryClient.invalidateQueries({
+        queryKey: ["documents", featureId],
+      });
+    },
   });
 
   return (
@@ -462,14 +533,22 @@ function KnowledgePanel({ featureId }: { featureId?: number }) {
         </div>
         {status ? <p className="action-status">{status}</p> : null}
         {fetchedDocuments.length === 0 ? (
-          <div className="empty-block wide"><p>当前特性还没有上传 Wiki 文档。</p></div>
+          <div className="empty-block wide">
+            <p>当前特性还没有上传 Wiki 文档。</p>
+          </div>
         ) : (
           <ul className="data-list">
             {fetchedDocuments.map((document) => (
               <li key={document.id}>
-                <button className="plain-row-button" onClick={() => setSelectedDocument(document)} type="button">
+                <button
+                  className="plain-row-button"
+                  onClick={() => setSelectedDocument(document)}
+                  type="button"
+                >
                   <span>{document.title}</span>
-                  <small>{document.kind} · {document.path}</small>
+                  <small>
+                    {document.kind} · {document.path}
+                  </small>
                 </button>
                 <Button
                   disabled={deleteMutation.isPending}
@@ -504,7 +583,9 @@ function KnowledgePanel({ featureId }: { featureId?: number }) {
             <dd>{new Date(selectedDocument.updated_at).toLocaleString()}</dd>
           </dl>
         ) : (
-          <div className="empty-block wide"><p>选择左侧文档后预览元信息。</p></div>
+          <div className="empty-block wide">
+            <p>选择左侧文档后预览元信息。</p>
+          </div>
         )}
       </section>
     </div>
@@ -513,7 +594,7 @@ function KnowledgePanel({ featureId }: { featureId?: number }) {
 
 function ReportsPanel({
   featureId,
-  selectedReportId
+  selectedReportId,
 }: {
   featureId?: number;
   selectedReportId: number | null;
@@ -522,14 +603,16 @@ function ReportsPanel({
   const { data: fetchedReports = [] } = useQuery({
     queryKey: ["reports", featureId],
     queryFn: () => listReports(featureId),
-    enabled: Boolean(featureId)
+    enabled: Boolean(featureId),
   });
 
   useEffect(() => {
     if (!selectedReportId) {
       return;
     }
-    const matched = fetchedReports.find((report) => report.id === selectedReportId);
+    const matched = fetchedReports.find(
+      (report) => report.id === selectedReportId,
+    );
     if (matched) {
       setSelectedReport(matched);
     }
@@ -543,14 +626,23 @@ function ReportsPanel({
           <h2>问题报告</h2>
         </div>
         {fetchedReports.length === 0 ? (
-          <div className="empty-block wide"><p>暂无沉淀的问题报告。</p></div>
+          <div className="empty-block wide">
+            <p>暂无沉淀的问题报告。</p>
+          </div>
         ) : (
           <ul className="data-list">
             {fetchedReports.map((report) => (
               <li key={report.id}>
-                <button className="plain-row-button" onClick={() => setSelectedReport(report)} type="button">
+                <button
+                  className="plain-row-button"
+                  onClick={() => setSelectedReport(report)}
+                  type="button"
+                >
                   <span>{report.title}</span>
-                  <small>{report.status} · {new Date(report.updated_at).toLocaleString()}</small>
+                  <small>
+                    {report.status} ·{" "}
+                    {new Date(report.updated_at).toLocaleString()}
+                  </small>
                 </button>
                 <Badge>{report.verified ? "已验证" : "草稿"}</Badge>
               </li>
@@ -569,7 +661,9 @@ function ReportsPanel({
             <pre>{selectedReport.body_markdown}</pre>
           </article>
         ) : (
-          <div className="empty-block wide"><p>选择左侧报告后查看详情。</p></div>
+          <div className="empty-block wide">
+            <p>选择左侧报告后查看详情。</p>
+          </div>
         )}
       </section>
     </div>
@@ -580,16 +674,22 @@ function ReposPanel({ featureId }: { featureId?: number }) {
   const queryClient = useQueryClient();
   const { data: globalRepos = [] } = useQuery({
     queryKey: ["repos"],
-    queryFn: listRepos
+    queryFn: listRepos,
   });
   const { data: fetchedFeatureRepos = [] } = useQuery({
     queryKey: ["feature-repos", featureId],
     queryFn: () => listFeatureRepos(featureId ?? 0),
-    enabled: Boolean(featureId)
+    enabled: Boolean(featureId),
   });
   const linkedIds = new Set(fetchedFeatureRepos.map((repo) => repo.id));
   const linkMutation = useMutation({
-    mutationFn: async ({ repo, checked }: { repo: RepoOut; checked: boolean }) => {
+    mutationFn: async ({
+      repo,
+      checked,
+    }: {
+      repo: RepoOut;
+      checked: boolean;
+    }) => {
       if (!featureId) {
         return;
       }
@@ -600,8 +700,10 @@ function ReposPanel({ featureId }: { featureId?: number }) {
       }
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["feature-repos", featureId] });
-    }
+      void queryClient.invalidateQueries({
+        queryKey: ["feature-repos", featureId],
+      });
+    },
   });
 
   return (
@@ -623,12 +725,20 @@ function ReposPanel({ featureId }: { featureId?: number }) {
                   <input
                     checked={linkedIds.has(repo.id)}
                     disabled={!featureId || linkMutation.isPending}
-                    onChange={(event) => linkMutation.mutate({ repo, checked: event.target.checked })}
+                    onChange={(event) =>
+                      linkMutation.mutate({
+                        repo,
+                        checked: event.target.checked,
+                      })
+                    }
                     type="checkbox"
                   />
                   <span>
                     <strong>{repo.name}</strong>
-                    <small>{repo.status} · {repo.source === "git" ? repo.url : repo.local_path}</small>
+                    <small>
+                      {repo.status} ·{" "}
+                      {repo.source === "git" ? repo.url : repo.local_path}
+                    </small>
                   </span>
                 </label>
               </li>
@@ -646,40 +756,54 @@ function SkillPanel({ featureId }: { featureId?: number }) {
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [promptTemplate, setPromptTemplate] = useState("");
-  const { data: fetchedSkills = [] } = useQuery({ queryKey: ["skills"], queryFn: listSkills });
-  const featureSkills = mergeById(fetchedSkills, createdSkills).filter((skill) => skill.feature_id === featureId);
+  const { data: fetchedSkills = [] } = useQuery({
+    queryKey: ["skills"],
+    queryFn: listSkills,
+  });
+  const featureSkills = mergeById(fetchedSkills, createdSkills).filter(
+    (skill) => skill.feature_id === featureId,
+  );
   const createMutation = useMutation({
     mutationFn: () =>
       createSkill({
         name: name.trim(),
         scope: "feature",
         feature_id: featureId,
-        prompt_template: promptTemplate.trim()
+        prompt_template: promptTemplate.trim(),
       }),
     onSuccess: (skill) => {
       setCreatedSkills((current) => mergeById(current, [skill]));
       setName("");
       setPromptTemplate("");
       void queryClient.invalidateQueries({ queryKey: ["skills"] });
-    }
+    },
   });
   const updateMutation = useMutation({
-    mutationFn: ({ skillId, name: nextName, prompt }: { skillId: string; name: string; prompt: string }) =>
-      updateSkill(skillId, { name: nextName, prompt_template: prompt }),
+    mutationFn: ({
+      skillId,
+      name: nextName,
+      prompt,
+    }: {
+      skillId: string;
+      name: string;
+      prompt: string;
+    }) => updateSkill(skillId, { name: nextName, prompt_template: prompt }),
     onSuccess: (skill) => {
       setCreatedSkills((current) => mergeById(current, [skill]));
       void queryClient.invalidateQueries({ queryKey: ["skills"] });
-    }
+    },
   });
   const deleteMutation = useMutation({
     mutationFn: deleteSkill,
     onSuccess: (_unused, skillId) => {
-      setCreatedSkills((current) => current.filter((skill) => skill.id !== skillId));
+      setCreatedSkills((current) =>
+        current.filter((skill) => skill.id !== skillId),
+      );
       if (selectedSkillId === skillId) {
         setSelectedSkillId(null);
       }
       void queryClient.invalidateQueries({ queryKey: ["skills"] });
-    }
+    },
   });
 
   return (
@@ -691,14 +815,25 @@ function SkillPanel({ featureId }: { featureId?: number }) {
         </div>
         <label className="field-label">
           Skill 名称
-          <Input onChange={(event) => setName(event.target.value)} value={name} />
+          <Input
+            onChange={(event) => setName(event.target.value)}
+            value={name}
+          />
         </label>
         <label className="field-label">
           Prompt 模板
-          <Textarea onChange={(event) => setPromptTemplate(event.target.value)} value={promptTemplate} />
+          <Textarea
+            onChange={(event) => setPromptTemplate(event.target.value)}
+            value={promptTemplate}
+          />
         </label>
         <Button
-          disabled={!featureId || !name.trim() || !promptTemplate.trim() || createMutation.isPending}
+          disabled={
+            !featureId ||
+            !name.trim() ||
+            !promptTemplate.trim() ||
+            createMutation.isPending
+          }
           onClick={() => createMutation.mutate()}
           type="button"
           variant="primary"
@@ -708,7 +843,9 @@ function SkillPanel({ featureId }: { featureId?: number }) {
       </section>
       <section className="surface">
         {featureSkills.length === 0 ? (
-          <div className="empty-block wide"><p>当前特性还没有专属 Skill。</p></div>
+          <div className="empty-block wide">
+            <p>当前特性还没有专属 Skill。</p>
+          </div>
         ) : (
           <ul className="data-list settings-config-list">
             {featureSkills.map((skill) => (
@@ -718,18 +855,31 @@ function SkillPanel({ featureId }: { featureId?: number }) {
                   <small>{skill.prompt_template}</small>
                 </div>
                 <div className="row-actions">
-                  <Badge>{selectedSkillId === skill.id ? "已选择" : "可选"}</Badge>
-                  <Button onClick={() => setSelectedSkillId(skill.id)} type="button" variant="quiet">
+                  <Badge>
+                    {selectedSkillId === skill.id ? "已选择" : "可选"}
+                  </Badge>
+                  <Button
+                    onClick={() => setSelectedSkillId(skill.id)}
+                    type="button"
+                    variant="quiet"
+                  >
                     使用
                   </Button>
                   <Button
                     disabled={updateMutation.isPending}
                     icon={<Pencil size={15} />}
                     onClick={() => {
-                      const nextName = window.prompt("Skill 名称", skill.name) ?? skill.name;
-                      const prompt = window.prompt("Prompt 模板", skill.prompt_template) ?? skill.prompt_template;
+                      const nextName =
+                        window.prompt("Skill 名称", skill.name) ?? skill.name;
+                      const prompt =
+                        window.prompt("Prompt 模板", skill.prompt_template) ??
+                        skill.prompt_template;
                       if (nextName.trim() && prompt.trim()) {
-                        updateMutation.mutate({ skillId: skill.id, name: nextName.trim(), prompt: prompt.trim() });
+                        updateMutation.mutate({
+                          skillId: skill.id,
+                          name: nextName.trim(),
+                          prompt: prompt.trim(),
+                        });
                       }
                     }}
                     type="button"

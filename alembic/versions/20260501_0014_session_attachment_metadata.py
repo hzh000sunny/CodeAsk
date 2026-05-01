@@ -35,9 +35,7 @@ def upgrade() -> None:
     op.add_column("session_attachments", sa.Column("size_bytes", sa.Integer(), nullable=True))
 
     connection = op.get_bind()
-    rows = connection.execute(
-        sa.text("SELECT id, file_path FROM session_attachments")
-    ).mappings()
+    rows = connection.execute(sa.text("SELECT id, file_path FROM session_attachments")).mappings()
     for row in rows:
         fallback_name = Path(str(row["file_path"])).name or str(row["id"])
         connection.execute(

@@ -1,6 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -16,7 +21,7 @@ import {
   Search,
   SendHorizontal,
   Share2,
-  Trash2
+  Trash2,
 } from "lucide-react";
 
 import {
@@ -33,7 +38,7 @@ import {
   renameSessionAttachment,
   updateSession,
   updateSessionAttachment,
-  uploadSessionAttachment
+  uploadSessionAttachment,
 } from "../../lib/api";
 import { streamSessionMessage } from "../../lib/sse";
 import type {
@@ -41,7 +46,7 @@ import type {
   FeatureRead,
   FeedbackVerdict,
   ReportRead,
-  SessionResponse
+  SessionResponse,
 } from "../../types/api";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -57,7 +62,7 @@ import {
   runtimeInsightFromEvent,
   textDeltaFromEvent,
   type ConversationMessage,
-  type RuntimeInsight
+  type RuntimeInsight,
 } from "./session-model";
 
 interface ReportTarget {
@@ -86,7 +91,8 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
   const [localSessions, setLocalSessions] = useState<SessionResponse[]>([]);
   const [listCollapsed, setListCollapsed] = useState(false);
   const [deletedSessionIds, setDeletedSessionIds] = useState<string[]>([]);
-  const [deleteCandidate, setDeleteCandidate] = useState<SessionResponse | null>(null);
+  const [deleteCandidate, setDeleteCandidate] =
+    useState<SessionResponse | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
   const [bulkMode, setBulkMode] = useState(false);
@@ -94,34 +100,44 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [actionNotice, setActionNotice] = useState("");
   const [detectedFeatureIds, setDetectedFeatureIds] = useState<number[]>([]);
-  const [reportDialog, setReportDialog] = useState<"not-ready" | "confirm" | "success" | null>(null);
+  const [reportDialog, setReportDialog] = useState<
+    "not-ready" | "confirm" | "success" | null
+  >(null);
   const [reportFeatureId, setReportFeatureId] = useState("");
   const [reportTitle, setReportTitle] = useState("");
   const [reportError, setReportError] = useState("");
-  const [generatedReport, setGeneratedReport] = useState<ReportRead | null>(null);
+  const [generatedReport, setGeneratedReport] = useState<ReportRead | null>(
+    null,
+  );
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
-  const [feedbackByTurnId, setFeedbackByTurnId] = useState<Record<string, FeedbackVerdict>>({});
-  const [feedbackPendingTurnId, setFeedbackPendingTurnId] = useState<string | null>(null);
+  const [feedbackByTurnId, setFeedbackByTurnId] = useState<
+    Record<string, FeedbackVerdict>
+  >({});
+  const [feedbackPendingTurnId, setFeedbackPendingTurnId] = useState<
+    string | null
+  >(null);
   const { data: sessions = [], isLoading } = useQuery({
     queryKey: ["sessions"],
-    queryFn: listSessions
+    queryFn: listSessions,
   });
   const { data: features = [] } = useQuery({
     queryKey: ["features"],
-    queryFn: listFeatures
+    queryFn: listFeatures,
   });
   const createMutation = useMutation({
     mutationFn: () => createSession("新的研发会话"),
     onSuccess: (session) => {
       setSelectedId(session.id);
       rememberSession(session);
-    }
+    },
   });
   const deleteMutation = useMutation({
     mutationFn: (sessionId: string) => deleteSession(sessionId),
     onSuccess: (_unused, sessionId) => {
       setDeletedSessionIds((current) => [...new Set([...current, sessionId])]);
-      setLocalSessions((current) => current.filter((session) => session.id !== sessionId));
+      setLocalSessions((current) =>
+        current.filter((session) => session.id !== sessionId),
+      );
       setDeleteCandidate(null);
       setDeleteError("");
       if (selectedId === sessionId) {
@@ -134,22 +150,29 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     },
     onError: (error) => {
       setDeleteError(`删除会话失败：${messageFromError(error)}`);
-    }
+    },
   });
   const updateMutation = useMutation({
-    mutationFn: ({ sessionId, payload }: { sessionId: string; payload: Partial<{ title: string; pinned: boolean }> }) =>
-      updateSession(sessionId, payload),
+    mutationFn: ({
+      sessionId,
+      payload,
+    }: {
+      sessionId: string;
+      payload: Partial<{ title: string; pinned: boolean }>;
+    }) => updateSession(sessionId, payload),
     onSuccess: () => {
       setMenuSessionId(null);
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
-    }
+    },
   });
   const bulkDeleteMutation = useMutation({
     mutationFn: bulkDeleteSessions,
     onSuccess: (payload) => {
-      setDeletedSessionIds((current) => [...new Set([...current, ...payload.deleted_ids])]);
+      setDeletedSessionIds((current) => [
+        ...new Set([...current, ...payload.deleted_ids]),
+      ]);
       setLocalSessions((current) =>
-        current.filter((session) => !payload.deleted_ids.includes(session.id))
+        current.filter((session) => !payload.deleted_ids.includes(session.id)),
       );
       if (selectedId && payload.deleted_ids.includes(selectedId)) {
         setSelectedId(null);
@@ -164,31 +187,41 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     },
     onError: (error) => {
       setDeleteError(`批量删除失败：${messageFromError(error)}`);
-    }
+    },
   });
   const reportMutation = useMutation({
-    mutationFn: ({ session, featureId, title }: { session: SessionResponse; featureId: number; title: string }) =>
+    mutationFn: ({
+      session,
+      featureId,
+      title,
+    }: {
+      session: SessionResponse;
+      featureId: number;
+      title: string;
+    }) =>
       generateSessionReport(session.id, {
         feature_id: featureId,
-        title
+        title,
       }),
     onSuccess: (report) => {
       setGeneratedReport(report);
       setReportError("");
       setReportDialog("success");
       if (report.feature_id) {
-        void queryClient.invalidateQueries({ queryKey: ["reports", report.feature_id] });
+        void queryClient.invalidateQueries({
+          queryKey: ["reports", report.feature_id],
+        });
       }
     },
     onError: (error) => {
       setReportError(`生成报告失败：${messageFromError(error)}`);
-    }
+    },
   });
   const feedbackMutation = useMutation({
     mutationFn: async ({
       sessionId,
       turnId,
-      verdict
+      verdict,
     }: {
       sessionId: string;
       turnId: string;
@@ -196,15 +229,15 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     }) => {
       await postFeedback({
         session_turn_id: turnId,
-        feedback: verdict
+        feedback: verdict,
       });
       await postFrontendEvent({
         event_type: "feedback_submitted",
         session_id: sessionId,
         payload: {
           turn_id: turnId,
-          feedback: verdict
-        }
+          feedback: verdict,
+        },
       });
       return { turnId, verdict };
     },
@@ -219,7 +252,7 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     onError: (error) => {
       setFeedbackPendingTurnId(null);
       showActionNotice(`提交反馈失败：${messageFromError(error)}`);
-    }
+    },
   });
 
   const sessionRows = useMemo(() => {
@@ -236,10 +269,13 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     return sessionRows.filter(
       (session) =>
         !deletedSessionIds.includes(session.id) &&
-        session.title.toLowerCase().includes(query.toLowerCase())
+        session.title.toLowerCase().includes(query.toLowerCase()),
     );
   }, [deletedSessionIds, query, sessionRows]);
-  const selected = visibleSessions.find((item) => item.id === selectedId) ?? visibleSessions[0] ?? null;
+  const selected =
+    visibleSessions.find((item) => item.id === selectedId) ??
+    visibleSessions[0] ??
+    null;
   const selectedSessionId = selected?.id ?? "";
   useEffect(() => {
     setCopiedSessionId(null);
@@ -258,20 +294,19 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
       clearActionNoticeTimer();
     };
   }, []);
-  const {
-    data: attachments = [],
-    isFetching: isFetchingAttachments
-  } = useQuery({
-    queryKey: sessionAttachmentsQueryKey(selectedSessionId),
-    queryFn: ({ signal }) => listSessionAttachments(selectedSessionId, signal),
-    enabled: Boolean(selectedSessionId),
-    staleTime: 30_000
-  });
+  const { data: attachments = [], isFetching: isFetchingAttachments } =
+    useQuery({
+      queryKey: sessionAttachmentsQueryKey(selectedSessionId),
+      queryFn: ({ signal }) =>
+        listSessionAttachments(selectedSessionId, signal),
+      enabled: Boolean(selectedSessionId),
+      staleTime: 30_000,
+    });
   const renameAttachmentMutation = useMutation({
     mutationFn: ({
       attachmentId,
       displayName,
-      sessionId
+      sessionId,
     }: {
       attachmentId: string;
       displayName: string;
@@ -283,13 +318,13 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     },
     onError: (error) => {
       showActionNotice(`重命名会话数据失败：${messageFromError(error)}`);
-    }
+    },
   });
   const describeAttachmentMutation = useMutation({
     mutationFn: ({
       attachmentId,
       description,
-      sessionId
+      sessionId,
     }: {
       attachmentId: string;
       description: string | null;
@@ -301,12 +336,12 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     },
     onError: (error) => {
       showActionNotice(`更新用途说明失败：${messageFromError(error)}`);
-    }
+    },
   });
   const deleteAttachmentMutation = useMutation({
     mutationFn: ({
       attachmentId,
-      sessionId
+      sessionId,
     }: {
       attachmentId: string;
       sessionId: string;
@@ -316,12 +351,15 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
       showActionNotice(`已删除 ${variables.displayName}`);
       queryClient.setQueryData<AttachmentResponse[]>(
         sessionAttachmentsQueryKey(variables.sessionId),
-        (current = []) => current.filter((attachment) => attachment.id !== variables.attachmentId)
+        (current = []) =>
+          current.filter(
+            (attachment) => attachment.id !== variables.attachmentId,
+          ),
       );
     },
     onError: (error) => {
       showActionNotice(`删除会话数据失败：${messageFromError(error)}`);
-    }
+    },
   });
   const hasCompletedQuestionAnswer = useMemo(() => {
     let hasUserQuestion = false;
@@ -352,7 +390,7 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
       return;
     }
     const inferredFeatureId = detectedFeatureIds.find((id) =>
-      features.some((feature) => feature.id === id)
+      features.some((feature) => feature.id === id),
     );
     const defaultFeatureId = inferredFeatureId ?? features[0]?.id;
     setReportFeatureId(defaultFeatureId ? String(defaultFeatureId) : "");
@@ -369,12 +407,15 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     reportMutation.mutate({
       session: selected,
       featureId: Number(reportFeatureId),
-      title: reportTitle.trim() || `${selected.title}定位报告`
+      title: reportTitle.trim() || `${selected.title}定位报告`,
     });
   }
 
   function rememberSession(session: SessionResponse) {
-    setLocalSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
+    setLocalSessions((current) => [
+      session,
+      ...current.filter((item) => item.id !== session.id),
+    ]);
     upsertSession(queryClient, session);
   }
 
@@ -406,7 +447,12 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     setMessages((current) => [
       ...current,
       { id: userMessageId, role: "user", content },
-      { id: assistantMessageId, role: "assistant", content: "", status: "streaming" }
+      {
+        id: assistantMessageId,
+        role: "assistant",
+        content: "",
+        status: "streaming",
+      },
     ]);
 
     try {
@@ -423,7 +469,9 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
           if (event.type === "scope_detection") {
             const ids = featureIdsFromEvent(event.data);
             if (ids.length > 0) {
-              setDetectedFeatureIds((current) => [...new Set([...ids, ...current])]);
+              setDetectedFeatureIds((current) => [
+                ...new Set([...ids, ...current]),
+              ]);
             }
           }
           const delta = textDeltaFromEvent(event);
@@ -432,8 +480,8 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
               current.map((message) =>
                 message.id === assistantMessageId
                   ? { ...message, content: `${message.content}${delta}` }
-                  : message
-              )
+                  : message,
+              ),
             );
           }
           const askUserMessage = askUserMessageFromEvent(event);
@@ -443,11 +491,13 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
                 message.id === assistantMessageId
                   ? {
                       ...message,
-                      content: message.content ? `${message.content}\n\n${askUserMessage}` : askUserMessage,
-                      status: "done"
+                      content: message.content
+                        ? `${message.content}\n\n${askUserMessage}`
+                        : askUserMessage,
+                      status: "done",
                     }
-                  : message
-              )
+                  : message,
+              ),
             );
           }
           if (event.type === "error") {
@@ -457,36 +507,43 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
                   ? {
                       ...message,
                       content: String(event.data.message ?? "Agent 运行失败"),
-                      status: "error"
+                      status: "error",
                     }
-                  : message
-              )
+                  : message,
+              ),
             );
           }
           if (event.type === "done") {
-            const turnId = typeof event.data.turn_id === "string" ? event.data.turn_id : null;
+            const turnId =
+              typeof event.data.turn_id === "string"
+                ? event.data.turn_id
+                : null;
             setMessages((current) =>
               current.map((message) =>
                 message.id === assistantMessageId
-                  ? { ...message, status: "done", turnId: turnId ?? message.turnId }
-                  : message
-              )
+                  ? {
+                      ...message,
+                      status: "done",
+                      turnId: turnId ?? message.turnId,
+                    }
+                  : message,
+              ),
             );
           }
-        }
+        },
       });
     } catch (error) {
       setMessages((current) =>
         current.map((message) =>
           message.id === assistantMessageId
             ? { ...message, content: messageFromError(error), status: "error" }
-            : message
-        )
+            : message,
+        ),
       );
       setStages((current) =>
         current.map((stage) =>
-          stage.status === "active" ? { ...stage, status: "error" } : stage
-        )
+          stage.status === "active" ? { ...stage, status: "error" } : stage,
+        ),
       );
     } finally {
       setIsStreaming(false);
@@ -501,12 +558,16 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     try {
       let target = selected;
       if (!target) {
-        target = await createSession(file.name.trim().slice(0, 28) || "新的研发会话");
+        target = await createSession(
+          file.name.trim().slice(0, 28) || "新的研发会话",
+        );
         setSelectedId(target.id);
         rememberSession(target);
       }
       const uploaded = await uploadSessionAttachment(target.id, file, "log");
-      await queryClient.cancelQueries({ queryKey: sessionAttachmentsQueryKey(target.id) });
+      await queryClient.cancelQueries({
+        queryKey: sessionAttachmentsQueryKey(target.id),
+      });
       upsertAttachment(queryClient, uploaded);
       setUploadStatus(`已上传 ${uploaded.display_name}`);
     } catch (error) {
@@ -527,7 +588,7 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     renameAttachmentMutation.mutate({
       attachmentId: attachment.id,
       displayName,
-      sessionId: attachment.session_id
+      sessionId: attachment.session_id,
     });
   }
 
@@ -538,7 +599,7 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     deleteAttachmentMutation.mutate({
       attachmentId: attachment.id,
       displayName: attachment.display_name,
-      sessionId: attachment.session_id
+      sessionId: attachment.session_id,
     });
   }
 
@@ -550,7 +611,7 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     describeAttachmentMutation.mutate({
       attachmentId: attachment.id,
       description: next.trim() || null,
-      sessionId: attachment.session_id
+      sessionId: attachment.session_id,
     });
   }
 
@@ -590,8 +651,17 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
   }
 
   return (
-    <section className="workspace session-workspace" data-list-collapsed={listCollapsed} aria-label="会话工作台">
-      <aside className="list-panel" data-collapsed={listCollapsed} role="region" aria-label="会话列表">
+    <section
+      className="workspace session-workspace"
+      data-list-collapsed={listCollapsed}
+      aria-label="会话工作台"
+    >
+      <aside
+        className="list-panel"
+        data-collapsed={listCollapsed}
+        role="region"
+        aria-label="会话列表"
+      >
         <button
           aria-label={listCollapsed ? "展开会话列表" : "收起会话列表"}
           className="edge-collapse-button secondary"
@@ -600,7 +670,11 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
           title={listCollapsed ? "展开会话列表" : "收起会话列表"}
           type="button"
         >
-          {listCollapsed ? <ChevronRight aria-hidden="true" size={15} /> : <ChevronLeft aria-hidden="true" size={15} />}
+          {listCollapsed ? (
+            <ChevronRight aria-hidden="true" size={15} />
+          ) : (
+            <ChevronLeft aria-hidden="true" size={15} />
+          )}
         </button>
         {listCollapsed ? (
           <div className="collapsed-panel-label">会话</div>
@@ -678,12 +752,17 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
                     setMenuSessionId(null);
                   }}
                   onMenuToggle={() =>
-                    setMenuSessionId((current) => (current === session.id ? null : session.id))
+                    setMenuSessionId((current) =>
+                      current === session.id ? null : session.id,
+                    )
                   }
                   onRename={() => {
                     const next = window.prompt("编辑会话名称", session.title);
                     if (next?.trim()) {
-                      updateMutation.mutate({ sessionId: session.id, payload: { title: next.trim() } });
+                      updateMutation.mutate({
+                        sessionId: session.id,
+                        payload: { title: next.trim() },
+                      });
                     }
                   }}
                   onShare={() => showActionNotice("暂不支持")}
@@ -693,13 +772,16 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
                     setMenuSessionId(null);
                   }}
                   onTogglePin={() =>
-                    updateMutation.mutate({ sessionId: session.id, payload: { pinned: !session.pinned } })
+                    updateMutation.mutate({
+                      sessionId: session.id,
+                      payload: { pinned: !session.pinned },
+                    })
                   }
                   onToggleSelect={() =>
                     setBulkSelectedIds((current) =>
                       current.includes(session.id)
                         ? current.filter((id) => id !== session.id)
-                        : [...current, session.id]
+                        : [...current, session.id],
                     )
                   }
                   menuOpen={menuSessionId === session.id}
@@ -712,7 +794,11 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
         )}
       </aside>
 
-      <section className="conversation-panel" role="region" aria-label="会话消息">
+      <section
+        className="conversation-panel"
+        role="region"
+        aria-label="会话消息"
+      >
         <div className="page-header compact">
           <div>
             <div className="session-title-row">
@@ -740,17 +826,29 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
             <Badge>{selected?.status ?? "ready"}</Badge>
           </div>
         </div>
-        {actionNotice ? <div className="action-banner" role="status">{actionNotice}</div> : null}
+        {actionNotice ? (
+          <div className="action-banner" role="status">
+            {actionNotice}
+          </div>
+        ) : null}
 
         <MessageStream
           feedbackByTurnId={feedbackByTurnId}
           feedbackPendingTurnId={feedbackPendingTurnId}
           messages={messages}
           onFeedback={(turnId, verdict) => {
-            if (!selectedSessionId || feedbackPendingTurnId === turnId || feedbackByTurnId[turnId]) {
+            if (
+              !selectedSessionId ||
+              feedbackPendingTurnId === turnId ||
+              feedbackByTurnId[turnId]
+            ) {
               return;
             }
-            feedbackMutation.mutate({ sessionId: selectedSessionId, turnId, verdict });
+            feedbackMutation.mutate({
+              sessionId: selectedSessionId,
+              turnId,
+              verdict,
+            });
           }}
         />
 
@@ -778,7 +876,9 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
             >
               上传日志
             </Button>
-            {uploadStatus ? <span className="upload-status">{uploadStatus}</span> : null}
+            {uploadStatus ? (
+              <span className="upload-status">{uploadStatus}</span>
+            ) : null}
             <label className="checkbox-row">
               <input
                 checked={forceCodeInvestigation}
@@ -791,8 +891,8 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
                       session_id: selectedSessionId,
                       payload: {
                         turn_count: messages.length,
-                        streaming: isStreaming
-                      }
+                        streaming: isStreaming,
+                      },
                     }).catch(() => undefined);
                   }
                 }}
@@ -825,7 +925,11 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
       <InvestigationPanel
         attachments={attachments}
         insights={insights}
-        isLoadingAttachments={Boolean(selectedSessionId) && isFetchingAttachments && attachments.length === 0}
+        isLoadingAttachments={
+          Boolean(selectedSessionId) &&
+          isFetchingAttachments &&
+          attachments.length === 0
+        }
         isStreaming={isStreaming}
         onDescribeAttachment={describeAttachment}
         onDeleteAttachment={deleteAttachment}
@@ -884,7 +988,10 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
           onOpen={() => {
             setReportDialog(null);
             if (generatedReport.feature_id) {
-              onOpenReport?.({ featureId: generatedReport.feature_id, reportId: generatedReport.id });
+              onOpenReport?.({
+                featureId: generatedReport.feature_id,
+                reportId: generatedReport.id,
+              });
             }
           }}
           report={generatedReport}
@@ -899,7 +1006,10 @@ function featureIdsFromEvent(data: Record<string, unknown>) {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter((item): item is number => typeof item === "number" && Number.isInteger(item));
+  return value.filter(
+    (item): item is number =>
+      typeof item === "number" && Number.isInteger(item),
+  );
 }
 
 function formatSessionIdPreview(sessionId: string) {
@@ -943,17 +1053,21 @@ function sessionAttachmentsQueryKey(sessionId: string) {
   return ["session-attachments", sessionId] as const;
 }
 
-function upsertAttachment(queryClient: QueryClient, attachment: AttachmentResponse) {
+function upsertAttachment(
+  queryClient: QueryClient,
+  attachment: AttachmentResponse,
+) {
   queryClient.setQueryData<AttachmentResponse[]>(
     sessionAttachmentsQueryKey(attachment.session_id),
     (current = []) => {
       const next = current.filter((item) => item.id !== attachment.id);
       return [...next, attachment].sort(
         (left, right) =>
-          new Date(left.created_at).getTime() - new Date(right.created_at).getTime() ||
-          left.id.localeCompare(right.id)
+          new Date(left.created_at).getTime() -
+            new Date(right.created_at).getTime() ||
+          left.id.localeCompare(right.id),
       );
-    }
+    },
   );
 }
 
@@ -999,7 +1113,7 @@ function ReportConfirmDialog({
   onConfirm,
   onFeatureChange,
   onTitleChange,
-  title
+  title,
 }: {
   errorMessage: string;
   featureId: string;
@@ -1042,7 +1156,10 @@ function ReportConfirmDialog({
           </label>
           <label className="field-label compact">
             报告标题
-            <Input onChange={(event) => onTitleChange(event.target.value)} value={title} />
+            <Input
+              onChange={(event) => onTitleChange(event.target.value)}
+              value={title}
+            />
           </label>
           {errorMessage ? (
             <div className="inline-alert danger in-dialog" role="alert">
@@ -1050,7 +1167,12 @@ function ReportConfirmDialog({
             </div>
           ) : null}
           <div className="dialog-actions">
-            <Button disabled={isGenerating} onClick={onCancel} type="button" variant="secondary">
+            <Button
+              disabled={isGenerating}
+              onClick={onCancel}
+              type="button"
+              variant="secondary"
+            >
               取消
             </Button>
             <Button
@@ -1071,7 +1193,7 @@ function ReportConfirmDialog({
 function ReportSuccessDialog({
   onClose,
   onOpen,
-  report
+  report,
 }: {
   onClose: () => void;
   onOpen: () => void;
@@ -1110,7 +1232,7 @@ function DeleteSessionDialog({
   isDeleting,
   onCancel,
   onConfirm,
-  sessionTitle
+  sessionTitle,
 }: {
   errorMessage: string;
   isDeleting: boolean;
@@ -1131,19 +1253,27 @@ function DeleteSessionDialog({
         </div>
         <div className="dialog-content">
           <h2 id="delete-session-title">删除会话</h2>
-          <p>
-            确认删除“{sessionTitle}”？删除后会话记录和关联附件将被移除。
-          </p>
+          <p>确认删除“{sessionTitle}”？删除后会话记录和关联附件将被移除。</p>
           {errorMessage ? (
             <div className="inline-alert danger in-dialog" role="alert">
               {errorMessage}
             </div>
           ) : null}
           <div className="dialog-actions">
-            <Button disabled={isDeleting} onClick={onCancel} type="button" variant="secondary">
+            <Button
+              disabled={isDeleting}
+              onClick={onCancel}
+              type="button"
+              variant="secondary"
+            >
               取消
             </Button>
-            <Button disabled={isDeleting} onClick={onConfirm} type="button" variant="danger">
+            <Button
+              disabled={isDeleting}
+              onClick={onConfirm}
+              type="button"
+              variant="danger"
+            >
               {isDeleting ? "删除中" : "确认删除"}
             </Button>
           </div>
@@ -1167,7 +1297,7 @@ function SessionListItem({
   onTogglePin,
   onToggleSelect,
   pendingDelete,
-  session
+  session,
 }: {
   active: boolean;
   bulkMode: boolean;
@@ -1199,7 +1329,7 @@ function SessionListItem({
       }
       setMenuPosition({
         left: Math.max(8, rect.right - 166),
-        top: rect.bottom + 6
+        top: rect.bottom + 6,
       });
     }
 
@@ -1213,7 +1343,11 @@ function SessionListItem({
   }, [menuOpen]);
 
   const menu = menuOpen ? (
-    <div className="row-menu" role="menu" style={{ left: menuPosition.left, top: menuPosition.top }}>
+    <div
+      className="row-menu"
+      role="menu"
+      style={{ left: menuPosition.left, top: menuPosition.top }}
+    >
       <button onClick={onRename} role="menuitem" type="button">
         <Pencil aria-hidden="true" size={15} />
         编辑名称
@@ -1230,7 +1364,12 @@ function SessionListItem({
         <ListChecks aria-hidden="true" size={15} />
         批量操作
       </button>
-      <button className="danger" onClick={onDelete} role="menuitem" type="button">
+      <button
+        className="danger"
+        onClick={onDelete}
+        role="menuitem"
+        type="button"
+      >
         <Trash2 aria-hidden="true" size={15} />
         删除
       </button>
@@ -1255,7 +1394,9 @@ function SessionListItem({
           {session.pinned ? <Pin aria-hidden="true" size={13} /> : null}
           {session.title}
         </span>
-        <span className="item-meta">{new Date(session.updated_at).toLocaleString()}</span>
+        <span className="item-meta">
+          {new Date(session.updated_at).toLocaleString()}
+        </span>
       </button>
       <button
         aria-label={`打开会话 ${session.title} 的更多操作`}

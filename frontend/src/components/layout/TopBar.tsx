@@ -18,7 +18,7 @@ export function TopBar({ onLoginRequest, onNavigate }: TopBarProps) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const { data: me } = useQuery({
     queryKey: ["auth", "me"],
-    queryFn: getMe
+    queryFn: getMe,
   });
   const logoutMutation = useMutation({
     mutationFn: logout,
@@ -26,7 +26,7 @@ export function TopBar({ onLoginRequest, onNavigate }: TopBarProps) {
       setNotice("");
       void queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-llm-configs"] });
-    }
+    },
   });
 
   useEffect(() => {
@@ -79,8 +79,17 @@ export function TopBar({ onLoginRequest, onNavigate }: TopBarProps) {
                   <strong>{displayName}</strong>
                   <span>管理员</span>
                 </div>
-                {notice ? <div className="menu-notice" role="status">{notice}</div> : null}
-                <button className="menu-item" onClick={() => setNotice("暂不支持")} role="menuitem" type="button">
+                {notice ? (
+                  <div className="menu-notice" role="status">
+                    {notice}
+                  </div>
+                ) : null}
+                <button
+                  className="menu-item"
+                  onClick={() => setNotice("暂不支持")}
+                  role="menuitem"
+                  type="button"
+                >
                   <UserRound aria-hidden="true" size={16} />
                   <span>个人信息</span>
                 </button>

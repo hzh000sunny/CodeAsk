@@ -15,14 +15,14 @@ interface MessageStreamProps {
 const FEEDBACK_LABELS: Record<FeedbackVerdict, string> = {
   solved: "已解决",
   partial: "部分解决",
-  wrong: "没解决"
+  wrong: "没解决",
 };
 
 export function MessageStream({
   messages,
   feedbackByTurnId = {},
   feedbackPendingTurnId = null,
-  onFeedback
+  onFeedback,
 }: MessageStreamProps) {
   if (messages.length === 0) {
     return (
@@ -41,14 +41,28 @@ export function MessageStream({
   return (
     <div className="message-stream">
       {messages.map((message) => (
-        <article className="message-bubble" data-role={message.role} key={message.id}>
-          <div className="message-meta">{message.role === "user" ? "你" : message.role === "assistant" ? "CodeAsk" : "系统"}</div>
+        <article
+          className="message-bubble"
+          data-role={message.role}
+          key={message.id}
+        >
+          <div className="message-meta">
+            {message.role === "user"
+              ? "你"
+              : message.role === "assistant"
+                ? "CodeAsk"
+                : "系统"}
+          </div>
           <p>{message.content || "正在生成..."}</p>
-          {message.role === "assistant" && message.status === "done" && message.turnId ? (
+          {message.role === "assistant" &&
+          message.status === "done" &&
+          message.turnId ? (
             <FeedbackBar
               current={feedbackByTurnId[message.turnId]}
               disabled={feedbackPendingTurnId === message.turnId}
-              onFeedback={(verdict) => onFeedback?.(message.turnId ?? "", verdict)}
+              onFeedback={(verdict) =>
+                onFeedback?.(message.turnId ?? "", verdict)
+              }
             />
           ) : null}
         </article>
@@ -60,7 +74,7 @@ export function MessageStream({
 function FeedbackBar({
   current,
   disabled,
-  onFeedback
+  onFeedback,
 }: {
   current?: FeedbackVerdict;
   disabled: boolean;

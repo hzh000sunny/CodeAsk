@@ -9,7 +9,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: ReactNode;
 }
 
-export function Button({ className, variant = "secondary", icon, children, ...props }: ButtonProps) {
+export function Button({
+  className,
+  variant = "secondary",
+  icon,
+  children,
+  ...props
+}: ButtonProps) {
   return (
     <button className={cn("button", `button-${variant}`, className)} {...props}>
       {icon ? <span className="button-icon">{icon}</span> : null}

@@ -33,26 +33,61 @@ const STAGE_LABELS: Record<string, string> = {
   evidence_synthesis: "证据合成",
   answer_finalization: "最终回答",
   report_drafting: "报告草稿",
-  ask_user: "等待补充"
+  ask_user: "等待补充",
 };
 
 export function createInitialStages(): RuntimeStage[] {
   return [
-    { key: "input_analysis", label: "输入分析", detail: "等待会话输入", status: "pending" },
-    { key: "scope_detection", label: "范围判断", detail: "识别问题关联的特性和上下文范围", status: "pending" },
-    { key: "knowledge_retrieval", label: "知识检索", detail: "检索 Wiki 和问题报告", status: "pending" },
-    { key: "sufficiency_judgement", label: "充分性判断", detail: "判断知识证据是否足够回答", status: "pending" },
-    { key: "code_investigation", label: "代码调查", detail: "知识不足或用户强制时读取仓库证据", status: "pending" },
-    { key: "answer_finalization", label: "最终回答", detail: "输出结论与可执行步骤", status: "pending" }
+    {
+      key: "input_analysis",
+      label: "输入分析",
+      detail: "等待会话输入",
+      status: "pending",
+    },
+    {
+      key: "scope_detection",
+      label: "范围判断",
+      detail: "识别问题关联的特性和上下文范围",
+      status: "pending",
+    },
+    {
+      key: "knowledge_retrieval",
+      label: "知识检索",
+      detail: "检索 Wiki 和问题报告",
+      status: "pending",
+    },
+    {
+      key: "sufficiency_judgement",
+      label: "充分性判断",
+      detail: "判断知识证据是否足够回答",
+      status: "pending",
+    },
+    {
+      key: "code_investigation",
+      label: "代码调查",
+      detail: "知识不足或用户强制时读取仓库证据",
+      status: "pending",
+    },
+    {
+      key: "answer_finalization",
+      label: "最终回答",
+      detail: "输出结论与可执行步骤",
+      status: "pending",
+    },
   ];
 }
 
-export function reduceStages(stages: RuntimeStage[], event: AgentEvent): RuntimeStage[] {
+export function reduceStages(
+  stages: RuntimeStage[],
+  event: AgentEvent,
+): RuntimeStage[] {
   if (event.type === "done") {
     return stages.map((stage) => ({ ...stage, status: "done" }));
   }
   if (event.type === "error") {
-    return stages.map((stage) => (stage.status === "active" ? { ...stage, status: "error" } : stage));
+    return stages.map((stage) =>
+      stage.status === "active" ? { ...stage, status: "error" } : stage,
+    );
   }
   if (event.type !== "stage_transition") {
     return stages;
@@ -66,7 +101,15 @@ export function reduceStages(stages: RuntimeStage[], event: AgentEvent): Runtime
   const knownIndex = stages.findIndex((stage) => stage.key === stageKey);
   const nextStages =
     knownIndex === -1
-      ? [...stages, { key: stageKey, label: stageLabel(stageKey, event), detail: "Agent 进入该阶段", status: "pending" as const }]
+      ? [
+          ...stages,
+          {
+            key: stageKey,
+            label: stageLabel(stageKey, event),
+            detail: "Agent 进入该阶段",
+            status: "pending" as const,
+          },
+        ]
       : stages;
   const targetIndex = knownIndex === -1 ? nextStages.length - 1 : knownIndex;
 
@@ -79,7 +122,7 @@ export function reduceStages(stages: RuntimeStage[], event: AgentEvent): Runtime
         ...stage,
         label: stageLabel(stage.key, event),
         detail: stringData(event, "message") ?? stage.detail,
-        status: "active"
+        status: "active",
       };
     }
     return { ...stage, status: "pending" };
@@ -93,16 +136,21 @@ export function textDeltaFromEvent(event: AgentEvent) {
   return stringData(event, "delta") ?? stringData(event, "text") ?? "";
 }
 
-export function runtimeInsightFromEvent(event: AgentEvent): RuntimeInsight | null {
+export function runtimeInsightFromEvent(
+  event: AgentEvent,
+): RuntimeInsight | null {
   if (event.type === "scope_detection") {
-    const featureIds = Array.isArray(event.data.feature_ids) ? event.data.feature_ids.join(", ") : "未命中特性";
+    const featureIds = Array.isArray(event.data.feature_ids)
+      ? event.data.feature_ids.join(", ")
+      : "未命中特性";
     const confidence = numberData(event, "confidence");
-    const confidenceText = confidence === null ? "" : ` · 置信度 ${Math.round(confidence * 100)}%`;
+    const confidenceText =
+      confidence === null ? "" : ` · 置信度 ${Math.round(confidence * 100)}%`;
     return {
       id: `scope_${Date.now()}`,
       kind: "scope",
       title: `范围判断：${featureIds}${confidenceText}`,
-      detail: stringData(event, "reason") ?? "Agent 已完成特性范围判断"
+      detail: stringData(event, "reason") ?? "Agent 已完成特性范围判断",
     };
   }
   if (event.type === "sufficiency_judgement") {
@@ -110,10 +158,15 @@ export function runtimeInsightFromEvent(event: AgentEvent): RuntimeInsight | nul
       id: `sufficiency_${Date.now()}`,
       kind: "sufficiency",
       title: stringData(event, "verdict") ?? "充分性判断",
-      detail: [
-        stringData(event, "reason"),
-        stringData(event, "next") ? `下一步：${stringData(event, "next")}` : null
-      ].filter(Boolean).join(" · ") || "Agent 已判断当前证据是否足够"
+      detail:
+        [
+          stringData(event, "reason"),
+          stringData(event, "next")
+            ? `下一步：${stringData(event, "next")}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "Agent 已判断当前证据是否足够",
     };
   }
   if (event.type === "tool_call") {
@@ -121,7 +174,7 @@ export function runtimeInsightFromEvent(event: AgentEvent): RuntimeInsight | nul
       id: `tool_call_${stringData(event, "id") ?? Date.now()}`,
       kind: "tool",
       title: `调用工具：${stringData(event, "name") ?? "unknown"}`,
-      detail: compactJson(event.data.arguments)
+      detail: compactJson(event.data.arguments),
     };
   }
   if (event.type === "tool_result") {
@@ -129,7 +182,7 @@ export function runtimeInsightFromEvent(event: AgentEvent): RuntimeInsight | nul
       id: `tool_result_${stringData(event, "id") ?? Date.now()}`,
       kind: "tool",
       title: `工具结果：${stringData(event, "id") ?? "unknown"}`,
-      detail: compactJson(event.data.result)
+      detail: compactJson(event.data.result),
     };
   }
   if (event.type === "evidence") {
@@ -138,9 +191,14 @@ export function runtimeInsightFromEvent(event: AgentEvent): RuntimeInsight | nul
       id: stringValue(item?.id) ?? `evidence_${Date.now()}`,
       kind: "evidence",
       title: `证据：${stringValue(item?.title) ?? stringValue(item?.id) ?? "已收集"}`,
-      detail: [stringValue(item?.source), stringValue(item?.locator), stringValue(item?.path)]
-        .filter(Boolean)
-        .join(" · ") || compactJson(item)
+      detail:
+        [
+          stringValue(item?.source),
+          stringValue(item?.locator),
+          stringValue(item?.path),
+        ]
+          .filter(Boolean)
+          .join(" · ") || compactJson(item),
     };
   }
   if (event.type === "ask_user") {
@@ -148,7 +206,7 @@ export function runtimeInsightFromEvent(event: AgentEvent): RuntimeInsight | nul
       id: stringData(event, "ask_id") ?? `ask_${Date.now()}`,
       kind: "ask_user",
       title: "等待补充",
-      detail: stringData(event, "question") ?? "Agent 需要更多信息"
+      detail: stringData(event, "question") ?? "Agent 需要更多信息",
     };
   }
   if (event.type === "error") {
@@ -156,7 +214,7 @@ export function runtimeInsightFromEvent(event: AgentEvent): RuntimeInsight | nul
       id: `error_${Date.now()}`,
       kind: "error",
       title: stringData(event, "code") ?? "运行错误",
-      detail: stringData(event, "message") ?? "Agent 运行失败"
+      detail: stringData(event, "message") ?? "Agent 运行失败",
     };
   }
   return null;
@@ -194,7 +252,7 @@ function numberData(event: AgentEvent, key: string) {
 function recordData(event: AgentEvent, key: string) {
   const value = event.data[key];
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 

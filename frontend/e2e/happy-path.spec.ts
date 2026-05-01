@@ -8,7 +8,7 @@ const feature = {
   owner_subject_id: "client_e2e",
   summary_text: null,
   created_at: "2026-04-30T10:00:00",
-  updated_at: "2026-04-30T10:00:00"
+  updated_at: "2026-04-30T10:00:00",
 };
 
 const repo = {
@@ -22,7 +22,7 @@ const repo = {
   error_message: null,
   last_synced_at: null,
   created_at: "2026-04-30T10:00:00",
-  updated_at: "2026-04-30T10:00:00"
+  updated_at: "2026-04-30T10:00:00",
 };
 
 test("source-list workbench happy path", async ({ page }) => {
@@ -31,21 +31,31 @@ test("source-list workbench happy path", async ({ page }) => {
 
   const primaryNav = page.getByRole("navigation", { name: "主导航" });
   await expect(primaryNav).toBeVisible();
-  await expect(primaryNav.getByRole("button", { name: "会话", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(
+    primaryNav.getByRole("button", { name: "会话", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
 
-  await page.getByRole("textbox", { name: "会话输入" }).fill("支付服务启动失败");
+  await page
+    .getByRole("textbox", { name: "会话输入" })
+    .fill("支付服务启动失败");
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page.getByText("需要检查启动配置。")).toBeVisible();
-  await expect(page.getByRole("region", { name: "调查进度" }).getByText("知识检索")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "调查进度" }).getByText("知识检索"),
+  ).toBeVisible();
   const sessionList = page.getByRole("region", { name: "会话列表" });
-  await sessionList.getByRole("button", { name: "打开会话 线上启动失败 的更多操作" }).click();
+  await sessionList
+    .getByRole("button", { name: "打开会话 线上启动失败 的更多操作" })
+    .click();
   await page.getByRole("menuitem", { name: "删除" }).click();
   await expect(page.getByRole("dialog", { name: "删除会话" })).toBeVisible();
   await page.getByRole("button", { name: "确认删除" }).click();
   await expect(sessionList.getByText("线上启动失败")).toHaveCount(0);
 
   await primaryNav.getByRole("button", { name: "特性", exact: true }).click();
-  await expect(page.getByRole("region", { name: "特性列表" }).getByText("支付结算")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "特性列表" }).getByText("支付结算"),
+  ).toBeVisible();
   await page.getByRole("tab", { name: "关联仓库" }).click();
   await expect(page.getByRole("checkbox", { name: /codeask/ })).toBeVisible();
 
@@ -57,13 +67,19 @@ test("source-list workbench happy path", async ({ page }) => {
   await page.getByLabel("密码", { exact: true }).fill("admin");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await primaryNav.getByRole("button", { name: "设置", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "设置", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "设置", exact: true }),
+  ).toHaveCount(0);
   await expect(page.getByText(/权限隔离后普通用户/)).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "用户配置" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "全局配置" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "设置", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "设置", exact: true }),
+  ).toHaveCount(0);
   await expect(page.getByText(/权限隔离后普通用户/)).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "全局 LLM 配置" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "全局 LLM 配置" }),
+  ).toBeVisible();
   await expect(page.getByText("OpenAI 兼容")).toBeVisible();
 });
 
@@ -76,17 +92,22 @@ async function installApiMocks(page: Page) {
     const method = request.method();
 
     if (path === "/api/auth/me" && method === "GET") {
-      return json(route, isAdmin ? {
-        subject_id: "admin",
-        display_name: "Admin",
-        role: "admin",
-        authenticated: true
-      } : {
-        subject_id: "client_e2e",
-        display_name: "client_e2e",
-        role: "member",
-        authenticated: false
-      });
+      return json(
+        route,
+        isAdmin
+          ? {
+              subject_id: "admin",
+              display_name: "Admin",
+              role: "admin",
+              authenticated: true,
+            }
+          : {
+              subject_id: "client_e2e",
+              display_name: "client_e2e",
+              role: "member",
+              authenticated: false,
+            },
+      );
     }
     if (path === "/api/auth/admin/login" && method === "POST") {
       isAdmin = true;
@@ -94,7 +115,7 @@ async function installApiMocks(page: Page) {
         subject_id: "admin",
         display_name: "Admin",
         role: "admin",
-        authenticated: true
+        authenticated: true,
       });
     }
     if (path === "/api/auth/logout" && method === "POST") {
@@ -110,8 +131,8 @@ async function installApiMocks(page: Page) {
           status: "active",
           pinned: false,
           created_at: "2026-04-30T10:00:00",
-          updated_at: "2026-04-30T10:00:00"
-        }
+          updated_at: "2026-04-30T10:00:00",
+        },
       ]);
     }
     if (path === "/api/sessions/sess_e2e/messages" && method === "POST") {
@@ -121,8 +142,8 @@ async function installApiMocks(page: Page) {
         body: [
           'event: stage_transition\ndata: {"stage":"knowledge_retrieval","label":"知识检索"}',
           'event: text_delta\ndata: {"delta":"需要检查启动配置。"}',
-          'event: done\ndata: {"turn_id":"turn_e2e"}'
-        ].join("\n\n")
+          'event: done\ndata: {"turn_id":"turn_e2e"}',
+        ].join("\n\n"),
       });
     }
     if (path === "/api/sessions/sess_e2e/attachments" && method === "GET") {
@@ -168,8 +189,8 @@ async function installApiMocks(page: Page) {
           is_default: true,
           enabled: true,
           rpm_limit: null,
-          quota_remaining: null
-        }
+          quota_remaining: null,
+        },
       ]);
     }
 
@@ -181,6 +202,6 @@ function json(route: Route, payload: unknown, status = 200) {
   return route.fulfill({
     status,
     contentType: "application/json",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
 }

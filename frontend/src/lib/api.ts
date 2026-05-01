@@ -12,7 +12,7 @@ import type {
   RepoOut,
   ReportRead,
   SessionResponse,
-  SkillResponse
+  SkillResponse,
 } from "../types/api";
 
 export class ApiError extends Error {
@@ -20,7 +20,9 @@ export class ApiError extends Error {
   detail: unknown;
 
   constructor(status: number, detail: unknown) {
-    super(typeof detail === "string" ? detail : `API request failed with ${status}`);
+    super(
+      typeof detail === "string" ? detail : `API request failed with ${status}`,
+    );
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
@@ -28,7 +30,9 @@ export class ApiError extends Error {
 }
 
 type JsonBody = Record<string, unknown> | Array<unknown>;
-type ApiRequestInit = Omit<RequestInit, "body"> & { body?: BodyInit | JsonBody | null };
+type ApiRequestInit = Omit<RequestInit, "body"> & {
+  body?: BodyInit | JsonBody | null;
+};
 type LlmProtocol = "openai" | "anthropic";
 type LlmCreatePayload = {
   name: string;
@@ -46,7 +50,7 @@ type LlmUpdatePayload = Partial<
 
 export async function apiRequest<T>(
   path: string,
-  init: ApiRequestInit = {}
+  init: ApiRequestInit = {},
 ): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("X-Subject-Id", getSubjectId());
@@ -61,7 +65,7 @@ export async function apiRequest<T>(
     ...init,
     headers,
     body: body as BodyInit | null | undefined,
-    credentials: "same-origin"
+    credentials: "same-origin",
   });
 
   if (!response.ok) {
@@ -90,13 +94,13 @@ export function getMe() {
 export function adminLogin(payload: { username: string; password: string }) {
   return apiRequest<AuthMeResponse>("/api/auth/admin/login", {
     method: "POST",
-    body: payload
+    body: payload,
   });
 }
 
 export function logout() {
   return apiRequest<void>("/api/auth/logout", {
-    method: "POST"
+    method: "POST",
   });
 }
 
@@ -107,43 +111,43 @@ export function listSessions() {
 export function createSession(title: string) {
   return apiRequest<SessionResponse>("/api/sessions", {
     method: "POST",
-    body: { title }
+    body: { title },
   });
 }
 
 export function deleteSession(sessionId: string) {
   return apiRequest<void>(`/api/sessions/${sessionId}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 }
 
 export function updateSession(
   sessionId: string,
-  payload: Partial<{ title: string; pinned: boolean }>
+  payload: Partial<{ title: string; pinned: boolean }>,
 ) {
   return apiRequest<SessionResponse>(`/api/sessions/${sessionId}`, {
     method: "PATCH",
-    body: payload
+    body: payload,
   });
 }
 
 export function bulkDeleteSessions(sessionIds: string[]) {
   return apiRequest<{ deleted_ids: string[] }>("/api/sessions/bulk-delete", {
     method: "POST",
-    body: { session_ids: sessionIds }
+    body: { session_ids: sessionIds },
   });
 }
 
 export function generateSessionReport(
   sessionId: string,
-  payload: { feature_id: number; title: string }
+  payload: { feature_id: number; title: string },
 ) {
   return apiRequest<ReportRead>(`/api/sessions/${sessionId}/reports`, {
     method: "POST",
     body: {
       feature_id: payload.feature_id,
-      title: payload.title
-    }
+      title: payload.title,
+    },
   });
 }
 
@@ -154,7 +158,7 @@ export function postFeedback(payload: {
 }) {
   return apiRequest<FeedbackAck>("/api/feedback", {
     method: "POST",
-    body: payload
+    body: payload,
   });
 }
 
@@ -168,8 +172,8 @@ export function postFrontendEvent(payload: {
     body: {
       event_type: payload.event_type,
       session_id: payload.session_id ?? null,
-      payload: payload.payload ?? {}
-    }
+      payload: payload.payload ?? {},
+    },
   });
 }
 
@@ -177,7 +181,7 @@ export function listAuditLog(entityType: string, entityId: string, limit = 50) {
   const params = new URLSearchParams({
     entity_type: entityType,
     entity_id: entityId,
-    limit: String(limit)
+    limit: String(limit),
   });
   return apiRequest<AuditLogResponse>(`/api/audit-log?${params.toString()}`);
 }
@@ -185,49 +189,66 @@ export function listAuditLog(entityType: string, entityId: string, limit = 50) {
 export function uploadSessionAttachment(
   sessionId: string,
   file: File,
-  kind: AttachmentResponse["kind"] = "log"
+  kind: AttachmentResponse["kind"] = "log",
 ) {
   const body = new FormData();
   body.set("file", file);
   body.set("kind", kind);
-  return apiRequest<AttachmentResponse>(`/api/sessions/${sessionId}/attachments`, {
-    method: "POST",
-    body
-  });
+  return apiRequest<AttachmentResponse>(
+    `/api/sessions/${sessionId}/attachments`,
+    {
+      method: "POST",
+      body,
+    },
+  );
 }
 
-export function listSessionAttachments(sessionId: string, signal?: AbortSignal) {
-  return apiRequest<AttachmentResponse[]>(`/api/sessions/${sessionId}/attachments`, {
-    signal
-  });
+export function listSessionAttachments(
+  sessionId: string,
+  signal?: AbortSignal,
+) {
+  return apiRequest<AttachmentResponse[]>(
+    `/api/sessions/${sessionId}/attachments`,
+    {
+      signal,
+    },
+  );
 }
 
 export function renameSessionAttachment(
   sessionId: string,
   attachmentId: string,
-  displayName: string
+  displayName: string,
 ) {
-  return updateSessionAttachment(sessionId, attachmentId, { display_name: displayName });
+  return updateSessionAttachment(sessionId, attachmentId, {
+    display_name: displayName,
+  });
 }
 
 export function updateSessionAttachment(
   sessionId: string,
   attachmentId: string,
-  payload: Partial<{ display_name: string; description: string | null }>
+  payload: Partial<{ display_name: string; description: string | null }>,
 ) {
   return apiRequest<AttachmentResponse>(
     `/api/sessions/${sessionId}/attachments/${attachmentId}`,
     {
       method: "PATCH",
-      body: payload
-    }
+      body: payload,
+    },
   );
 }
 
-export function deleteSessionAttachment(sessionId: string, attachmentId: string) {
-  return apiRequest<void>(`/api/sessions/${sessionId}/attachments/${attachmentId}`, {
-    method: "DELETE"
-  });
+export function deleteSessionAttachment(
+  sessionId: string,
+  attachmentId: string,
+) {
+  return apiRequest<void>(
+    `/api/sessions/${sessionId}/attachments/${attachmentId}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 
 export function listFeatures() {
@@ -237,20 +258,23 @@ export function listFeatures() {
 export function createFeature(payload: { name: string; description?: string }) {
   return apiRequest<FeatureRead>("/api/features", {
     method: "POST",
-    body: payload
+    body: payload,
   });
 }
 
-export function updateFeature(id: number, payload: { name?: string; description?: string }) {
+export function updateFeature(
+  id: number,
+  payload: { name?: string; description?: string },
+) {
   return apiRequest<FeatureRead>(`/api/features/${id}`, {
     method: "PUT",
-    body: payload
+    body: payload,
   });
 }
 
 export function deleteFeature(id: number) {
   return apiRequest<void>(`/api/features/${id}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 }
 
@@ -276,13 +300,13 @@ export function uploadDocument(payload: {
   }
   return apiRequest<DocumentRead>("/api/documents", {
     method: "POST",
-    body
+    body,
   });
 }
 
 export function deleteDocument(documentId: number) {
   return apiRequest<void>(`/api/documents/${documentId}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 }
 
@@ -303,36 +327,38 @@ export function createReport(payload: {
       feature_id: payload.feature_id ?? null,
       title: payload.title,
       body_markdown: payload.body_markdown,
-      metadata: payload.metadata ?? {}
-    }
+      metadata: payload.metadata ?? {},
+    },
   });
 }
 
 export function verifyReport(reportId: number) {
   return apiRequest<ReportRead>(`/api/reports/${reportId}/verify`, {
-    method: "POST"
+    method: "POST",
   });
 }
 
 export function listRepos() {
-  return apiRequest<{ repos: RepoOut[] }>("/api/repos").then((payload) => payload.repos);
+  return apiRequest<{ repos: RepoOut[] }>("/api/repos").then(
+    (payload) => payload.repos,
+  );
 }
 
 export function listFeatureRepos(featureId: number) {
-  return apiRequest<{ repos: RepoOut[] }>(`/api/features/${featureId}/repos`).then(
-    (payload) => payload.repos
-  );
+  return apiRequest<{ repos: RepoOut[] }>(
+    `/api/features/${featureId}/repos`,
+  ).then((payload) => payload.repos);
 }
 
 export function linkFeatureRepo(featureId: number, repoId: string) {
   return apiRequest<RepoOut>(`/api/features/${featureId}/repos/${repoId}`, {
-    method: "POST"
+    method: "POST",
   });
 }
 
 export function unlinkFeatureRepo(featureId: number, repoId: string) {
   return apiRequest<void>(`/api/features/${featureId}/repos/${repoId}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 }
 
@@ -344,19 +370,19 @@ export function createRepo(payload: {
 }) {
   return apiRequest<RepoOut>("/api/repos", {
     method: "POST",
-    body: payload
+    body: payload,
   });
 }
 
 export function deleteRepo(repoId: string) {
   return apiRequest<void>(`/api/repos/${repoId}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 }
 
 export function refreshRepo(repoId: string) {
   return apiRequest<RepoOut>(`/api/repos/${repoId}/refresh`, {
-    method: "POST"
+    method: "POST",
   });
 }
 
@@ -372,23 +398,23 @@ export function createSkill(payload: {
 }) {
   return apiRequest<SkillResponse>("/api/skills", {
     method: "POST",
-    body: payload
+    body: payload,
   });
 }
 
 export function updateSkill(
   skillId: string,
-  payload: Partial<{ name: string; prompt_template: string }>
+  payload: Partial<{ name: string; prompt_template: string }>,
 ) {
   return apiRequest<SkillResponse>(`/api/skills/${skillId}`, {
     method: "PATCH",
-    body: payload
+    body: payload,
   });
 }
 
 export function deleteSkill(skillId: string) {
   return apiRequest<void>(`/api/skills/${skillId}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 }
 
@@ -399,20 +425,20 @@ export function listUserLlmConfigs() {
 export function createUserLlmConfig(payload: LlmCreatePayload) {
   return apiRequest<LLMConfigResponse>("/api/me/llm-configs", {
     method: "POST",
-    body: payload
+    body: payload,
   });
 }
 
 export function updateUserLlmConfig(id: string, payload: LlmUpdatePayload) {
   return apiRequest<LLMConfigResponse>(`/api/me/llm-configs/${id}`, {
     method: "PATCH",
-    body: payload
+    body: payload,
   });
 }
 
 export function deleteUserLlmConfig(id: string) {
   return apiRequest<void>(`/api/me/llm-configs/${id}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 }
 
@@ -423,19 +449,19 @@ export function listAdminLlmConfigs() {
 export function createAdminLlmConfig(payload: LlmCreatePayload) {
   return apiRequest<LLMConfigResponse>("/api/admin/llm-configs", {
     method: "POST",
-    body: payload
+    body: payload,
   });
 }
 
 export function updateAdminLlmConfig(id: string, payload: LlmUpdatePayload) {
   return apiRequest<LLMConfigResponse>(`/api/admin/llm-configs/${id}`, {
     method: "PATCH",
-    body: payload
+    body: payload,
   });
 }
 
 export function deleteAdminLlmConfig(id: string) {
   return apiRequest<void>(`/api/admin/llm-configs/${id}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 }

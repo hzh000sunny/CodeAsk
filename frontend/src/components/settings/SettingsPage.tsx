@@ -10,7 +10,7 @@ import {
   RefreshCw,
   Settings2,
   Trash2,
-  UserRound
+  UserRound,
 } from "lucide-react";
 
 import {
@@ -26,7 +26,7 @@ import {
   listUserLlmConfigs,
   refreshRepo,
   updateAdminLlmConfig,
-  updateUserLlmConfig
+  updateUserLlmConfig,
 } from "../../lib/api";
 import { getNickname, getSubjectId, setNickname } from "../../lib/identity";
 import type { LLMConfigResponse, RepoOut } from "../../types/api";
@@ -51,7 +51,11 @@ export function SettingsPage() {
   const isAdmin = me?.role === "admin";
 
   return (
-    <section className="settings-workspace" data-index-collapsed={indexCollapsed} aria-label="设置工作台">
+    <section
+      className="settings-workspace"
+      data-index-collapsed={indexCollapsed}
+      aria-label="设置工作台"
+    >
       <aside className="settings-index" data-collapsed={indexCollapsed}>
         <button
           aria-label={indexCollapsed ? "展开设置导航" : "收起设置导航"}
@@ -61,7 +65,11 @@ export function SettingsPage() {
           title={indexCollapsed ? "展开设置导航" : "收起设置导航"}
           type="button"
         >
-          {indexCollapsed ? <ChevronRight aria-hidden="true" size={15} /> : <ChevronLeft aria-hidden="true" size={15} />}
+          {indexCollapsed ? (
+            <ChevronRight aria-hidden="true" size={15} />
+          ) : (
+            <ChevronLeft aria-hidden="true" size={15} />
+          )}
         </button>
         {indexCollapsed ? (
           <div className="collapsed-panel-label">设置</div>
@@ -177,12 +185,16 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
   const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState("");
   const [enabled, setEnabled] = useState(true);
-  const [notice, setNotice] = useState<{ tone: "success" | "danger"; message: string } | null>(null);
+  const [notice, setNotice] = useState<{
+    tone: "success" | "danger";
+    message: string;
+  } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const queryKey = scope === "global" ? ["admin-llm-configs"] : ["user-llm-configs"];
+  const queryKey =
+    scope === "global" ? ["admin-llm-configs"] : ["user-llm-configs"];
   const { data: configs = [] } = useQuery({
     queryKey,
-    queryFn: scope === "global" ? listAdminLlmConfigs : listUserLlmConfigs
+    queryFn: scope === "global" ? listAdminLlmConfigs : listUserLlmConfigs,
   });
 
   useEffect(() => {
@@ -201,9 +213,11 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
         base_url: baseUrl.trim() || null,
         api_key: apiKey,
         model_name: modelName.trim(),
-        enabled
+        enabled,
       };
-      return scope === "global" ? createAdminLlmConfig(payload) : createUserLlmConfig(payload);
+      return scope === "global"
+        ? createAdminLlmConfig(payload)
+        : createUserLlmConfig(payload);
     },
     onSuccess: () => {
       showNotice("success", "LLM 配置已保存");
@@ -218,7 +232,7 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
     },
     onError: (error) => {
       showNotice("danger", `保存 LLM 配置失败：${messageFromApiError(error)}`);
-    }
+    },
   });
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: LlmUpdatePayload }) =>
@@ -231,7 +245,7 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
     },
     onError: (error) => {
       showNotice("danger", `更新 LLM 配置失败：${messageFromApiError(error)}`);
-    }
+    },
   });
   const deleteMutation = useMutation({
     mutationFn: (id: string) =>
@@ -241,7 +255,7 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
     },
     onError: (error) => {
       showNotice("danger", `删除 LLM 配置失败：${messageFromApiError(error)}`);
-    }
+    },
   });
 
   function showNotice(tone: "success" | "danger", message: string) {
@@ -267,12 +281,21 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
             ? "管理员可维护多个全局账号，启用状态决定是否参与运行时选择。"
             : "个人配置优先于全局配置，用于覆盖自己的模型账号。"}
         </p>
-        <Button icon={<Plus size={15} />} onClick={() => setShowForm((value) => !value)} type="button" variant="primary">
+        <Button
+          icon={<Plus size={15} />}
+          onClick={() => setShowForm((value) => !value)}
+          type="button"
+          variant="primary"
+        >
           添加 LLM 配置
         </Button>
       </div>
       {notice ? (
-        <div className="settings-toast" data-tone={notice.tone} role={notice.tone === "danger" ? "alert" : "status"}>
+        <div
+          className="settings-toast"
+          data-tone={notice.tone}
+          role={notice.tone === "danger" ? "alert" : "status"}
+        >
           {notice.message}
         </div>
       ) : null}
@@ -286,13 +309,18 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
         >
           <label className="field-label compact">
             配置名称
-            <Input onChange={(event) => setConfigName(event.target.value)} value={configName} />
+            <Input
+              onChange={(event) => setConfigName(event.target.value)}
+              value={configName}
+            />
           </label>
           <label className="field-label compact">
             消息接口协议
             <select
               className="input"
-              onChange={(event) => setProtocol(event.target.value as LlmProtocol)}
+              onChange={(event) =>
+                setProtocol(event.target.value as LlmProtocol)
+              }
               value={protocol}
             >
               <option value="openai">OpenAI</option>
@@ -301,15 +329,25 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
           </label>
           <label className="field-label compact">
             Base URL
-            <Input onChange={(event) => setBaseUrl(event.target.value)} value={baseUrl} />
+            <Input
+              onChange={(event) => setBaseUrl(event.target.value)}
+              value={baseUrl}
+            />
           </label>
           <label className="field-label compact">
             API Key
-            <Input onChange={(event) => setApiKey(event.target.value)} type="password" value={apiKey} />
+            <Input
+              onChange={(event) => setApiKey(event.target.value)}
+              type="password"
+              value={apiKey}
+            />
           </label>
           <label className="field-label compact">
             模型名称
-            <Input onChange={(event) => setModelName(event.target.value)} value={modelName} />
+            <Input
+              onChange={(event) => setModelName(event.target.value)}
+              value={modelName}
+            />
           </label>
           <div className="form-switches">
             <SwitchControl
@@ -320,7 +358,12 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
             />
           </div>
           <Button
-            disabled={!configName.trim() || !apiKey || !modelName.trim() || createMutation.isPending}
+            disabled={
+              !configName.trim() ||
+              !apiKey ||
+              !modelName.trim() ||
+              createMutation.isPending
+            }
             type="submit"
             variant="primary"
           >
@@ -337,7 +380,10 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
         onEditStart={(id) => setEditingId(id)}
         onUpdate={(id, payload) => updateMutation.mutate({ id, payload })}
         onToggleEnabled={(config) =>
-          updateMutation.mutate({ id: config.id, payload: { enabled: !config.enabled } })
+          updateMutation.mutate({
+            id: config.id,
+            payload: { enabled: !config.enabled },
+          })
         }
         updating={updateMutation.isPending}
       />
@@ -354,7 +400,7 @@ function LlmConfigList({
   onEditStart,
   onUpdate,
   onToggleEnabled,
-  updating
+  updating,
 }: {
   configs: LLMConfigResponse[];
   deleting: boolean;
@@ -367,7 +413,11 @@ function LlmConfigList({
   updating: boolean;
 }) {
   if (configs.length === 0) {
-    return <div className="empty-block wide"><p>暂无 LLM 配置</p></div>;
+    return (
+      <div className="empty-block wide">
+        <p>暂无 LLM 配置</p>
+      </div>
+    );
   }
   return (
     <ul className="data-list settings-config-list">
@@ -378,7 +428,10 @@ function LlmConfigList({
             <div className="config-row-main">
               <div className="config-summary">
                 <span>{config.name}</span>
-                <small>{protocolLabel(config.protocol)} · {config.model_name} · {config.api_key_masked}</small>
+                <small>
+                  {protocolLabel(config.protocol)} · {config.model_name} ·{" "}
+                  {config.api_key_masked}
+                </small>
               </div>
               <div className="row-actions">
                 <SwitchControl
@@ -428,7 +481,7 @@ function LlmConfigEditForm({
   config,
   disabled,
   onCancel,
-  onSubmit
+  onSubmit,
 }: {
   config: LLMConfigResponse;
   disabled: boolean;
@@ -436,7 +489,9 @@ function LlmConfigEditForm({
   onSubmit: (payload: LlmUpdatePayload) => void;
 }) {
   const [name, setName] = useState(config.name);
-  const [protocol, setProtocol] = useState<LlmProtocol>(safeEditableProtocol(config.protocol));
+  const [protocol, setProtocol] = useState<LlmProtocol>(
+    safeEditableProtocol(config.protocol),
+  );
   const [baseUrl, setBaseUrl] = useState(config.base_url ?? "");
   const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState(config.model_name);
@@ -450,7 +505,7 @@ function LlmConfigEditForm({
           name: name.trim(),
           protocol,
           base_url: baseUrl.trim() || null,
-          model_name: modelName.trim()
+          model_name: modelName.trim(),
         };
         if (apiKey) {
           payload.api_key = apiKey;
@@ -475,7 +530,10 @@ function LlmConfigEditForm({
       </label>
       <label className="field-label compact">
         编辑 Base URL
-        <Input onChange={(event) => setBaseUrl(event.target.value)} value={baseUrl} />
+        <Input
+          onChange={(event) => setBaseUrl(event.target.value)}
+          value={baseUrl}
+        />
       </label>
       <label className="field-label compact">
         编辑 API Key
@@ -488,13 +546,25 @@ function LlmConfigEditForm({
       </label>
       <label className="field-label compact">
         编辑模型名称
-        <Input onChange={(event) => setModelName(event.target.value)} value={modelName} />
+        <Input
+          onChange={(event) => setModelName(event.target.value)}
+          value={modelName}
+        />
       </label>
       <div className="form-actions llm-edit-actions">
-        <Button disabled={!name.trim() || !modelName.trim() || disabled} type="submit" variant="primary">
+        <Button
+          disabled={!name.trim() || !modelName.trim() || disabled}
+          type="submit"
+          variant="primary"
+        >
           保存修改
         </Button>
-        <Button disabled={disabled} onClick={onCancel} type="button" variant="quiet">
+        <Button
+          disabled={disabled}
+          onClick={onCancel}
+          type="button"
+          variant="quiet"
+        >
           取消
         </Button>
       </div>
@@ -507,7 +577,7 @@ function SwitchControl({
   disabled,
   label,
   onChange,
-  text
+  text,
 }: {
   checked: boolean;
   disabled?: boolean;
@@ -516,7 +586,11 @@ function SwitchControl({
   text: string;
 }) {
   return (
-    <label className="switch-control" data-checked={checked} data-disabled={disabled ? "true" : "false"}>
+    <label
+      className="switch-control"
+      data-checked={checked}
+      data-disabled={disabled ? "true" : "false"}
+    >
       <input
         aria-label={label}
         checked={checked}
@@ -569,32 +643,35 @@ function RepoManager() {
   const [name, setName] = useState("");
   const [source, setSource] = useState<"local_dir" | "git">("local_dir");
   const [location, setLocation] = useState("");
-  const { data: repos = [] } = useQuery({ queryKey: ["repos"], queryFn: listRepos });
+  const { data: repos = [] } = useQuery({
+    queryKey: ["repos"],
+    queryFn: listRepos,
+  });
   const createMutation = useMutation({
     mutationFn: () =>
       createRepo({
         name: name.trim(),
         source,
         local_path: source === "local_dir" ? location.trim() : null,
-        url: source === "git" ? location.trim() : null
+        url: source === "git" ? location.trim() : null,
       }),
     onSuccess: () => {
       setName("");
       setLocation("");
       void queryClient.invalidateQueries({ queryKey: ["repos"] });
-    }
+    },
   });
   const deleteMutation = useMutation({
     mutationFn: deleteRepo,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["repos"] });
-    }
+    },
   });
   const refreshMutation = useMutation({
     mutationFn: refreshRepo,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["repos"] });
-    }
+    },
   });
 
   return (
@@ -612,21 +689,35 @@ function RepoManager() {
       >
         <label className="field-label compact">
           仓库名称
-          <Input onChange={(event) => setName(event.target.value)} value={name} />
+          <Input
+            onChange={(event) => setName(event.target.value)}
+            value={name}
+          />
         </label>
         <label className="field-label compact">
           类型
-          <select className="input" onChange={(event) => setSource(event.target.value as "local_dir" | "git")} value={source}>
+          <select
+            className="input"
+            onChange={(event) =>
+              setSource(event.target.value as "local_dir" | "git")
+            }
+            value={source}
+          >
             <option value="local_dir">本地目录</option>
             <option value="git">Git URL</option>
           </select>
         </label>
         <label className="field-label compact">
           {source === "local_dir" ? "本地路径" : "Git URL"}
-          <Input onChange={(event) => setLocation(event.target.value)} value={location} />
+          <Input
+            onChange={(event) => setLocation(event.target.value)}
+            value={location}
+          />
         </label>
         <Button
-          disabled={!name.trim() || !location.trim() || createMutation.isPending}
+          disabled={
+            !name.trim() || !location.trim() || createMutation.isPending
+          }
           type="submit"
           variant="primary"
         >
@@ -634,7 +725,9 @@ function RepoManager() {
         </Button>
       </form>
       {repos.length === 0 ? (
-        <div className="empty-block wide"><p>暂无仓库</p></div>
+        <div className="empty-block wide">
+          <p>暂无仓库</p>
+        </div>
       ) : (
         <ul className="data-list settings-config-list">
           {repos.map((repo) => (
@@ -658,7 +751,7 @@ function RepoRow({
   onDelete,
   onRefresh,
   refreshing,
-  repo
+  repo,
 }: {
   deleting: boolean;
   onDelete: () => void;

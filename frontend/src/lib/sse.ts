@@ -12,7 +12,7 @@ const AGENT_EVENT_NAMES = new Set<AgentEventName>([
   "sufficiency_judgement",
   "ask_user",
   "done",
-  "error"
+  "error",
 ]);
 
 interface StreamSessionMessageInput {
@@ -34,22 +34,22 @@ export async function streamSessionMessage({
   force_code_investigation = false,
   reply_to = null,
   onEvent,
-  signal
+  signal,
 }: StreamSessionMessageInput) {
   const response = await fetch(`/api/sessions/${sessionId}/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Subject-Id": getSubjectId()
+      "X-Subject-Id": getSubjectId(),
     },
     body: JSON.stringify({
       content,
       feature_ids,
       repo_bindings,
       force_code_investigation,
-      reply_to
+      reply_to,
     }),
-    signal
+    signal,
   });
 
   if (!response.ok) {
@@ -84,7 +84,10 @@ async function readError(response: Response) {
   return response.text();
 }
 
-function dispatchBufferedEvents(buffer: string, onEvent: (event: AgentEvent) => void) {
+function dispatchBufferedEvents(
+  buffer: string,
+  onEvent: (event: AgentEvent) => void,
+) {
   let remaining = buffer;
   while (remaining.includes("\n\n")) {
     const index = remaining.indexOf("\n\n");
@@ -119,7 +122,7 @@ function parseEventBlock(block: string): AgentEvent | null {
   const dataText = dataLines.join("\n");
   return {
     type,
-    data: dataText ? parseJsonData(dataText) : {}
+    data: dataText ? parseJsonData(dataText) : {},
   };
 }
 
