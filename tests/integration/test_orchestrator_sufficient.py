@@ -12,7 +12,7 @@ from codeask.agent.tools import ToolRegistry
 from codeask.agent.trace import AgentTraceLogger
 from codeask.crypto import Crypto
 from codeask.db import Base, create_engine, session_factory
-from codeask.db.models import AgentTrace, Feature, Session, SessionTurn
+from codeask.db.models import AgentTrace, Feature, Session, SessionAttachment, SessionTurn
 from codeask.llm.gateway import ClientFactory, LLMGateway
 from codeask.llm.repo import LLMConfigInput, LLMConfigRepo
 from tests.mocks.mock_llm import MockLLMClient, text_message, tool_call_message
@@ -109,6 +109,20 @@ async def orchestrator(tmp_path: Path):  # type: ignore[no-untyped-def]
                 evidence=None,
             )
         )
+        session.add(
+            SessionAttachment(
+                id="att_log",
+                session_id="sess_1",
+                kind="log",
+                display_name="db-node-a.log",
+                original_filename="service.log",
+                aliases_json=["service.log", "db-node-a.log"],
+                description="数据库节点 A 的启动日志",
+                file_path=str(tmp_path / "sessions" / "sess_1" / "att_log.log"),
+                mime_type="text/plain",
+                size_bytes=256,
+            )
+        )
         await session.commit()
 
     yield (
@@ -121,13 +135,14 @@ async def orchestrator(tmp_path: Path):  # type: ignore[no-untyped-def]
             code_search_service=code_service,
         ),
         factory,
+        mock,
     )
     await engine.dispose()
 
 
 @pytest.mark.asyncio
 async def test_full_happy_path(orchestrator) -> None:  # type: ignore[no-untyped-def]
-    agent, factory = orchestrator
+    agent, factory, _mock = orchestrator
 
     events = [event async for event in agent.run("sess_1", "turn_1", "为什么订单偶发 500")]
     event_types = [event.type for event in events]
@@ -156,3 +171,39 @@ async def test_full_happy_path(orchestrator) -> None:  # type: ignore[no-untyped
         trace.event_type == "stage_enter" and trace.stage == "answer_finalization"
         for trace in traces
     )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_includes_attachment_mapping_in_prompt(orchestrator) -> None:  # type: ignore[no-untyped-def]
+    agent, _factory, mock = orchestrator
+
+    _events = [
+        event
+        async for event in agent.run(
+            "sess_1", "turn_1", "service.log 是节点 A 的日志，先看启动失败"
+        )
+    ]
+
+    first_call_text = _call_text(mock.calls[0])
+    assert "attachment_summaries" in first_call_text
+    assert "att_log" in first_call_text
+    assert "db-node-a.log" in first_call_text
+    assert "service.log" in first_call_text
+    assert "att_log.log" in first_call_text
+    assert "数据库节点 A 的启动日志" in first_call_text
+    assert "reference_names" in first_call_text
+
+
+def _call_text(call: dict[str, object]) -> str:
+    messages = call["messages"]
+    assert isinstance(messages, list)
+    text_parts: list[str] = []
+    for message in messages:
+        assert isinstance(message, dict)
+        content = message["content"]
+        assert isinstance(content, list)
+        for block in content:
+            assert isinstance(block, dict)
+            if block.get("type") == "text":
+                text_parts.append(str(block.get("text", "")))
+    return "\n".join(text_parts)

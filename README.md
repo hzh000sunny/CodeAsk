@@ -6,7 +6,7 @@ CodeAsk 是一个私有部署的研发问答系统，帮助团队把内部文档
 
 ## 当前状态
 
-CodeAsk 目前处于 v1.0 MVP 的后端增量实现阶段。
+CodeAsk 目前处于 v1.0 MVP 的 frontend-workbench 收口验收阶段。
 
 产品需求、系统设计和实现计划位于 `docs/v1.0/`。当前已完成：
 
@@ -14,8 +14,9 @@ CodeAsk 目前处于 v1.0 MVP 的后端增量实现阶段。
 - `wiki-knowledge`：特性、文档上传与切块、SQLite FTS5 检索、已验证报告、报告验证 / 撤销闭环，以及 `/api/features`、`/api/documents`、`/api/reports`。
 - `code-index`：全局仓库池、异步 clone、会话级 worktree、`/api/repos`、`/api/code/grep`、`/api/code/read`、`/api/code/symbols`，以及 24 小时闲置 worktree 清理。
 - `agent-runtime`：LLM 配置、会话、Skill、9 阶段 Agent 状态机、LLM Gateway、ToolRegistry、SSE 事件、agent_traces 轨迹记录，以及 `/api/llm-configs`、`/api/skills`、`/api/sessions`。
+- `frontend-workbench`：React 工作台、会话界面、特性页面、设置页、管理员登录、个人 / 全局 LLM 配置隔离、会话附件管理、报告生成入口和 Playwright smoke。
 
-下一阶段是 `frontend-workbench`：React 工作台、会话界面、SSE 实时显示、证据展示、配置页面和 Maintainer dashboard。
+下一阶段计划是 `metrics-eval`，但在进入前需要先接受 `docs/v1.0/specs/frontend-workbench-handoff.md` 中记录的 frontend-workbench 当前边界。完整 LLM Wiki 目录管理已明确后置为独立专项。
 
 ## 产品目标
 
@@ -49,10 +50,11 @@ CodeAsk 采用“知识库优先，代码深入分析兜底”的主链路：
 v1.0 MVP 包含：
 
 - 私有部署
-- 一期无登录、无鉴权
+- 普通用户无登录直接使用
 - 基于自报身份的会话归属
+- 内置管理员登录保护全局 LLM 配置和全局仓库写操作
 - SQLite 本地存储
-- 知识库文档管理与检索
+- 基础知识库文档上传、管理与检索
 - 已验证报告作为高优先级知识
 - 全局代码仓库池
 - 特性与仓库关联
@@ -62,18 +64,18 @@ v1.0 MVP 包含：
 - 代码工具调用，包括 grep、读取文件、符号查找
 - 带证据的答案生成
 - 报告草稿与人工验证闭环
-- Maintainer dashboard
 - 单机部署与 Docker 部署
 
 v1.0 MVP 暂不包含：
 
 - 多租户 SaaS
-- 登录与权限系统
+- 企业级登录与权限系统
 - 自动修 PR
 - IDE 插件
 - 实时监控或告警系统
 - 外部向量数据库作为核心依赖
 - 与 ELK、Loki、Splunk 等日志平台的直接对接
+- 完整 LLM Wiki 目录上传、相对资源保存、在线预览 / 编辑 / re-index 工作流
 
 ## 技术方向
 
@@ -91,15 +93,15 @@ v1.0 MVP 暂不包含：
 - pytest / pytest-asyncio
 - uv
 
-前端计划采用：
+前端当前实现采用：
 
 - React 19
 - Vite
 - TypeScript
 - Tailwind CSS v4
-- shadcn/ui
+- lucide-react
 - TanStack Query
-- TanStack Router 或 React Router
+- TanStack Router 依赖已引入；当前工作台导航仍由 `AppShell` 内部状态驱动
 - Zustand
 - Vitest
 - Playwright
@@ -108,7 +110,7 @@ v1.0 MVP 暂不包含：
 
 ## 当前仓库结构
 
-当前仓库已经包含文档、foundation 后端地基、wiki-knowledge 后端知识库能力、code-index 代码索引能力和 agent-runtime 后端问答运行时：
+当前仓库已经包含文档、foundation 后端地基、wiki-knowledge 后端知识库能力、code-index 代码索引能力、agent-runtime 后端问答运行时和 frontend React 工作台：
 
 ```text
 CodeAsk/
@@ -127,6 +129,7 @@ CodeAsk/
 │       ├── llm/
 │       └── wiki/
 ├── tests/
+├── frontend/
 ├── docs/
 │   ├── README.md
 │   ├── STRUCTURE.md
@@ -140,11 +143,10 @@ CodeAsk/
 └── .claude/
 ```
 
-后续前端、部署和 CI 计划完成后，还会补充如下目录：
+后续部署和 CI 计划完成后，还会补充如下目录：
 
 ```text
 CodeAsk/
-├── frontend/
 ├── docker/
 └── .github/
 ```
@@ -176,11 +178,11 @@ v1.0 实现被拆成七个 plan：
 | 2 | `wiki-knowledge` | 已完成 | 特性、文档、文档切块、报告、FTS 检索、知识库召回 |
 | 3 | `code-index` | 已完成 | 仓库注册、异步 clone、worktree、grep、文件读取、符号索引 |
 | 4 | `agent-runtime` | 已完成 | LLM 网关、会话、Agent 状态机、工具调用、SSE、轨迹记录、运行时 API |
-| 5 | `frontend-workbench` | 下一阶段 | React 工作台、会话界面、证据展示、配置页面、Maintainer dashboard |
+| 5 | `frontend-workbench` | 收口验收中 | React 工作台、会话界面、特性页面、设置页面、管理员入口、LLM 配置、附件和报告入口 |
 | 6 | `metrics-eval` | 未开始 | 反馈、前端事件、审计日志、Agent eval、质量门禁 |
 | 7 | `deployment` | 未开始 | 前端静态挂载、Docker、docker-compose、CI、安全检查和发布 smoke test |
 
-下一阶段应从 `docs/v1.0/plans/frontend-workbench.md` 开始。
+下一阶段应先阅读 `docs/v1.0/specs/frontend-workbench-handoff.md`，确认 frontend-workbench 收口边界后进入 `docs/v1.0/plans/metrics-eval.md`。
 
 ## 快速启动
 
@@ -289,13 +291,14 @@ uv run pytest -q
 
 项目级 `pyproject.toml` 已配置清华 TUNA PyPI 镜像源，`uv sync` 默认会使用该镜像。
 
-下一阶段从 `docs/v1.0/plans/frontend-workbench.md` 开始。进入实现前建议按顺序快速重读：
+下一阶段从 frontend-workbench handoff 验收开始，确认当前边界后进入 `docs/v1.0/plans/metrics-eval.md`。新会话接手时建议按顺序快速重读：
 
 1. `README.md`
 2. `docs/v1.0/plans/roadmap.md`
-3. `docs/v1.0/plans/frontend-workbench.md`
+3. `docs/v1.0/specs/frontend-workbench-handoff.md`
 4. `docs/v1.0/plans/agent-runtime-handoff.md`
-5. `docs/v1.0/design/` 下与前端、API、Agent 运行时相关的设计文档
+5. `docs/v1.0/plans/metrics-eval.md`
+6. `docs/v1.0/design/` 下与前端、API、Agent 运行时相关的设计文档
 
 ## License
 

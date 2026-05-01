@@ -101,7 +101,11 @@ class LLMGateway:
         return self._factory
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[LLMEvent]:
-        config = await self._repo.get_default_or(request.config_id)
+        subject_id = request.metadata.get("subject_id")
+        config = await self._repo.get_default_or(
+            request.config_id,
+            subject_id=subject_id if isinstance(subject_id, str) else None,
+        )
         client = self._factory.create(
             config.protocol,
             api_key=config.api_key,

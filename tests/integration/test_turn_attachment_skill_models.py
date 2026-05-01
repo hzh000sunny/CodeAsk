@@ -64,8 +64,13 @@ async def test_attachment_round_trip(engine) -> None:  # type: ignore[no-untyped
                 id="att_1",
                 session_id="sess_a",
                 kind="log",
+                display_name="x.log",
+                original_filename="x.log",
+                aliases_json=["x.log"],
+                description="节点 A 的服务日志",
                 file_path="/data/sessions/sess_a/x.log",
                 mime_type="text/plain",
+                size_bytes=128,
             )
         )
         await s.commit()
@@ -73,6 +78,10 @@ async def test_attachment_round_trip(engine) -> None:  # type: ignore[no-untyped
     async with factory() as s:
         row = (await s.execute(select(SessionAttachment))).scalar_one()
         assert row.kind == "log"
+        assert row.display_name == "x.log"
+        assert row.aliases == ["x.log"]
+        assert row.reference_names == ["att_1", "x.log"]
+        assert row.description == "节点 A 的服务日志"
 
 
 @pytest.mark.asyncio

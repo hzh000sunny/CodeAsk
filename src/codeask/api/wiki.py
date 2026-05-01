@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from codeask.api.schemas.code_index import RepoListOut, RepoOut
 from codeask.api.schemas.wiki import (
     DocumentRead,
     FeatureCreate,
@@ -29,7 +30,15 @@ from codeask.api.schemas.wiki import (
 from codeask.api.schemas.wiki import (
     ReportSearchHit as ReportSearchHitSchema,
 )
-from codeask.db.models import Document, DocumentChunk, DocumentReference, Feature, Report
+from codeask.db.models import (
+    Document,
+    DocumentChunk,
+    DocumentReference,
+    Feature,
+    FeatureRepo,
+    Repo,
+    Report,
+)
 from codeask.wiki.chunker import DocumentChunker
 from codeask.wiki.indexer import WikiIndexer
 from codeask.wiki.reports import ReportService, ReportVerificationError
@@ -70,9 +79,10 @@ async def create_feature(
     request: Request,
     session: SessionDep,
 ) -> FeatureRead:
+    slug = payload.slug or await _unique_feature_slug(payload.name, session)
     feature = Feature(
         name=payload.name,
-        slug=payload.slug,
+        slug=slug,
         description=payload.description,
         owner_subject_id=request.state.subject_id,
     )
@@ -83,7 +93,7 @@ async def create_feature(
         await session.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"slug '{payload.slug}' already exists",
+            detail=f"slug '{slug}' already exists",
         ) from exc
     await session.refresh(feature)
     return FeatureRead.model_validate(feature)
@@ -97,6 +107,91 @@ async def get_feature(feature_id: int, session: SessionDep) -> FeatureRead:
     if feature is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="feature not found")
     return FeatureRead.model_validate(feature)
+
+
+def _repo_to_out(repo: Repo) -> RepoOut:
+    return RepoOut(
+        id=repo.id,
+        name=repo.name,
+        source=repo.source,  # type: ignore[arg-type]
+        url=repo.url,
+        local_path=repo.local_path,
+        bare_path=repo.bare_path,
+        status=repo.status,  # type: ignore[arg-type]
+        error_message=repo.error_message,
+        last_synced_at=repo.last_synced_at,
+        created_at=repo.created_at,
+        updated_at=repo.updated_at,
+    )
+
+
+async def _load_feature(feature_id: int, session: AsyncSession) -> Feature:
+    feature = (
+        await session.execute(select(Feature).where(Feature.id == feature_id))
+    ).scalar_one_or_none()
+    if feature is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="feature not found")
+    return feature
+
+
+async def _load_repo(repo_id: str, session: AsyncSession) -> Repo:
+    repo = (await session.execute(select(Repo).where(Repo.id == repo_id))).scalar_one_or_none()
+    if repo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="repo not found")
+    return repo
+
+
+@router.get("/features/{feature_id}/repos", response_model=RepoListOut)
+async def list_feature_repos(feature_id: int, session: SessionDep) -> RepoListOut:
+    await _load_feature(feature_id, session)
+    rows = (
+        await session.execute(
+            select(Repo)
+            .join(FeatureRepo, FeatureRepo.repo_id == Repo.id)
+            .where(FeatureRepo.feature_id == feature_id)
+            .order_by(Repo.created_at.desc())
+        )
+    ).scalars()
+    return RepoListOut(repos=[_repo_to_out(repo) for repo in rows])
+
+
+@router.post("/features/{feature_id}/repos/{repo_id}", response_model=RepoOut)
+async def link_feature_repo(feature_id: int, repo_id: str, session: SessionDep) -> RepoOut:
+    await _load_feature(feature_id, session)
+    repo = await _load_repo(repo_id, session)
+    existing = await session.get(FeatureRepo, {"feature_id": feature_id, "repo_id": repo_id})
+    if existing is None:
+        session.add(FeatureRepo(feature_id=feature_id, repo_id=repo_id))
+        await session.commit()
+    return _repo_to_out(repo)
+
+
+def _slugify_feature_name(name: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return normalized[:120].strip("-") or "feature"
+
+
+async def _unique_feature_slug(name: str, session: AsyncSession) -> str:
+    base = _slugify_feature_name(name)
+    slug = base
+    suffix = 2
+    while (
+        await session.execute(select(Feature.id).where(Feature.slug == slug))
+    ).scalar_one_or_none() is not None:
+        tail = f"-{suffix}"
+        slug = f"{base[: 120 - len(tail)]}{tail}"
+        suffix += 1
+    return slug
+
+
+@router.delete("/features/{feature_id}/repos/{repo_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unlink_feature_repo(feature_id: int, repo_id: str, session: SessionDep) -> None:
+    await _load_feature(feature_id, session)
+    link = await session.get(FeatureRepo, {"feature_id": feature_id, "repo_id": repo_id})
+    if link is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="feature repo not found")
+    await session.delete(link)
+    await session.commit()
 
 
 @router.put("/features/{feature_id}", response_model=FeatureRead)

@@ -28,7 +28,7 @@
 
 7 份 plan，101 任务，645 TDD 步骤。Foundation 是地基；其余 6 份按 DAG 依次落地，每份产出"可跑、可测、可演示"的中间产物。
 
-**当前实现状态（2026-04-30）：**
+**当前实现状态（2026-05-02）：**
 
 | Plan | 状态 | 当前结论 |
 |---|---|---|
@@ -36,7 +36,7 @@
 | wiki-knowledge | 已完成 | 已合入 `main`，本地 tag：`wiki-knowledge-v0.1.0`，Alembic head 到 `0005` |
 | code-index | 已完成 | 已合入 `main`，本地 tag：`code-index-v0.1.0`，Alembic head 到 `0006` |
 | agent-runtime | 已完成 | 已合入 `main`，tag：`agent-runtime-v0.1.0`，Alembic head 到 `0012`，REST + SSE API 已暴露 |
-| frontend-workbench | 下一阶段 | 消费 agent-runtime 的 REST + SSE |
+| frontend-workbench | 收口验收中 | React workbench 已落地；当前边界见 `../specs/frontend-workbench-handoff.md` |
 | metrics-eval | 未开始 | 等待 agent traces / audit hooks |
 | deployment | 未开始 | 全部前置 plan 完成后收口 |
 
@@ -58,7 +58,7 @@ v1.0 出货后可单独规划 `tool-intelligence` / `code-context-optimization` 
 | 2 | wiki-knowledge | `wiki-knowledge.md` | 14 / 88 | features / documents / document_chunks / document_references / reports 表 + FTS5 三虚拟表 + n-gram 分词 + DocumentChunker + WikiSearchService 多路召回 + reports verify/unverify | 上传 .md → 搜索命中 → 报告草稿 → verified → 报告检索命中 |
 | 3 | code-index | `code-index.md` | 12 / 80 | repos / feature_repos 表 + 异步 clone + worktree manager + ripgrep / ctags / file_reader + `/api/code/*` 工具 endpoints + 24h 闲置清理 | 注册仓库 → cloning → ready；grep / read / symbols 工具走通 |
 | 4 | agent-runtime | `agent-runtime.md` | 19 / 96 | llm_configs（加密） + sessions 4 张关联表 + agent_traces + skills + LLM Gateway（LiteLLM 三协议） + 9 阶段状态机 + ToolRegistry + SSEMultiplexer + ScopeDetection / SufficiencyJudgement | 命令行端到端走通一次完整问答（MockLLM） |
-| 5 | frontend-workbench | `frontend-workbench.md` | 19 / 158 | frontend/ 项目骨架（Vite + React 19 + Tailwind v4 + shadcn/ui + TanStack Query/Router + Zustand）+ SSE 客户端 + 三栏会话工作台 + A2/A3 透明 + 答案展示 + Maintainer Dashboard + 全部业务页面 + Playwright e2e smoke | 浏览器跑通完整 UI 流程（含 SSE 实时显示 Agent 阶段） |
+| 5 | frontend-workbench | `frontend-workbench.md` + `../specs/frontend-workbench-handoff.md` | 19 / 158 + Phase B corrections | frontend/ 项目骨架（Vite + React + TanStack Query）+ SSE 客户端 + 会话/特性/设置三入口 + 会话附件 + 报告生成入口 + 管理员全局配置 + Playwright e2e smoke | 浏览器跑通当前 workbench happy path；完整 Dashboard 与 LLM Wiki 后置 |
 | 6 | metrics-eval | `metrics-eval.md` | 13 / 80 | feedback / frontend_events / audit_log 表 + audit_log writer 替换 02/04 的 stub + `evals/` harness（scope_detection / sufficiency / answer_quality）+ exemplar cases + GH Actions eval workflow | CI 跑 scope_detection + sufficiency 红线生效 |
 | 7 | deployment | `deployment.md` | 10 / 57 | StaticFiles 挂载 frontend/dist + Dockerfile 多阶段（~150MB alpine） + docker-compose + start.sh 增强 + pre-commit + 3 份 GH workflows + 安全审计 checklist | `docker compose up -d` → 30 秒部署 smoke 通过 |
 
@@ -171,10 +171,15 @@ deployment        : —（不动 schema）
 - [x] alembic head = `0012`
 
 ### 5.5 frontend-workbench 验收
-- [ ] 浏览器开 / → 跳 /sessions → 新建会话 → 提问 → SSE 实时显示阶段 + tool_calls + scope_detection + sufficiency_judgement → 答案出现含证据折叠 → 点 ✓ 已解决
-- [ ] Maintainer Dashboard 显示"待我处理"和"飞轮信号"两栏（即使数据为零也要正常渲染）
+- [ ] 会话 / 特性 / 设置三入口可用，一级与二级侧边栏均可收起展开
+- [ ] 普通用户匿名可用，管理员登录后只能看到全局配置；普通用户不能读取全局 LLM 配置
+- [ ] 会话支持搜索、新建、三点菜单、删除确认、批量删除、默认会话发送、会话附件上传 / 重命名 / 说明 / 删除和报告生成入口
+- [ ] 特性支持搜索、新建、删除确认、知识库上传入口、报告列表、仓库 checkbox 关联和特性 Skill 管理
+- [ ] LLM 配置支持 OpenAI / Anthropic 协议选择、添加、编辑、switch 启停、删除；不展示 Max Tokens / Temperature / RPM / 剩余额度 / 默认配置切换
 - [ ] Playwright happy-path e2e 通过
-- [ ] `pnpm tsc --noEmit` 零错误
+- [ ] `corepack pnpm --dir frontend build` 零错误
+
+Dashboard、feedback 持久化和完整 LLM Wiki 管理不作为 frontend-workbench 当前验收阻塞项；见 `../specs/frontend-workbench-handoff.md` §9。
 
 ### 5.6 metrics-eval 验收
 - [ ] `uv run python -m evals.run --suite scope_detection --mock` 拿到 score；JSON 报告落盘
@@ -209,15 +214,15 @@ deployment        : —（不动 schema）
 模拟真实用户旅程：
 
 1. 干净环境 → `export CODEASK_DATA_KEY=$(...)` → `./start.sh`（或 `docker compose up -d`）
-2. 浏览器 http://127.0.0.1:8000 → 自动落首页 → UserMenu 提示填昵称（输入 "Alice"）
-3. 进 Wiki 管理 → 创建特性 "订单" → 上传一份 markdown 文档（已知关键词"超时"）
-4. 仓库配置 → 注册一个本机 git 仓（local_dir 来源） → 等 `ready`
-5. 特性详情 → 勾选关联仓库 "order-service"
-6. 新建会话 → 提问 "订单超时是怎么处理的？" → 看到 SSE 阶段切换（ScopeDetection → KnowledgeRetrieval → SufficiencyJudgement → AnswerSynthesis） → 拿到带证据的回答
-7. 点 ✓ 已解决 → 反馈写入 DB
-8. 点"沉淀为报告草稿" → 报告详情 → 一键 verify
-9. 新建另一会话 → 提问类似问题 → 检索命中刚才验证的报告（高优先级）
-10. Maintainer Dashboard 显示当月飞轮信号
+2. 浏览器打开 frontend dev server → 自动进入会话页，未登录用户可直接使用
+3. 创建特性 "订单" → 上传一份 markdown 文档（基础 Wiki 上传入口）
+4. 管理员登录 → 设置 → 注册一个本机 git 仓（local_dir 来源） → 等 `ready`
+5. 普通特性详情 → 勾选关联仓库 "order-service"
+6. 新建会话 → 提问 "订单超时是怎么处理的？" → 看到 SSE 阶段切换（ScopeDetection → KnowledgeRetrieval → SufficiencyJudgement → AnswerSynthesis） → 拿到回答
+7. 上传日志 → 在会话数据区看到该会话自己的附件 → 重命名 / 编辑用途说明 / 删除
+8. 点"生成报告" → 绑定特性 → 生成成功后跳转到特性的问题报告 tab
+9. 管理员设置 → 创建 / 编辑 / 启停 / 删除全局 LLM 配置
+10. 运行 `corepack pnpm --dir frontend test:e2e`
 
 ### 6.3 安全审计（手动）
 

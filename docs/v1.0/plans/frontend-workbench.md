@@ -17,9 +17,39 @@
 - `../design/agent-runtime.md`
 - `../design/api-data-model.md`
 
-**Depends on:** `docs/v1.0/plans/foundation.md`（subject_id 中间件契约 + `/api/healthz`）、`docs/v1.0/plans/wiki-knowledge.md`（`/api/features` / `/api/documents` / `/api/reports`）、`docs/v1.0/plans/code-index.md`（`/api/repos`）、`docs/v1.0/plans/agent-runtime.md`（`/api/sessions` + SSE 事件 + `/api/llm-configs`）
+**Depends on:** `docs/v1.0/plans/foundation.md`（subject_id 中间件契约 + `/api/healthz`）、`docs/v1.0/plans/wiki-knowledge.md`（`/api/features` / `/api/documents` / `/api/reports`）、`docs/v1.0/plans/code-index.md`（`/api/repos`）、`docs/v1.0/plans/agent-runtime.md`（`/api/sessions` + SSE 事件 + `/api/me/llm-configs` / `/api/admin/llm-configs`）
 
 **Project root:** `/home/hzh/workspace/CodeAsk/`。本计划全部文件路径相对此根目录；前端文件均在 `frontend/` 下。
+
+---
+
+## 2026-05-01 Phase B 修订
+
+以下修订优先级高于本计划较早 task 中的旧文案和代码片段：
+
+- 全局壳层固定为 TopBar + Source List sidebar；左侧一级入口只有 `会话 / 特性 / 设置`。
+- 会话列表只显示当前 subject 的会话，不提供"我的 / 全部"切换；列表顶部是搜索框 + 新建按钮，行操作放入三点菜单。
+- 上传日志在无会话时自动创建默认会话；会话数据按 `sessions/<session_id>/` 隔离，右侧"会话数据"区域列出当前会话附件并支持重命名 / 编辑用途说明 / 删除。
+- 会话附件以 `attachment_id` 作为稳定键；`display_name` 可变，`original_filename` 不变，`aliases` 保留历次名称，`description` 承载用户口语化用途说明。Agent prompt 必须注入这些映射，manifest 作为 DB 元数据快照同步更新。
+- 普通用户无需登录即可使用；内置管理员登录只用于保护全局 LLM 配置、全局仓库写操作和后续系统级设置。
+- LLM 配置 API 拆为个人 `/api/me/llm-configs` 与管理员 `/api/admin/llm-configs`；旧 `/api/llm-configs` 不再用于新 UI。
+- 管理员设置页只显示全局配置，不显示个人用户配置。
+- 仓库注册仍使用 `/api/repos`：读操作开放给特性关联仓库，创建 / 删除 / 刷新需要管理员。
+- 特性页不手工创建问题报告，只展示会话生成的报告；仓库关联使用全局仓库池 checkbox。
+
+详细契约见 `../specs/frontend-workbench-source-list-ia.md` 与 `../specs/frontend-workbench-admin-rbac.md`。
+
+---
+
+## 2026-05-02 Handoff 修订
+
+以下 handoff 边界优先级高于本计划早期 task 和末尾旧验收清单：
+
+- 当前实现是 Vite React SPA + TanStack Query；未采用 TanStack Router 文件路由、Zustand、shadcn 全量组件复制或 microsoft/fetch-event-source。
+- 全局页面只有 `会话 / 特性 / 设置` 三个一级入口；没有独立 Wiki 页、Repos 页、Skills 页或 Dashboard 页。
+- 特性页承载基础知识库上传入口、报告列表、仓库 checkbox 关联、特性 Skill；完整 LLM Wiki 目录上传 / 资源保存 / 预览 / 编辑 / re-index 后置为独立专项。
+- Feedback 按钮持久化、frontend events、audit log 和 Maintainer Dashboard 数据面后置到 `metrics-eval`。
+- 当前 frontend-workbench 验收以 `../specs/frontend-workbench-handoff.md` 为准。
 
 ---
 
@@ -36,7 +66,7 @@
 - 任何 SSE 都通过 `frontend/src/lib/sse.ts`，不直接用原生 EventSource
 - TypeScript 严格模式；`tsc --noEmit` 与 `eslint` 必须零错误才能 commit
 - shadcn/ui 组件**复制式**进 `frontend/src/components/ui/`（不作为 npm 包依赖）
-- **frontend 不直连 LLM**——所有 LLM 调用走 backend 的 `/api/llm-configs` + Agent 路径
+- **frontend 不直连 LLM**——所有 LLM 调用走 backend 的个人 / 管理员 LLM 配置 API + Agent 路径
 - 字体（JetBrains Mono / Fira Code）自托管在 `frontend/public/fonts/`，不引 Google Fonts CDN（依赖 `dependencies.md` §3.2）
 
 ## 不在本计划范围（明确推迟）
@@ -45,9 +75,11 @@
 |---|---|---|
 | Docker 多阶段镜像 / `frontend/dist/` 挂载到 backend `StaticFiles` | 07 deployment | 一期前端独立 dev server 已能联调 |
 | pre-commit / GitHub Actions（前端 lint + test） | 07 deployment | 本计划只跑本地校验 |
-| `/api/feedback` 后端实现 | 06 metrics-eval | 前端只调用，端点对接 |
+| `/api/feedback` 后端实现与前端持久化接入 | 06 metrics-eval | 当前 handoff 不要求调用；待 metrics-eval 定义反馈 API 后接入 |
+| feedback 按钮持久化 / frontend events / Dashboard 数据面 | 06 metrics-eval | 依赖 feedback、frontend_events、audit_log raw events |
+| 完整 LLM Wiki 目录管理、资源引用、预览、编辑、re-index | 独立 LLM Wiki 专项 | 范围跨存储、索引、UI 与 Agent 检索上下文，不纳入当前收口 |
 | TipTap in-app 文档编辑 | MVP+ | PRD 没要求 |
-| 真鉴权 / `AuthProvider` 替换 `<UserMenu />` slot | MVP+ | 一期完全无鉴权 |
+| 企业鉴权 / `AuthProvider` 替换 `<UserMenu />` slot | MVP+ | 一期仅内置管理员保护全局配置，普通用户仍匿名使用 |
 | 强制昵称唯一 / 找人帮忙按钮 | 永久不做 | `frontend-workbench.md` §6.3 / §8.4 |
 
 ---
@@ -2376,7 +2408,7 @@ const KEY = ["llm-configs"] as const;
 export function useLlmConfigs() {
   return useQuery({
     queryKey: KEY,
-    queryFn: () => apiFetch<LlmConfig[]>("/api/llm-configs"),
+    queryFn: () => apiFetch<LlmConfig[]>("/api/me/llm-configs"),
   });
 }
 
@@ -2395,8 +2427,8 @@ export function useUpsertLlmConfig() {
   return useMutation({
     mutationFn: (input: UpsertLlmConfigInput) =>
       input.id === null
-        ? apiFetch<LlmConfig>("/api/llm-configs", { method: "POST", json: input })
-        : apiFetch<LlmConfig>(`/api/llm-configs/${input.id}`, { method: "PUT", json: input }),
+        ? apiFetch<LlmConfig>("/api/me/llm-configs", { method: "POST", json: input })
+        : apiFetch<LlmConfig>(`/api/me/llm-configs/${input.id}`, { method: "PATCH", json: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }
@@ -2404,7 +2436,7 @@ export function useUpsertLlmConfig() {
 export function useDeleteLlmConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiFetch<null>(`/api/llm-configs/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiFetch<null>(`/api/me/llm-configs/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }
@@ -2780,14 +2812,14 @@ git commit -m "feat(frontend): UserMenu + NicknameDialog + self-report badge"
 
 ---
 
-## Task 11: SessionList（"我的"/"全部"切换 + 反馈状态徽章）
+## Task 11: SessionList（当前用户会话 + 搜索新建 + 行操作菜单）
 
 **Files:**
 - Create: `frontend/src/lib/format.ts`
 - Create: `frontend/src/components/session/SessionList.tsx`
 - Modify: `frontend/src/routes/sessions.tsx`（嵌入 SessionList + 默认重定向到第一个会话或 new）
 
-落地 `frontend-workbench.md` §3.1：默认按 `subject_id` 过滤"我的会话"，提供"全部会话"切换；条目展示标题、creator、关联特性、最近反馈状态。
+落地 `frontend-workbench.md` §3.1：默认按当前 `subject_id` 过滤会话，不提供"我的 / 全部"切换；列表顶部只有搜索框和新建按钮；条目展示标题、关联特性、最近反馈状态，右侧三点菜单承载编辑名称、分享、置顶、批量操作、删除。
 
 - [ ] **Step 1: 创建 `frontend/src/lib/format.ts`**
 
@@ -3682,6 +3714,8 @@ git commit -m "feat(frontend): InvestigationPanel with A2/A3 transparency + Deep
 ---
 
 ## Task 14: 答案展示 — AnswerCard + EvidenceList + EvidenceItem + FeedbackButtons + 单测
+
+> 2026-05-02 handoff note：本 task 中关于 `FeedbackButtons` 写入 `/api/feedback` 的代码和测试是早期计划片段。当前 frontend-workbench handoff 不把反馈持久化作为验收项；反馈 API、frontend events 与 Dashboard 数据面由 `metrics-eval` 接续。
 
 **Files:**
 - Create: `frontend/src/components/session/EvidenceItem.tsx`
@@ -4630,6 +4664,8 @@ git commit -m "feat(frontend): wiki management (docs + reports + verify/unverify
 
 ## Task 18: Repos / Skills / LLM 配置 / Features 详情页
 
+> 2026-05-02 handoff note：本 task 中旧的 LLM 配置代码片段已被当前实现覆盖。当前 UI 只展示 OpenAI / Anthropic 协议，支持添加、编辑、switch 启停和删除，不展示 `openai_compatible`、`is_default`、Max Tokens、Temperature、RPM 或剩余额度。
+
 **Files:**
 - Create: `frontend/src/components/repos/RepoStatusBadge.tsx`
 - Create: `frontend/src/components/repos/RepoRegisterDialog.tsx`
@@ -5281,6 +5317,8 @@ Playwright 用 page.route() 拦截 `/api/*` 与 `/api/sessions/:id/messages` 的
 3. 会话列表渲染
 4. 进入一个会话 → 输入提问 → 看到 stage / scope_detection / sufficiency_judgement / done 事件流处理 → AnswerCard 出现 → 点"已解决" → POST /api/feedback 被 mock 接到
 
+> 2026-05-02 handoff note：当前 e2e 以 `frontend/e2e/happy-path.spec.ts` 的实现为准，不要求覆盖 `/api/feedback`。反馈持久化与 Dashboard 信号在 `metrics-eval` 阶段补齐。
+
 - [ ] **Step 1: 创建 `frontend/e2e/playwright-helpers.ts`**
 
 ```ts
@@ -5450,18 +5488,21 @@ git tag -a frontend-workbench-v0.1.0 -m "Frontend workbench milestone"
 
 ## 验收标志（计划完整通过后应满足）
 
-- [ ] `pnpm dev` 在 5173 起前端，`/api/*` 走 vite proxy 反代到 backend 8000
-- [ ] 浏览器访问 `/` 自动跳转 `/sessions`
-- [ ] 顶栏 UserMenu 显示 `device@<short>` + "自报"小标识，可改昵称、清除身份
-- [ ] 会话列表有"我的 / 全部"切换；条目带反馈状态徽章
-- [ ] 会话页三栏：左 SessionList + 中 chat（消息流 + 输入区 + AnswerCard）+ 右 InvestigationPanel（A2 / A3 / 工具调用 / 再深查）
-- [ ] AnswerCard 渲染结论（大字 + confidence badge）+ 建议操作（带"决策权在你"）+ 不确定点 + 反馈按钮 + 折叠证据
-- [ ] Maintainer Dashboard 显示 待我处理 / 飞轮信号 / 关注的特性
-- [ ] Wiki 页可上传文档 / 搜索 / 查看 / 列出报告 / 报告详情显著展示 verified_by + verified_at + 撤销验证
-- [ ] Repos / Skills / LLM 配置 / Feature 详情页全部就位
-- [ ] e2e happy path PASS；vitest 覆盖 identity / api / sse / AnswerCard / FeedbackButtons / ScopeDetectionTransparency / UserMenu
-- [ ] `pnpm typecheck && pnpm lint && pnpm build` 全部零错误
-- [ ] git tag `frontend-workbench-v0.1.0` 已打
+- [ ] `corepack pnpm --dir frontend dev --host 0.0.0.0 --port 5173` 在 5173 起前端，`/api/*` 走 vite proxy 反代到 backend 8000
+- [ ] 浏览器访问 `/` 默认进入会话工作台
+- [ ] 顶栏 UserMenu 区分未登录普通用户和管理员；未登录只显示登录入口，管理员登录后显示全局配置能力
+- [ ] 一级入口只有 `会话 / 特性 / 设置`；一级与二级侧边栏均可收起 / 展开
+- [ ] 会话列表只显示当前 subject 会话，不提供"我的 / 全部"切换；条目右侧三点菜单包含编辑名称、分享占位、置顶、批量操作、删除
+- [ ] 会话页支持默认会话发送、SSE 阶段展示、强制代码调查、会话级附件上传 / 重命名 / 说明 / 删除、session id 短标签复制、报告生成确认和特性绑定
+- [ ] 特性页支持搜索、新建、删除确认；详情 tab 包含设置、知识库、问题报告、关联仓库、特性 Skill
+- [ ] 特性页不创建问题报告；只展示会话生成 / 归档到该特性的报告
+- [ ] 设置页普通用户只看到用户配置和个人 LLM 配置；管理员只看到全局 LLM 配置和仓库管理
+- [ ] LLM 配置支持 OpenAI / Anthropic 协议、添加、编辑、switch 启停、删除；不展示 Max Tokens / Temperature / RPM / 剩余额度 / 默认配置切换
+- [ ] `corepack pnpm --dir frontend test:run` 通过
+- [ ] `corepack pnpm --dir frontend build` 通过
+- [ ] `corepack pnpm --dir frontend test:e2e` 通过
+
+以下不阻塞当前 frontend-workbench handoff：Maintainer Dashboard、feedback 持久化、完整 LLM Wiki 管理、企业级 AuthProvider、单端口静态挂载。
 
 ---
 
@@ -5479,7 +5520,7 @@ git tag -a frontend-workbench-v0.1.0 -m "Frontend workbench milestone"
 | 答案"决策权在你"提示 | ✓ Task 14 |
 | "再深查一下"按钮在 sufficient 也可点 | ✓ Task 13 |
 | 撤销验证按钮显著展示 verified_by + verified_at | ✓ Task 17 |
-| 反馈按钮三档 + 备注 + 写 /api/feedback | ✓ Task 14 |
+| 反馈按钮三档 + 备注 + 写 /api/feedback | Deferred：由 `metrics-eval` 定义并接入 |
 | 不做找人帮忙按钮 | ✓ 明确推迟表 |
 | 不做强制鉴权 | ✓ 明确推迟表 |
 | API 字段 snake_case 一致 | ✓ §"API 字段命名约定" + Task 5 types/api.ts |

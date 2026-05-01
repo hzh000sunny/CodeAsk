@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Literal
 
 from sqlalchemy import select
@@ -31,6 +32,7 @@ from codeask.agent.tools import ToolRegistry
 from codeask.agent.trace import AgentTraceLogger
 from codeask.db.models import (
     Feature,
+    SessionAttachment,
     SessionRepoBinding,
     SessionTurn,
 )
@@ -47,6 +49,7 @@ StageFn = Callable[[StageContext], Awaitable[StageResult]]
 class _GatewayStageClient:
     gateway: LLMGateway
     config_id: str | None = None
+    subject_id: str | None = None
 
     def stream(
         self,
@@ -62,6 +65,7 @@ class _GatewayStageClient:
                 tools=tools,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                metadata={"subject_id": self.subject_id} if self.subject_id else {},
             )
         )
 
@@ -197,10 +201,18 @@ class AgentOrchestrator:
                     .order_by(SessionTurn.turn_index, SessionTurn.created_at)
                 )
             ).scalars()
+            attachment_rows = (
+                await session.execute(
+                    select(SessionAttachment)
+                    .where(SessionAttachment.session_id == session_id)
+                    .order_by(SessionAttachment.created_at, SessionAttachment.id)
+                )
+            ).scalars()
 
             features = list(feature_rows)
             repos = list(repo_rows)
             turns = list(turn_rows)
+            attachments = list(attachment_rows)
 
         prompt_context = PromptContext(
             user_question=user_message,
@@ -225,12 +237,16 @@ class AgentOrchestrator:
                 for repo in repos
             ],
             turn_history=_turn_history(turns, current_turn_id=turn_id),
+            attachment_summaries=_attachment_summaries(attachments),
         )
         return StageContext(
             session_id=session_id,
             turn_id=turn_id,
             prompt_context=prompt_context,
-            llm_client=_GatewayStageClient(self._gateway),
+            llm_client=_GatewayStageClient(
+                self._gateway,
+                subject_id=session_row.created_by_subject_id,
+            ),
             tool_registry=self._tool_registry,
             trace_logger=self._trace,
             collected_evidence=[],
@@ -290,6 +306,24 @@ def _turn_history(
             )
         )
     return messages
+
+
+def _attachment_summaries(rows: list[SessionAttachment]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": row.id,
+            "kind": row.kind,
+            "display_name": row.display_name,
+            "original_filename": row.original_filename,
+            "aliases": row.aliases,
+            "reference_names": row.reference_names,
+            "description": row.description,
+            "stored_filename": Path(row.file_path).name,
+            "file_path": row.file_path,
+            "size_bytes": row.size_bytes,
+        }
+        for row in rows
+    ]
 
 
 def _serialize_evidence(evidence: list[Evidence]) -> dict[str, Any]:

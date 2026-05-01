@@ -22,7 +22,7 @@ class _ScriptedClient:
 
 
 class _FakeRepo:
-    async def get_default_or(self, _id: str | None) -> object:
+    async def get_default_or(self, _id: str | None, *, subject_id: str | None = None) -> object:
         @dataclass(frozen=True)
         class Config:
             id: str = "cfg"

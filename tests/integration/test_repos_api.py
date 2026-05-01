@@ -31,6 +31,14 @@ def _bootstrap_local_repo(root: Path) -> Path:
 async def test_create_then_list(client: AsyncClient, tmp_path: Path) -> None:
     src = _bootstrap_local_repo(tmp_path / "src")
 
+    forbidden = await client.post(
+        "/api/repos",
+        json={"name": "demo", "source": "local_dir", "local_path": str(src)},
+    )
+    assert forbidden.status_code == 403
+
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
     response = await client.post(
         "/api/repos",
         json={"name": "demo", "source": "local_dir", "local_path": str(src)},
@@ -56,6 +64,8 @@ async def test_create_then_list(client: AsyncClient, tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_create_invalid_body(client: AsyncClient) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
     response = await client.post(
         "/api/repos",
         json={"name": "x", "source": "git", "url": None},
@@ -74,6 +84,8 @@ async def test_get_missing_repo(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_delete_repo(client: AsyncClient, tmp_path: Path) -> None:
     src = _bootstrap_local_repo(tmp_path / "src2")
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
     response = await client.post(
         "/api/repos",
         json={"name": "demo2", "source": "local_dir", "local_path": str(src)},
@@ -91,6 +103,8 @@ async def test_delete_repo(client: AsyncClient, tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_refresh_enqueues(client: AsyncClient, tmp_path: Path) -> None:
     src = _bootstrap_local_repo(tmp_path / "src3")
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
     response = await client.post(
         "/api/repos",
         json={"name": "demo3", "source": "local_dir", "local_path": str(src)},

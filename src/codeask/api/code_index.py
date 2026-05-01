@@ -28,6 +28,7 @@ from codeask.code_index.file_reader import FileReader, FileReadError
 from codeask.code_index.ripgrep import RipgrepClient, RipgrepError
 from codeask.code_index.worktree import InvalidRefError, WorktreeError
 from codeask.db.models import Repo
+from codeask.identity import require_admin
 
 log = structlog.get_logger("codeask.api.code_index")
 
@@ -59,6 +60,7 @@ def _to_out(repo: Repo) -> RepoOut:
 
 @router.post("/repos", response_model=RepoOut, status_code=status.HTTP_201_CREATED)
 async def create_repo(payload: RepoCreateIn, request: Request) -> RepoOut:
+    require_admin(request)
     try:
         payload.assert_consistent()
     except ValueError as exc:
@@ -109,6 +111,7 @@ async def get_repo(repo_id: str, request: Request) -> RepoOut:
 
 @router.delete("/repos/{repo_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_repo(repo_id: str, request: Request) -> None:
+    require_admin(request)
     factory = request.app.state.session_factory
     async with factory() as session:
         repo = (await session.execute(select(Repo).where(Repo.id == repo_id))).scalar_one_or_none()
@@ -128,6 +131,7 @@ async def delete_repo(repo_id: str, request: Request) -> None:
 
 @router.post("/repos/{repo_id}/refresh", response_model=RepoOut)
 async def refresh_repo(repo_id: str, request: Request) -> RepoOut:
+    require_admin(request)
     repo = await _load_repo(request, repo_id)
     request.app.state.scheduler.add_job(
         request.app.state.repo_cloner.run_clone,

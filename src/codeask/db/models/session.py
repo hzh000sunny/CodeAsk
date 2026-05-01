@@ -1,8 +1,9 @@
 """Session and related binding tables."""
 
+from pathlib import Path
 from typing import Any
 
-from sqlalchemy import JSON, CheckConstraint, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, Boolean, CheckConstraint, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from codeask.db.base import Base, TimestampMixin
@@ -21,6 +22,7 @@ class Session(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(256), nullable=False)
     created_by_subject_id: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class SessionFeature(Base):
@@ -106,5 +108,48 @@ class SessionAttachment(Base, TimestampMixin):
         nullable=False,
     )
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(256), nullable=False)
+    aliases_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    @property
+    def aliases(self) -> list[str]:
+        """Human-facing names that may be used to refer to the attachment."""
+
+        return _unique_non_empty(
+            [
+                *(self.aliases_json or []),
+                self.original_filename,
+                self.display_name,
+            ]
+        )
+
+    @property
+    def reference_names(self) -> list[str]:
+        """Stable id plus every filename-like handle the user or agent may mention."""
+
+        return _unique_non_empty(
+            [
+                self.id,
+                self.display_name,
+                *self.aliases,
+                self.original_filename,
+                Path(self.file_path).name,
+            ]
+        )
+
+
+def _unique_non_empty(values: list[str | None]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        cleaned = str(value or "").strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        result.append(cleaned)
+    return result

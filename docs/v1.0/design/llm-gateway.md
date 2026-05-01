@@ -207,23 +207,42 @@ OpenAI-compatible 适配器用于私有部署模型服务。它复用 OpenAI 适
 
 LLM 配置存 SQLite：
 
+- scope (`user` / `global`)
+- owner_subject_id（用户配置所属 subject；全局配置为空）
 - protocol
 - base_url
 - api_key_encrypted
 - model_name
-- max_tokens
-- temperature
-- is_default
+- max_tokens（API 默认 `200 * 1024`；配置页不展示）
+- temperature（API 默认 `0.2`；配置页不展示）
+- enabled
+- is_default（历史兼容字段；新 workbench 不提供设为默认操作）
+- rpm_limit（保留字段；当前不配置）
+- quota_remaining（保留字段；当前不配置）
 
 `protocol` 一期取值：
 
 ```text
 openai
-openai_compatible
 anthropic
 ```
 
+新 workbench 的协议选择只展示 OpenAI 和 Anthropic。`openai_compatible` 仍保留为历史兼容和后端扩展能力，但不是当前 UI 可选项。
+
 API Key 使用 Fernet 加密，master key 来自 `CODEASK_DATA_KEY`（与 `deployment-security.md` §5 锁定的环境变量名一致）。
+
+运行时选择规则：
+
+1. 如果请求显式指定 `config_id`，网关只能使用当前用户可访问的配置。
+2. 未指定时，先选择当前 `subject_id` 下启用的用户配置。
+3. 用户没有启用配置时，选择启用的全局配置。
+4. 多个启用配置按创建时间稳定选择；新 workbench 不提供默认配置切换。
+
+管理员可以看到全局配置的 masked key；普通用户不能通过列表 API 获取全局配置。
+
+后续负载均衡策略：
+
+- 当前阶段不维护 `rpm_limit` 和 `quota_remaining`，供应商 429、余额不足或其它调用失败直接通过会话错误返回。
 
 建议增加能力字段：
 

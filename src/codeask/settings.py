@@ -27,6 +27,20 @@ class Settings(BaseSettings):
     port: int = 8000
     log_level: str = "INFO"
     database_url: str | None = None
+    admin_username: str = Field(
+        default="admin",
+        description="Bootstrap admin username until the production auth backend is added.",
+    )
+    admin_password: str = Field(
+        default="admin",
+        description="Bootstrap admin password until the production auth backend is added.",
+    )
+    admin_session_ttl_hours: int = Field(
+        default=12,
+        ge=1,
+        description="Lifetime of the signed admin session cookie.",
+    )
+    auth_cookie_name: str = "codeask_admin_session"
 
     @model_validator(mode="after")
     def _derive_database_url(self) -> Self:

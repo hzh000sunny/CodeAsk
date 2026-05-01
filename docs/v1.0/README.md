@@ -6,7 +6,7 @@
 | 起始日期 | 2026-04-29 |
 | 状态 | Active |
 | 主题 | 初始 MVP — 知识库 + 代码混合问答 |
-| 当前实现进度 | `foundation`、`wiki-knowledge`、`code-index`、`agent-runtime` 已完成；下一阶段 `frontend-workbench` |
+| 当前实现进度 | `foundation`、`wiki-knowledge`、`code-index`、`agent-runtime` 已完成；`frontend-workbench` 收口验收中 |
 
 ## 目录结构
 
@@ -42,7 +42,10 @@ v1.0/
 │   ├── metrics-eval.md
 │   └── deployment.md
 └── specs/                    ← 早期草稿 / 过程性产物
-    └── codeask-initial-draft.md
+    ├── codeask-initial-draft.md
+    ├── frontend-workbench-admin-rbac.md
+    ├── frontend-workbench-source-list-ia.md
+    └── frontend-workbench-handoff.md
 ```
 
 ## 实现进度
@@ -53,7 +56,7 @@ v1.0/
 | `wiki-knowledge` | 已完成 | tag：`wiki-knowledge-v0.1.0`；Alembic head 到 `0005` |
 | `code-index` | 已完成 | tag：`code-index-v0.1.0`；Alembic head 到 `0006` |
 | `agent-runtime` | 已完成 | tag：`agent-runtime-v0.1.0`；Alembic head 到 `0012`；REST + SSE API 已暴露 |
-| `frontend-workbench` | 下一阶段 | 从 `plans/frontend-workbench.md` 开始，消费 agent-runtime 的 REST + SSE |
+| `frontend-workbench` | 收口验收中 | 当前实现边界见 `specs/frontend-workbench-handoff.md` |
 | `metrics-eval` | 未开始 | 替换 `AuditWriter` stub 为真实 `audit_log` 落表 |
 | `deployment` | 未开始 | 前置 plan 完成后收口部署 |
 

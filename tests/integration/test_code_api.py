@@ -32,11 +32,15 @@ def _bootstrap(root: Path) -> Path:
 
 
 async def _register_and_wait_ready(client: AsyncClient, src: Path) -> str:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     response = await client.post(
         "/api/repos",
         json={"name": "demo", "source": "local_dir", "local_path": str(src)},
     )
     assert response.status_code == 201, response.text
+    logout = await client.post("/api/auth/logout")
+    assert logout.status_code == 204
     repo_id = response.json()["id"]
     for _ in range(80):
         status_response = await client.get(f"/api/repos/{repo_id}")
