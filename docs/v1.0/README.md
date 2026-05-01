@@ -6,7 +6,7 @@
 | 起始日期 | 2026-04-29 |
 | 状态 | Active |
 | 主题 | 初始 MVP — 知识库 + 代码混合问答 |
-| 当前实现进度 | `foundation`、`wiki-knowledge`、`code-index`、`agent-runtime`、`frontend-workbench`、`metrics-eval` 已完成；下一阶段 `deployment`（本地单进程部署，Docker packaging 后置） |
+| 当前实现进度 | `foundation`、`wiki-knowledge`、`code-index`、`agent-runtime`、`frontend-workbench`、`metrics-eval` 已完成；当前阶段 `deployment`（本地单进程部署，Docker packaging 后置） |
 
 ## 目录结构
 
@@ -58,7 +58,7 @@ v1.0/
 | `agent-runtime` | 已完成 | tag：`agent-runtime-v0.1.0`；Alembic head 到 `0012`；REST + SSE API 已暴露 |
 | `frontend-workbench` | 已完成 | 当前实现边界见 `specs/frontend-workbench-handoff.md` |
 | `metrics-eval` | 已完成 | `feedback` / `frontend_events` / `audit_log`、metrics API、eval harness 与 CI workflow 已落地；Alembic head 到 `0016` |
-| `deployment` | 未开始 | 本地单进程部署、前端静态挂载、CI、安全审计；Docker packaging 后置 |
+| `deployment` | 进行中 | 本地单进程部署、前端静态挂载、CI、安全审计；Docker packaging 后置 |
 
 ## 推荐阅读顺序
 

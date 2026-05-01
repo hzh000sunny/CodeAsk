@@ -38,7 +38,7 @@
 | agent-runtime | 已完成 | 已合入 `main`，tag：`agent-runtime-v0.1.0`，Alembic head 到 `0012`，REST + SSE API 已暴露 |
 | frontend-workbench | 已完成 | React workbench 已落地；当前边界见 `../specs/frontend-workbench-handoff.md` |
 | metrics-eval | 已完成 | feedback / frontend_events / audit_log、会话反馈接入、eval harness 与 CI workflow 已落地；Alembic head 到 `0016` |
-| deployment | 未开始 | 本地单进程部署、前端静态挂载、CI、安全审计；Docker packaging 后置 |
+| deployment | 进行中 | 本地单进程部署、前端静态挂载、CI、安全审计；Docker packaging 后置 |
 
 **二期规划锚点（不属于 v1.0 必交付）：**
 

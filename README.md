@@ -6,7 +6,7 @@ CodeAsk 是一个私有部署的研发问答系统，帮助团队把内部文档
 
 ## 当前状态
 
-CodeAsk 目前已完成 v1.0 MVP 的 metrics-eval 阶段，准备进入 deployment 阶段。v1.0 的 deployment 只包含本地单进程部署、前端静态挂载、CI 和安全审计；Docker / compose / 镜像发布后置为独立计划。
+CodeAsk 目前已完成 v1.0 MVP 的 metrics-eval 阶段，正在进行 deployment 阶段。v1.0 的 deployment 只包含本地单进程部署、前端静态挂载、CI 和安全审计；Docker / compose / 镜像发布后置为独立计划。
 
 产品需求、系统设计和实现计划位于 `docs/v1.0/`。当前已完成：
 
@@ -17,7 +17,7 @@ CodeAsk 目前已完成 v1.0 MVP 的 metrics-eval 阶段，准备进入 deployme
 - `frontend-workbench`：React 工作台、会话界面、特性页面、设置页、管理员登录、个人 / 全局 LLM 配置隔离、会话附件管理、报告生成入口和 Playwright smoke。
 - `metrics-eval`：反馈表、前端事件表、审计日志表、`/api/feedback`、`/api/events`、`/api/audit-log`、跨计划 audit hook、Agent eval harness 和 GitHub Actions eval workflow。
 
-下一阶段是 `deployment`。完整 LLM Wiki 目录管理和 Docker packaging 都已明确后置为独立专项。
+当前阶段是 `deployment`。完整 LLM Wiki 目录管理和 Docker packaging 都已明确后置为独立专项。
 
 ## 产品目标
 
@@ -181,9 +181,9 @@ v1.0 实现被拆成七个 plan：
 | 4 | `agent-runtime` | 已完成 | LLM 网关、会话、Agent 状态机、工具调用、SSE、轨迹记录、运行时 API |
 | 5 | `frontend-workbench` | 已完成 | React 工作台、会话界面、特性页面、设置页面、管理员入口、LLM 配置、附件和报告入口 |
 | 6 | `metrics-eval` | 已完成 | 反馈、前端事件、审计日志、Agent eval、质量门禁 |
-| 7 | `deployment` | 未开始 | 前端静态挂载、`start.sh` 本地启动、CI、安全检查和发布 smoke test |
+| 7 | `deployment` | 进行中 | 前端静态挂载、`start.sh` 本地启动、CI、安全检查和发布 smoke test |
 
-当前阶段完成后进入 `docs/v1.0/plans/deployment.md`。
+当前阶段执行文件为 `docs/v1.0/plans/deployment.md`。
 
 ## 快速启动
 
@@ -201,10 +201,35 @@ export CODEASK_DATA_KEY="$(python -c 'from cryptography.fernet import Fernet; pr
 http://127.0.0.1:8000
 ```
 
+如果 `frontend/dist/index.html` 不存在，`start.sh` 会在 `corepack pnpm` 可用时自动构建前端；如果本机没有前端工具链，后端仍会启动，`/api/*` 可用，同时终端会提示你如何手动构建前端。
+
 健康检查：
 
 ```bash
 curl -s http://127.0.0.1:8000/api/healthz -H 'X-Subject-Id: alice@dev-1' | python -m json.tool
+```
+
+### 前端联调
+
+开发前端时可以单独启动 Vite dev server：
+
+```bash
+cd frontend
+corepack pnpm install
+corepack pnpm dev
+```
+
+前端开发服务器监听 `http://127.0.0.1:5173`，并把 `/api/*` 代理到后端 `:8000`。后端仍按上面的 `./start.sh` 启动。
+
+### 常用测试
+
+```bash
+uv run pytest
+uv run ruff check src tests
+uv run ruff format --check src tests
+uv run pyright src/codeask
+corepack pnpm --dir frontend test:run
+corepack pnpm --dir frontend build
 ```
 
 ## Python 依赖源
