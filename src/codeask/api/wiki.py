@@ -44,6 +44,7 @@ from codeask.wiki.chunker import DocumentChunker
 from codeask.wiki.indexer import WikiIndexer
 from codeask.wiki.reports import ReportService, ReportVerificationError
 from codeask.wiki.search import WikiSearchService
+from codeask.wiki.uploads import UnsupportedMime, validate_upload
 
 router = APIRouter()
 
@@ -283,6 +284,15 @@ async def upload_document(
     target = storage_dir / safe_name
     with target.open("wb") as output:
         shutil.copyfileobj(file.file, output)
+
+    try:
+        validate_upload(target, declared_mime=file.content_type)
+    except UnsupportedMime as exc:
+        target.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     parsed_chunks = DocumentChunker().chunk_file(target, kind=kind)
     if not parsed_chunks:

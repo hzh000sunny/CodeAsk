@@ -90,3 +90,24 @@ async def test_unsupported_extension_rejected(client: AsyncClient, tmp_path: Pat
             headers={"X-Subject-Id": "u@1"},
         )
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_pdf_spoofed_executable_rejected_before_parsing(
+    client: AsyncClient,
+    tmp_path: Path,
+) -> None:
+    feature_id = await _create_feature(client, slug="order-spoofed-pdf")
+    binary_path = tmp_path / "evil.pdf"
+    binary_path.write_bytes(b"MZ\x90\x00\x03\x00" + b"\x00" * 1024)
+
+    with binary_path.open("rb") as file:
+        response = await client.post(
+            "/api/documents",
+            data={"feature_id": str(feature_id)},
+            files={"file": ("evil.pdf", file, "application/pdf")},
+            headers={"X-Subject-Id": "u@1"},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "unsupported file content: executable payload"

@@ -1,0 +1,59 @@
+name: backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "alembic/**"
+      - "alembic.ini"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".python-version"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CODEASK_DATA_KEY: TGltSXRlc3Rrcm5hYmFzZTY0LXVybHNhZmUtMzJieXRlcw==
+      CODEASK_HOST: 127.0.0.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.4"
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install system tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep universal-ctags
+
+      - name: uv sync
+        run: uv sync --frozen
+
+      - name: Ruff lint
+        run: uv run ruff check src tests evals
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests evals
+
+      - name: Pyright
+        run: uv run pyright src/codeask evals
+
+      - name: Pytest
+        run: uv run pytest -v --maxfail=1

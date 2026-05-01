@@ -1,0 +1,100 @@
+name: frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/frontend.yml"
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CODEASK_DATA_KEY: TGltSXRlc3Rrcm5hYmFzZTY0LXVybHNhZmUtMzJieXRlcw==
+      CODEASK_HOST: 127.0.0.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: frontend
+        run: pnpm typecheck
+
+      - name: Unit tests
+        working-directory: frontend
+        run: pnpm test:run
+
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.4"
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install backend deps
+        run: uv sync --frozen
+
+      - name: Start backend
+        run: |
+          export CODEASK_FRONTEND_DIST="$GITHUB_WORKSPACE/frontend/dist"
+          ./start.sh > /tmp/codeask-backend.log 2>&1 &
+          echo $! > /tmp/codeask-backend.pid
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:8000/api/healthz; then
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8000
+        run: pnpm test:e2e
+
+      - name: Backend logs
+        if: failure()
+        run: cat /tmp/codeask-backend.log || true
+
+      - name: Stop backend
+        if: always()
+        run: kill "$(cat /tmp/codeask-backend.pid)" || true
