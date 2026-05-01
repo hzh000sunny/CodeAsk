@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     port: int = 8000
     log_level: str = "INFO"
     database_url: str | None = None
+    frontend_dist: Path = Field(
+        default_factory=lambda: Path(__file__).resolve().parents[2] / "frontend" / "dist",
+        description="Path to compiled SPA served from / when index.html exists.",
+    )
     admin_username: str = Field(
         default="admin",
         description="Bootstrap admin username until the production auth backend is added.",

@@ -176,4 +176,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(llm_configs_router, prefix="/api")
     app.include_router(skills_router, prefix="/api")
     app.include_router(sessions_router, prefix="/api")
+
+    from fastapi.staticfiles import StaticFiles
+
+    dist = settings.frontend_dist
+    if (dist / "index.html").is_file():
+        app.mount("/", StaticFiles(directory=str(dist), html=True), name="static")
+        log.info("static_mounted", path=str(dist))
+    else:
+        log.warning(
+            "frontend_dist_missing",
+            path=str(dist),
+            hint=(
+                "run `corepack pnpm --dir frontend build` or set CODEASK_FRONTEND_DIST; "
+                "API still works (frontend dev server can proxy /api to :8000)"
+            ),
+        )
     return app
