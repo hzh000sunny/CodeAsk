@@ -278,6 +278,7 @@ PRD 不锁具体数值（MVP 阶段拍数字没有意义，等真实部署校准
 | 不做向量检索作为核心依赖 | FTS5 + n-gram + 精确信号召回够用；向量后续可叠加 |
 | 不做 IDE 插件 | Web 是更广覆盖的入口 |
 | 不做客户端原生应用 | Web 足够 |
+| 不做 Docker / compose 包装 | 一期先收口 `./start.sh` 本地单进程部署；容器化交付后置为独立计划 |
 | 不做实时多人协同编辑 | 知识库非 Notion；编辑场景轻 |
 
 ---
@@ -351,7 +352,7 @@ PRD 不锁具体数值（MVP 阶段拍数字没有意义，等真实部署校准
 **角色**：Alice，订单团队 tech lead，被新人和兄弟团队反复问"订单流程"问题，决定试试 CodeAsk。
 
 ```text
-Day 0  装好 CodeAsk（docker-compose / npm，30 分钟内）
+Day 0  装好 CodeAsk（uv + ./start.sh / pnpm dev，30 分钟内）
        打开浏览器 → 默认无登录 → 直接进首页
 
 Day 1  全局仓库池：填 order-service / payment-gateway 的 Git URL

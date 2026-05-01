@@ -1772,7 +1772,7 @@ git tag -a foundation-v0.1.0 -m "Foundation milestone: scaffold + DB + healthz"
 - 文档 / 报告 / FTS5：02 wiki-knowledge 计划负责
 - agent_traces / feedback / frontend_events / audit_log：04 / 06 各自负责
 - 前端编译产物挂载：05 frontend-workbench 计划负责
-- Docker / 多阶段镜像：07 deployment 计划负责
+- 容器化包装 / 多阶段镜像：后续独立 packaging 计划负责，不属于 v1.0 deployment
 
 ## 6. SDD 文档同步
 
@@ -1809,6 +1809,6 @@ git commit -m "docs(plans): foundation hand-off conventions for follow-on plans"
 | LLM 网关接入 + `llm-gateway.md` 文档名修正 | 04 agent-runtime | 没有 LLM 调用就不需要 gateway 落地 |
 | SSE 流 | 04 agent-runtime | healthz 不需要 |
 | AuthProvider 协议 + `<UserMenu />` slot | MVP+（PRD §4.4.2） | 一期完全无鉴权 |
-| Docker 多阶段构建 + alpine | 07 deployment | start.sh 在小团队场景已足够 |
+| Docker 多阶段构建 + alpine | 后续独立 packaging 计划 | start.sh 在 v1.0 小团队场景已足够 |
 | 前端构建产物挂载 | 05 frontend-workbench | 一期前端独立 dev server，发布前再挂 |
 | pre-commit / GitHub Actions | 07 deployment | 本计划只跑本地 lint + type check |

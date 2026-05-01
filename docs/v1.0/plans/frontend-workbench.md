@@ -73,7 +73,8 @@
 
 | 项 | 推迟到 | 原因 |
 |---|---|---|
-| Docker 多阶段镜像 / `frontend/dist/` 挂载到 backend `StaticFiles` | 07 deployment | 一期前端独立 dev server 已能联调 |
+| `frontend/dist/` 挂载到 backend `StaticFiles` | 07 deployment | 一期前端独立 dev server 已能联调 |
+| Docker 多阶段镜像 / compose | 后续独立 packaging 计划 | v1.0 deployment 只收口本地单进程部署 |
 | pre-commit / GitHub Actions（前端 lint + test） | 07 deployment | 本计划只跑本地校验 |
 | `/api/feedback` 后端实现与前端持久化接入 | 06 metrics-eval | 当前 handoff 不要求调用；待 metrics-eval 定义反馈 API 后接入 |
 | feedback 按钮持久化 / frontend events / Dashboard 数据面 | 06 metrics-eval | 依赖 feedback、frontend_events、audit_log raw events |

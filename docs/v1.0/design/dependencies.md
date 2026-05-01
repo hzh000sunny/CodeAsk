@@ -163,8 +163,8 @@
 | 用途 | 推荐 | 备注 |
 |---|---|---|
 | 单机部署 | **`start.sh`**（systemd unit 可选） | 最低门槛 |
-| Docker | **多阶段构建 + alpine-based**（最终镜像 ~150MB） | 含 git / ripgrep / universal-ctags |
-| Compose | **docker-compose.yml**（单服务） | 默认无 PG / Redis / Elasticsearch |
+| 前端静态资源 | **FastAPI StaticFiles 挂载 `frontend/dist/`** | 单进程、单端口提供 SPA + API |
+| 容器化包装 | **后续独立计划** | Docker / compose / 镜像发布不属于 v1.0 deployment |
 | 包发布 | **uv** 管 Python deps，**pnpm** 管前端 deps | uv 比 pip / poetry 快、lockfile 干净 |
 
 **为什么不用 K8s helm chart**：PRD §4.4.1"30 秒部署"承诺。Helm 进来等于把"小团队私有部署"门槛拉高一截。可作为社区适配，不进官方默认路径。

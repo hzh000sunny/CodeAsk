@@ -61,7 +61,7 @@ CodeAsk 不绑定 Java、Node.js、Python、Go 或任何特定框架。通用能
 
 ## 4. 总体架构
 
-一期采用单进程 FastAPI 应用，前端作为独立 React/Vite 项目构建后由后端挂载静态资源——**单仓 + 单产物部署**，落地 PRD §4.4.1 "30 秒部署"承诺。
+一期采用单进程 FastAPI 应用，前端作为独立 React/Vite 项目构建后由后端挂载静态资源——**单仓 + 本地单产物部署**，落地 PRD §4.4.1 的低门槛部署承诺。Docker / compose / 镜像发布后置为独立包装计划，不属于 v1.0 deployment。
 
 ### 4.1 逻辑架构
 
@@ -109,7 +109,7 @@ CodeAsk 是单仓 monorepo，但**不引入**专用 monorepo 工具（nx / turbo
 
 ```text
 CodeAsk/
-├── README.md                       # 项目入口（30 秒部署说明）
+├── README.md                       # 项目入口（本地部署说明）
 ├── start.sh                        # 单脚本：build 前端 → 起 backend
 ├── docs/                           # PRD / SDD / Plans（版本树见 ../STRUCTURE.md）
 │
@@ -151,10 +151,6 @@ CodeAsk/
 │   ├── e2e/                        # Playwright
 │   └── dist/                       # 构建产物（.gitignore；backend StaticFiles 挂载）
 │
-├── docker/
-│   ├── Dockerfile                  # 多阶段：node build 前端 → python install backend → 合一镜像
-│   └── docker-compose.yml
-│
 └── .github/workflows/
     ├── backend.yml                 # uv sync + ruff + pyright + pytest
     └── frontend.yml                # pnpm install + tsc + vitest + playwright
@@ -169,8 +165,8 @@ CodeAsk/
 | backend 在根 vs `backend/` 子目录 | 在根 | Python `pyproject.toml` 在根是绝大多数项目惯例 |
 | frontend 在 `frontend/` 子目录 | 是 | 工具链与 backend 不同，必须分目录隔离 |
 | 前端 dev 与 backend 联调 | Vite proxy | 前端 5173 / backend 8000；`/api/*` 反代；上线时 backend 挂 `frontend/dist/` |
-| 部署形态 | 单进程 + 单端口 | 落地 PRD §4.4.1 "30 秒部署"——零反向代理、零外部服务 |
-| Docker 镜像 | 多阶段单镜像 | node build 前端 → python install backend → 合一；详见 07 deployment 子计划 |
+| 部署形态 | 单进程 + 单端口 | 零反向代理、零外部服务；v1.0 通过 `start.sh` 本地启动 |
+| 容器化交付 | 后置 | Docker / compose / 镜像发布不纳入 v1.0 deployment，后续单独规划 |
 
 ## 5. 组件边界
 

@@ -46,7 +46,7 @@
 - 文档 / 报告 / FTS5：02 wiki-knowledge 计划负责
 - `agent_traces` / `feedback` / `frontend_events` / `audit_log`：04 / 06 各自负责
 - 前端编译产物挂载：05 frontend-workbench 计划负责
-- Docker / 多阶段镜像：07 deployment 计划负责
+- 容器化包装 / 多阶段镜像：后续独立 packaging 计划负责，不属于 v1.0 deployment
 
 ## 6. SDD 文档同步
 

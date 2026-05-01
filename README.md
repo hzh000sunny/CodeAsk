@@ -6,7 +6,7 @@ CodeAsk 是一个私有部署的研发问答系统，帮助团队把内部文档
 
 ## 当前状态
 
-CodeAsk 目前已完成 v1.0 MVP 的 metrics-eval 阶段，准备进入 deployment 阶段。
+CodeAsk 目前已完成 v1.0 MVP 的 metrics-eval 阶段，准备进入 deployment 阶段。v1.0 的 deployment 只包含本地单进程部署、前端静态挂载、CI 和安全审计；Docker / compose / 镜像发布后置为独立计划。
 
 产品需求、系统设计和实现计划位于 `docs/v1.0/`。当前已完成：
 
@@ -17,7 +17,7 @@ CodeAsk 目前已完成 v1.0 MVP 的 metrics-eval 阶段，准备进入 deployme
 - `frontend-workbench`：React 工作台、会话界面、特性页面、设置页、管理员登录、个人 / 全局 LLM 配置隔离、会话附件管理、报告生成入口和 Playwright smoke。
 - `metrics-eval`：反馈表、前端事件表、审计日志表、`/api/feedback`、`/api/events`、`/api/audit-log`、跨计划 audit hook、Agent eval harness 和 GitHub Actions eval workflow。
 
-下一阶段是 `deployment`。完整 LLM Wiki 目录管理已明确后置为独立专项。
+下一阶段是 `deployment`。完整 LLM Wiki 目录管理和 Docker packaging 都已明确后置为独立专项。
 
 ## 产品目标
 
@@ -65,7 +65,7 @@ v1.0 MVP 包含：
 - 代码工具调用，包括 grep、读取文件、符号查找
 - 带证据的答案生成
 - 报告草稿与人工验证闭环
-- 单机部署与 Docker 部署
+- 单机部署
 
 v1.0 MVP 暂不包含：
 
@@ -77,6 +77,7 @@ v1.0 MVP 暂不包含：
 - 外部向量数据库作为核心依赖
 - 与 ELK、Loki、Splunk 等日志平台的直接对接
 - 完整 LLM Wiki 目录上传、相对资源保存、在线预览 / 编辑 / re-index 工作流
+- Docker / compose / 镜像发布
 
 ## 技术方向
 
@@ -144,11 +145,10 @@ CodeAsk/
 └── .claude/
 ```
 
-后续部署和 CI 计划完成后，还会补充如下目录：
+后续 deployment 计划完成后，还会补充如下目录：
 
 ```text
 CodeAsk/
-├── docker/
 └── .github/
 ```
 
@@ -181,7 +181,7 @@ v1.0 实现被拆成七个 plan：
 | 4 | `agent-runtime` | 已完成 | LLM 网关、会话、Agent 状态机、工具调用、SSE、轨迹记录、运行时 API |
 | 5 | `frontend-workbench` | 已完成 | React 工作台、会话界面、特性页面、设置页面、管理员入口、LLM 配置、附件和报告入口 |
 | 6 | `metrics-eval` | 已完成 | 反馈、前端事件、审计日志、Agent eval、质量门禁 |
-| 7 | `deployment` | 未开始 | 前端静态挂载、Docker、docker-compose、CI、安全检查和发布 smoke test |
+| 7 | `deployment` | 未开始 | 前端静态挂载、`start.sh` 本地启动、CI、安全检查和发布 smoke test |
 
 当前阶段完成后进入 `docs/v1.0/plans/deployment.md`。
 
@@ -254,7 +254,7 @@ macOS 可安装：
 brew install git ripgrep universal-ctags
 ```
 
-当前测试环境如果缺少 `ctags`，符号相关测试会跳过；安装 `universal-ctags` 后会自动执行。后续 Docker 镜像会在 `deployment` 阶段内置这些工具。
+当前测试环境如果缺少 `ctags`，符号相关测试会跳过；安装 `universal-ctags` 后会自动执行。后续容器化包装计划会把这些系统工具打进镜像，但不属于 v1.0 deployment。
 
 ## 配置项
 
@@ -266,6 +266,7 @@ brew install git ripgrep universal-ctags
 | `CODEASK_PORT` | 否 | `8000` | HTTP 服务端口。 |
 | `CODEASK_LOG_LEVEL` | 否 | `INFO` | 可设为 `DEBUG` / `INFO` / `WARNING` / `ERROR`。 |
 | `CODEASK_DATABASE_URL` | 否 | 基于 `CODEASK_DATA_DIR` 派生 | 默认是本地 SQLite；通常只在测试或迁移数据库时覆盖。 |
+| `CODEASK_FRONTEND_DIST` | 否 | `<repo>/frontend/dist` | 前端构建产物目录；存在 `index.html` 时由后端挂载到 `/`。 |
 
 ## 开发约定
 

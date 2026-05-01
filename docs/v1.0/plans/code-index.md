@@ -846,7 +846,7 @@ class RepoCloner:
 - [x] **Step 4: 跑测试确认通过**
 
 Run: `uv run pytest tests/integration/test_cloner.py -v`
-Expected: 三个测试 PASS（确保系统装了 `git`；本计划假定 deployment 镜像已带，详见 `dependencies.md` §5）
+Expected: 三个测试 PASS（确保系统装了 `git`；v1.0 deployment 通过本地依赖说明约束这些系统工具，后续容器化包装再内置）
 
 - [x] **Step 5: 提交**
 
@@ -2931,7 +2931,7 @@ The code-index subsystem shells out to standard tooling. They must be on `$PATH`
 
 Install on Debian/Ubuntu: `apt-get install git ripgrep universal-ctags`
 Install on macOS: `brew install git ripgrep universal-ctags`
-The Docker image (07 deployment plan) bakes all three.
+v1.0 local deployment requires all three on `$PATH`; future container packaging will bake them into the image.
 ```
 
 - [x] **Step 5: 验证 health check + 端到端流程仍走得通**
