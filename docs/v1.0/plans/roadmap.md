@@ -26,7 +26,7 @@
                       deployment
 ```
 
-7 份 plan。Foundation 是地基；其余 6 份按 DAG 依次落地，每份产出"可跑、可测、可演示"的中间产物。2026-05-02 起，v1.0 deployment 明确收缩为本地单进程部署；Docker / compose / 镜像发布后置到独立计划。
+7 份 plan。Foundation 是地基；其余 6 份按 DAG 依次落地，每份产出"可跑、可测、可演示"的中间产物。2026-05-02 起，v1.0 deployment 明确收缩为本地单进程部署；Docker / compose / 镜像发布后置到独立计划。当前 deployment plan 已完成。
 
 **当前实现状态（2026-05-02）：**
 
@@ -38,7 +38,7 @@
 | agent-runtime | 已完成 | 已合入 `main`，tag：`agent-runtime-v0.1.0`，Alembic head 到 `0012`，REST + SSE API 已暴露 |
 | frontend-workbench | 已完成 | React workbench 已落地；当前边界见 `../specs/frontend-workbench-handoff.md` |
 | metrics-eval | 已完成 | feedback / frontend_events / audit_log、会话反馈接入、eval harness 与 CI workflow 已落地；Alembic head 到 `0016` |
-| deployment | 进行中 | 本地单进程部署、前端静态挂载、CI、安全审计；Docker packaging 后置 |
+| deployment | 已完成 | 本地单进程部署、前端静态挂载、CI、安全审计；Docker packaging 后置 |
 
 **二期规划锚点（不属于 v1.0 必交付）：**
 
@@ -172,13 +172,13 @@ deployment        : —（不动 schema）
 - [x] alembic head = `0012`
 
 ### 5.5 frontend-workbench 验收
-- [ ] 会话 / 特性 / 设置三入口可用，一级与二级侧边栏均可收起展开
-- [ ] 普通用户匿名可用，管理员登录后只能看到全局配置；普通用户不能读取全局 LLM 配置
-- [ ] 会话支持搜索、新建、三点菜单、删除确认、批量删除、默认会话发送、会话附件上传 / 重命名 / 说明 / 删除和报告生成入口
-- [ ] 特性支持搜索、新建、删除确认、知识库上传入口、报告列表、仓库 checkbox 关联和特性 Skill 管理
-- [ ] LLM 配置支持 OpenAI / Anthropic 协议选择、添加、编辑、switch 启停、删除；不展示 Max Tokens / Temperature / RPM / 剩余额度 / 默认配置切换
-- [ ] Playwright happy-path e2e 通过
-- [ ] `corepack pnpm --dir frontend build` 零错误
+- [x] 会话 / 特性 / 设置三入口可用，一级与二级侧边栏均可收起展开
+- [x] 普通用户匿名可用，管理员登录后只能看到全局配置；普通用户不能读取全局 LLM 配置
+- [x] 会话支持搜索、新建、三点菜单、删除确认、批量删除、默认会话发送、会话附件上传 / 重命名 / 说明 / 删除和报告生成入口
+- [x] 特性支持搜索、新建、删除确认、知识库上传入口、报告列表、仓库 checkbox 关联和特性 Skill 管理
+- [x] LLM 配置支持 OpenAI / Anthropic 协议选择、添加、编辑、switch 启停、删除；不展示 Max Tokens / Temperature / RPM / 剩余额度 / 默认配置切换
+- [x] Playwright happy-path e2e 通过
+- [x] `corepack pnpm --dir frontend build` 零错误
 
 Dashboard、feedback 持久化和完整 LLM Wiki 管理不作为 frontend-workbench 当前验收阻塞项；见 `../specs/frontend-workbench-handoff.md` §9。
 
@@ -189,10 +189,10 @@ Dashboard、feedback 持久化和完整 LLM Wiki 管理不作为 frontend-workbe
 - [x] alembic head = `0016`
 
 ### 5.7 deployment 验收
-- [ ] 后端在 `frontend/dist/index.html` 存在时通过 `/` 直接服务 SPA，且 `/api/*` 不被静态路由吞掉
-- [ ] `./start.sh` 缺少 `CODEASK_DATA_KEY` 时清晰失败；dist 缺失时自动构建或清晰警告；backend 仍可启动
-- [ ] 安全 checklist 中 AUTO 项有对应 pytest 单测全绿；MANUAL 项不包含 Docker / compose / 镜像发布
-- [ ] tag `deployment-v0.1.0` 已打
+- [x] 后端在 `frontend/dist/index.html` 存在时通过 `/` 直接服务 SPA，且 `/api/*` 不被静态路由吞掉
+- [x] `./start.sh` 缺少 `CODEASK_DATA_KEY` 时清晰失败；dist 缺失时自动构建或清晰警告；backend 仍可启动
+- [x] 安全 checklist 中 AUTO 项有对应 pytest 单测全绿；MANUAL 项不包含 Docker / compose / 镜像发布
+- [x] tag `deployment-v0.1.0` 已打
 
 ## 6. v1.0 整体出货验收（MVP）
 

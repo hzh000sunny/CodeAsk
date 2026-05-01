@@ -6,7 +6,7 @@ CodeAsk 是一个私有部署的研发问答系统，帮助团队把内部文档
 
 ## 当前状态
 
-CodeAsk 目前已完成 v1.0 MVP 的 metrics-eval 阶段，正在进行 deployment 阶段。v1.0 的 deployment 只包含本地单进程部署、前端静态挂载、CI 和安全审计；Docker / compose / 镜像发布后置为独立计划。
+CodeAsk 目前已完成 v1.0 MVP 的全部既定实现阶段。v1.0 的 deployment 已收束为本地单进程部署、前端静态挂载、CI 和安全审计；Docker / compose / 镜像发布后置为独立计划。
 
 产品需求、系统设计和实现计划位于 `docs/v1.0/`。当前已完成：
 
@@ -16,8 +16,9 @@ CodeAsk 目前已完成 v1.0 MVP 的 metrics-eval 阶段，正在进行 deployme
 - `agent-runtime`：LLM 配置、会话、Skill、9 阶段 Agent 状态机、LLM Gateway、ToolRegistry、SSE 事件、agent_traces 轨迹记录，以及 `/api/llm-configs`、`/api/skills`、`/api/sessions`。
 - `frontend-workbench`：React 工作台、会话界面、特性页面、设置页、管理员登录、个人 / 全局 LLM 配置隔离、会话附件管理、报告生成入口和 Playwright smoke。
 - `metrics-eval`：反馈表、前端事件表、审计日志表、`/api/feedback`、`/api/events`、`/api/audit-log`、跨计划 audit hook、Agent eval harness 和 GitHub Actions eval workflow。
+- `deployment`：本地单进程部署、前端静态挂载、`start.sh`、CI 和安全审计已完成；Docker packaging 后置为独立计划。
 
-当前阶段是 `deployment`。完整 LLM Wiki 目录管理和 Docker packaging 都已明确后置为独立专项。
+当前实现已经覆盖 v1.0 的主要交付路径；完整 LLM Wiki 目录管理和 Docker packaging 都已明确后置为独立专项。
 
 ## 产品目标
 
@@ -145,12 +146,7 @@ CodeAsk/
 └── .claude/
 ```
 
-后续 deployment 计划完成后，还会补充如下目录：
-
-```text
-CodeAsk/
-└── .github/
-```
+仓库已经包含 `.github/`，用于后端和前端 CI。后续如果再补充容器化或发布类自动化目录，再按需扩展。
 
 ## 文档入口
 
@@ -318,7 +314,7 @@ uv run pytest -q
 
 项目级 `pyproject.toml` 已配置清华 TUNA PyPI 镜像源，`uv sync` 默认会使用该镜像。
 
-下一阶段从 `docs/v1.0/plans/deployment.md` 开始。新会话接手时建议按顺序快速重读：
+如果要接手后续 packaging、回归或新增 plan，建议按顺序快速重读：
 
 1. `README.md`
 2. `docs/v1.0/plans/roadmap.md`

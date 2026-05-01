@@ -1,6 +1,8 @@
 # Deployment Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Status:** completed in `main`. Docker, compose, and image publishing remain intentionally deferred to a later packaging plan.
 
 **Goal:** 落地 v1.0 的本地单进程部署链路：后端直接挂载前端构建产物、`start.sh` 负责裸机启动与前端构建兜底、前后端 CI 全绿、安全审计可重复执行。Docker、compose、镜像发布明确后置到后续非 v1.0 计划。
 
@@ -74,7 +76,7 @@ CodeAsk/
 
 后端在 API 路由注册完成后，若检测到 `frontend/dist/index.html` 存在，就把整个 `frontend/dist/` 挂载到 `/`。这样 `uv run codeask` 即可同时提供 API 与 SPA。开发态如果没有 dist，应用必须继续启动，不能因为前端还没 build 就把 backend 卡死。
 
-- [ ] **Step 1: 写失败测试 `tests/integration/test_static_mount.py`**
+- [x] **Step 1: 写失败测试 `tests/integration/test_static_mount.py`**
 
 ```python
 """StaticFiles mount serves SPA without blocking /api/*."""
@@ -153,7 +155,7 @@ async def test_missing_dist_does_not_crash(
         assert r.status_code == 200
 ```
 
-- [ ] **Step 2: 在 `src/codeask/settings.py` 追加 `frontend_dist` 字段**
+- [x] **Step 2: 在 `src/codeask/settings.py` 追加 `frontend_dist` 字段**
 
 在 `database_url` 之后追加：
 
@@ -164,7 +166,7 @@ async def test_missing_dist_does_not_crash(
     )
 ```
 
-- [ ] **Step 3: 在 `src/codeask/app.py` 的 API 路由之后挂载 StaticFiles**
+- [x] **Step 3: 在 `src/codeask/app.py` 的 API 路由之后挂载 StaticFiles**
 
 在 `app.include_router(sessions_router, prefix="/api")` 之后追加：
 
@@ -186,13 +188,13 @@ async def test_missing_dist_does_not_crash(
         )
 ```
 
-- [ ] **Step 4: 跑测试**
+- [x] **Step 4: 跑测试**
 
 Run: `uv run pytest tests/integration/test_static_mount.py -v`
 
 Expected: 4 个测试全部 PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/codeask/settings.py src/codeask/app.py tests/integration/test_static_mount.py
@@ -208,7 +210,7 @@ git commit -m "feat(app): serve frontend/dist from backend after api routes"
 
 `start.sh` 保持 foundation 的职责不变：校验 `CODEASK_DATA_KEY`、执行 `uv sync`、启动应用。新增的只是前端兜底逻辑：如果 `frontend/dist/index.html` 不存在，就在 `corepack pnpm` 可用时自动构建；如果不可用，则发出清晰警告但继续启动 backend。
 
-- [ ] **Step 1: 更新 `start.sh`**
+- [x] **Step 1: 更新 `start.sh`**
 
 ```bash
 #!/usr/bin/env bash
@@ -271,13 +273,13 @@ echo "Data dir: ${CODEASK_DATA_DIR:-$HOME/.codeask}"
 exec uv run codeask
 ```
 
-- [ ] **Step 2: 保留可执行权限**
+- [x] **Step 2: 保留可执行权限**
 
 ```bash
 chmod +x start.sh
 ```
 
-- [ ] **Step 3: 回归 foundation 的启动约束**
+- [x] **Step 3: 回归 foundation 的启动约束**
 
 ```bash
 unset CODEASK_DATA_KEY
@@ -286,7 +288,7 @@ unset CODEASK_DATA_KEY
 
 Expected: stderr 提示 `CODEASK_DATA_KEY is not set`，进程退出码为 `1`。
 
-- [ ] **Step 4: 验证 dist 缺失时的兜底**
+- [x] **Step 4: 验证 dist 缺失时的兜底**
 
 ```bash
 export CODEASK_DATA_KEY="$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
@@ -301,7 +303,7 @@ kill "$SERVER_PID"
 
 Expected: healthz 通过，stderr 有 frontend build 或 warning 信息。
 
-- [ ] **Step 5: 验证 dist 存在时 `/` 可直接访问**
+- [x] **Step 5: 验证 dist 存在时 `/` 可直接访问**
 
 ```bash
 mkdir -p frontend/dist
@@ -318,7 +320,7 @@ rm -rf frontend/dist
 
 Expected: `/` 返回 SPA 页面，`/api/healthz` 返回 `ok`。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add start.sh
@@ -334,7 +336,7 @@ git commit -m "feat(start.sh): auto-build frontend dist when needed"
 
 README 要把一期真实可用的路径讲清楚：`./start.sh` 是本地单机启动入口；`frontend/` 下的 Vite dev server 是前端联调用；`frontend/dist/` 由 `pnpm build` 生成并可被后端直接服务。不要再把容器化写成一期默认路径。
 
-- [ ] **Step 1: 替换 README 的快速开始与部署说明**
+- [x] **Step 1: 替换 README 的快速开始与部署说明**
 
 ````markdown
 ## 快速启动
@@ -374,7 +376,7 @@ uv run pytest
 ```
 ````
 
-- [ ] **Step 2: 更新配置表**
+- [x] **Step 2: 更新配置表**
 
 把配置表改成只保留与本地启动有关的字段：
 
@@ -390,7 +392,7 @@ uv run pytest
 | `CODEASK_FRONTEND_DIST` | no | `<repo>/frontend/dist` | 自定义前端构建产物目录。 |
 ```
 
-- [ ] **Step 3: 更新仓库结构与实现状态段落**
+- [x] **Step 3: 更新仓库结构与实现状态段落**
 
 删除 README 里任何 `docker/` 目录展示、Docker 部署说明和“镜像会在 deployment 阶段内置”之类的句子，改成：
 
@@ -398,7 +400,7 @@ uv run pytest
 后续如果需要容器化分发，会作为单独的后置计划处理，不属于 v1.0 deployment。
 ```
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add README.md
@@ -415,7 +417,7 @@ git commit -m "docs(readme): document local deployment and frontend dev flow"
 
 `dependencies.md` 已锁定 ruff 与 pre-commit。这里把最基本的质量门加上：空白、EOF、TOML/JSON/YAML 基础检查、Python 的 ruff、前端文件的 prettier。
 
-- [ ] **Step 1: 新增 `.pre-commit-config.yaml`**
+- [x] **Step 1: 新增 `.pre-commit-config.yaml`**
 
 ```yaml
 repos:
@@ -448,7 +450,7 @@ repos:
         exclude: ^frontend/(dist|node_modules|tsconfig.*\.json)
 ```
 
-- [ ] **Step 2: 在 `pyproject.toml` 的 dev 依赖组中追加 `pre-commit`**
+- [x] **Step 2: 在 `pyproject.toml` 的 dev 依赖组中追加 `pre-commit`**
 
 ```toml
 [dependency-groups]
@@ -462,7 +464,7 @@ dev = [
 ]
 ```
 
-- [ ] **Step 3: 安装并跑一次**
+- [x] **Step 3: 安装并跑一次**
 
 ```bash
 uv sync
@@ -472,7 +474,7 @@ uv run pre-commit run --all-files
 
 Expected: 首次执行可能自动修复格式，第二次必须全绿。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add .pre-commit-config.yaml pyproject.toml uv.lock
@@ -489,7 +491,7 @@ git commit -m "chore(precommit): add baseline hooks for backend and frontend"
 
 v1.0 只保留两条 CI：backend 和 frontend。backend 跑 lint / type / pytest；frontend 跑 typecheck / unit / build / e2e，并在 job 内本地启动 backend，不依赖容器。
 
-- [ ] **Step 1: 创建 `.github/workflows/backend.yml`**
+- [x] **Step 1: 创建 `.github/workflows/backend.yml`**
 
 ```yaml
 name: backend
@@ -552,7 +554,7 @@ jobs:
         run: uv run pytest -v --maxfail=1
 ```
 
-- [ ] **Step 2: 创建 `.github/workflows/frontend.yml`**
+- [x] **Step 2: 创建 `.github/workflows/frontend.yml`**
 
 ```yaml
 name: frontend
@@ -656,7 +658,7 @@ jobs:
         run: kill "$(cat /tmp/codeask-backend.pid)" || true
 ```
 
-- [ ] **Step 3: 跑本地验证**
+- [x] **Step 3: 跑本地验证**
 
 如果本机有 `act`，执行：
 
@@ -667,7 +669,7 @@ act -W .github/workflows/frontend.yml pull_request
 
 如果没有 `act`，就在 GitHub Actions 页面检查 workflow 触发是否符合预期。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add .github/workflows/backend.yml .github/workflows/frontend.yml
@@ -687,13 +689,13 @@ git commit -m "ci: split backend and frontend workflows for local deployment"
 
 这一组测试把部署安全边界写死：默认只监听 `127.0.0.1`、生产代码不使用 `shell=True`、加密字段不落明文、路径读取拒绝越界、上传 MIME 校验能拦住伪装文件、匿名身份默认能生成。手工 checklist 只保留本地单机部署相关项，不再写任何容器内容。
 
-- [ ] **Step 1: 新增 `tests/security/__init__.py`**
+- [x] **Step 1: 新增 `tests/security/__init__.py`**
 
 ```python
 """Security regression tests for deployment boundaries."""
 ```
 
-- [ ] **Step 2: 新增 `tests/security/test_grep_no_shell_true.py`**
+- [x] **Step 2: 新增 `tests/security/test_grep_no_shell_true.py`**
 
 ```python
 """Static check: production source must not use shell=True."""
@@ -719,7 +721,7 @@ def test_no_shell_true_in_src() -> None:
     assert not offenders, "shell=True found in production source:\n  " + "\n  ".join(offenders)
 ```
 
-- [ ] **Step 3: 新增 `tests/security/test_grep_default_bind.py`**
+- [x] **Step 3: 新增 `tests/security/test_grep_default_bind.py`**
 
 ```python
 """Static check: business code must not hard-code 0.0.0.0."""
@@ -748,7 +750,7 @@ def test_no_business_zero_zero_zero_zero() -> None:
     )
 ```
 
-- [ ] **Step 4: 新增 `tests/integration/test_security_checklist.py`**
+- [x] **Step 4: 新增 `tests/integration/test_security_checklist.py`**
 
 ```python
 """Behavioral security regressions tied to deployment-security.md."""
@@ -854,7 +856,7 @@ async def test_anonymous_subject_id_assigned(app: FastAPI) -> None:
     assert r.json()["subject_id"].startswith("anonymous@")
 ```
 
-- [ ] **Step 5: 新增 `docs/v1.0/plans/deployment-security-checklist.md`**
+- [x] **Step 5: 新增 `docs/v1.0/plans/deployment-security-checklist.md`**
 
 ````markdown
 # Deployment Security Checklist
@@ -897,7 +899,7 @@ uv run pytest tests/security tests/integration/test_security_checklist.py -v
 3. 同一个 PR 里合入，避免口头约定漂移。
 ````
 
-- [ ] **Step 6: 跑安全测试**
+- [x] **Step 6: 跑安全测试**
 
 ```bash
 uv run pytest tests/security tests/integration/test_security_checklist.py -v
@@ -905,7 +907,7 @@ uv run pytest tests/security tests/integration/test_security_checklist.py -v
 
 Expected: PASS，允许 `pytest.importorskip` 标记的 skip。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add tests/security/ tests/integration/test_security_checklist.py docs/v1.0/plans/deployment-security-checklist.md
@@ -921,7 +923,7 @@ git commit -m "feat(security): pytest-backed deployment safety checks"
 
 最后一轮把 deployment 相关改动整体跑通，确认本地启动、前端静态挂载、CI、预提交和安全边界都收口。Docker / compose / 镜像发布不在本轮验收内。
 
-- [ ] **Step 1: 跑后端检查**
+- [x] **Step 1: 跑后端检查**
 
 ```bash
 uv run ruff check src tests
@@ -932,7 +934,7 @@ uv run pytest -v
 
 Expected: 全部 PASS。
 
-- [ ] **Step 2: 跑 pre-commit**
+- [x] **Step 2: 跑 pre-commit**
 
 ```bash
 uv run pre-commit run --all-files
@@ -940,7 +942,7 @@ uv run pre-commit run --all-files
 
 Expected: 全部 hook PASS；如有自动修复，第二次运行必须无变更。
 
-- [ ] **Step 3: 本地启动 smoke**
+- [x] **Step 3: 本地启动 smoke**
 
 ```bash
 export CODEASK_DATA_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
@@ -953,7 +955,7 @@ kill "$SERVER_PID"
 
 Expected: `status: ok`，backend 正常启动。
 
-- [ ] **Step 4: 前端静态产物 smoke**
+- [x] **Step 4: 前端静态产物 smoke**
 
 ```bash
 cd frontend
@@ -970,7 +972,7 @@ kill "$SERVER_PID"
 
 Expected: `/` 返回 SPA HTML。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add start.sh README.md src/codeask/app.py src/codeask/settings.py \
