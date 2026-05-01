@@ -1,7 +1,11 @@
 import { getSubjectId } from "./identity";
 import type {
+  AuditLogResponse,
   AttachmentResponse,
   AuthMeResponse,
+  FeedbackAck,
+  FeedbackVerdict,
+  FrontendEventAck,
   DocumentRead,
   FeatureRead,
   LLMConfigResponse,
@@ -141,6 +145,41 @@ export function generateSessionReport(
       title: payload.title
     }
   });
+}
+
+export function postFeedback(payload: {
+  session_turn_id: string;
+  feedback: FeedbackVerdict;
+  note?: string | null;
+}) {
+  return apiRequest<FeedbackAck>("/api/feedback", {
+    method: "POST",
+    body: payload
+  });
+}
+
+export function postFrontendEvent(payload: {
+  event_type: string;
+  session_id?: string | null;
+  payload?: Record<string, unknown>;
+}) {
+  return apiRequest<FrontendEventAck>("/api/events", {
+    method: "POST",
+    body: {
+      event_type: payload.event_type,
+      session_id: payload.session_id ?? null,
+      payload: payload.payload ?? {}
+    }
+  });
+}
+
+export function listAuditLog(entityType: string, entityId: string, limit = 50) {
+  const params = new URLSearchParams({
+    entity_type: entityType,
+    entity_id: entityId,
+    limit: String(limit)
+  });
+  return apiRequest<AuditLogResponse>(`/api/audit-log?${params.toString()}`);
 }
 
 export function uploadSessionAttachment(

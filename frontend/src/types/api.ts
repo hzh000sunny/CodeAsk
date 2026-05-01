@@ -64,6 +64,32 @@ export interface ReportRead {
   updated_at: string;
 }
 
+export type FeedbackVerdict = "solved" | "partial" | "wrong";
+
+export interface FeedbackAck {
+  ok: true;
+}
+
+export interface FrontendEventAck {
+  ok: true;
+  id: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  from_status: string | null;
+  to_status: string | null;
+  subject_id: string;
+  at: string;
+}
+
+export interface AuditLogResponse {
+  entries: AuditLogEntry[];
+}
+
 export type RepoSource = "git" | "local_dir";
 export type RepoStatus = "registered" | "cloning" | "ready" | "failed";
 

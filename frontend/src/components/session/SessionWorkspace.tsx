@@ -28,13 +28,21 @@ import {
   listSessionAttachments,
   listFeatures,
   listSessions,
+  postFeedback,
+  postFrontendEvent,
   renameSessionAttachment,
   updateSession,
   updateSessionAttachment,
   uploadSessionAttachment
 } from "../../lib/api";
 import { streamSessionMessage } from "../../lib/sse";
-import type { AttachmentResponse, FeatureRead, ReportRead, SessionResponse } from "../../types/api";
+import type {
+  AttachmentResponse,
+  FeatureRead,
+  FeedbackVerdict,
+  ReportRead,
+  SessionResponse
+} from "../../types/api";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -92,6 +100,8 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
   const [reportError, setReportError] = useState("");
   const [generatedReport, setGeneratedReport] = useState<ReportRead | null>(null);
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
+  const [feedbackByTurnId, setFeedbackByTurnId] = useState<Record<string, FeedbackVerdict>>({});
+  const [feedbackPendingTurnId, setFeedbackPendingTurnId] = useState<string | null>(null);
   const { data: sessions = [], isLoading } = useQuery({
     queryKey: ["sessions"],
     queryFn: listSessions
@@ -172,6 +182,43 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     },
     onError: (error) => {
       setReportError(`生成报告失败：${messageFromError(error)}`);
+    }
+  });
+  const feedbackMutation = useMutation({
+    mutationFn: async ({
+      sessionId,
+      turnId,
+      verdict
+    }: {
+      sessionId: string;
+      turnId: string;
+      verdict: FeedbackVerdict;
+    }) => {
+      await postFeedback({
+        session_turn_id: turnId,
+        feedback: verdict
+      });
+      await postFrontendEvent({
+        event_type: "feedback_submitted",
+        session_id: sessionId,
+        payload: {
+          turn_id: turnId,
+          feedback: verdict
+        }
+      });
+      return { turnId, verdict };
+    },
+    onMutate: ({ turnId }) => {
+      setFeedbackPendingTurnId(turnId);
+    },
+    onSuccess: ({ turnId, verdict }) => {
+      setFeedbackByTurnId((current) => ({ ...current, [turnId]: verdict }));
+      setFeedbackPendingTurnId(null);
+      showActionNotice(`已记录反馈：${feedbackLabel(verdict)}`);
+    },
+    onError: (error) => {
+      setFeedbackPendingTurnId(null);
+      showActionNotice(`提交反馈失败：${messageFromError(error)}`);
     }
   });
 
@@ -417,9 +464,12 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
             );
           }
           if (event.type === "done") {
+            const turnId = typeof event.data.turn_id === "string" ? event.data.turn_id : null;
             setMessages((current) =>
               current.map((message) =>
-                message.id === assistantMessageId ? { ...message, status: "done" } : message
+                message.id === assistantMessageId
+                  ? { ...message, status: "done", turnId: turnId ?? message.turnId }
+                  : message
               )
             );
           }
@@ -692,7 +742,17 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
         </div>
         {actionNotice ? <div className="action-banner" role="status">{actionNotice}</div> : null}
 
-        <MessageStream messages={messages} />
+        <MessageStream
+          feedbackByTurnId={feedbackByTurnId}
+          feedbackPendingTurnId={feedbackPendingTurnId}
+          messages={messages}
+          onFeedback={(turnId, verdict) => {
+            if (!selectedSessionId || feedbackPendingTurnId === turnId || feedbackByTurnId[turnId]) {
+              return;
+            }
+            feedbackMutation.mutate({ sessionId: selectedSessionId, turnId, verdict });
+          }}
+        />
 
         <div className="composer" role="region" aria-label="会话输入操作区">
           <Textarea
@@ -722,7 +782,20 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
             <label className="checkbox-row">
               <input
                 checked={forceCodeInvestigation}
-                onChange={(event) => setForceCodeInvestigation(event.target.checked)}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setForceCodeInvestigation(checked);
+                  if (checked && selectedSessionId) {
+                    void postFrontendEvent({
+                      event_type: "force_deeper_investigation",
+                      session_id: selectedSessionId,
+                      payload: {
+                        turn_count: messages.length,
+                        streaming: isStreaming
+                      }
+                    }).catch(() => undefined);
+                  }
+                }}
                 type="checkbox"
               />
               <span>强制代码调查</span>
@@ -834,6 +907,16 @@ function formatSessionIdPreview(sessionId: string) {
     return `sess_${sessionId.slice(5, 9)}`;
   }
   return sessionId.length <= 9 ? sessionId : sessionId.slice(0, 9);
+}
+
+function feedbackLabel(verdict: FeedbackVerdict) {
+  if (verdict === "solved") {
+    return "已解决";
+  }
+  if (verdict === "partial") {
+    return "部分解决";
+  }
+  return "没解决";
 }
 
 async function copyTextToClipboard(value: string) {

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.db.models import Report
+from codeask.metrics.audit import record_audit_log
 from codeask.wiki.audit import AuditWriter
 from codeask.wiki.indexer import WikiIndexer
 
@@ -136,6 +137,15 @@ class ReportService:
         await session.flush()
         await self._indexer.unindex_report(session, report_id=int(report.id))
         await self._indexer.index_report(session, report)
+        await record_audit_log(
+            session,
+            entity_type="report",
+            entity_id=str(report.id),
+            action="verify",
+            from_status="draft",
+            to_status="verified",
+            subject_id=subject_id,
+        )
         self._audit.write(
             "report.verified",
             {"report_id": int(report.id), "feature_id": report.feature_id},
@@ -154,6 +164,15 @@ class ReportService:
         report.status = "draft"
         await session.flush()
         await self._indexer.unindex_report(session, report_id=int(report.id))
+        await record_audit_log(
+            session,
+            entity_type="report",
+            entity_id=str(report.id),
+            action="unverify",
+            from_status="verified",
+            to_status="draft",
+            subject_id=subject_id,
+        )
         self._audit.write(
             "report.unverified",
             {"report_id": int(report.id), "feature_id": report.feature_id},

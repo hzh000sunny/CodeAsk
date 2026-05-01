@@ -1,0 +1,1 @@
+{"id":"qa_001","input":{"context_fixture":"session_context.json","context_key":"session_with_code_ref"},"expected":{"must_cite_evidence":true,"must_disclose_uncertainty":[],"must_not_phrase_as_decision":true,"must_bind_commit_for_code_evidence":true},"annotator":"alice@2026-05-02","tags":["doc_hit","code_ref"],"notes":"代码相关回答必须绑定 commit。"}

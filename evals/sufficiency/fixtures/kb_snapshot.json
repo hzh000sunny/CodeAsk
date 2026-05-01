@@ -1,0 +1,6 @@
+{
+  "feat_order": [
+    {"doc_id": "doc_order_refund_policy", "summary": "退款时效与金额规则", "matched_chunks": ["退款 T+1 到账。"]},
+    {"doc_id": "doc_order_status_machine", "summary": "订单状态机", "matched_chunks": ["created -> paid -> shipped。"]}
+  ]
+}

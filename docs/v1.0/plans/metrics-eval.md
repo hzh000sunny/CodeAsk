@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.11, SQLAlchemy 2.0 async, FastAPI, pytest + pytest-asyncio, MockLLMClient (自实现), GitHub Actions
 
+> 2026-05-02 implementation note：frontend-workbench 在本计划前已追加 `0013` / `0014` / `0015` 三个迁移，因此 metrics-eval 实际迁移为 `alembic/versions/20260502_0016_metrics_tables.py`，`down_revision = "0015"`。原计划正文中早期示例仍保留 `0013` 的历史上下文；以本 note、roadmap migration 链和仓库文件为准。
+
 **Source SDD docs**（路径相对本文件 `docs/v1.0/plans/metrics-eval.md`）：
 - `../design/api-data-model.md`
 - `../design/metrics-collection.md`
@@ -26,7 +28,7 @@
 ```text
 CodeAsk/
 ├── alembic/versions/
-│   └── 20260430_0013_metrics_tables.py        # feedback / frontend_events / audit_log
+│   └── 20260502_0016_metrics_tables.py        # feedback / frontend_events / audit_log
 ├── src/codeask/
 │   ├── api/
 │   │   ├── metrics.py                          # POST /feedback / POST /events / GET /audit-log
@@ -198,21 +200,21 @@ git commit -m "feat(db): metrics tables — feedback / frontend_events / audit_l
 
 ---
 
-## Task 2: Alembic migration `0013_metrics_tables`
+## Task 2: Alembic migration `0016_metrics_tables`
 
 **Files:**
-- Create: `alembic/versions/20260430_0013_metrics_tables.py`
+- Create: `alembic/versions/20260502_0016_metrics_tables.py`
 - Create: `tests/integration/test_metrics_migration.py`
 
-revision id `0013`，`down_revision = "0012"`（04 plan 最后一份）。
+revision id `0016`，`down_revision = "0015"`（frontend-workbench 的最后一份迁移）。
 
-- [ ] **Step 1: 创建 `alembic/versions/20260430_0013_metrics_tables.py`**
+- [ ] **Step 1: 创建 `alembic/versions/20260502_0016_metrics_tables.py`**
 
 ```python
 """metrics: feedback / frontend_events / audit_log
 
-Revision ID: 0013
-Revises: 0012
+Revision ID: 0016
+Revises: 0015
 Create Date: 2026-04-29 00:06:00
 """
 from collections.abc import Sequence
@@ -221,8 +223,8 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0013"
-down_revision: Union[str, None] = "0012"
+revision: str = "0016"
+down_revision: Union[str, None] = "0015"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -292,7 +294,7 @@ def downgrade() -> None:
 - [ ] **Step 2: 写测试 `tests/integration/test_metrics_migration.py`**
 
 ```python
-"""Migration 0013 creates the three metrics tables and indexes."""
+"""Migration 0016 creates the three metrics tables and indexes."""
 
 from pathlib import Path
 
@@ -332,8 +334,8 @@ async def test_creates_indexes(tmp_path: Path) -> None:
 
 ```bash
 uv run pytest tests/integration/test_metrics_migration.py -v   # 2 PASS
-git add alembic/versions/20260430_0013_metrics_tables.py tests/integration/test_metrics_migration.py
-git commit -m "feat(migrations): 0013 metrics — feedback / frontend_events / audit_log"
+git add alembic/versions/20260502_0016_metrics_tables.py tests/integration/test_metrics_migration.py
+git commit -m "feat(migrations): 0016 metrics — feedback / frontend_events / audit_log"
 ```
 
 ---
@@ -1849,20 +1851,20 @@ git tag -a metrics-eval-v0.1.0 -m "Metrics & Eval milestone: feedback / events /
 
 ## 验收标志
 
-- [ ] `feedback` / `frontend_events` / `audit_log` 三表创建，migration `0013` 接 `0012`
-- [ ] `POST /api/feedback` 写一行 + 返回 `{ok:true}`；非法 verdict → 422
-- [ ] `POST /api/events` 白名单生效；非白名单 → 422；payload 写入 JSON 字段
-- [ ] `GET /api/audit-log?entity_type=&entity_id=&limit=` 只读、按 `at desc`
-- [ ] `record_audit_log(...)` 幂等（同秒 + 同 actor + 同 action 重复写不增行）
-- [ ] 02 plan reports verify/unverify、documents delete、04 plan llm_configs/skills update 占位 stub 全部替换为 `record_audit_log` 调用
-- [ ] `evals/scope_detection` / `evals/sufficiency` / `evals/answer_quality` 各自 ≥ 1 exemplar case + score + harness 跑通
-- [ ] `evals/run.py --suite ...` 三套 stub agent 全 `n_passed == n_cases`
-- [ ] `tests/mocks/mock_llm.py` 增加 `ScriptedMockLLMClient`，eval harness 引用得到
-- [ ] `.github/workflows/eval.yml` PR 触发 + manual `workflow_dispatch`，含 red-line 校验
-- [ ] `tests/unit/test_no_reverse_kpi_endpoints.py` PASS — 无 token / tool-count / question-count / answer-word-count 路由或字段
-- [ ] 全量 `uv run pytest` 本计划新增 27 条 PASS
-- [ ] `uv run ruff check && uv run pyright` 0 错误
-- [ ] git tag `metrics-eval-v0.1.0` 已打
+- [x] `feedback` / `frontend_events` / `audit_log` 三表创建，migration `0016` 接 `0015`
+- [x] `POST /api/feedback` 写一行 + 返回 `{ok:true}`；非法 verdict → 422
+- [x] `POST /api/events` 白名单生效；非白名单 → 422；payload 写入 JSON 字段
+- [x] `GET /api/audit-log?entity_type=&entity_id=&limit=` 只读、按 `at desc`
+- [x] `record_audit_log(...)` 幂等（同秒 + 同 actor + 同 action 重复写不增行）
+- [x] 02 plan reports verify/unverify、documents delete、04 plan llm_configs/skills update 占位 stub 全部替换为 `record_audit_log` 调用
+- [x] `evals/scope_detection` / `evals/sufficiency` / `evals/answer_quality` 各自 ≥ 1 exemplar case + score + harness 跑通
+- [x] `evals/run.py --suite ...` 三套 stub agent 全 `n_passed == n_cases`
+- [x] `tests/mocks/mock_llm.py` 增加 `ScriptedMockLLMClient`，eval harness 引用得到
+- [x] `.github/workflows/eval.yml` PR 触发 + manual `workflow_dispatch`，含 red-line 校验
+- [x] `tests/unit/test_no_reverse_kpi_endpoints.py` PASS — 无 token / tool-count / question-count / answer-word-count 路由或字段
+- [x] 全量 `uv run pytest` 本计划新增 27 条 PASS
+- [x] `uv run ruff check && uv run pyright` 0 错误
+- [x] git tag `metrics-eval-v0.1.0` 已打
 
 ---
 
@@ -1872,7 +1874,7 @@ git tag -a metrics-eval-v0.1.0 -m "Metrics & Eval milestone: feedback / events /
 |---|---|---|
 | 真模型 eval 跑批 | 手动 ad-hoc（`workflow_dispatch`） | 真模型成本与速度都不适合 PR 阻塞 |
 | 完整 30+ 种子 case | alpha 内容工作 | 本 plan 只交付 schema + harness + 1-2 exemplar |
-| Maintainer Dashboard UI | 05 frontend-workbench plan | 本 plan 准备 raw 数据；UI 消费方在前端 |
+| Maintainer Dashboard UI | metrics-eval 之后的前端增强 | 本 plan 准备 raw 数据并接入会话反馈；Dashboard 仍需基于 raw 数据另做视图 |
 | Deflection rate 完整聚合（cron） | 后续优化 | 本 plan 仅 raw `feedback` + 写入 API |
 | 答得过浅率自动化、回流率向量算法 | alpha 后期 | metrics-collection.md §3.3 / §5 锁定 alpha 先人工抽样 |
 | 隐式 deflection N 分钟阈值校准 | alpha 第一周 | metrics-collection.md §4 拍 30 分钟 → 真实数据校准 |

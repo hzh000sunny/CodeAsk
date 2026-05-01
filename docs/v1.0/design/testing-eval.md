@@ -265,6 +265,14 @@ PR 阶段：CI 跑 scope_detection + sufficiency 全集（廉价模型）
 
 真模型 eval 不在默认 CI 中运行，作为手动评估任务。
 
+`metrics-eval` 阶段已实现项目根级 `evals/` harness：
+
+- `uv run python -m evals.run --suite scope_detection`
+- `uv run python -m evals.run --suite sufficiency`
+- `uv run python -m evals.run --suite answer_quality`
+
+三套 suite 当前使用 stub agent 回放 expected labels，目标是先固定 case schema、score 结构、红线比较与 CI 入口。`tests/mocks/mock_llm.py` 已补 `ScriptedMockLLMClient`，后续接真 Agent replay 时替换 runner 的 stub 调用，不改变 case 文件和 score 接口。
+
 ## 6. 与 PRD 的对齐
 
 本文已按 `prd/codeask.md` §10 第 3 步更新，主要变化：

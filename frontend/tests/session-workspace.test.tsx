@@ -21,7 +21,7 @@ function streamResponse(text: string) {
           )
         );
         controller.enqueue(encoder.encode(`event: text_delta\ndata: {"text":"${text}"}\n\n`));
-        controller.enqueue(encoder.encode("event: done\ndata: {}\n\n"));
+        controller.enqueue(encoder.encode('event: done\ndata: {"turn_id":"turn_stream"}\n\n'));
         controller.close();
       }
     }),
@@ -41,7 +41,8 @@ function transparencyStreamResponse() {
     'event: tool_call\ndata: {"id":"call_1","name":"search_documents","arguments":{"q":"启动失败"}}\n\n',
     'event: tool_result\ndata: {"id":"call_1","result":{"ok":true,"hits":2}}\n\n',
     'event: evidence\ndata: {"item":{"id":"ev_1","source":"wiki","title":"启动手册","locator":"docs/start.md"}}\n\n',
-    'event: ask_user\ndata: {"ask_id":"ask_1","question":"请补充完整启动日志","options":["上传日志"],"reason":"当前证据不足"}\n\n'
+    'event: ask_user\ndata: {"ask_id":"ask_1","question":"请补充完整启动日志","options":["上传日志"],"reason":"当前证据不足"}\n\n',
+    'event: done\ndata: {"turn_id":"turn_transparency"}\n\n'
   ];
   return new Response(
     new ReadableStream({
@@ -498,6 +499,86 @@ describe("SessionWorkspace streaming interaction", () => {
     expect(screen.getByText(/启动手册/)).toBeInTheDocument();
     expect(screen.getByText("请补充完整启动日志")).toBeInTheDocument();
     expect(await screen.findByText("需要补充：请补充完整启动日志")).toBeInTheDocument();
+  });
+
+  it("submits feedback and telemetry from the session workspace", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      const attachmentResponse = emptyAttachmentListResponse(input, init);
+      if (attachmentResponse) {
+        return attachmentResponse;
+      }
+      if (path === "/api/sessions") {
+        return jsonResponse([
+          {
+            id: "sess_1",
+            title: "支付启动失败",
+            created_by_subject_id: "client_test",
+            status: "active",
+            pinned: false,
+            created_at: "2026-04-30T10:00:00",
+            updated_at: "2026-04-30T10:00:00"
+          }
+        ]);
+      }
+      if (path === "/api/sessions/sess_1/messages" && init?.method === "POST") {
+        return new Response(
+          [
+            'event: text_delta\ndata: {"text":"检查配置缺失。"}',
+            'event: done\ndata: {"turn_id":"turn_stream"}'
+          ].join("\n\n"),
+          { headers: { "Content-Type": "text/event-stream" } }
+        );
+      }
+      if (path === "/api/events" && init?.method === "POST") {
+        return jsonResponse({ ok: true, id: "ev_1" }, 201);
+      }
+      if (path === "/api/feedback" && init?.method === "POST") {
+        return jsonResponse({ ok: true }, 201);
+      }
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText("支付启动失败");
+    fireEvent.click(screen.getByLabelText("强制代码调查"));
+    fireEvent.change(screen.getByLabelText("会话输入"), {
+      target: { value: "支付服务启动失败" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("检查配置缺失。")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "已解决" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/events",
+        expect.objectContaining({ method: "POST" })
+      )
+    );
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/feedback",
+        expect.objectContaining({ method: "POST" })
+      )
+    );
+    expect(await screen.findByText("已反馈 · 已解决")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(
+        ([path, options]) =>
+          String(path) === "/api/feedback" &&
+          JSON.parse(String((options as RequestInit).body)).session_turn_id === "turn_stream"
+      )
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(
+        ([path, options]) =>
+          String(path) === "/api/events" &&
+          JSON.parse(String((options as RequestInit).body)).event_type === "force_deeper_investigation"
+      )
+    ).toBe(true);
   });
 
   it("creates a default session when uploading a log before any session exists", async () => {

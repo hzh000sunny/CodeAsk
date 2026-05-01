@@ -1,0 +1,9 @@
+{
+  "session_with_code_ref": {
+    "feature_id": "feat_order",
+    "repo_id": "repo_main",
+    "commit_sha": "abc1234",
+    "user_question": "订单状态机有哪几个状态？",
+    "kb_hits": ["doc_order_status_machine"]
+  }
+}

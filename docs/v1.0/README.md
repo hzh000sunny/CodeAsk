@@ -6,7 +6,7 @@
 | 起始日期 | 2026-04-29 |
 | 状态 | Active |
 | 主题 | 初始 MVP — 知识库 + 代码混合问答 |
-| 当前实现进度 | `foundation`、`wiki-knowledge`、`code-index`、`agent-runtime` 已完成；`frontend-workbench` 收口验收中 |
+| 当前实现进度 | `foundation`、`wiki-knowledge`、`code-index`、`agent-runtime`、`frontend-workbench`、`metrics-eval` 已完成；下一阶段 `deployment` |
 
 ## 目录结构
 
@@ -56,8 +56,8 @@ v1.0/
 | `wiki-knowledge` | 已完成 | tag：`wiki-knowledge-v0.1.0`；Alembic head 到 `0005` |
 | `code-index` | 已完成 | tag：`code-index-v0.1.0`；Alembic head 到 `0006` |
 | `agent-runtime` | 已完成 | tag：`agent-runtime-v0.1.0`；Alembic head 到 `0012`；REST + SSE API 已暴露 |
-| `frontend-workbench` | 收口验收中 | 当前实现边界见 `specs/frontend-workbench-handoff.md` |
-| `metrics-eval` | 未开始 | 替换 `AuditWriter` stub 为真实 `audit_log` 落表 |
+| `frontend-workbench` | 已完成 | 当前实现边界见 `specs/frontend-workbench-handoff.md` |
+| `metrics-eval` | 已完成 | `feedback` / `frontend_events` / `audit_log`、metrics API、eval harness 与 CI workflow 已落地；Alembic head 到 `0016` |
 | `deployment` | 未开始 | 前置 plan 完成后收口部署 |
 
 ## 推荐阅读顺序

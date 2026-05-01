@@ -36,8 +36,8 @@
 | wiki-knowledge | 已完成 | 已合入 `main`，本地 tag：`wiki-knowledge-v0.1.0`，Alembic head 到 `0005` |
 | code-index | 已完成 | 已合入 `main`，本地 tag：`code-index-v0.1.0`，Alembic head 到 `0006` |
 | agent-runtime | 已完成 | 已合入 `main`，tag：`agent-runtime-v0.1.0`，Alembic head 到 `0012`，REST + SSE API 已暴露 |
-| frontend-workbench | 收口验收中 | React workbench 已落地；当前边界见 `../specs/frontend-workbench-handoff.md` |
-| metrics-eval | 未开始 | 等待 agent traces / audit hooks |
+| frontend-workbench | 已完成 | React workbench 已落地；当前边界见 `../specs/frontend-workbench-handoff.md` |
+| metrics-eval | 已完成 | feedback / frontend_events / audit_log、会话反馈接入、eval harness 与 CI workflow 已落地；Alembic head 到 `0016` |
 | deployment | 未开始 | 全部前置 plan 完成后收口 |
 
 **二期规划锚点（不属于 v1.0 必交付）：**
@@ -58,8 +58,8 @@ v1.0 出货后可单独规划 `tool-intelligence` / `code-context-optimization` 
 | 2 | wiki-knowledge | `wiki-knowledge.md` | 14 / 88 | features / documents / document_chunks / document_references / reports 表 + FTS5 三虚拟表 + n-gram 分词 + DocumentChunker + WikiSearchService 多路召回 + reports verify/unverify | 上传 .md → 搜索命中 → 报告草稿 → verified → 报告检索命中 |
 | 3 | code-index | `code-index.md` | 12 / 80 | repos / feature_repos 表 + 异步 clone + worktree manager + ripgrep / ctags / file_reader + `/api/code/*` 工具 endpoints + 24h 闲置清理 | 注册仓库 → cloning → ready；grep / read / symbols 工具走通 |
 | 4 | agent-runtime | `agent-runtime.md` | 19 / 96 | llm_configs（加密） + sessions 4 张关联表 + agent_traces + skills + LLM Gateway（LiteLLM 三协议） + 9 阶段状态机 + ToolRegistry + SSEMultiplexer + ScopeDetection / SufficiencyJudgement | 命令行端到端走通一次完整问答（MockLLM） |
-| 5 | frontend-workbench | `frontend-workbench.md` + `../specs/frontend-workbench-handoff.md` | 19 / 158 + Phase B corrections | frontend/ 项目骨架（Vite + React + TanStack Query）+ SSE 客户端 + 会话/特性/设置三入口 + 会话附件 + 报告生成入口 + 管理员全局配置 + Playwright e2e smoke | 浏览器跑通当前 workbench happy path；完整 Dashboard 与 LLM Wiki 后置 |
-| 6 | metrics-eval | `metrics-eval.md` | 13 / 80 | feedback / frontend_events / audit_log 表 + audit_log writer 替换 02/04 的 stub + `evals/` harness（scope_detection / sufficiency / answer_quality）+ exemplar cases + GH Actions eval workflow | CI 跑 scope_detection + sufficiency 红线生效 |
+| 5 | frontend-workbench | `frontend-workbench.md` + `../specs/frontend-workbench-handoff.md` | 19 / 158 + Phase B corrections | frontend/ 项目骨架（Vite + React + TanStack Query）+ SSE 客户端 + 会话/特性/设置三入口 + 会话附件 + 报告生成入口 + 管理员全局配置 + Playwright e2e smoke | 浏览器跑通当前 workbench happy path；完整 LLM Wiki 后置 |
+| 6 | metrics-eval | `metrics-eval.md` | 13 / 80 | feedback / frontend_events / audit_log 表 + audit_log writer 替换 02/04 的 stub + `evals/` harness（scope_detection / sufficiency / answer_quality）+ exemplar cases + GH Actions eval workflow + 会话反馈持久化接入 | CI 跑 scope_detection + sufficiency 红线生效 |
 | 7 | deployment | `deployment.md` | 10 / 57 | StaticFiles 挂载 frontend/dist + Dockerfile 多阶段（~150MB alpine） + docker-compose + start.sh 增强 + pre-commit + 3 份 GH workflows + 安全审计 checklist | `docker compose up -d` → 30 秒部署 smoke 通过 |
 
 ## 3. 各阶段依赖
@@ -81,7 +81,8 @@ foundation        : 0001
 wiki-knowledge    : 0002 → 0003 → 0004 → 0005
 code-index        : 0006
 agent-runtime     : 0007 → 0008 → 0009 → 0010 → 0011 → 0012
-metrics-eval      : 0013
+frontend-workbench: 0013 → 0014 → 0015
+metrics-eval      : 0016
 deployment        : —（不动 schema）
 ```
 
@@ -127,7 +128,7 @@ deployment        : —（不动 schema）
 | code-index | curl 注册本机 git 仓 → 等 `ready` → grep 命中已知字符串 |
 | agent-runtime | 跑 `tests/integration/test_orchestrator_sufficient.py` / `test_orchestrator_insufficient.py` / `test_orchestrator_ask_user.py`：MockLLM 回放三条运行时路径 |
 | frontend-workbench | `pnpm dev` + 后端跑着 → 浏览器手动走 happy path（自动 Playwright 已覆盖核心） |
-| metrics-eval | `uv run python -m evals.run --suite scope_detection --quick`（用 MockLLM）拿到 score |
+| metrics-eval | `uv run python -m evals.run --suite scope_detection` 拿到 score |
 | deployment | `docker compose up -d` → curl healthz + 看日志 → `docker compose down` |
 
 ### 4.4 线下 eval vs 线上指标
@@ -182,10 +183,10 @@ deployment        : —（不动 schema）
 Dashboard、feedback 持久化和完整 LLM Wiki 管理不作为 frontend-workbench 当前验收阻塞项；见 `../specs/frontend-workbench-handoff.md` §9。
 
 ### 5.6 metrics-eval 验收
-- [ ] `uv run python -m evals.run --suite scope_detection --mock` 拿到 score；JSON 报告落盘
-- [ ] CI workflow 在 PR 阶段触发 scope_detection + sufficiency；红线（top-1 退化 > 5pp）能阻断
-- [ ] 反向指标审计单测：grep `tools_called_count` 等不在任何 dashboard API 输出
-- [ ] alembic head = `0013`
+- [x] `uv run python -m evals.run --suite scope_detection` 拿到 score；JSON 报告落盘
+- [x] CI workflow 在 PR 阶段触发 scope_detection + sufficiency；红线（top-1 退化 > 5pp）能阻断
+- [x] 反向指标审计单测：grep `tools_called_count` 等不在任何 dashboard API 输出
+- [x] alembic head = `0016`
 
 ### 5.7 deployment 验收
 - [ ] `docker build -t codeask:test .` 成功，最终镜像 ≤ 200MB（目标 ~150MB，10% 浮动）

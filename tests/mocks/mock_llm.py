@@ -1,6 +1,7 @@
 """Scriptable LLM client for integration tests."""
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Any
 
 from codeask.llm.types import LLMEvent, LLMMessage, ToolDef
@@ -59,3 +60,33 @@ def tool_call_message(call_id: str, name: str, arguments: dict[str, Any]) -> lis
         ),
         LLMEvent(type="message_stop", data={"stop_reason": "tool_call"}),
     ]
+
+
+@dataclass(frozen=True)
+class ScriptStep:
+    """A single eval replay step. Either text, a tool call, or a finish marker."""
+
+    text: str | None = None
+    tool_name: str | None = None
+    tool_arguments: dict[str, Any] | None = None
+    finish: bool = False
+
+
+class ScriptedMockLLMClient:
+    """Replay fixed ScriptStep values for eval harnesses."""
+
+    def __init__(self, steps: list[ScriptStep]) -> None:
+        if not steps:
+            raise ValueError("ScriptedMockLLMClient requires at least one step")
+        self._steps = list(steps)
+        self._cursor = 0
+
+    def reset(self) -> None:
+        self._cursor = 0
+
+    async def next_step(self) -> ScriptStep:
+        if self._cursor >= len(self._steps):
+            raise IndexError("ScriptedMockLLMClient exhausted")
+        step = self._steps[self._cursor]
+        self._cursor += 1
+        return step

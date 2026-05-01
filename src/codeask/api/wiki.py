@@ -39,6 +39,7 @@ from codeask.db.models import (
     Repo,
     Report,
 )
+from codeask.metrics.audit import record_audit_log
 from codeask.wiki.chunker import DocumentChunker
 from codeask.wiki.indexer import WikiIndexer
 from codeask.wiki.reports import ReportService, ReportVerificationError
@@ -375,7 +376,7 @@ async def get_document(document_id: int, session: SessionDep) -> DocumentRead:
 
 
 @router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_document(document_id: int, session: SessionDep) -> None:
+async def delete_document(document_id: int, request: Request, session: SessionDep) -> None:
     document = (
         await session.execute(select(Document).where(Document.id == document_id))
     ).scalar_one_or_none()
@@ -383,6 +384,15 @@ async def delete_document(document_id: int, session: SessionDep) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
     await WikiIndexer().unindex_chunks_for_document(session, doc_id=document_id)
     document.is_deleted = True
+    await record_audit_log(
+        session,
+        entity_type="document",
+        entity_id=str(document_id),
+        action="delete",
+        from_status="active",
+        to_status="deleted",
+        subject_id=request.state.subject_id,
+    )
     await session.commit()
 
 

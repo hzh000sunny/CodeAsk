@@ -1137,6 +1137,26 @@ textarea:focus-visible {
   font-weight: 700;
 }
 
+.message-feedback {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+  border-top: 1px solid #edf1f5;
+  padding-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.message-feedback .button {
+  min-height: 30px;
+  border-color: #d9e1ea;
+  border-radius: 7px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
 .composer {
   border-top: 1px solid var(--line);
   background: #ffffff;

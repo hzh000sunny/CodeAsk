@@ -1,0 +1,4 @@
+{
+  "scope_detection": {"avg_score": 1.0, "n_passed_ratio": 1.0},
+  "sufficiency": {"avg_score": 1.0, "n_passed_ratio": 1.0}
+}

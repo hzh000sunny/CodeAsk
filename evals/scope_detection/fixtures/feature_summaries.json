@@ -1,0 +1,5 @@
+[
+  {"id": "feat_order", "name": "订单", "summary": "下单 / 支付 / 退款 / 订单查询全流程", "owner": "alice@dev"},
+  {"id": "feat_settle", "name": "结算", "summary": "对账 / 资金划转 / 商户结算", "owner": "bob@dev"},
+  {"id": "feat_inventory", "name": "库存", "summary": "SKU 库存 / 锁库存 / 出入库", "owner": "carol@dev"}
+]

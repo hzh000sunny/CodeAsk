@@ -6,7 +6,7 @@ CodeAsk 是一个私有部署的研发问答系统，帮助团队把内部文档
 
 ## 当前状态
 
-CodeAsk 目前处于 v1.0 MVP 的 frontend-workbench 收口验收阶段。
+CodeAsk 目前已完成 v1.0 MVP 的 metrics-eval 阶段，准备进入 deployment 阶段。
 
 产品需求、系统设计和实现计划位于 `docs/v1.0/`。当前已完成：
 
@@ -15,8 +15,9 @@ CodeAsk 目前处于 v1.0 MVP 的 frontend-workbench 收口验收阶段。
 - `code-index`：全局仓库池、异步 clone、会话级 worktree、`/api/repos`、`/api/code/grep`、`/api/code/read`、`/api/code/symbols`，以及 24 小时闲置 worktree 清理。
 - `agent-runtime`：LLM 配置、会话、Skill、9 阶段 Agent 状态机、LLM Gateway、ToolRegistry、SSE 事件、agent_traces 轨迹记录，以及 `/api/llm-configs`、`/api/skills`、`/api/sessions`。
 - `frontend-workbench`：React 工作台、会话界面、特性页面、设置页、管理员登录、个人 / 全局 LLM 配置隔离、会话附件管理、报告生成入口和 Playwright smoke。
+- `metrics-eval`：反馈表、前端事件表、审计日志表、`/api/feedback`、`/api/events`、`/api/audit-log`、跨计划 audit hook、Agent eval harness 和 GitHub Actions eval workflow。
 
-下一阶段计划是 `metrics-eval`，但在进入前需要先接受 `docs/v1.0/specs/frontend-workbench-handoff.md` 中记录的 frontend-workbench 当前边界。完整 LLM Wiki 目录管理已明确后置为独立专项。
+下一阶段是 `deployment`。完整 LLM Wiki 目录管理已明确后置为独立专项。
 
 ## 产品目标
 
@@ -178,11 +179,11 @@ v1.0 实现被拆成七个 plan：
 | 2 | `wiki-knowledge` | 已完成 | 特性、文档、文档切块、报告、FTS 检索、知识库召回 |
 | 3 | `code-index` | 已完成 | 仓库注册、异步 clone、worktree、grep、文件读取、符号索引 |
 | 4 | `agent-runtime` | 已完成 | LLM 网关、会话、Agent 状态机、工具调用、SSE、轨迹记录、运行时 API |
-| 5 | `frontend-workbench` | 收口验收中 | React 工作台、会话界面、特性页面、设置页面、管理员入口、LLM 配置、附件和报告入口 |
-| 6 | `metrics-eval` | 未开始 | 反馈、前端事件、审计日志、Agent eval、质量门禁 |
+| 5 | `frontend-workbench` | 已完成 | React 工作台、会话界面、特性页面、设置页面、管理员入口、LLM 配置、附件和报告入口 |
+| 6 | `metrics-eval` | 已完成 | 反馈、前端事件、审计日志、Agent eval、质量门禁 |
 | 7 | `deployment` | 未开始 | 前端静态挂载、Docker、docker-compose、CI、安全检查和发布 smoke test |
 
-下一阶段应先阅读 `docs/v1.0/specs/frontend-workbench-handoff.md`，确认 frontend-workbench 收口边界后进入 `docs/v1.0/plans/metrics-eval.md`。
+当前阶段完成后进入 `docs/v1.0/plans/deployment.md`。
 
 ## 快速启动
 
@@ -291,14 +292,14 @@ uv run pytest -q
 
 项目级 `pyproject.toml` 已配置清华 TUNA PyPI 镜像源，`uv sync` 默认会使用该镜像。
 
-下一阶段从 frontend-workbench handoff 验收开始，确认当前边界后进入 `docs/v1.0/plans/metrics-eval.md`。新会话接手时建议按顺序快速重读：
+下一阶段从 `docs/v1.0/plans/deployment.md` 开始。新会话接手时建议按顺序快速重读：
 
 1. `README.md`
 2. `docs/v1.0/plans/roadmap.md`
 3. `docs/v1.0/specs/frontend-workbench-handoff.md`
-4. `docs/v1.0/plans/agent-runtime-handoff.md`
-5. `docs/v1.0/plans/metrics-eval.md`
-6. `docs/v1.0/design/` 下与前端、API、Agent 运行时相关的设计文档
+4. `docs/v1.0/plans/metrics-eval.md`
+5. `docs/v1.0/plans/deployment.md`
+6. `docs/v1.0/design/` 下与部署、安全、API、前端和 Agent 运行时相关的设计文档
 
 ## License
 

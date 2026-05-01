@@ -1,0 +1,79 @@
+name: Agent Eval
+
+on:
+  pull_request:
+    paths:
+      - "src/codeask/**"
+      - "evals/**"
+      - "tests/mocks/mock_llm.py"
+      - ".github/workflows/eval.yml"
+  workflow_dispatch:
+    inputs:
+      include_answer_quality:
+        description: "Run answer_quality suite"
+        type: boolean
+        default: false
+
+jobs:
+  pr-suites:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+      - name: Setup Python
+        run: uv python install 3.11
+      - name: Install deps
+        run: uv sync
+      - name: Run scope_detection eval
+        run: uv run python -m evals.run --suite scope_detection --emit-json scope_detection.json
+      - name: Run sufficiency eval
+        run: uv run python -m evals.run --suite sufficiency --emit-json sufficiency.json
+      - name: Compare vs baseline
+        run: |
+          uv run python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          baseline = json.loads(Path("evals/_baseline.json").read_text())
+          for suite, threshold_drop in (("scope_detection", 0.05), ("sufficiency", 0.0)):
+              report = json.loads(Path(f"{suite}.json").read_text())
+              base = baseline[suite]["avg_score"]
+              drop = base - report["avg_score"]
+              print(
+                  f"{suite}: avg_score={report['avg_score']:.3f} "
+                  f"baseline={base:.3f} drop={drop:.3f}"
+              )
+              if drop > threshold_drop:
+                  print(f"FAIL: {suite} dropped > {threshold_drop:.2f} from baseline")
+                  sys.exit(1)
+          print("Eval red lines OK")
+          PY
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-reports
+          path: |
+            scope_detection.json
+            sufficiency.json
+
+  full-suites-manual:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+      - name: Setup Python
+        run: uv python install 3.11
+      - name: Install deps
+        run: uv sync
+      - name: Run scope_detection
+        run: uv run python -m evals.run --suite scope_detection
+      - name: Run sufficiency
+        run: uv run python -m evals.run --suite sufficiency
+      - name: Run answer_quality
+        if: ${{ inputs.include_answer_quality }}
+        run: uv run python -m evals.run --suite answer_quality

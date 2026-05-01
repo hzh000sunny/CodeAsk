@@ -12,6 +12,7 @@ from codeask.api.schemas.llm_config import LLMConfigCreate, LLMConfigResponse, L
 from codeask.db.models import LLMConfig
 from codeask.identity import ADMIN_ROLE, require_admin
 from codeask.llm.repo import LLMConfigInput, LLMConfigRepo, LLMConfigWithSecret
+from codeask.metrics.audit import record_audit_log
 
 router = APIRouter()
 
@@ -282,6 +283,13 @@ async def _update_scoped_config(
             row.rpm_limit = payload.rpm_limit
         if "quota_remaining" in fields:
             row.quota_remaining = payload.quota_remaining
+        await record_audit_log(
+            session,
+            entity_type="llm_config",
+            entity_id=cfg_id,
+            action="update",
+            subject_id=request.state.subject_id,
+        )
         try:
             await session.commit()
         except IntegrityError as exc:
@@ -312,6 +320,13 @@ async def _delete_scoped_config(
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="config not found")
+        await record_audit_log(
+            session,
+            entity_type="llm_config",
+            entity_id=cfg_id,
+            action="delete",
+            subject_id=request.state.subject_id,
+        )
         await session.delete(row)
         await session.commit()
 

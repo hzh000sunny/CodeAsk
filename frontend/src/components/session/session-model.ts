@@ -7,6 +7,7 @@ export interface ConversationMessage {
   role: MessageRole;
   content: string;
   status?: "streaming" | "done" | "error";
+  turnId?: string;
 }
 
 export interface RuntimeStage {
