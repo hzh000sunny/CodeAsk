@@ -1,13 +1,16 @@
 """End-to-end /api/sessions tests."""
 
+import asyncio
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy import select
 
-from codeask.db.models import SessionTurn
+from codeask.db.models import SessionRepoBinding, SessionTurn
 from tests.mocks.mock_llm import MockLLMClient, text_message, tool_call_message
 
 
@@ -88,6 +91,115 @@ async def test_session_message_sse_and_attachment(
     assert uploaded["kind"] == "log"
     assert uploaded["display_name"] == "app.log"
     assert Path(uploaded["file_path"]).exists()
+
+
+@pytest.mark.asyncio
+async def test_session_message_persists_repo_binding_and_runs_code_tool(
+    app: FastAPI,
+    client: AsyncClient,
+    tmp_path: Path,
+) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    config = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "default",
+            "protocol": "openai",
+            "base_url": None,
+            "api_key": "sk-secret",
+            "model_name": "gpt-test",
+            "max_tokens": 1024,
+            "temperature": 0.0,
+            "is_default": True,
+        },
+    )
+    assert config.status_code == 201, config.text
+
+    repo_src = _bootstrap_repo(tmp_path / "repo-src")
+    commit = subprocess.check_output(
+        ["git", "-C", str(repo_src), "rev-parse", "HEAD"],
+        text=True,
+    ).strip()
+    repo_id = await _register_repo_and_wait_ready(client, repo_src)
+    logout = await client.post("/api/auth/logout")
+    assert logout.status_code == 204
+
+    feature = await client.post(
+        "/api/features",
+        json={
+            "name": "Code Tools",
+            "slug": "code-tools-session",
+            "description": "Code investigation feature",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert feature.status_code == 201, feature.text
+    feature_id = feature.json()["id"]
+
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "代码调查"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    mock = MockLLMClient(
+        [
+            tool_call_message(
+                "tc_scope",
+                "select_feature",
+                {"feature_ids": [feature_id], "confidence": "high", "reason": "code tools"},
+            ),
+            text_message(
+                '{"verdict":"insufficient","reason":"need code evidence",'
+                '"next":"code_investigation"}'
+            ),
+            tool_call_message(
+                "tc_grep",
+                "grep_code",
+                {
+                    "repo_id": repo_id,
+                    "commit_sha": commit,
+                    "query": "payment timeout",
+                    "path_glob": None,
+                },
+            ),
+            text_message("代码证据显示 payment timeout 在 app.py。"),
+            text_message("结论：payment timeout 在 app.py 的 handle_payment 中处理。"),
+        ]
+    )
+    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+
+    message = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={
+            "content": "请调查 payment timeout 是在哪里处理的",
+            "feature_ids": [feature_id],
+            "repo_bindings": [{"repo_id": repo_id, "ref": "HEAD"}],
+            "force_code_investigation": True,
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert message.status_code == 200, message.text
+    body = message.text
+    assert "event: tool_call" in body
+    assert "event: tool_result" in body
+    assert "TOOL_NOT_CONFIGURED" not in body
+    assert "payment timeout" in body
+
+    async with app.state.session_factory() as session:
+        binding = (
+            await session.execute(
+                select(SessionRepoBinding).where(
+                    SessionRepoBinding.session_id == session_id,
+                    SessionRepoBinding.repo_id == repo_id,
+                )
+            )
+        ).scalar_one()
+    assert binding.commit_sha == commit
+    assert Path(binding.worktree_path).is_dir()
 
 
 @pytest.mark.asyncio
@@ -224,6 +336,47 @@ async def test_session_attachments_can_be_listed_renamed_and_deleted(
         headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert [row["display_name"] for row in other_session.json()] == ["service.log"]
+
+
+def _bootstrap_repo(root: Path) -> Path:
+    root.mkdir(parents=True)
+    subprocess.run(
+        ["git", "init", "--initial-branch=main", str(root)],
+        check=True,
+        capture_output=True,
+    )
+    (root / "app.py").write_text(
+        "def handle_payment(error: str) -> str:\n"
+        "    if error == 'payment timeout':\n"
+        "        return 'retry'\n"
+        "    return 'fail'\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(root), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "t"], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-m", "init"],
+        check=True,
+        capture_output=True,
+    )
+    return root
+
+
+async def _register_repo_and_wait_ready(client: AsyncClient, src: Path) -> str:
+    response = await client.post(
+        "/api/repos",
+        json={"name": "code-tools-demo", "source": "local_dir", "local_path": str(src)},
+    )
+    assert response.status_code == 201, response.text
+    repo_id = response.json()["id"]
+    for _ in range(80):
+        status_response = await client.get(f"/api/repos/{repo_id}")
+        assert status_response.status_code == 200, status_response.text
+        if status_response.json()["status"] == "ready":
+            return repo_id
+        await asyncio.sleep(0.25)
+    raise AssertionError("repo never reached ready")
 
 
 @pytest.mark.asyncio

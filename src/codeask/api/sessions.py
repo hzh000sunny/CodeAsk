@@ -28,12 +28,15 @@ from codeask.api.schemas.session import (
     SessionUpdate,
 )
 from codeask.api.schemas.wiki import ReportRead
+from codeask.code_index.worktree import InvalidRefError, WorktreeError
 from codeask.db.models import (
     Feature,
+    Repo,
     Report,
     Session,
     SessionAttachment,
     SessionFeature,
+    SessionRepoBinding,
     SessionTurn,
 )
 from codeask.wiki.reports import ReportService
@@ -209,6 +212,55 @@ async def post_message(
                     source="manual",
                 )
             )
+        for binding in payload.repo_bindings:
+            repo = await session.get(Repo, binding.repo_id)
+            if repo is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"repo {binding.repo_id!r} not found",
+                )
+            if repo.status != Repo.STATUS_READY:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"repo {binding.repo_id!r} status is {repo.status}",
+                )
+            worktree_manager = request.app.state.worktree_manager
+            try:
+                commit_sha = worktree_manager.resolve_ref(binding.repo_id, binding.ref)
+                worktree_path = worktree_manager.ensure_worktree(
+                    binding.repo_id,
+                    session_id,
+                    commit_sha,
+                )
+            except InvalidRefError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
+            except WorktreeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=str(exc),
+                ) from exc
+            existing = await session.get(
+                SessionRepoBinding,
+                {
+                    "session_id": session_id,
+                    "repo_id": binding.repo_id,
+                    "commit_sha": commit_sha,
+                },
+            )
+            if existing is None:
+                session.add(
+                    SessionRepoBinding(
+                        session_id=session_id,
+                        repo_id=binding.repo_id,
+                        commit_sha=commit_sha,
+                        worktree_path=str(worktree_path),
+                    )
+                )
+            else:
+                existing.worktree_path = str(worktree_path)
         await session.commit()
 
     orchestrator = request.app.state.agent_orchestrator

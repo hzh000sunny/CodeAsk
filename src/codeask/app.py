@@ -13,6 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from codeask.agent.code_tools import AgentCodeSearchService
 from codeask.agent.orchestrator import AgentOrchestrator
 from codeask.agent.tools import ToolRegistry
 from codeask.agent.trace import AgentTraceLogger
@@ -124,19 +125,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         llm_config_repo = LLMConfigRepo(factory, crypto)
         llm_gateway = LLMGateway(llm_config_repo, ClientFactory.default())
         agent_wiki_search = _AgentWikiSearchService(factory)
-        tool_registry = ToolRegistry.bootstrap(wiki_search_service=agent_wiki_search)
         trace_logger = AgentTraceLogger(factory)
+        scheduler = cast(_Scheduler, BackgroundScheduler())
+        repo_cloner = RepoCloner(factory)
+        repo_root = Path(settings.data_dir) / "repos"
+        worktree_manager = WorktreeManager(repo_root=repo_root)
+        agent_code_search = AgentCodeSearchService(
+            factory,
+            worktree_manager,
+            index_dir=Path(settings.data_dir) / "index",
+        )
+        tool_registry = ToolRegistry.bootstrap(
+            wiki_search_service=agent_wiki_search,
+            code_search_service=agent_code_search,
+        )
         agent_orchestrator = AgentOrchestrator(
             gateway=llm_gateway,
             tool_registry=tool_registry,
             trace_logger=trace_logger,
             session_factory=factory,
             wiki_search_service=agent_wiki_search,
+            code_search_service=agent_code_search,
         )
-        scheduler = cast(_Scheduler, BackgroundScheduler())
-        repo_cloner = RepoCloner(factory)
-        repo_root = Path(settings.data_dir) / "repos"
-        worktree_manager = WorktreeManager(repo_root=repo_root)
         cleanup_job = build_cleanup_job(worktree_manager, repo_root)
         scheduler.add_job(
             cleanup_job,

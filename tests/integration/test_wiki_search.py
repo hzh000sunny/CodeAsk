@@ -115,6 +115,20 @@ async def test_search_documents_filters_by_feature(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_search_documents_escapes_hyphenated_model_names(tmp_path: Path) -> None:
+    engine, factory, feature_id, _, _, _ = await _seed(tmp_path)
+    service = WikiSearchService()
+    async with factory() as session:
+        hits = await service.search_documents(
+            session,
+            "GLM-5.1 openai_compatible 20260502-194633",
+            feature_id=feature_id,
+        )
+    assert isinstance(hits, list)
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_search_reports_returns_verified_metadata(tmp_path: Path) -> None:
     engine, factory, _, _, _, report_id = await _seed(tmp_path)
     service = WikiSearchService()

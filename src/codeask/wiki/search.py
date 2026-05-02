@@ -47,6 +47,19 @@ def _bm25_to_score(bm25_value: float, weight: float) -> float:
     return (-1.0 * bm25_value) * weight
 
 
+def _fts_match_query(tokenized: str) -> str:
+    """Quote FTS5 terms so punctuation in model names is treated as text."""
+
+    terms = [term for term in tokenized.split() if term]
+    if not terms:
+        return tokenized
+    quoted: list[str] = []
+    for term in terms:
+        escaped = term.replace('"', '""')
+        quoted.append(f'"{escaped}"')
+    return " ".join(quoted)
+
+
 def _metadata(value: object) -> Mapping[str, object]:
     if isinstance(value, dict):
         return cast(Mapping[str, object], value)
@@ -94,8 +107,8 @@ class WikiSearchService:
         if not query.strip():
             return []
 
-        token_query = tokenize(query) or query
-        ngram_query = to_ngrams(query) or query
+        token_query = _fts_match_query(tokenize(query) or query)
+        ngram_query = _fts_match_query(to_ngrams(query) or query)
         feature_clause = "AND d.feature_id = :feature_id" if feature_id is not None else ""
         params: dict[str, Any] = {
             "token_query": token_query,
@@ -194,7 +207,7 @@ class WikiSearchService:
         if not query.strip():
             return []
 
-        token_query = tokenize(query) or query
+        token_query = _fts_match_query(tokenize(query) or query)
         feature_clause = "AND r.feature_id = :feature_id" if feature_id is not None else ""
         params: dict[str, Any] = {"query": token_query, "limit": limit}
         if feature_id is not None:
