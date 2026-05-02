@@ -111,14 +111,15 @@
 
 | 用途 | 推荐 | 不用 | 备注 |
 |---|---|---|---|
-| 组件库 | **shadcn/ui**（Radix + Tailwind，复制式） | MUI / Mantine / Ant Design | 见下方权衡 |
-| 样式 | **Tailwind CSS v4** | CSS-in-JS（emotion / styled） | 与 shadcn 一体；私有部署无运行时开销 |
-| 图标 | **lucide-react** | heroicons / phosphor | shadcn 默认 |
-| 字体 | **系统字体栈** + 等宽 JetBrains Mono / Fira Code 自托管 | Google Fonts CDN | 私有部署不依赖外部 CDN |
+| 组件库 | **轻量本地 UI primitives**；未来可吸收 shadcn/ui 单个组件 | MUI / Mantine / Ant Design | 当前实现没有批量引入 shadcn；只保留 Button/Input/Tabs/Badge 等本地组件，避免过早引入复杂主题系统 |
+| 样式 | **CSS design tokens + globals.css** | CSS-in-JS（emotion / styled） | 当前实现使用集中 CSS 和局部 class；后续如采用 Tailwind 需单独计划迁移 |
+| 图标 | **lucide-react** | heroicons / phosphor | 按需引入，适合工具型界面 |
+| 字体 | **系统字体栈** + Noto Sans SC 自托管 fallback | Google Fonts CDN | 私有部署不依赖外部 CDN；当前文件在 `frontend/public/fonts/NotoSansSC-Regular.ttf` |
 
-**shadcn/ui vs MUI / Ant**：
+**本地 UI primitives vs 大型组件库**：
 
-- shadcn 是"复制粘贴"模型——组件代码进我们仓库，不是 npm 黑盒。**改样式不打架**、bundle 小、Tailwind 原生。对 PRD §8.4"oncall 凌晨 2 点要看清"那种密集信息布局尤其合适（Tailwind utility 调对比度比 MUI 主题改起来快得多）。
+- 当前工作台已经用本地组件满足密集信息布局，避免把产品视觉绑定到 MUI / Ant 的后台风格。
+- shadcn 仍可作为后续单组件参考，但不再要求批量 CLI 生成组件或引入完整 Radix/Tailwind 生态。
 - MUI / Ant 设计语言强——会拽着我们走它的设计；CodeAsk 要"研发工作台"风格不是"管理后台"风格。
 
 ### 3.3 数据 / 状态
@@ -126,24 +127,24 @@
 | 用途 | 推荐 | 不用 | 备注 |
 |---|---|---|---|
 | 服务端状态 | **TanStack Query**（v5） | SWR / Redux Toolkit Query | 缓存 + invalidate 模型最自然 |
-| 客户端状态 | **Zustand** | Redux / Recoil / Jotai | 用到再上；很多页面 useState 够了 |
-| 表单 | **react-hook-form** + **zod** | Formik | 与 TS 类型对齐 |
-| 路由 | **TanStack Router** 或 **React Router v7** | Next.js | 一期是 SPA；路由器二选一 |
+| 客户端状态 | 组件局部状态 + TanStack Query；**Zustand** 依赖保留但非当前关键路径 | Redux / Recoil / Jotai | 当前页面 useState 足够；跨页状态增加后再收敛 |
+| 表单 | Controlled inputs | Formik | 当前表单简单，react-hook-form + zod 暂未引入 |
+| 路由 | `AppShell` 内部状态；未来可引入 TanStack Router | Next.js | 当前只有三个一级入口，正式路由器不阻塞 v1.0 |
 
 ### 3.4 SSE / 流式
 
 | 用途 | 推荐 | 不用 | 备注 |
 |---|---|---|---|
-| SSE 客户端 | **microsoft/fetch-event-source** | 原生 EventSource | 原生不支持自定义 header / POST，未来加鉴权会卡 |
+| SSE 客户端 | **Fetch streaming parser** | 原生 EventSource | 当前消息接口需要 POST + `X-Subject-Id` header；实现位于 `frontend/src/lib/sse.ts` |
 
 ### 3.5 渲染
 
 | 用途 | 推荐 | 不用 | 备注 |
 |---|---|---|---|
 | Markdown 渲染（回答 / 文档展示） | **react-markdown** + remark-gfm + rehype-raw（按需） | mdx-js（重） / 自写 parser | 标准 |
-| 代码高亮 | **shiki**（VS Code 同款 grammar） | highlight.js / prism | 高亮质量明显领先；可 SSR |
+| 代码高亮 | 先用 Markdown 代码块 + 复制按钮；后续按需接 **shiki** | highlight.js / prism | 当前 v1.0 以正确渲染、复制和布局稳定为主 |
 | 数学（如需） | **KaTeX** | MathJax | 轻 |
-| 图表（dashboard） | **Recharts** | ECharts / D3 直用 | 一期 dashboard 折线图 / 柱图够用，不需要 D3 灵活度 |
+| 图表（dashboard） | 后续 dashboard 阶段再选型；候选 **Recharts** | ECharts / D3 直用 | 当前 v1.0 未实现 Maintainer Dashboard 聚合 UI |
 | 文档编辑器（如需 in-app 编辑） | **TipTap** | CodeMirror / Slate / Lexical | TipTap 适合富文本，CodeMirror 适合代码 |
 
 **编辑器一期是否要 in-app**：PRD 没要求 in-app 编辑——上传 + 拖目录就行。**一期不引入 TipTap**，等 MVP+ 评估"录入摩擦最大瓶颈是不是缺编辑器"再决定。
@@ -211,7 +212,7 @@ PRD §4.4.2 + §6.2 锁定的扩展通道，对应的依赖**今天不加**但**
 
 - **每季度一次**审计 `pyproject.toml` / `package.json` 依赖：是否有废弃 / 是否有 CVE / 是否有更优替代
 - 重大依赖升级（Python / Node / FastAPI / React 大版本）走单独 PR + 完整 eval + 集成测试
-- LiteLLM / shadcn/ui 等高频更新依赖锁版本——不跟随 latest
+- LiteLLM / React / Vite 等高频更新依赖锁版本——不跟随 latest
 
 ## 10. 与 PRD 的对齐
 
@@ -228,4 +229,4 @@ PRD §4.4.2 + §6.2 锁定的扩展通道，对应的依赖**今天不加**但**
 
 CodeAsk 产品独特价值集中在**飞轮机制 + A2/A3 透明 + 自报身份 + commit 绑定证据**四件事上。市面候选（AnythingLLM / Dify / Sourcegraph / Bloop / llm-wiki）的数据模型都不贴这套设计——选它们做底座意味着持续跟人家的会话模型 / 报告流转 / 检索哲学打架，最后改的代码比自研还多，且把"30 秒部署"承诺拆了。
 
-**该复用的是组件**（FastAPI、SQLite、ripgrep、ctags、shadcn/ui、TanStack Query、shiki……），**不该复用的是应用骨架**。本文 §2-§6 列的是前者，§7 列的是后者。
+**该复用的是组件**（FastAPI、SQLite、ripgrep、ctags、lucide-react、TanStack Query、Markdown renderer、后续按需接入的 shiki……），**不该复用的是应用骨架**。本文 §2-§6 列的是前者，§7 列的是后者。

@@ -150,7 +150,8 @@ Prompt 从稳定到易变分层：
 ```text
 L0 全局规则：研发问答 Agent 角色、输出格式、工具协议
 L1 调查状态：当前阶段、允许工具、退出条件
-L2 特性基础上下文：选中特性 summary_text、navigation_index、feature skill
+L2 特性基础上下文：选中特性 summary_text、navigation_index
+L2_ANALYSIS_POLICIES：启用的全局 / 特性分析策略，按 stage + priority 注入
    ※ digest 仅含文档摘要，不含报告（避免案例污染常青背景，详见 wiki-search.md §11）
 L3 仓库上下文：repo、ref、commit、语言统计、路径提示
 L4 预检索结果：知识库命中（含报告高优先级合并 —— 报告通过 query 匹配在此层进入）
@@ -159,6 +160,28 @@ L6 当前输入：问题、日志摘要、附件摘要、上下文字段
 ```
 
 这样便于未来接 prompt cache，也能避免每轮重复拼接无关内容。
+
+### 9.1 分析策略与未来 Skill 的边界
+
+当前阶段 UI 中不再把这类配置命名为完整 `Skill`。`skills` 表作为兼容存储继续保留，但产品语义是 **分析策略 / Prompt 策略**：它只负责向 Agent 上下文注入规则文本，例如证据引用规范、代码调查偏好、报告输出约束和特定特性的业务术语。
+
+分析策略字段：
+
+- `scope = global / feature`
+- `feature_id`：仅特性策略使用
+- `stage = all / scope_detection / knowledge_retrieval / sufficiency_judgement / code_investigation / answer_finalization / report_drafting`
+- `enabled`
+- `priority`
+- `prompt_template`
+
+注入规则：
+
+1. 只读取 `enabled = true` 的策略。
+2. `stage = all` 注入每个阶段；其它策略只注入同名阶段。
+3. 按 `priority asc` 排序，数字越小越靠前。
+4. 全局策略和特性策略都进入 `L2_ANALYSIS_POLICIES`，以 `[scope][stage][priority] name: prompt` 的结构化行展示。
+
+未来完整 Skill Package 可以在此基础上扩展触发条件、工具能力声明、示例、版本、测试用例和灰度发布；这些不属于当前阶段。
 
 ## 10. 工具循环
 
@@ -188,27 +211,46 @@ Agent 主循环：
 
 ## 11. SSE 事件
 
-前端通过 SSE 展示调查过程：
+前端通过 SSE 展示调查过程。当前实现的事件名已经锁定为以下 10 个值：
 
 ```text
-event: stage
-event: token
-event: tool_call
-event: tool_result
-event: evidence
-event: ask_user
-event: sufficiency_judgement   // A3 判断在 UI 透明的载体
-event: done
-event: error
+stage_transition
+text_delta
+tool_call
+tool_result
+evidence
+scope_detection
+sufficiency_judgement
+ask_user
+done
+error
 ```
 
-`stage` 示例：
+通用格式：
+
+```text
+event: <event_name>
+data: <json>
+
+```
+
+`stage_transition` 示例：
 
 ```json
 {
-  "name": "code_investigation",
-  "status": "running",
-  "message": "知识库不足，正在使用默认分支进行探索性代码调查"
+  "from": "knowledge_retrieval",
+  "to": "sufficiency_judgement",
+  "message": "知识库检索完成，开始判断证据是否足够"
+}
+```
+
+`scope_detection` 示例：
+
+```json
+{
+  "feature_ids": [7],
+  "confidence": "high",
+  "reason": "日志中出现 order submit 相关路径和 OrderService 符号"
 }
 ```
 
@@ -221,6 +263,8 @@ event: error
   "next": "code_investigation"
 }
 ```
+
+`text_delta` 用于回答增量文本；`done` 至少返回 `turn_id`；`ask_user` 表示本轮需要用户补充选择或确认，收到该事件后本轮不会再继续输出最终回答。
 
 ## 12. 错误回收
 

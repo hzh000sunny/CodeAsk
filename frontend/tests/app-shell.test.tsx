@@ -12,6 +12,7 @@ function jsonResponse(payload: unknown, status = 200) {
 
 describe("CodeAsk AppShell information architecture", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/");
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -40,6 +41,7 @@ describe("CodeAsk AppShell information architecture", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    window.history.replaceState(null, "", "/");
   });
 
   it("keeps the primary navigation to sessions, features, and settings", () => {
@@ -126,7 +128,37 @@ describe("CodeAsk AppShell information architecture", () => {
     expect(screen.getByRole("tab", { name: "知识库" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "问题报告" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "关联仓库" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "特性 Skill" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "特性分析策略" }),
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe("#/features");
+  });
+
+  it("restores the active primary section from the URL hash after reload", async () => {
+    window.history.replaceState(null, "", "/#/settings");
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "用户配置" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("搜索会话")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("搜索特性")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "设置" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("restores the feature workbench from the URL hash after reload", () => {
+    window.history.replaceState(null, "", "/#/features");
+
+    render(<App />);
+
+    expect(screen.getByPlaceholderText("搜索特性")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("搜索会话")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "特性" }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
   it("keeps user settings under settings and hides global configuration for members", async () => {

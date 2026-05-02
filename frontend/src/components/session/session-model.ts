@@ -174,7 +174,7 @@ export function runtimeInsightFromEvent(
       id: `tool_call_${stringData(event, "id") ?? Date.now()}`,
       kind: "tool",
       title: `调用工具：${stringData(event, "name") ?? "unknown"}`,
-      detail: compactJson(event.data.arguments),
+      detail: toolCallDetail(event),
     };
   }
   if (event.type === "tool_result") {
@@ -182,7 +182,7 @@ export function runtimeInsightFromEvent(
       id: `tool_result_${stringData(event, "id") ?? Date.now()}`,
       kind: "tool",
       title: `工具结果：${stringData(event, "id") ?? "unknown"}`,
-      detail: compactJson(event.data.result),
+      detail: toolResultDetail(event),
     };
   }
   if (event.type === "evidence") {
@@ -260,6 +260,64 @@ function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function toolCallDetail(event: AgentEvent) {
+  const args = recordData(event, "arguments") ?? {};
+  const featureIds = Array.isArray(args.feature_ids)
+    ? `特性 ${args.feature_ids.join(", ")}`
+    : null;
+  const path = stringValue(args.path);
+  const query = stringValue(args.query);
+  const lineStart =
+    typeof args.line_start === "number" ? String(args.line_start) : null;
+  const lineEnd =
+    typeof args.line_end === "number" ? String(args.line_end) : null;
+  const lineRange =
+    lineStart && lineEnd ? `${lineStart}-${lineEnd}` : lineStart;
+  const parts = [
+    query ? `query=${query}` : null,
+    path ? `${path}${lineRange ? `:${lineRange}` : ""}` : null,
+    featureIds,
+    stringValue(args.confidence)
+      ? `置信度 ${stringValue(args.confidence)}`
+      : null,
+    truncateText(stringValue(args.reason), 96),
+  ].filter(Boolean);
+  return parts.join(" · ") || truncateText(compactJson(args), 160) || "-";
+}
+
+function toolResultDetail(event: AgentEvent) {
+  const result = recordData(event, "result") ?? {};
+  const data = recordValue(result.data);
+  const ok = result.ok === true ? "成功" : result.ok === false ? "失败" : null;
+  const summary =
+    stringValue(result.summary) ??
+    stringValue(data.summary) ??
+    stringValue(result.message);
+  const path = stringValue(data.path);
+  const hits = Array.isArray(data.hits) ? `${data.hits.length} 条命中` : null;
+  const lineStart =
+    typeof data.start_line === "number" ? String(data.start_line) : null;
+  const lineEnd =
+    typeof data.end_line === "number" ? String(data.end_line) : null;
+  const lineRange =
+    lineStart && lineEnd ? `${lineStart}-${lineEnd}` : lineStart;
+  const error = stringValue(result.error) ?? stringValue(data.error);
+  const parts = [
+    ok,
+    truncateText(summary, 110),
+    hits,
+    path ? `${path}${lineRange ? `:${lineRange}` : ""}` : null,
+    error ? `错误：${truncateText(error, 90)}` : null,
+  ].filter(Boolean);
+  return parts.join(" · ") || truncateText(compactJson(result), 180) || "-";
+}
+
 function compactJson(value: unknown) {
   if (value === undefined || value === null) {
     return "-";
@@ -272,4 +330,13 @@ function compactJson(value: unknown) {
   } catch {
     return String(value);
   }
+}
+
+function truncateText(value: string | null, maxLength = 120) {
+  if (!value) {
+    return null;
+  }
+  return value.length <= maxLength
+    ? value
+    : `${value.slice(0, maxLength - 1)}…`;
 }

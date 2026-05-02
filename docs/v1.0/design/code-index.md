@@ -35,7 +35,7 @@
     └── <session_id>/
 ```
 
-`bare/` 是仓库底层 git 数据库，所有特性、所有会话共享。这是 worktree "轻量、不重复占磁盘"承诺的物理基础。
+`bare/` 是仓库底层 git 数据库，所有特性、所有会话共享。这是 worktree "轻量、不重复占磁盘"承诺的物理基础。它本身就是 Git 数据库目录，不会再包含一层 `.git/` 子目录。
 
 ### 2.2 异步 clone 状态
 
@@ -54,6 +54,16 @@ registered → cloning → ready
 ```
 
 详见 `agent-runtime.md` §12 错误回收。
+
+### 2.3 仓库缓存同步
+
+管理员可在全局配置中手动触发仓库“同步”。应用启动后也会注册每小时一次的全局仓库同步任务，对所有非 `cloning` 仓库执行同一套缓存维护逻辑。
+
+- 缓存目录不存在或不是有效 bare repo 时，执行首次 `git clone --bare`。
+- 缓存目录已经是有效 bare repo 时，不删除目录，改为设置 / 校正 `origin` 后执行 `git fetch --prune origin`，把远端 heads / tags 更新到缓存。
+- `git` 来源的 `origin` 是配置的 Git URL。
+- `local_dir` 来源的 `origin` 是配置的本机 Git 工作目录。若该本机目录自身配置了 `origin`，后端会先尝试对该目录执行 `git fetch origin` 和 `git pull --ff-only`，再把本地 Git refs 同步到 CodeAsk 的 bare 缓存；若没有 `origin`，则只使用本地目录当前已有的提交和 refs。
+- 同步失败时状态进入 `failed` 并保留错误信息；下次手动“重试同步”或每小时任务会再次尝试。
 
 ## 3. Feature 与仓库的关联
 

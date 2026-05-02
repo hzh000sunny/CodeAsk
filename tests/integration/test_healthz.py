@@ -1,6 +1,7 @@
 """End-to-end /api/healthz."""
 
 import pytest
+from fastapi import FastAPI
 from httpx import AsyncClient
 
 
@@ -20,6 +21,14 @@ async def test_healthz_anonymous_subject(client: AsyncClient) -> None:
     response = await client.get("/api/healthz")
     assert response.status_code == 200
     assert response.json()["subject_id"].startswith("anonymous@")
+
+
+@pytest.mark.asyncio
+async def test_lifespan_registers_hourly_repo_refresh(app: FastAPI) -> None:
+    job = app.state.scheduler.get_job("repo_hourly_refresh")
+
+    assert job is not None
+    assert job.trigger.interval.total_seconds() == 3600
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,8 @@
 
 本文记录 `agent-runtime` 完成后交给 `frontend-workbench`、`metrics-eval`、`deployment` 的稳定契约。后续计划优先消费这些接口；如需改动，需要新开 migration 或兼容层，不要直接破坏已落地行为。
 
+> 2026-05-03 更新：`frontend-workbench`、`metrics-eval`、`deployment` 以及 `admin-repo-analysis-policy` 已落地。本文保留原 runtime 契约，并补充当前 API 分流、metrics raw API 和分析策略语义。
+
 ## 1. SSE 事件契约
 
 消费方：`05 frontend-workbench`。
@@ -70,22 +72,29 @@ eval 数据点：
 
 已落地接口：
 
-- `/api/llm-configs`：`POST` / `GET list` / `GET by id` / `PATCH` / `DELETE`；所有 GET 响应只返回 masked key。
-- `/api/skills`：`POST` / `GET list` / `GET by id` / `PATCH` / `DELETE`；`scope` 与 `feature_id` 一致性由 Pydantic + DB check 双层约束。
-- `/api/sessions`：`POST` / `GET list` / `GET by id`。
+- Auth：`GET /api/auth/me`、`POST /api/auth/admin/login`、`POST /api/auth/logout`。
+- LLM 配置：普通用户使用 `/api/me/llm-configs`，管理员使用 `/api/admin/llm-configs`；旧 `/api/llm-configs` 保留为管理员 legacy global endpoint；所有 GET 响应只返回 masked key。
+- `/api/skills`：当前产品语义为“分析策略”，不是完整 Skill Package。`POST` / `GET list` / `GET by id` / `PATCH` / `DELETE` 已支持 `scope`、`feature_id`、`stage`、`enabled`、`priority`、`prompt_template`。
+- `/api/sessions`：`POST` / `GET list` / `GET by id` / `PATCH` / `DELETE`；会话按当前 `subject_id` 隔离。
+- `/api/sessions/bulk-delete`：批量删除当前 subject 自己的会话。
+- `/api/sessions/{id}/turns`：恢复历史消息。
+- `/api/sessions/{id}/traces`：恢复调查进度和运行事件。
 - `/api/sessions/{id}/messages`：写入 user turn 后返回 SSE 流。
-- `/api/sessions/{id}/attachments`：一期支持 `.log` / `.txt` / `.md` / `.png` / `.jpg` / `.jpeg`，单文件不超过 10MB。
+- `/api/sessions/{id}/attachments`：一期支持 `.log` / `.txt` / `.md` / `.png` / `.jpg` / `.jpeg`，单文件不超过 10MB；附件以 `attachment_id` 为稳定键，支持展示名和用途说明编辑。
+- `/api/sessions/{id}/reports`：从会话生成绑定特性的报告草稿。
 
-## 5. 未在本计划落地的接口
+## 5. Metrics API
 
 消费方：`06 metrics-eval`。
 
-本计划未实现 `/api/feedback`、`/api/audit-log`、`/api/frontend-events`。`metrics-eval` 计划负责新增：
+`metrics-eval` 已实现 runtime 之后的 raw metrics API：
 
-- `feedback` 表：`session_id`、`turn_id`、`subject_id`、`verdict`、`note`。
-- `POST /api/sessions/{id}/turns/{turn_id}/feedback`。
-- 写入 feedback 后调用 `AgentTraceLogger.log_user_feedback`，让 `agent_traces` 也保留一行 `event_type='user_feedback'`。
-- `audit_log` 与 `frontend_events` 表及对应 API。
+- `feedback` 表：记录 `session_turn_id`、`feedback = solved / partial / wrong`、`subject_id`、`note`。
+- `POST /api/feedback`：保存显式反馈。
+- `POST /api/events`：保存白名单前端事件，例如 `feedback_submitted`、`force_deeper_investigation`。
+- `GET /api/audit-log`：按实体查询审计日志。
+
+前端会话页已接入回答反馈和强制代码调查事件。Maintainer Dashboard 聚合查询仍是后续前端增强。
 
 ## 6. 真实 LLM Smoke
 
@@ -93,7 +102,7 @@ eval 数据点：
 
 本计划的自动化测试全部使用 `MockLLMClient`，不依赖外部模型服务。部署计划需要补一个真实 provider smoke：
 
-1. 读取 `CODEASK_SMOKE_LLM_CONFIG_ID` 或通过 `/api/llm-configs` 创建临时配置。
+1. 管理员登录后通过 `/api/admin/llm-configs` 创建临时配置，或使用已有启用配置。
 2. 创建 session。
 3. 发送一条 hello-world 消息。
 4. 验证 SSE 至少返回 `scope_detection` 或明确的 `ask_user` / `error`，并且服务不崩溃。

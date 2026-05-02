@@ -1,6 +1,6 @@
 """Prompt skills injected globally or per feature."""
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from codeask.db.base import Base, TimestampMixin
@@ -27,4 +27,7 @@ class Skill(Base, TimestampMixin):
         ForeignKey("features.id", ondelete="CASCADE"),
         nullable=True,
     )
+    stage: Mapped[str] = mapped_column(String(64), nullable=False, default="all")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     prompt_template: Mapped[str] = mapped_column(Text, nullable=False)

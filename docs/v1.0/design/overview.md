@@ -71,14 +71,15 @@ Web 研发工作台
   ├─ 调查进度面板
   ├─ 证据引用
   ├─ 版本确认
-  ├─ Wiki / 报告管理
-  ├─ Maintainer dashboard
-  └─ 全局配置
+  ├─ 特性知识库 / 报告管理
+  ├─ 个人 / 全局 LLM 配置
+  ├─ 全局仓库池
+  └─ 分析策略配置
 
 FastAPI API 网关
   ├─ REST API
   ├─ SSE 流
-  ├─（一期无鉴权，详见 deployment-security.md）
+  ├─ 自报身份 + 内置管理员登录（详见 deployment-security.md）
   └─ 定时任务
 
 Agent 编排器
@@ -134,19 +135,22 @@ CodeAsk/
 │   ├── pnpm-lock.yaml
 │   ├── vite.config.ts              # dev 时把 /api/* 反代到 :8000
 │   ├── tsconfig.json
-│   ├── tailwind.config.ts
-│   ├── components.json             # shadcn/ui CLI 配置
 │   ├── index.html
 │   ├── public/
 │   ├── src/
 │   │   ├── main.tsx
-│   │   ├── routes/                 # 路由（TanStack Router 或 React Router v7）
-│   │   ├── pages/                  # 会话工作台 / Dashboard / Wiki / 配置
+│   │   ├── App.tsx                 # QueryClientProvider + AppShell
 │   │   ├── components/
-│   │   │   └── ui/                 # shadcn/ui 复制过来的组件
-│   │   ├── hooks/
-│   │   ├── lib/                    # SSE client / API client / utils
-│   │   └── stores/                 # Zustand
+│   │   │   ├── auth/
+│   │   │   ├── features/
+│   │   │   ├── layout/
+│   │   │   ├── policies/
+│   │   │   ├── session/
+│   │   │   ├── settings/
+│   │   │   └── ui/
+│   │   ├── lib/                    # API client / SSE parser / identity / query client
+│   │   ├── styles/
+│   │   └── types/
 │   ├── tests/                      # Vitest + Testing Library
 │   ├── e2e/                        # Playwright
 │   └── dist/                       # 构建产物（.gitignore；backend StaticFiles 挂载）
@@ -197,8 +201,9 @@ CodeAsk/
 | `frontend-workbench.md` | 研发工作台页面与交互 |
 | `api-data-model.md` | REST/SSE API、SQLite schema、目录布局 |
 | `llm-gateway.md` | OpenAI / Anthropic / OpenAI-compatible 通用协议、流式、工具调用、模型配置 |
-| `deployment-security.md` | 私有部署、一期无鉴权与未来扩展通道、清理任务、安全边界 |
+| `deployment-security.md` | 私有部署、普通用户无登录、内置管理员和未来 AuthProvider 扩展通道、清理任务、安全边界 |
 | `testing-eval.md` | 单测、集成测试、Agent eval、CI |
+| `metrics-collection.md` | 反馈、前端事件、审计日志、飞轮指标和 raw metrics 边界 |
 
 ## 7. 关键决策
 
@@ -212,8 +217,8 @@ CodeAsk/
 | 代码版本策略 | 可先默认分支预查；最终报告必须绑定明确 commit |
 | 检索优先级 | 知识库（含已验证报告高优先级）→ 代码 |
 | 知识污染防护 | 报告人工验证后才进入高优先级检索 |
-| LLM 协议 | 一期直接支持 OpenAI、Anthropic 和 OpenAI-compatible，Agent 只依赖内部通用接口 |
-| 鉴权 | 普通用户一期无登录直接使用；内置管理员登录保护全局 LLM 配置和仓库管理；未来通过前后端 `AuthProvider` 扩展通道对接 OIDC / LDAP / 企业 IM 等 |
+| LLM 协议 | 当前配置 UI 支持 OpenAI、Anthropic；后端保留 OpenAI-compatible 兼容层，Agent 只依赖内部通用接口 |
+| 鉴权 | 普通用户一期无登录直接使用；内置管理员登录保护全局 LLM 配置、全局仓库管理和全局分析策略；未来通过前后端 `AuthProvider` 扩展通道对接 OIDC / LDAP / 企业 IM 等 |
 | 报告验证 | 一期任何人都能验证（"特性 owner" 是命名上的角色，靠社会契约约束） |
 | 部署形态 | 小团队私有部署，默认本机监听 |
 | 数据库 | SQLite + FTS5，一期零中间件；Wiki 检索采用多路召回，不依赖向量数据库 |
@@ -225,7 +230,7 @@ CodeAsk/
 - 删除 P0 / P1 / P2 / P3 阶段优先级（旧 §2 整节移除）
 - 主链路从"已验证报告 → 知识库 → 代码"三层简化为"知识库（含报告）→ 代码"两层
 - Agent 编排器中"报告检索 / 知识库检索"合并为"知识库检索 + 充分性判断"
-- 鉴权从"master token"改为"一期无鉴权 + 前后端 AuthProvider 扩展通道"
+- 鉴权从"master token"改为"普通用户无登录 + 内置管理员保护全局配置 + 前后端 AuthProvider 扩展通道"
 - 报告验证从"特性 owner 强制"改为"任意人可验证 + 社会契约约束"
 - §4 拆出 §4.1 逻辑架构 / §4.2 仓库结构 / §4.3 关键决策（仓库层），承接 PRD §4.4.1 "30 秒部署"承诺——单仓 + backend 在根 + `frontend/` 子目录 + 单产物部署
 

@@ -1,8 +1,8 @@
 # Frontend Workbench Handoff
 
-> Date: 2026-05-02
+> Date: 2026-05-03
 >
-> This handoff records the implemented frontend-workbench surface after the Phase B corrections. It supersedes older frontend-workbench plan snippets that still describe a dashboard-first layout, mine/all session toggle, global LLM visibility for anonymous users, manual report creation from feature pages, or full LLM Wiki management as current-stage deliverables.
+> This handoff records the implemented frontend-workbench surface after the Phase B/C corrections. It supersedes older frontend-workbench plan snippets that still describe a dashboard-first layout, mine/all session toggle, global LLM visibility for anonymous users, manual report creation from feature pages, full LLM Wiki management as current-stage deliverables, or router/shadcn/fetch-event-source choices that were not adopted by the current implementation.
 
 ## 1. Current Goal
 
@@ -11,8 +11,8 @@ The current frontend-workbench stage is a usable R&D knowledge workbench with th
 | Entry | Current role |
 |---|---|
 | 会话 | Ask questions, stream Agent progress, manage per-session attachments, generate reports |
-| 特性 | Manage feature list, feature settings, knowledge uploads, generated reports, repo links, feature skills |
-| 设置 | Member personal settings and personal LLM configs; admin global LLM configs and repo management |
+| 特性 | Manage feature list, feature settings, knowledge uploads, generated reports, repo links, feature analysis policies |
+| 设置 | Member personal settings and personal LLM configs; admin global LLM configs, repo management, and global analysis policies |
 
 This stage is now in stabilization and handoff. New large product surfaces should not be added to frontend-workbench until this handoff is accepted.
 
@@ -59,7 +59,8 @@ Permission boundaries implemented in the workbench:
 | Personal LLM configs | yes | no |
 | Global LLM configs | no | yes |
 | Repo list read | yes | yes |
-| Repo create/delete/refresh | no | yes |
+| Repo create/edit/delete/sync | no | yes |
+| Global analysis policies | no | yes |
 
 ## 4. Sessions
 
@@ -120,7 +121,7 @@ Implemented:
   - 知识库
   - 问题报告
   - 关联仓库
-  - 特性 Skill
+  - 特性分析策略
 
 Feature reports:
 
@@ -133,11 +134,11 @@ Feature repo links:
 - Repo association is checkbox-based.
 - Feature pages do not register repositories.
 
-Feature skills:
+Feature analysis policies:
 
-- Feature scoped skills can be created.
-- Existing feature skills can be selected, edited, and deleted.
-- Selection is currently local UI state; runtime skill-selection integration is a follow-up.
+- Feature scoped analysis policies can be created, edited, enabled/disabled, and deleted.
+- Policies include stage, priority, enabled state, and prompt template.
+- Runtime prompt injection reads enabled global and feature policies, filters by stage, and sorts by priority.
 
 ## 6. Settings
 
@@ -151,6 +152,7 @@ Admin settings:
 - Admin settings does not show the personal user settings page.
 - Admin settings contains global LLM config management.
 - Admin settings contains global repo management.
+- Admin settings contains global analysis policy management.
 
 LLM config UI:
 
@@ -173,6 +175,21 @@ LLM config UI:
 - RPM and quota are retained only as compatibility fields and are ignored by current runtime selection.
 - Provider failures are returned as call errors instead of being hidden behind quota/RPM scheduling.
 
+Repo management:
+
+- Global repo management supports create, edit, sync/retry sync, and delete.
+- Repo edit fields use the same single-column width as analysis policy forms.
+- The action label is `同步` or `重试同步`; the old `刷新` wording is not used.
+- The backend schedules an hourly refresh for all non-`cloning` repos.
+- Local directories that are git worktrees and have `origin` are fetched and pulled before CodeAsk updates the bare cache.
+
+Analysis policy UI:
+
+- The product wording is analysis policy, not full Skill Package.
+- Global settings and feature details both use the same policy manager.
+- Policies support name, stage, priority, enabled switch, prompt template, edit, delete, and create.
+- Runtime injection uses enabled global + feature policies filtered by stage and sorted by priority.
+
 ## 7. Current API Surface Consumed By Frontend
 
 Auth:
@@ -188,6 +205,8 @@ Sessions:
 - `PATCH /api/sessions/{id}`
 - `DELETE /api/sessions/{id}`
 - `POST /api/sessions/bulk-delete`
+- `GET /api/sessions/{id}/turns`
+- `GET /api/sessions/{id}/traces`
 - `POST /api/sessions/{id}/messages`
 - `GET /api/sessions/{id}/attachments`
 - `POST /api/sessions/{id}/attachments`
@@ -210,13 +229,14 @@ Repos:
 
 - `GET /api/repos`
 - `POST /api/repos`
+- `PATCH /api/repos/{id}`
 - `DELETE /api/repos/{id}`
 - `POST /api/repos/{id}/refresh`
 - `GET /api/features/{feature_id}/repos`
 - `POST /api/features/{feature_id}/repos/{repo_id}`
 - `DELETE /api/features/{feature_id}/repos/{repo_id}`
 
-Skills:
+Analysis policies (`/api/skills` compatibility path):
 
 - `GET /api/skills`
 - `POST /api/skills`
@@ -233,6 +253,12 @@ LLM configs:
 - `POST /api/admin/llm-configs`
 - `PATCH /api/admin/llm-configs/{id}`
 - `DELETE /api/admin/llm-configs/{id}`
+
+Metrics:
+
+- `POST /api/feedback`
+- `POST /api/events`
+- `GET /api/audit-log`
 
 ## 8. Verification Commands
 
@@ -265,17 +291,21 @@ The following items are explicitly deferred and should not block frontend-workbe
 | Wiki file tree, preview, edit, delete, and re-index workflow | Dedicated LLM Wiki plan |
 | Relative image/resource preservation for uploaded wiki directories | Dedicated LLM Wiki plan |
 | Markdown cross-reference parsing | Dedicated LLM Wiki plan |
-| Runtime use of selected feature skill | Agent/runtime follow-up |
-| Feedback persistence API and dashboard metrics data | `metrics-eval` |
-| Maintainer Dashboard backed by feedback/audit/frontend-events | `metrics-eval` plus frontend follow-up |
+| Full Skill Package semantics beyond prompt analysis policies | Agent/runtime follow-up |
+| Maintainer Dashboard aggregation and UI backed by raw metrics data | frontend follow-up |
 | Enterprise auth provider | post-v1.0 auth plan |
-| Static frontend mount into backend single-port package | `deployment` |
+| Docker / compose / image packaging | post-v1.0 packaging plan |
 
 ## 10. Next Plan
 
-After this handoff is accepted, the next implementation plan should be `metrics-eval`, with one adjustment:
+After this handoff, completed follow-up plans include:
 
-- frontend feedback buttons should target the metrics-eval feedback API once it exists.
+- `metrics-eval`: raw feedback, frontend events, audit log, eval harness, and CI workflow.
+- `deployment`: backend static mount, local `start.sh`, CI, and security smoke.
+- `admin-repo-analysis-policy`: repo edit/sync semantics, analysis policy fields, runtime injection, and UI management.
+
+Remaining product follow-ups:
+
+- Full LLM Wiki should remain a separate plan because it changes knowledge ingestion, storage, resource mapping, preview/edit UX, and Agent retrieval context.
 - Maintainer Dashboard should be implemented from raw `feedback`, `frontend_events`, `audit_log`, and `agent_traces` data instead of mock-only UI.
-
-LLM Wiki should remain separate from metrics-eval because it changes knowledge ingestion, storage, resource mapping, preview/edit UX, and Agent retrieval context.
+- Docker packaging should stay separate from the v1.0 local single-process deployment contract.

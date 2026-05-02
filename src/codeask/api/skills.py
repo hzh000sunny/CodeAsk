@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.api.schemas.skill import SkillCreate, SkillResponse, SkillUpdate
 from codeask.db.models import Skill
+from codeask.identity import require_admin
 from codeask.metrics.audit import record_audit_log
 
 router = APIRouter()
@@ -27,12 +28,21 @@ SessionDep = Annotated[AsyncSession, Depends(_session)]
 
 
 @router.post("/skills", response_model=SkillResponse, status_code=status.HTTP_201_CREATED)
-async def create_skill(payload: SkillCreate, session: SessionDep) -> SkillResponse:
+async def create_skill(
+    payload: SkillCreate,
+    request: Request,
+    session: SessionDep,
+) -> SkillResponse:
+    if payload.scope == "global":
+        require_admin(request)
     skill = Skill(
         id=f"sk_{token_hex(8)}",
         name=payload.name,
         scope=payload.scope,
         feature_id=payload.feature_id,
+        stage=payload.stage,
+        enabled=payload.enabled,
+        priority=payload.priority,
         prompt_template=payload.prompt_template,
     )
     session.add(skill)
@@ -65,8 +75,16 @@ async def update_skill(
     skill = (await session.execute(select(Skill).where(Skill.id == skill_id))).scalar_one_or_none()
     if skill is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="skill not found")
+    if skill.scope == "global":
+        require_admin(request)
     if payload.name is not None:
         skill.name = payload.name
+    if payload.stage is not None:
+        skill.stage = payload.stage
+    if payload.enabled is not None:
+        skill.enabled = payload.enabled
+    if payload.priority is not None:
+        skill.priority = payload.priority
     if payload.prompt_template is not None:
         skill.prompt_template = payload.prompt_template
     await record_audit_log(
@@ -86,6 +104,8 @@ async def delete_skill(skill_id: str, request: Request, session: SessionDep) -> 
     skill = (await session.execute(select(Skill).where(Skill.id == skill_id))).scalar_one_or_none()
     if skill is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="skill not found")
+    if skill.scope == "global":
+        require_admin(request)
     await record_audit_log(
         session,
         entity_type="skill",

@@ -8,6 +8,28 @@ export interface SessionResponse {
   updated_at: string;
 }
 
+export interface SessionTurnResponse {
+  id: string;
+  session_id: string;
+  turn_index: number;
+  role: "user" | "agent";
+  content: string;
+  evidence: unknown | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentTraceResponse {
+  id: string;
+  session_id: string;
+  turn_id: string;
+  stage: string;
+  event_type: string;
+  payload: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AttachmentResponse {
   id: string;
   session_id: string;
@@ -112,6 +134,9 @@ export interface SkillResponse {
   name: string;
   scope: string;
   feature_id: number | null;
+  stage: string;
+  enabled: boolean;
+  priority: number;
   prompt_template: string;
 }
 

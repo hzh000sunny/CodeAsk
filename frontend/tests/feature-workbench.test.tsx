@@ -163,6 +163,9 @@ function installFeatureFetchMock(options: { repos?: unknown[] } = {}) {
               name: "支付排障",
               scope: "feature",
               feature_id: 7,
+              stage: "code_investigation",
+              enabled: true,
+              priority: 10,
               prompt_template: "按支付链路排查",
             },
             201,
@@ -202,7 +205,7 @@ describe("FeatureWorkbench management actions", () => {
     expect(JSON.parse(String(init.body))).not.toHaveProperty("slug");
   });
 
-  it("uploads wiki, shows generated reports, links a repo, and creates a feature skill in feature tabs", async () => {
+  it("uploads wiki, shows generated reports, links a repo, and creates a feature analysis policy in feature tabs", async () => {
     const fetchMock = installFeatureFetchMock({ repos: [existingRepo] });
     render(<App />);
 
@@ -227,14 +230,21 @@ describe("FeatureWorkbench management actions", () => {
     fireEvent.click(screen.getByRole("tab", { name: "关联仓库" }));
     fireEvent.click(await screen.findByRole("checkbox"));
 
-    fireEvent.click(screen.getByRole("tab", { name: "特性 Skill" }));
-    fireEvent.change(screen.getByLabelText("Skill 名称"), {
+    fireEvent.click(screen.getByRole("tab", { name: "特性分析策略" }));
+    fireEvent.click(screen.getByRole("button", { name: "添加分析策略" }));
+    fireEvent.change(screen.getByLabelText("策略名称"), {
       target: { value: "支付排障" },
     });
-    fireEvent.change(screen.getByLabelText("Prompt 模板"), {
+    fireEvent.change(screen.getByLabelText("适用阶段"), {
+      target: { value: "code_investigation" },
+    });
+    fireEvent.change(screen.getByLabelText("优先级"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(screen.getByLabelText("Prompt 内容"), {
       target: { value: "按支付链路排查" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "创建 Skill" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建分析策略" }));
     expect(await screen.findByText("支付排障")).toBeInTheDocument();
 
     const documentUpload = fetchMock.mock.calls.find(
@@ -248,6 +258,20 @@ describe("FeatureWorkbench management actions", () => {
       "/api/features/7/repos/repo_existing",
       expect.objectContaining({ method: "POST" }),
     );
+    const policyCreate = fetchMock.mock.calls.find(
+      ([path, options]) =>
+        path === "/api/skills" &&
+        (options as RequestInit | undefined)?.method === "POST",
+    ) as unknown as [string, RequestInit];
+    expect(JSON.parse(String(policyCreate[1].body))).toMatchObject({
+      name: "支付排障",
+      scope: "feature",
+      feature_id: 7,
+      stage: "code_investigation",
+      enabled: true,
+      priority: 10,
+      prompt_template: "按支付链路排查",
+    });
 
     expect(
       within(screen.getByRole("region", { name: "特性列表" })).queryByText(

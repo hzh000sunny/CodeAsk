@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 起 `frontend/` 子项目并落地 CodeAsk 研发工作台所有页面 + 组件 + Vite proxy + 关键 e2e；前端 dev server 与 backend 联调，构建产物 `frontend/dist/` 留给 07 deployment 计划挂载。
+**Goal:** 起 `frontend/` 子项目并落地 CodeAsk 研发工作台当前 v1.0 页面 + 组件 + Vite proxy + 关键 e2e；前端 dev server 与 backend 联调，构建产物 `frontend/dist/` 已由 07 deployment 计划挂载。
 
-**Architecture:** 独立 pnpm 子项目（与 backend 工具链隔离），React 19 SPA，TanStack Router 文件式路由，TanStack Query 管所有服务端状态，Zustand 仅承载跨页 UI 状态，shadcn/ui 复制式组件库以 Tailwind v4 渲染。SSE 通过 `microsoft/fetch-event-source` 接入 Agent 9 阶段事件流；自报身份通过 localStorage 生成 `client_id` + 可选 `nickname`，注入到所有请求的 `X-Subject-Id` header。
+**Architecture:** 独立 pnpm 子项目（与 backend 工具链隔离），React 19 SPA，当前路由由 `AppShell` 内部状态驱动，TanStack Query 管服务端状态，少量 UI 状态留在组件内。SSE 使用 Fetch streaming 解析后端命名事件；自报身份通过 localStorage 生成 `client_id` + 可选 `nickname`，注入到所有请求的 `X-Subject-Id` header。后续如引入正式路由器，应作为单独前端重构计划，不回头执行本文早期 TanStack Router task 片段。
 
-**Tech Stack:** React 19, TypeScript strict, Vite, pnpm, Tailwind CSS v4, shadcn/ui, lucide-react, TanStack Query v5, TanStack Router, Zustand, react-hook-form + zod, microsoft/fetch-event-source, react-markdown + remark-gfm, shiki, Recharts, Vitest + Testing Library, Playwright
+**Tech Stack:** React 19, TypeScript strict, Vite, pnpm, lucide-react, TanStack Query v5, react-markdown + remark-gfm, lightweight local UI components, Vitest + Testing Library, Playwright. Dependencies may include TanStack Router or Zustand for future use, but the current workbench does not rely on file-based routing, shadcn full component generation, Recharts, or `microsoft/fetch-event-source`.
 
 **Source SDD docs**（路径相对本文件 `docs/v1.0/plans/frontend-workbench.md`）：
 - `../design/overview.md`
@@ -34,7 +34,7 @@
 - 普通用户无需登录即可使用；内置管理员登录只用于保护全局 LLM 配置、全局仓库写操作和后续系统级设置。
 - LLM 配置 API 拆为个人 `/api/me/llm-configs` 与管理员 `/api/admin/llm-configs`；旧 `/api/llm-configs` 不再用于新 UI。
 - 管理员设置页只显示全局配置，不显示个人用户配置。
-- 仓库注册仍使用 `/api/repos`：读操作开放给特性关联仓库，创建 / 删除 / 刷新需要管理员。
+- 仓库注册仍使用 `/api/repos`：读操作开放给特性关联仓库，创建 / 编辑 / 删除 / 同步需要管理员。
 - 特性页不手工创建问题报告，只展示会话生成的报告；仓库关联使用全局仓库池 checkbox。
 
 详细契约见 `../specs/frontend-workbench-source-list-ia.md` 与 `../specs/frontend-workbench-admin-rbac.md`。
@@ -47,9 +47,16 @@
 
 - 当前实现是 Vite React SPA + TanStack Query；未采用 TanStack Router 文件路由、Zustand、shadcn 全量组件复制或 microsoft/fetch-event-source。
 - 全局页面只有 `会话 / 特性 / 设置` 三个一级入口；没有独立 Wiki 页、Repos 页、Skills 页或 Dashboard 页。
-- 特性页承载基础知识库上传入口、报告列表、仓库 checkbox 关联、特性 Skill；完整 LLM Wiki 目录上传 / 资源保存 / 预览 / 编辑 / re-index 后置为独立专项。
-- Feedback 按钮持久化、frontend events、audit log 和 Maintainer Dashboard 数据面后置到 `metrics-eval`。
+- 特性页承载基础知识库上传入口、报告列表、仓库 checkbox 关联、特性分析策略；完整 LLM Wiki 目录上传 / 资源保存 / 预览 / 编辑 / re-index 后置为独立专项。
+- Feedback 按钮持久化、frontend events 和 audit log 已由后续 `metrics-eval` 落地；Maintainer Dashboard 聚合 UI 仍后置。
 - 当前 frontend-workbench 验收以 `../specs/frontend-workbench-handoff.md` 为准。
+
+## 2026-05-03 当前实现补充
+
+- `metrics-eval` 已落地 `/api/feedback`、`/api/events`、`/api/audit-log`；会话反馈和强制代码调查事件已接入 raw metrics。
+- `deployment` 已落地 backend 静态挂载 `frontend/dist/` 和本地单进程 `start.sh`。
+- `admin-repo-analysis-policy` 已落地仓库编辑 / 同步语义、全局 / 特性分析策略、运行时 Prompt 注入和 UI 管理。
+- 本文件后续 Task 区域中的 Dashboard、旧 feedback 持久化片段、`我的 / 全部` tabs、`stage/token` SSE 名称、`openai_compatible` UI 选项和 shadcn/TanStack Router 生成步骤属于历史计划片段；当前验收和后续开发以本节、`../specs/frontend-workbench-handoff.md`、`../design/frontend-workbench.md` 和实际代码为准。
 
 ---
 
@@ -63,21 +70,21 @@
 - 步骤里贴的代码必须**完整可拷贝**（含 TSX、Tailwind className、配置文件全文）；禁止 "implement similar to X" / "TODO" / "appropriate handling"
 - 单文件组件 ≤ 200 行，超过就拆 sub-component
 - 任何对 API 的 fetch 都通过 `frontend/src/lib/api.ts` 走，自动注入 `X-Subject-Id`
-- 任何 SSE 都通过 `frontend/src/lib/sse.ts`，不直接用原生 EventSource
-- TypeScript 严格模式；`tsc --noEmit` 与 `eslint` 必须零错误才能 commit
-- shadcn/ui 组件**复制式**进 `frontend/src/components/ui/`（不作为 npm 包依赖）
+- 任何 SSE 都通过 `frontend/src/lib/sse.ts` 的 Fetch streaming parser，支持 POST + `X-Subject-Id`
+- TypeScript 严格模式；当前校验以 `corepack pnpm --dir frontend typecheck`、Vitest 和 Playwright 为准
+- UI 组件优先使用 `frontend/src/components/ui/` 中的本地轻量组件；如未来引入 shadcn 单组件，必须按当前设计 token 适配，不批量替换现有界面
 - **frontend 不直连 LLM**——所有 LLM 调用走 backend 的个人 / 管理员 LLM 配置 API + Agent 路径
-- 字体（JetBrains Mono / Fira Code）自托管在 `frontend/public/fonts/`，不引 Google Fonts CDN（依赖 `dependencies.md` §3.2）
+- 中文字体 fallback 自托管在 `frontend/public/fonts/`，当前包含 `NotoSansSC-Regular.ttf`；不引 Google Fonts CDN（依赖 `dependencies.md` §3.2）
 
 ## 不在本计划范围（明确推迟）
 
 | 项 | 推迟到 | 原因 |
 |---|---|---|
-| `frontend/dist/` 挂载到 backend `StaticFiles` | 07 deployment | 一期前端独立 dev server 已能联调 |
+| `frontend/dist/` 挂载到 backend `StaticFiles` | 已由 07 deployment 完成 | 当前 `frontend/dist/index.html` 存在时 backend 直接服务 SPA |
 | Docker 多阶段镜像 / compose | 后续独立 packaging 计划 | v1.0 deployment 只收口本地单进程部署 |
-| pre-commit / GitHub Actions（前端 lint + test） | 07 deployment | 本计划只跑本地校验 |
-| `/api/feedback` 后端实现与前端持久化接入 | 06 metrics-eval | 当前 handoff 不要求调用；待 metrics-eval 定义反馈 API 后接入 |
-| feedback 按钮持久化 / frontend events / Dashboard 数据面 | 06 metrics-eval | 依赖 feedback、frontend_events、audit_log raw events |
+| pre-commit / GitHub Actions（前端 lint + test） | 已由 07 deployment 完成 | 本计划早期只跑本地校验，CI 后续补齐 |
+| `/api/feedback` 后端实现与前端持久化接入 | 已由 06 metrics-eval 完成 | 当前会话反馈已写 raw metrics；Dashboard 聚合 UI 仍后置 |
+| feedback 按钮持久化 / frontend events | 已由 06 metrics-eval 完成 | Dashboard 聚合 UI 仍后置 |
 | 完整 LLM Wiki 目录管理、资源引用、预览、编辑、re-index | 独立 LLM Wiki 专项 | 范围跨存储、索引、UI 与 Agent 检索上下文，不纳入当前收口 |
 | TipTap in-app 文档编辑 | MVP+ | PRD 没要求 |
 | 企业鉴权 / `AuthProvider` 替换 `<UserMenu />` slot | MVP+ | 一期仅内置管理员保护全局配置，普通用户仍匿名使用 |
@@ -5374,8 +5381,8 @@ export function attachMocks(page: Page, state: ApiMockState): void {
     }
     const body =
       [
-        'event: stage',
-        'data: {"name":"knowledge_retrieval","status":"running","message":null}',
+        'event: stage_transition',
+        'data: {"from":"scope_detection","to":"knowledge_retrieval","message":"开始知识库检索"}',
         '',
         'event: sufficiency_judgement',
         'data: {"verdict":"sufficient","reason":"docs covered it","next":"evidence_synthesis"}',
@@ -5495,7 +5502,7 @@ git tag -a frontend-workbench-v0.1.0 -m "Frontend workbench milestone"
 - [ ] 一级入口只有 `会话 / 特性 / 设置`；一级与二级侧边栏均可收起 / 展开
 - [ ] 会话列表只显示当前 subject 会话，不提供"我的 / 全部"切换；条目右侧三点菜单包含编辑名称、分享占位、置顶、批量操作、删除
 - [ ] 会话页支持默认会话发送、SSE 阶段展示、强制代码调查、会话级附件上传 / 重命名 / 说明 / 删除、session id 短标签复制、报告生成确认和特性绑定
-- [ ] 特性页支持搜索、新建、删除确认；详情 tab 包含设置、知识库、问题报告、关联仓库、特性 Skill
+- [ ] 特性页支持搜索、新建、删除确认；详情 tab 包含设置、知识库、问题报告、关联仓库、特性分析策略
 - [ ] 特性页不创建问题报告；只展示会话生成 / 归档到该特性的报告
 - [ ] 设置页普通用户只看到用户配置和个人 LLM 配置；管理员只看到全局 LLM 配置和仓库管理
 - [ ] LLM 配置支持 OpenAI / Anthropic 协议、添加、编辑、switch 启停、删除；不展示 Max Tokens / Temperature / RPM / 剩余额度 / 默认配置切换

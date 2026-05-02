@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   adminLogin,
   apiRequest,
+  listSessionTraces,
+  listSessionTurns,
   uploadSessionAttachment,
 } from "../src/lib/api";
 import { getSubjectId } from "../src/lib/identity";
@@ -108,4 +110,41 @@ describe("frontend api client", () => {
       password: "admin",
     });
   });
+
+  it("loads persisted session turns by session id", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse([{ id: "turn_1" }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listSessionTurns("sess_1");
+
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(path).toBe("/api/sessions/sess_1/turns");
+    expect(init.method).toBeUndefined();
+    expect(new Headers(init.headers).get("X-Subject-Id")).toBe(getSubjectId());
+  });
+
+  it("loads persisted session runtime traces by session id", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse([{ id: "tr_1" }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listSessionTraces("sess_1");
+
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(path).toBe("/api/sessions/sess_1/traces");
+    expect(init.method).toBeUndefined();
+    expect(new Headers(init.headers).get("X-Subject-Id")).toBe(getSubjectId());
+  });
 });
+
+function jsonResponse(payload: unknown, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}

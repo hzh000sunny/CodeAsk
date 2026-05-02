@@ -33,6 +33,10 @@ def _empty_knowledge_hits() -> list[KnowledgeHit]:
     return []
 
 
+def _empty_analysis_policies() -> list[AnalysisPolicy]:
+    return []
+
+
 def _empty_messages() -> list[LLMMessage]:
     return []
 
@@ -69,10 +73,21 @@ class KnowledgeHit:
 
 
 @dataclass(frozen=True)
+class AnalysisPolicy:
+    name: str
+    scope: str
+    stage: str
+    prompt_template: str
+    priority: int = 100
+    feature_id: int | None = None
+
+
+@dataclass(frozen=True)
 class PromptContext:
     user_question: str
     feature_digests: list[FeatureDigest] = field(default_factory=_empty_feature_digests)
     global_skill: str | None = None
+    analysis_policies: list[AnalysisPolicy] = field(default_factory=_empty_analysis_policies)
     repo_bindings: list[RepoBinding] = field(default_factory=_empty_repo_bindings)
     pre_retrieval_hits: list[KnowledgeHit] = field(default_factory=_empty_knowledge_hits)
     turn_history: list[LLMMessage] = field(default_factory=_empty_messages)
@@ -87,6 +102,7 @@ def assemble_messages(stage: AgentState, ctx: PromptContext) -> list[LLMMessage]
             L0_GLOBAL_RULES,
             _l1_stage(stage),
             _l2_feature_context(ctx),
+            _l2_analysis_policies(stage, ctx),
             _l3_repo_context(ctx),
         ]
     )
@@ -124,6 +140,30 @@ def _l2_feature_context(ctx: PromptContext) -> str:
             lines.append(f"navigation_index: {digest.navigation_index}")
         if digest.feature_skill:
             lines.append(f"feature_skill: {digest.feature_skill}")
+    return "\n".join(lines)
+
+
+def _l2_analysis_policies(stage: AgentState, ctx: PromptContext) -> str:
+    lines = ["L2_ANALYSIS_POLICIES"]
+    active_policies = sorted(
+        (
+            policy
+            for policy in ctx.analysis_policies
+            if policy.stage == "all" or policy.stage == stage.value
+        ),
+        key=lambda policy: policy.priority,
+    )
+    if not active_policies and not ctx.global_skill:
+        lines.append("policies: none")
+        return "\n".join(lines)
+
+    for policy in active_policies:
+        scope = "global" if policy.scope == "global" else f"feature:{policy.feature_id}"
+        lines.append(
+            f"[{scope}][{policy.stage}][{policy.priority}] {policy.name}: {policy.prompt_template}"
+        )
+    if ctx.global_skill:
+        lines.append(f"[global][legacy][100] global_skill: {ctx.global_skill}")
     return "\n".join(lines)
 
 

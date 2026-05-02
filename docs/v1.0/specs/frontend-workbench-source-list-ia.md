@@ -11,7 +11,7 @@ Status: accepted for the initial `frontend-workbench` implementation slice.
   - 会话
   - 特性
   - 设置
-- Wiki, Skill, repo management, user settings, and global configuration must not appear as separate first-level navigation entries.
+- Wiki, analysis policy, repo management, user settings, and global configuration must not appear as separate first-level navigation entries.
 - All primary pages use the same AppShell and the same global sidebar.
 
 ## 会话
@@ -39,9 +39,9 @@ Status: accepted for the initial `frontend-workbench` implementation slice.
   - 知识库
   - 问题报告
   - 关联仓库
-  - 特性 Skill
+  - 特性分析策略
 - Upload Wiki belongs in the feature detail knowledge tab.
-- Feature Skill, reports, and repo linkage are scoped to the selected feature.
+- Feature analysis policies, reports, and repo linkage are scoped to the selected feature.
 - The feature list is a secondary sidebar and can collapse to a narrow rail.
 - Its collapse affordance stays on the middle-right boundary between the feature list and detail panel.
 

@@ -20,6 +20,8 @@
 
 **Project root:** `/home/hzh/workspace/CodeAsk/`（与 `docs/` 同级）。本计划全部文件路径相对此根目录。
 
+> 2026-05-03 current-state note：foundation 落地时只提供自报身份中间件。后续 frontend-workbench/admin-rbac 已增加内置管理员登录和 admin cookie，用于保护全局 LLM、全局仓库和全局分析策略；普通用户仍无登录直接使用。
+
 ---
 
 ## File Structure

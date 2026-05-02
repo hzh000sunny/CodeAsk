@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from codeask.db.models import SessionRepoBinding, SessionTurn
+from codeask.db.models import AgentTrace, SessionRepoBinding, SessionTurn
 from tests.mocks.mock_llm import MockLLMClient, text_message, tool_call_message
 
 
@@ -91,6 +91,143 @@ async def test_session_message_sse_and_attachment(
     assert uploaded["kind"] == "log"
     assert uploaded["display_name"] == "app.log"
     assert Path(uploaded["file_path"]).exists()
+
+
+@pytest.mark.asyncio
+async def test_session_turns_can_be_listed_for_the_session_owner(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "历史问答"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    async with app.state.session_factory() as db:
+        db.add_all(
+            [
+                SessionTurn(
+                    id="turn_history_user",
+                    session_id=session_id,
+                    turn_index=0,
+                    role="user",
+                    content="为什么服务启动失败？",
+                    evidence=None,
+                ),
+                SessionTurn(
+                    id="turn_history_agent",
+                    session_id=session_id,
+                    turn_index=1,
+                    role="agent",
+                    content="先检查配置文件是否缺失。",
+                    evidence={"items": [{"id": "ev_1", "source": "wiki"}]},
+                ),
+            ]
+        )
+        await db.commit()
+
+    forbidden = await client.get(
+        f"/api/sessions/{session_id}/turns",
+        headers={"X-Subject-Id": "bob@dev-1"},
+    )
+    assert forbidden.status_code == 404
+
+    listed = await client.get(
+        f"/api/sessions/{session_id}/turns",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()
+    assert [row["id"] for row in rows] == ["turn_history_user", "turn_history_agent"]
+    assert [row["role"] for row in rows] == ["user", "agent"]
+    assert rows[0]["content"] == "为什么服务启动失败？"
+    assert rows[1]["content"] == "先检查配置文件是否缺失。"
+    assert rows[1]["evidence"] == {"items": [{"id": "ev_1", "source": "wiki"}]}
+
+
+@pytest.mark.asyncio
+async def test_session_traces_can_be_listed_for_the_session_owner(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "历史运行事件"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    async with app.state.session_factory() as db:
+        db.add(
+            SessionTurn(
+                id="turn_trace_user",
+                session_id=session_id,
+                turn_index=0,
+                role="user",
+                content="为什么服务启动失败？",
+                evidence=None,
+            )
+        )
+        await db.flush()
+        db.add_all(
+            [
+                AgentTrace(
+                    id="tr_scope_enter",
+                    session_id=session_id,
+                    turn_id="turn_trace_user",
+                    stage="scope_detection",
+                    event_type="stage_enter",
+                    payload={"context": {"question": "为什么服务启动失败？"}},
+                ),
+                AgentTrace(
+                    id="tr_scope_decision",
+                    session_id=session_id,
+                    turn_id="turn_trace_user",
+                    stage="scope_detection",
+                    event_type="scope_decision",
+                    payload={
+                        "output": {
+                            "feature_ids": [7],
+                            "confidence": 0.9,
+                            "reason": "命中支付特性",
+                        }
+                    },
+                ),
+                AgentTrace(
+                    id="tr_scope_exit",
+                    session_id=session_id,
+                    turn_id="turn_trace_user",
+                    stage="scope_detection",
+                    event_type="stage_exit",
+                    payload={"result": {"next": "knowledge_retrieval"}},
+                ),
+            ]
+        )
+        await db.commit()
+
+    forbidden = await client.get(
+        f"/api/sessions/{session_id}/traces",
+        headers={"X-Subject-Id": "bob@dev-1"},
+    )
+    assert forbidden.status_code == 404
+
+    listed = await client.get(
+        f"/api/sessions/{session_id}/traces",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()
+    assert [row["id"] for row in rows] == [
+        "tr_scope_enter",
+        "tr_scope_decision",
+        "tr_scope_exit",
+    ]
+    assert rows[1]["event_type"] == "scope_decision"
+    assert rows[1]["payload"]["output"]["reason"] == "命中支付特性"
 
 
 @pytest.mark.asyncio

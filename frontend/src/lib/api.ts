@@ -1,5 +1,6 @@
 import { getSubjectId } from "./identity";
 import type {
+  AgentTraceResponse,
   AuditLogResponse,
   AttachmentResponse,
   AuthMeResponse,
@@ -12,6 +13,7 @@ import type {
   RepoOut,
   ReportRead,
   SessionResponse,
+  SessionTurnResponse,
   SkillResponse,
 } from "../types/api";
 
@@ -106,6 +108,18 @@ export function logout() {
 
 export function listSessions() {
   return apiRequest<SessionResponse[]>("/api/sessions");
+}
+
+export function listSessionTurns(sessionId: string, signal?: AbortSignal) {
+  return apiRequest<SessionTurnResponse[]>(`/api/sessions/${sessionId}/turns`, {
+    signal,
+  });
+}
+
+export function listSessionTraces(sessionId: string, signal?: AbortSignal) {
+  return apiRequest<AgentTraceResponse[]>(`/api/sessions/${sessionId}/traces`, {
+    signal,
+  });
 }
 
 export function createSession(title: string) {
@@ -374,6 +388,21 @@ export function createRepo(payload: {
   });
 }
 
+export function updateRepo(
+  repoId: string,
+  payload: Partial<{
+    name: string;
+    source: "git" | "local_dir";
+    url: string | null;
+    local_path: string | null;
+  }>,
+) {
+  return apiRequest<RepoOut>(`/api/repos/${repoId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
 export function deleteRepo(repoId: string) {
   return apiRequest<void>(`/api/repos/${repoId}`, {
     method: "DELETE",
@@ -394,6 +423,9 @@ export function createSkill(payload: {
   name: string;
   scope: "global" | "feature";
   feature_id?: number | null;
+  stage?: string;
+  enabled?: boolean;
+  priority?: number;
   prompt_template: string;
 }) {
   return apiRequest<SkillResponse>("/api/skills", {
@@ -404,7 +436,13 @@ export function createSkill(payload: {
 
 export function updateSkill(
   skillId: string,
-  payload: Partial<{ name: string; prompt_template: string }>,
+  payload: Partial<{
+    name: string;
+    stage: string;
+    enabled: boolean;
+    priority: number;
+    prompt_template: string;
+  }>,
 ) {
   return apiRequest<SkillResponse>(`/api/skills/${skillId}`, {
     method: "PATCH",

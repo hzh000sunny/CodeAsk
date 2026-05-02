@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -32,6 +32,32 @@ class SessionResponse(BaseModel):
     created_by_subject_id: str
     status: str
     pinned: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class SessionTurnResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    session_id: str
+    turn_index: int
+    role: Literal["user", "agent"]
+    content: str
+    evidence: Any | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentTraceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    session_id: str
+    turn_id: str
+    stage: str
+    event_type: str
+    payload: Any
     created_at: datetime
     updated_at: datetime
 

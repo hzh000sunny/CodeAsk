@@ -13,24 +13,19 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
-  WandSparkles,
 } from "lucide-react";
 
 import {
   createFeature,
-  createSkill,
   deleteFeature,
   deleteDocument,
-  deleteSkill,
   linkFeatureRepo,
   listFeatureRepos,
   listDocuments,
   listFeatures,
   listRepos,
   listReports,
-  listSkills,
   unlinkFeatureRepo,
-  updateSkill,
   uploadDocument,
 } from "../../lib/api";
 import type {
@@ -38,11 +33,12 @@ import type {
   FeatureRead,
   RepoOut,
   ReportRead,
-  SkillResponse,
 } from "../../types/api";
+import { AnalysisPolicyManager } from "../policies/AnalysisPolicyManager";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { Tabs } from "../ui/tabs";
 import { Textarea } from "../ui/textarea";
 
@@ -51,7 +47,7 @@ const tabs = [
   { id: "knowledge", label: "知识库" },
   { id: "reports", label: "问题报告" },
   { id: "repos", label: "关联仓库" },
-  { id: "skill", label: "特性 Skill" },
+  { id: "skill", label: "特性分析策略" },
 ];
 
 interface ReportTarget {
@@ -414,7 +410,14 @@ function FeatureTabContent({
   if (activeTab === "repos") {
     return <ReposPanel featureId={feature?.id} />;
   }
-  return <SkillPanel featureId={feature?.id} />;
+  return (
+    <AnalysisPolicyManager
+      description="特性策略只在该特性的上下文中注入，用于补充业务术语、排查习惯和输出要求。"
+      featureId={feature?.id}
+      scope="feature"
+      title="特性分析策略"
+    />
+  );
 }
 
 function FeatureSettings({ feature }: { feature: FeatureRead | null }) {
@@ -657,8 +660,8 @@ function ReportsPanel({
         </div>
         {selectedReport ? (
           <article className="report-preview">
-            <h3>{selectedReport.title}</h3>
-            <pre>{selectedReport.body_markdown}</pre>
+            <div className="report-preview-title">{selectedReport.title}</div>
+            <MarkdownRenderer content={selectedReport.body_markdown} />
           </article>
         ) : (
           <div className="empty-block wide">
@@ -741,162 +744,6 @@ function ReposPanel({ featureId }: { featureId?: number }) {
                     </small>
                   </span>
                 </label>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function SkillPanel({ featureId }: { featureId?: number }) {
-  const queryClient = useQueryClient();
-  const [createdSkills, setCreatedSkills] = useState<SkillResponse[]>([]);
-  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
-  const [name, setName] = useState("");
-  const [promptTemplate, setPromptTemplate] = useState("");
-  const { data: fetchedSkills = [] } = useQuery({
-    queryKey: ["skills"],
-    queryFn: listSkills,
-  });
-  const featureSkills = mergeById(fetchedSkills, createdSkills).filter(
-    (skill) => skill.feature_id === featureId,
-  );
-  const createMutation = useMutation({
-    mutationFn: () =>
-      createSkill({
-        name: name.trim(),
-        scope: "feature",
-        feature_id: featureId,
-        prompt_template: promptTemplate.trim(),
-      }),
-    onSuccess: (skill) => {
-      setCreatedSkills((current) => mergeById(current, [skill]));
-      setName("");
-      setPromptTemplate("");
-      void queryClient.invalidateQueries({ queryKey: ["skills"] });
-    },
-  });
-  const updateMutation = useMutation({
-    mutationFn: ({
-      skillId,
-      name: nextName,
-      prompt,
-    }: {
-      skillId: string;
-      name: string;
-      prompt: string;
-    }) => updateSkill(skillId, { name: nextName, prompt_template: prompt }),
-    onSuccess: (skill) => {
-      setCreatedSkills((current) => mergeById(current, [skill]));
-      void queryClient.invalidateQueries({ queryKey: ["skills"] });
-    },
-  });
-  const deleteMutation = useMutation({
-    mutationFn: deleteSkill,
-    onSuccess: (_unused, skillId) => {
-      setCreatedSkills((current) =>
-        current.filter((skill) => skill.id !== skillId),
-      );
-      if (selectedSkillId === skillId) {
-        setSelectedSkillId(null);
-      }
-      void queryClient.invalidateQueries({ queryKey: ["skills"] });
-    },
-  });
-
-  return (
-    <div className="tab-content two-column">
-      <section className="surface">
-        <div className="section-title">
-          <WandSparkles aria-hidden="true" size={18} />
-          <h2>特性 Skill</h2>
-        </div>
-        <label className="field-label">
-          Skill 名称
-          <Input
-            onChange={(event) => setName(event.target.value)}
-            value={name}
-          />
-        </label>
-        <label className="field-label">
-          Prompt 模板
-          <Textarea
-            onChange={(event) => setPromptTemplate(event.target.value)}
-            value={promptTemplate}
-          />
-        </label>
-        <Button
-          disabled={
-            !featureId ||
-            !name.trim() ||
-            !promptTemplate.trim() ||
-            createMutation.isPending
-          }
-          onClick={() => createMutation.mutate()}
-          type="button"
-          variant="primary"
-        >
-          创建 Skill
-        </Button>
-      </section>
-      <section className="surface">
-        {featureSkills.length === 0 ? (
-          <div className="empty-block wide">
-            <p>当前特性还没有专属 Skill。</p>
-          </div>
-        ) : (
-          <ul className="data-list settings-config-list">
-            {featureSkills.map((skill) => (
-              <li key={skill.id}>
-                <div className="config-summary">
-                  <span>{skill.name}</span>
-                  <small>{skill.prompt_template}</small>
-                </div>
-                <div className="row-actions">
-                  <Badge>
-                    {selectedSkillId === skill.id ? "已选择" : "可选"}
-                  </Badge>
-                  <Button
-                    onClick={() => setSelectedSkillId(skill.id)}
-                    type="button"
-                    variant="quiet"
-                  >
-                    使用
-                  </Button>
-                  <Button
-                    disabled={updateMutation.isPending}
-                    icon={<Pencil size={15} />}
-                    onClick={() => {
-                      const nextName =
-                        window.prompt("Skill 名称", skill.name) ?? skill.name;
-                      const prompt =
-                        window.prompt("Prompt 模板", skill.prompt_template) ??
-                        skill.prompt_template;
-                      if (nextName.trim() && prompt.trim()) {
-                        updateMutation.mutate({
-                          skillId: skill.id,
-                          name: nextName.trim(),
-                          prompt: prompt.trim(),
-                        });
-                      }
-                    }}
-                    type="button"
-                    variant="quiet"
-                  >
-                    编辑
-                  </Button>
-                  <Button
-                    disabled={deleteMutation.isPending}
-                    icon={<Trash2 size={15} />}
-                    onClick={() => deleteMutation.mutate(skill.id)}
-                    type="button"
-                    variant="quiet"
-                  >
-                    删除
-                  </Button>
-                </div>
               </li>
             ))}
           </ul>

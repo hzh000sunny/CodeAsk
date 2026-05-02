@@ -6,7 +6,7 @@
 | 起始日期 | 2026-04-29 |
 | 状态 | Active |
 | 主题 | 初始 MVP — 知识库 + 代码混合问答 |
-| 当前实现进度 | `foundation`、`wiki-knowledge`、`code-index`、`agent-runtime`、`frontend-workbench`、`metrics-eval`、`deployment` 已完成；Docker packaging 后置为独立计划 |
+| 当前实现进度 | `foundation`、`wiki-knowledge`、`code-index`、`agent-runtime`、`frontend-workbench`、`metrics-eval`、`deployment`、`admin-repo-analysis-policy` 已完成；Docker packaging 和完整 LLM Wiki 后置为独立计划 |
 
 ## 目录结构
 
@@ -40,6 +40,7 @@ v1.0/
 │   ├── agent-runtime-handoff.md
 │   ├── frontend-workbench.md
 │   ├── metrics-eval.md
+│   ├── admin-repo-analysis-policy.md
 │   └── deployment.md
 └── specs/                    ← 早期草稿 / 过程性产物
     ├── codeask-initial-draft.md
@@ -59,6 +60,9 @@ v1.0/
 | `frontend-workbench` | 已完成 | 当前实现边界见 `specs/frontend-workbench-handoff.md` |
 | `metrics-eval` | 已完成 | `feedback` / `frontend_events` / `audit_log`、metrics API、eval harness 与 CI workflow 已落地；Alembic head 到 `0016` |
 | `deployment` | 已完成 | 本地单进程部署、前端静态挂载、CI、安全审计；Docker packaging 后置 |
+| `admin-repo-analysis-policy` | 已完成 | 仓库编辑 / 同步语义、分析策略字段、运行时注入和前端管理 UI 已落地；Alembic head 到 `0017` |
+
+当前 schema head：`0017`。
 
 ## 推荐阅读顺序
 

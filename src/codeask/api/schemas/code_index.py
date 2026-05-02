@@ -24,6 +24,20 @@ class RepoCreateIn(BaseModel):
             raise ValueError("source=local_dir requires local_path")
 
 
+class RepoUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=256)
+    source: RepoSource | None = None
+    url: str | None = Field(default=None, max_length=1024)
+    local_path: str | None = Field(default=None, max_length=1024)
+
+    def assert_consistent(self, current_source: RepoSource) -> None:
+        source = self.source or current_source
+        if source == "git" and self.url == "":
+            raise ValueError("source=git requires url")
+        if source == "local_dir" and self.local_path == "":
+            raise ValueError("source=local_dir requires local_path")
+
+
 class RepoOut(BaseModel):
     id: str
     name: str

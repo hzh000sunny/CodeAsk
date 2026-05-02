@@ -9,6 +9,9 @@ class SkillCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
     scope: Literal["global", "feature"]
     feature_id: int | None = None
+    stage: str = Field(default="all", min_length=1, max_length=64)
+    enabled: bool = True
+    priority: int = Field(default=100, ge=0, le=1000)
     prompt_template: str = Field(..., min_length=1)
 
     @model_validator(mode="after")
@@ -22,6 +25,9 @@ class SkillCreate(BaseModel):
 
 class SkillUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
+    stage: str | None = Field(default=None, min_length=1, max_length=64)
+    enabled: bool | None = None
+    priority: int | None = Field(default=None, ge=0, le=1000)
     prompt_template: str | None = Field(default=None, min_length=1)
 
 
@@ -32,4 +38,7 @@ class SkillResponse(BaseModel):
     name: str
     scope: str
     feature_id: int | None
+    stage: str
+    enabled: bool
+    priority: int
     prompt_template: str

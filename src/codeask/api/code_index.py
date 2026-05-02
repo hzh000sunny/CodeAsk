@@ -22,6 +22,7 @@ from codeask.api.schemas.code_index import (
     RepoCreateIn,
     RepoListOut,
     RepoOut,
+    RepoUpdateIn,
 )
 from codeask.code_index.ctags import CtagsClient, CtagsError
 from codeask.code_index.file_reader import FileReader, FileReadError
@@ -129,6 +130,71 @@ async def delete_repo(repo_id: str, request: Request) -> None:
     log.info("repo_deleted", repo_id=repo_id)
 
 
+@router.patch("/repos/{repo_id}", response_model=RepoOut)
+async def update_repo(repo_id: str, payload: RepoUpdateIn, request: Request) -> RepoOut:
+    require_admin(request)
+    factory = request.app.state.session_factory
+    scheduler = request.app.state.scheduler
+    cloner = request.app.state.repo_cloner
+    enqueue_clone = False
+
+    async with factory() as session:
+        repo = (await session.execute(select(Repo).where(Repo.id == repo_id))).scalar_one_or_none()
+        if repo is None:
+            raise _http_error(
+                status.HTTP_404_NOT_FOUND,
+                "REPO_NOT_FOUND",
+                f"no repo {repo_id}",
+            )
+        try:
+            payload.assert_consistent(repo.source)  # type: ignore[arg-type]
+        except ValueError as exc:
+            raise _http_error(status.HTTP_400_BAD_REQUEST, "INVALID_BODY", str(exc)) from exc
+
+        if payload.name is not None:
+            repo.name = payload.name
+
+        next_source = payload.source or repo.source
+        next_url = payload.url if payload.url is not None else repo.url
+        next_local_path = payload.local_path if payload.local_path is not None else repo.local_path
+        if next_source == Repo.SOURCE_GIT:
+            if not next_url:
+                raise _http_error(
+                    status.HTTP_400_BAD_REQUEST,
+                    "INVALID_BODY",
+                    "source=git requires url",
+                )
+            next_local_path = None
+        if next_source == Repo.SOURCE_LOCAL_DIR:
+            if not next_local_path:
+                raise _http_error(
+                    status.HTTP_400_BAD_REQUEST,
+                    "INVALID_BODY",
+                    "source=local_dir requires local_path",
+                )
+            next_url = None
+
+        location_changed = (
+            next_source != repo.source or next_url != repo.url or next_local_path != repo.local_path
+        )
+        if location_changed:
+            repo.source = next_source
+            repo.url = next_url
+            repo.local_path = next_local_path
+            repo.status = Repo.STATUS_REGISTERED
+            repo.error_message = None
+            enqueue_clone = True
+
+        await session.commit()
+        await session.refresh(repo)
+        out = _to_out(repo)
+
+    if enqueue_clone:
+        scheduler.add_job(cloner.run_clone, args=[repo_id], misfire_grace_time=600)
+        log.info("repo_update_clone_enqueued", repo_id=repo_id)
+    return out
+
+
 @router.post("/repos/{repo_id}/refresh", response_model=RepoOut)
 async def refresh_repo(repo_id: str, request: Request) -> RepoOut:
     require_admin(request)
@@ -136,6 +202,7 @@ async def refresh_repo(repo_id: str, request: Request) -> RepoOut:
     request.app.state.scheduler.add_job(
         request.app.state.repo_cloner.run_clone,
         args=[repo_id],
+        kwargs={"force": repo.status == Repo.STATUS_READY},
         misfire_grace_time=600,
     )
     log.info("repo_refresh_enqueued", repo_id=repo_id)

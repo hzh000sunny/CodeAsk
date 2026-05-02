@@ -10,7 +10,7 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from codeask.agent.prompts import FeatureDigest, PromptContext, RepoBinding
+from codeask.agent.prompts import AnalysisPolicy, FeatureDigest, PromptContext, RepoBinding
 from codeask.agent.sse import AgentEvent
 from codeask.agent.stages import (
     Evidence,
@@ -35,6 +35,7 @@ from codeask.db.models import (
     SessionAttachment,
     SessionRepoBinding,
     SessionTurn,
+    Skill,
 )
 from codeask.db.models import (
     Session as SessionModel,
@@ -208,11 +209,19 @@ class AgentOrchestrator:
                     .order_by(SessionAttachment.created_at, SessionAttachment.id)
                 )
             ).scalars()
+            skill_rows = (
+                await session.execute(
+                    select(Skill)
+                    .where(Skill.enabled.is_(True))
+                    .order_by(Skill.priority, Skill.created_at, Skill.id)
+                )
+            ).scalars()
 
             features = list(feature_rows)
             repos = list(repo_rows)
             turns = list(turn_rows)
             attachments = list(attachment_rows)
+            skills = list(skill_rows)
 
         prompt_context = PromptContext(
             user_question=user_message,
@@ -235,6 +244,17 @@ class AgentOrchestrator:
                     paths=[repo.worktree_path],
                 )
                 for repo in repos
+            ],
+            analysis_policies=[
+                AnalysisPolicy(
+                    name=skill.name,
+                    scope=skill.scope,
+                    feature_id=skill.feature_id,
+                    stage=skill.stage,
+                    prompt_template=skill.prompt_template,
+                    priority=skill.priority,
+                )
+                for skill in skills
             ],
             turn_history=_turn_history(turns, current_turn_id=turn_id),
             attachment_summaries=_attachment_summaries(attachments),

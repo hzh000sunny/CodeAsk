@@ -26,9 +26,11 @@
                       deployment
 ```
 
-7 份 plan。Foundation 是地基；其余 6 份按 DAG 依次落地，每份产出"可跑、可测、可演示"的中间产物。2026-05-02 起，v1.0 deployment 明确收缩为本地单进程部署；Docker / compose / 镜像发布后置到独立计划。当前 deployment plan 已完成。
+7 份主 plan。Foundation 是地基；其余 6 份按 DAG 依次落地，每份产出"可跑、可测、可演示"的中间产物。2026-05-02 起，v1.0 deployment 明确收缩为本地单进程部署；Docker / compose / 镜像发布后置到独立计划。当前 7 份主 plan 已完成。
 
-**当前实现状态（2026-05-02）：**
+2026-05-03 追加完成 `admin-repo-analysis-policy` 稳定化计划：补齐全局仓库编辑 / 同步语义、全局 / 特性分析策略、运行时 Prompt 注入和前端设置页一致性。它是 frontend-workbench 之后的产品修正，不改变 v1.0 主链路，但把 Alembic head 推进到 `0017`。
+
+**当前实现状态（2026-05-03）：**
 
 | Plan | 状态 | 当前结论 |
 |---|---|---|
@@ -39,6 +41,7 @@
 | frontend-workbench | 已完成 | React workbench 已落地；当前边界见 `../specs/frontend-workbench-handoff.md` |
 | metrics-eval | 已完成 | feedback / frontend_events / audit_log、会话反馈接入、eval harness 与 CI workflow 已落地；Alembic head 到 `0016` |
 | deployment | 已完成 | 本地单进程部署、前端静态挂载、CI、安全审计；Docker packaging 后置 |
+| admin-repo-analysis-policy | 已完成 | 仓库编辑 / 同步语义、分析策略字段、运行时注入和 UI 已落地；Alembic head 到 `0017` |
 
 **二期规划锚点（不属于 v1.0 必交付）：**
 
@@ -61,6 +64,7 @@ v1.0 出货后可单独规划 `tool-intelligence` / `code-context-optimization` 
 | 5 | frontend-workbench | `frontend-workbench.md` + `../specs/frontend-workbench-handoff.md` | 19 / 158 + Phase B corrections | frontend/ 项目骨架（Vite + React + TanStack Query）+ SSE 客户端 + 会话/特性/设置三入口 + 会话附件 + 报告生成入口 + 管理员全局配置 + Playwright e2e smoke | 浏览器跑通当前 workbench happy path；完整 LLM Wiki 后置 |
 | 6 | metrics-eval | `metrics-eval.md` | 13 / 80 | feedback / frontend_events / audit_log 表 + audit_log writer 替换 02/04 的 stub + `evals/` harness（scope_detection / sufficiency / answer_quality）+ exemplar cases + GH Actions eval workflow + 会话反馈持久化接入 | CI 跑 scope_detection + sufficiency 红线生效 |
 | 7 | deployment | `deployment.md` | 7 / 34 | StaticFiles 挂载 frontend/dist + start.sh 本地启动增强 + pre-commit + backend/frontend GH workflows + 安全审计 checklist | `./start.sh` → healthz + SPA smoke 通过 |
+| 修正 | admin-repo-analysis-policy | `admin-repo-analysis-policy.md` | 5 / 5 | 仓库编辑 / 同步、分析策略数据模型、运行时注入、全局 / 特性策略 UI | 设置页仓库 / 策略管理和 Agent Prompt 注入通过测试 |
 
 ## 3. 各阶段依赖
 
@@ -83,6 +87,7 @@ code-index        : 0006
 agent-runtime     : 0007 → 0008 → 0009 → 0010 → 0011 → 0012
 frontend-workbench: 0013 → 0014 → 0015
 metrics-eval      : 0016
+admin-repo-policy : 0017
 deployment        : —（不动 schema）
 ```
 
@@ -175,7 +180,7 @@ deployment        : —（不动 schema）
 - [x] 会话 / 特性 / 设置三入口可用，一级与二级侧边栏均可收起展开
 - [x] 普通用户匿名可用，管理员登录后只能看到全局配置；普通用户不能读取全局 LLM 配置
 - [x] 会话支持搜索、新建、三点菜单、删除确认、批量删除、默认会话发送、会话附件上传 / 重命名 / 说明 / 删除和报告生成入口
-- [x] 特性支持搜索、新建、删除确认、知识库上传入口、报告列表、仓库 checkbox 关联和特性 Skill 管理
+- [x] 特性支持搜索、新建、删除确认、知识库上传入口、报告列表、仓库 checkbox 关联和特性分析策略管理
 - [x] LLM 配置支持 OpenAI / Anthropic 协议选择、添加、编辑、switch 启停、删除；不展示 Max Tokens / Temperature / RPM / 剩余额度 / 默认配置切换
 - [x] Playwright happy-path e2e 通过
 - [x] `corepack pnpm --dir frontend build` 零错误
@@ -187,6 +192,13 @@ Dashboard、feedback 持久化和完整 LLM Wiki 管理不作为 frontend-workbe
 - [x] CI workflow 在 PR 阶段触发 scope_detection + sufficiency；红线（top-1 退化 > 5pp）能阻断
 - [x] 反向指标审计单测：grep `tools_called_count` 等不在任何 dashboard API 输出
 - [x] alembic head = `0016`
+
+### 5.6.1 admin-repo-analysis-policy 验收
+- [x] 全局仓库支持添加、编辑、同步 / 重试同步、删除；同步会 fetch/pull git 目录并更新 bare cache
+- [x] 应用启动后每小时刷新所有非 `cloning` 仓库
+- [x] 全局配置和特性详情都提供分析策略管理；策略支持 stage、priority、enabled、Prompt 内容
+- [x] Agent Prompt 注入启用的全局 / 特性分析策略，按 stage 和 priority 排序
+- [x] alembic head = `0017`
 
 ### 5.7 deployment 验收
 - [x] 后端在 `frontend/dist/index.html` 存在时通过 `/` 直接服务 SPA，且 `/api/*` 不被静态路由吞掉

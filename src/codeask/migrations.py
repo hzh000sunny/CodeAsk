@@ -1,5 +1,7 @@
 """Apply Alembic migrations programmatically. Called from app lifespan."""
 
+# ruff: noqa: I001
+
 from pathlib import Path
 
 from alembic import command

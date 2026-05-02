@@ -7,7 +7,7 @@ import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
 from secrets import token_hex
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import structlog
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.agent.sse import SSEMultiplexer
 from codeask.api.schemas.session import (
+    AgentTraceResponse,
     AttachmentResponse,
     AttachmentUpdate,
     MessageCreate,
@@ -25,11 +26,13 @@ from codeask.api.schemas.session import (
     SessionCreate,
     SessionReportCreate,
     SessionResponse,
+    SessionTurnResponse,
     SessionUpdate,
 )
 from codeask.api.schemas.wiki import ReportRead
 from codeask.code_index.worktree import InvalidRefError, WorktreeError
 from codeask.db.models import (
+    AgentTrace,
     Feature,
     Repo,
     Report,
@@ -88,6 +91,46 @@ async def list_sessions(request: Request) -> list[SessionResponse]:
 async def get_session(session_id: str, request: Request) -> SessionResponse:
     row = await _load_session(request, session_id)
     return SessionResponse.model_validate(row)
+
+
+@router.get("/sessions/{session_id}/turns", response_model=list[SessionTurnResponse])
+async def list_session_turns(session_id: str, request: Request) -> list[SessionTurnResponse]:
+    await _load_session(request, session_id)
+    factory = request.app.state.session_factory
+    async with factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(SessionTurn)
+                    .where(SessionTurn.session_id == session_id)
+                    .order_by(SessionTurn.turn_index, SessionTurn.created_at)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return [SessionTurnResponse.model_validate(row) for row in rows]
+
+
+@router.get("/sessions/{session_id}/traces", response_model=list[AgentTraceResponse])
+async def list_session_traces(session_id: str, request: Request) -> list[AgentTraceResponse]:
+    await _load_session(request, session_id)
+    factory = request.app.state.session_factory
+    async with factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(AgentTrace)
+                    .where(AgentTrace.session_id == session_id)
+                    .order_by(AgentTrace.created_at, AgentTrace.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    visible_rows = [row for row in rows if _is_visible_trace(row)]
+    visible_rows.sort(key=lambda row: (row.created_at, _trace_event_priority(row), row.id))
+    return [AgentTraceResponse.model_validate(row) for row in visible_rows]
 
 
 @router.patch("/sessions/{session_id}", response_model=SessionResponse)
@@ -508,6 +551,42 @@ async def _load_session(request: Request, session_id: str) -> Session:
 
 def _attachment_display_name(value: str) -> str:
     return Path(value.strip()).name.strip()
+
+
+def _is_visible_trace(row: AgentTrace) -> bool:
+    if row.event_type != "llm_event":
+        return True
+    payload = _agent_trace_payload(row)
+    return payload.get("type") in {"message_start", "tool_call_done", "error"}
+
+
+def _trace_event_priority(row: AgentTrace) -> int:
+    priorities = {
+        "stage_enter": 0,
+        "llm_input": 1,
+        "scope_decision": 2,
+        "sufficiency_decision": 2,
+        "tool_call": 3,
+        "tool_result": 4,
+        "stage_exit": 9,
+    }
+    if row.event_type == "llm_event":
+        payload = _agent_trace_payload(row)
+        llm_type = payload.get("type")
+        if llm_type == "message_start":
+            return 1
+        if llm_type == "tool_call_done":
+            return 3
+        if llm_type == "error":
+            return 8
+    return priorities.get(row.event_type, 5)
+
+
+def _agent_trace_payload(row: AgentTrace) -> dict[str, Any]:
+    payload: Any = row.payload
+    if isinstance(payload, dict):
+        return cast(dict[str, Any], payload)
+    return {}
 
 
 async def _collect_session_storage_dirs(

@@ -62,6 +62,7 @@ CodeAsk 面向小团队私有部署，默认优先简单可靠，同时保护代
 | `CODEASK_ADMIN_USERNAME` | `admin` | 内置管理员用户名 |
 | `CODEASK_ADMIN_PASSWORD` | `admin` | 本地开发默认密码；正式部署必须设置 |
 | `CODEASK_ADMIN_SESSION_TTL_HOURS` | `12` | 管理员 cookie 有效期 |
+| `LITELLM_LOCAL_MODEL_COST_MAP` | `True` | CodeAsk 启动时强制设为 `True`，禁用 LiteLLM 从 GitHub 拉取模型价格表，私有部署只使用包内本地备份 |
 
 接口：
 
@@ -166,12 +167,11 @@ app.add_middleware(AuthMiddleware, provider=load_provider_from_config())
 
 使用 APScheduler：
 
-- 24h 未活跃会话清理附件和 worktree。
-- 磁盘水位线检查。
-- ctags 缓存 LRU 清理。
-- 全局仓库池中已配置但长时间未被任何特性引用的仓库提示用户确认（不自动删除）。
+- 每 6 小时运行 worktree 清理任务，删除 24h 未活跃的会话级 worktree。
+- 每 1 小时运行全局仓库同步任务，对所有非 `cloning` 仓库执行 clone / fetch；本地目录如果本身是 git 仓库且有 `origin`，会先执行 `git fetch origin` 和 `git pull --ff-only`。
+- 磁盘水位线检查、ctags 缓存 LRU 清理和孤儿仓库提示仍是后续运维增强。
 
-清理后保留 DB 对话记录和轨迹日志。用户继续提问时按需重建 worktree，附件需重新上传。
+worktree 清理后保留 DB 对话记录、附件元数据和轨迹日志。用户继续提问时按需重建 worktree；删除会话时才清理对应 `sessions/<session_id>/` 附件目录。
 
 会话绑定**自报身份**（PRD §4.2 软识别）：`created_by` / `verified_by` 等字段一期记 `subject_id = nickname@client_id`（无昵称时 `device@client_id`）；未来接入 AuthProvider 后切换为来自 Identity 的 `subject_id`。已存在的自报 `subject_id` 在迁移时保留为历史归档（不强制改写）。
 
@@ -179,7 +179,7 @@ app.add_middleware(AuthMiddleware, provider=load_provider_from_config())
 
 本文已按 `prd/codeask.md` §4.4 + §9 对齐表更新，主要变化：
 
-- §3 一期鉴权从"单一 master token"改为**完全无鉴权**（127.0.0.1 + 私有部署 = 物理隔离）
+- §3 一期鉴权从"单一 master token"改为**普通用户无登录 + 内置管理员保护全局配置**（127.0.0.1 + 私有部署仍是默认安全边界）
 - §3 引入**"自报身份"软识别**（PRD §4.2 / §4.4.1）：`client_id` + 可选昵称构成 `subject_id`，用于会话归属和 UI 分组；非鉴权
 - §4 新增"鉴权扩展通道"完整设计：后端 `AuthProvider` 协议 + 前端 UI slot + 权限模型阶段演进 + 默认无鉴权可选 — 落地 PRD §4.4.2 五条约束
 - §3 风险表落地 PRD §4.4.1 的三条缓解（写操作可撤销 / 报告一键回退 / 自报身份冒用通过物理隔离 + UI 标识缓解）

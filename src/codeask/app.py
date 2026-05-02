@@ -155,6 +155,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             id="worktree_cleanup",
             misfire_grace_time=3600,
         )
+        scheduler.add_job(
+            repo_cloner.refresh_all,
+            "interval",
+            hours=1,
+            id="repo_hourly_refresh",
+            misfire_grace_time=1800,
+            coalesce=True,
+            max_instances=1,
+        )
         scheduler.start()
 
         app.state.engine = engine

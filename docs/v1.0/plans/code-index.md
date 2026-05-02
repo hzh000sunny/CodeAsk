@@ -23,6 +23,8 @@
 
 **Demo Scope Lock:** 本计划只交付 v1.0 代码访问底座，不实现成熟 Agent IDE 级工具智能。`ripgrep` / `ctags` / file reader 只负责安全、稳定、结构化地返回底层结果；Agent 多轮工具规划、搜索结果重排、上下文预算、跨轮去重和自动下一步判断进入后续 `tool-intelligence` / `agent-runtime` 优化阶段。二期规划必须回看 `../design/code-index.md` §7.1/§7.2、`../design/tools.md` §8 和 `roadmap.md` 的二期锚点。
 
+> 2026-05-03 current-state note：后续 admin-repo-analysis-policy 已补齐 `PATCH /api/repos/{repo_id}`、管理员写权限、`同步` / `重试同步` UI 语义和每小时全量仓库同步。早期 task 中关于“刷新”或 `/api/repos` 写操作完全开放的片段只反映 code-index 当时的底座边界。
+
 ---
 
 ## File Structure

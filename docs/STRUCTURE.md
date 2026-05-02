@@ -188,7 +188,7 @@ docs/
 
 **核心规则**：PRD 与 SDD 冲突时，以 PRD 为准。SDD 与 Plans 冲突时，以 SDD 为准。SDD 与 Specs 冲突时，以 SDD 为准。
 
-**Plans 的边界**：Plans 是**前瞻**的实现路线（"接下来要做的 task"），不是事后的实施记录。Plan 落地、对应代码合并后，plan 文件本身**冻结不再改**——后续学到的事情体现在代码 + commit message + SDD 增补里，不回头改已发布的 plan。
+**Plans 的边界**：Plans 主要是**前瞻**的实现路线（"接下来要做的 task"）。Plan 落地、对应代码合并后，早期 task 片段原则上不回头重写；后续学到的事情优先体现在代码 + commit message + SDD 增补里。若为了避免新会话误读历史 plan，可以在文件顶部追加明确的 "implementation note / completion status / superseded by handoff" 小节，但不要静默改写已执行 task 的历史上下文。
 
 ---
 

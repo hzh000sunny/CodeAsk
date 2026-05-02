@@ -25,6 +25,17 @@ const repo = {
   updated_at: "2026-04-30T10:00:00",
 };
 
+const globalPolicy = {
+  id: "skill_e2e",
+  name: "证据引用规范",
+  scope: "global",
+  feature_id: null,
+  stage: "answer_finalization",
+  enabled: true,
+  priority: 20,
+  prompt_template: "回答必须引用证据 ID。",
+};
+
 test("source-list workbench happy path", async ({ page }) => {
   await installApiMocks(page);
   await page.goto("/");
@@ -39,7 +50,12 @@ test("source-list workbench happy path", async ({ page }) => {
     .getByRole("textbox", { name: "会话输入" })
     .fill("支付服务启动失败");
   await page.getByRole("button", { name: "发送" }).click();
-  await expect(page.getByText("需要检查启动配置。")).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "会话消息" })
+      .getByText("需要检查启动配置。")
+      .first(),
+  ).toBeVisible();
   await expect(
     page.getByRole("region", { name: "调查进度" }).getByText("知识检索"),
   ).toBeVisible();
@@ -81,6 +97,140 @@ test("source-list workbench happy path", async ({ page }) => {
     page.getByRole("heading", { name: "全局 LLM 配置" }),
   ).toBeVisible();
   await expect(page.getByText("OpenAI 兼容")).toBeVisible();
+});
+
+test("global settings config forms align with analysis policy layout and keep list spacing", async ({
+  page,
+}) => {
+  await installApiMocks(page);
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "未登录" }).click();
+  await page.getByRole("menuitem", { name: "登录" }).click();
+  await page.getByLabel("用户名").fill("admin");
+  await page.getByLabel("密码", { exact: true }).fill("admin");
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "主导航" })
+    .getByRole("button", { name: "设置", exact: true })
+    .click();
+
+  await page.getByRole("button", { name: "添加 LLM 配置" }).click();
+  await page.getByRole("button", { name: "编辑 OpenAI 兼容" }).click();
+  await page.getByRole("button", { name: "添加仓库" }).click();
+  await page.getByRole("button", { name: "编辑仓库 codeask" }).click();
+  await page.getByRole("button", { name: "添加分析策略" }).click();
+  await page
+    .getByRole("button", { name: "编辑分析策略 证据引用规范" })
+    .click();
+
+  const layout = await page.evaluate(() => {
+    function sectionByTitle(title: string) {
+      return Array.from(document.querySelectorAll("section.surface")).find(
+        (section) => section.textContent?.includes(title),
+      );
+    }
+
+    function formsInSection(title: string) {
+      const section = sectionByTitle(title);
+      const forms = Array.from(
+        section?.querySelectorAll("form.inline-form") ?? [],
+      );
+      const list = section?.querySelector("ul.settings-config-list");
+      return {
+        createForm: forms.find((form) => !form.closest("li")),
+        editForm: forms.find((form) => form.closest("li")),
+        list,
+      };
+    }
+
+    function rectOf(element: Element | undefined) {
+      const rect = element?.getBoundingClientRect();
+      return rect
+        ? {
+            bottom: rect.bottom,
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+          }
+        : null;
+    }
+
+    function createFormGap(sectionTitle: string) {
+      const { createForm, list } = formsInSection(sectionTitle);
+      const createRect = createForm?.getBoundingClientRect();
+      const listRect = list?.getBoundingClientRect();
+      const rowGap = list
+        ? Number.parseFloat(getComputedStyle(list).rowGap)
+        : Number.NaN;
+
+      return createRect && listRect
+        ? {
+            gap: listRect.top - createRect.bottom,
+            rowGap,
+          }
+        : null;
+    }
+
+    const llmForms = formsInSection("全局 LLM 配置");
+    const repoForms = formsInSection("仓库管理");
+    const policyForms = formsInSection("全局分析策略");
+    const llmCreateRect = rectOf(llmForms.createForm);
+    const llmEditRect = rectOf(llmForms.editForm);
+    const repoCreateRect = rectOf(repoForms.createForm);
+    const repoEditRect = rectOf(repoForms.editForm);
+    const policyCreateRect = rectOf(policyForms.createForm);
+    const policyEditRect = rectOf(policyForms.editForm);
+    const llmSpacing = createFormGap("全局 LLM 配置");
+    const repoSpacing = createFormGap("仓库管理");
+    const policySpacing = createFormGap("全局分析策略");
+
+    return llmCreateRect &&
+      llmEditRect &&
+      repoCreateRect &&
+      repoEditRect &&
+      policyCreateRect &&
+      policyEditRect &&
+      llmSpacing &&
+      repoSpacing &&
+      policySpacing
+      ? {
+          llmCreateLeft: llmCreateRect.left,
+          llmCreateWidth: llmCreateRect.width,
+          llmEditLeft: llmEditRect.left,
+          llmEditWidth: llmEditRect.width,
+          llmGap: llmSpacing.gap,
+          policyCreateLeft: policyCreateRect.left,
+          policyCreateWidth: policyCreateRect.width,
+          policyEditLeft: policyEditRect.left,
+          policyEditWidth: policyEditRect.width,
+          policyGap: policySpacing.gap,
+          policyListGap: policySpacing.rowGap,
+          repoCreateLeft: repoCreateRect.left,
+          repoCreateWidth: repoCreateRect.width,
+          repoEditLeft: repoEditRect.left,
+          repoEditWidth: repoEditRect.width,
+          repoGap: repoSpacing.gap,
+          repoListGap: repoSpacing.rowGap,
+        }
+      : null;
+  });
+
+  expect(layout).not.toBeNull();
+  expect(layout!.repoGap).toBeCloseTo(layout!.repoListGap, 0);
+  expect(layout!.llmGap).toBeCloseTo(layout!.repoListGap, 0);
+  expect(layout!.policyGap).toBeCloseTo(layout!.repoListGap, 0);
+  expect(layout!.policyListGap).toBeCloseTo(layout!.repoListGap, 0);
+  for (const [left, width] of [
+    [layout!.policyEditLeft, layout!.policyEditWidth],
+    [layout!.repoCreateLeft, layout!.repoCreateWidth],
+    [layout!.repoEditLeft, layout!.repoEditWidth],
+    [layout!.llmCreateLeft, layout!.llmCreateWidth],
+    [layout!.llmEditLeft, layout!.llmEditWidth],
+  ]) {
+    expect(Math.abs(left - layout!.policyCreateLeft)).toBeLessThanOrEqual(2);
+    expect(Math.abs(width - layout!.policyCreateWidth)).toBeLessThanOrEqual(2);
+  }
 });
 
 async function installApiMocks(page: Page) {
@@ -146,6 +296,33 @@ async function installApiMocks(page: Page) {
         ].join("\n\n"),
       });
     }
+    if (path === "/api/sessions/sess_e2e/turns" && method === "GET") {
+      return json(route, [
+        {
+          id: "turn_user_1",
+          session_id: "sess_e2e",
+          turn_index: 0,
+          role: "user",
+          content: "支付服务启动失败",
+          evidence: null,
+          created_at: "2026-04-30T10:00:00",
+          updated_at: "2026-04-30T10:00:00",
+        },
+        {
+          id: "turn_e2e",
+          session_id: "sess_e2e",
+          turn_index: 1,
+          role: "agent",
+          content: "需要检查启动配置。",
+          evidence: null,
+          created_at: "2026-04-30T10:00:01",
+          updated_at: "2026-04-30T10:00:01",
+        },
+      ]);
+    }
+    if (path === "/api/sessions/sess_e2e/traces" && method === "GET") {
+      return json(route, []);
+    }
     if (path === "/api/sessions/sess_e2e/attachments" && method === "GET") {
       return json(route, []);
     }
@@ -168,7 +345,7 @@ async function installApiMocks(page: Page) {
       return json(route, { repos: [repo] });
     }
     if (path === "/api/skills" && method === "GET") {
-      return json(route, []);
+      return json(route, [globalPolicy]);
     }
     if (path === "/api/me/llm-configs" && method === "GET") {
       return json(route, []);

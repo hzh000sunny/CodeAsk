@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AdminLoginPage } from "../auth/AdminLoginPage";
 import { FeatureWorkbench } from "../features/FeatureWorkbench";
@@ -12,21 +12,50 @@ interface ReportTarget {
   reportId: number;
 }
 
+type ViewId = SectionId | "login";
+
 export function AppShell() {
-  const [activeSection, setActiveSection] = useState<SectionId>("sessions");
-  const [activeView, setActiveView] = useState<SectionId | "login">("sessions");
+  const [initialView] = useState(readViewFromLocation);
+  const [activeSection, setActiveSection] = useState<SectionId>(
+    sectionForView(initialView),
+  );
+  const [activeView, setActiveView] = useState<ViewId>(initialView);
   const [primaryCollapsed, setPrimaryCollapsed] = useState(false);
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
 
+  useEffect(() => {
+    function syncViewFromLocation() {
+      const nextView = readViewFromLocation();
+      setActiveView(nextView);
+      if (isSectionId(nextView)) {
+        setActiveSection(nextView);
+      }
+    }
+
+    window.addEventListener("hashchange", syncViewFromLocation);
+    window.addEventListener("popstate", syncViewFromLocation);
+    return () => {
+      window.removeEventListener("hashchange", syncViewFromLocation);
+      window.removeEventListener("popstate", syncViewFromLocation);
+    };
+  }, []);
+
+  function showView(view: ViewId) {
+    if (isSectionId(view)) {
+      setActiveSection(view);
+    }
+    setActiveView(view);
+    writeViewToLocation(view);
+  }
+
   function navigate(section: SectionId) {
-    setActiveSection(section);
-    setActiveView(section);
+    showView(section);
   }
 
   return (
     <div className="app-shell">
       <TopBar
-        onLoginRequest={() => setActiveView("login")}
+        onLoginRequest={() => showView("login")}
         onNavigate={navigate}
       />
       <div className="app-body" data-primary-collapsed={primaryCollapsed}>
@@ -41,8 +70,7 @@ export function AppShell() {
             <SessionWorkspace
               onOpenReport={(target) => {
                 setReportTarget(target);
-                setActiveSection("features");
-                setActiveView("features");
+                showView("features");
               }}
             />
           ) : null}
@@ -53,8 +81,7 @@ export function AppShell() {
           {activeView === "login" ? (
             <AdminLoginPage
               onSuccess={() => {
-                setActiveSection("settings");
-                setActiveView("settings");
+                showView("settings");
               }}
             />
           ) : null}
@@ -62,4 +89,34 @@ export function AppShell() {
       </div>
     </div>
   );
+}
+
+function readViewFromLocation(): ViewId {
+  if (typeof window === "undefined") {
+    return "sessions";
+  }
+  const value = window.location.hash.replace(/^#\/?/, "");
+  if (value === "login") {
+    return "login";
+  }
+  return isSectionId(value) ? value : "sessions";
+}
+
+function writeViewToLocation(view: ViewId) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const nextHash = `#/${view}`;
+  if (window.location.hash === nextHash) {
+    return;
+  }
+  window.history.pushState(null, "", nextHash);
+}
+
+function isSectionId(value: string): value is SectionId {
+  return value === "sessions" || value === "features" || value === "settings";
+}
+
+function sectionForView(view: ViewId): SectionId {
+  return isSectionId(view) ? view : "sessions";
 }

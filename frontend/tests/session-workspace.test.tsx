@@ -77,6 +77,18 @@ function emptyAttachmentListResponse(
 ) {
   const path = String(input);
   if (
+    /^\/api\/sessions\/[^/]+\/turns$/.test(path) &&
+    (!init?.method || init.method === "GET")
+  ) {
+    return jsonResponse([]);
+  }
+  if (
+    /^\/api\/sessions\/[^/]+\/traces$/.test(path) &&
+    (!init?.method || init.method === "GET")
+  ) {
+    return jsonResponse([]);
+  }
+  if (
     /^\/api\/sessions\/[^/]+\/attachments$/.test(path) &&
     (!init?.method || init.method === "GET")
   ) {
@@ -370,7 +382,8 @@ describe("SessionWorkspace streaming interaction", () => {
               id: 42,
               feature_id: 7,
               title: "支付启动失败定位报告",
-              body_markdown: "# 支付启动失败定位报告",
+              body_markdown:
+                "# 支付启动失败定位报告\n\n- 检查配置缺失\n- 重启支付服务",
               metadata_json: { source: "session", session_id: "sess_1" },
               status: "draft",
               verified: false,
@@ -436,6 +449,229 @@ describe("SessionWorkspace streaming interaction", () => {
     expect(
       await screen.findByRole("heading", { name: "支付启动失败定位报告" }),
     ).toBeInTheDocument();
+    expect(screen.getByText("检查配置缺失")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/# 支付启动失败定位报告/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("loads persisted session turns and runtime traces when rendering a saved session", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/sessions") {
+        return jsonResponse([
+          {
+            id: "sess_9965",
+            title: "GLM 调试会话",
+            created_by_subject_id: "admin",
+            status: "active",
+            pinned: false,
+            created_at: "2026-05-02T10:00:00",
+            updated_at: "2026-05-02T10:05:00",
+          },
+        ]);
+      }
+      if (path === "/api/sessions/sess_9965/turns") {
+        return jsonResponse([
+          {
+            id: "turn_user_1",
+            session_id: "sess_9965",
+            turn_index: 0,
+            role: "user",
+            content: "请完整分析 GLM 调试链路。",
+            evidence: null,
+            created_at: "2026-05-02T10:01:00",
+            updated_at: "2026-05-02T10:01:00",
+          },
+          {
+            id: "turn_agent_1",
+            session_id: "sess_9965",
+            turn_index: 1,
+            role: "agent",
+            content:
+              '# 链路已经完成\n\n建议补齐前端历史渲染。\n\n```ts\nconst status = "ok";\n```',
+            evidence: {
+              items: [
+                {
+                  id: "ev_1",
+                  type: "code",
+                  summary: "src/codeask/api/sessions.py 包含 turns API",
+                  data: { path: "src/codeask/api/sessions.py" },
+                },
+              ],
+            },
+            created_at: "2026-05-02T10:05:00",
+            updated_at: "2026-05-02T10:05:00",
+          },
+        ]);
+      }
+      if (path === "/api/sessions/sess_9965/traces") {
+        return jsonResponse([
+          {
+            id: "tr_scope_enter",
+            session_id: "sess_9965",
+            turn_id: "turn_user_1",
+            stage: "scope_detection",
+            event_type: "stage_enter",
+            payload: { context: { question: "请完整分析 GLM 调试链路。" } },
+            created_at: "2026-05-02T10:02:00",
+            updated_at: "2026-05-02T10:02:00",
+          },
+          {
+            id: "tr_scope_decision",
+            session_id: "sess_9965",
+            turn_id: "turn_user_1",
+            stage: "scope_detection",
+            event_type: "scope_decision",
+            payload: {
+              output: {
+                feature_ids: [7],
+                confidence: 0.82,
+                reason: "日志命中支付特性",
+              },
+            },
+            created_at: "2026-05-02T10:03:00",
+            updated_at: "2026-05-02T10:03:00",
+          },
+          {
+            id: "tr_sufficiency",
+            session_id: "sess_9965",
+            turn_id: "turn_user_1",
+            stage: "sufficiency_judgement",
+            event_type: "sufficiency_decision",
+            payload: {
+              output: {
+                verdict: "insufficient",
+                reason: "需要代码证据",
+                next: "code_investigation",
+              },
+            },
+            created_at: "2026-05-02T10:04:00",
+            updated_at: "2026-05-02T10:04:00",
+          },
+          {
+            id: "tr_tool_result",
+            session_id: "sess_9965",
+            turn_id: "turn_user_1",
+            stage: "code_investigation",
+            event_type: "tool_result",
+            payload: {
+              id: "call_1",
+              result: {
+                ok: true,
+                data: {
+                  summary: "2 code matches for '启动失败'",
+                  hits: [
+                    {
+                      path: "src/codeask/api/sessions.py",
+                      line_number: 83,
+                    },
+                    {
+                      path: "src/codeask/agent/runtime.py",
+                      line_number: 42,
+                    },
+                  ],
+                },
+              },
+            },
+            created_at: "2026-05-02T10:04:30",
+            updated_at: "2026-05-02T10:04:30",
+          },
+        ]);
+      }
+      const attachmentResponse = emptyAttachmentListResponse(input);
+      if (attachmentResponse) {
+        return attachmentResponse;
+      }
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "GLM 调试会话",
+    );
+
+    expect(
+      await screen.findByText("请完整分析 GLM 调试链路。"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "链路已经完成" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('const status = "ok";')).toBeInTheDocument();
+    expect(screen.getByText("日志命中支付特性")).toBeInTheDocument();
+    expect(screen.getByText(/需要代码证据/)).toBeInTheDocument();
+    expect(screen.getByText("工具结果：call_1")).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 code matches for '启动失败'/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/"ok":true/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/src\/codeask\/api\/sessions.py 包含 turns API/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("这次回答是否解决问题？")).toBeInTheDocument();
+    expect(scrollIntoView).not.toHaveBeenCalledWith(
+      expect.objectContaining({ block: "end" }),
+    );
+    expect(container.querySelector(".message-meta")).not.toBeInTheDocument();
+    expect(
+      container.querySelector(".progress-stage-scroll"),
+    ).toBeInTheDocument();
+    expect(container.querySelector(".insight-scroll")).toBeInTheDocument();
+
+    const copyMessageButton = screen.getByRole("button", {
+      name: "复制 CodeAsk 消息",
+    });
+    fireEvent.click(copyMessageButton);
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining("建议补齐前端历史渲染"),
+      ),
+    );
+    expect(
+      await within(
+        copyMessageButton.closest(".message-actions") as HTMLElement,
+      ).findByText("已复制"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("已复制消息")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /工具结果：call_1/ }));
+    const eventDialog = screen.getByRole("dialog", { name: "运行事件详情" });
+    expect(eventDialog).toBeInTheDocument();
+    expect(
+      within(eventDialog).getByText(/2 code matches for '启动失败'/),
+    ).toBeInTheDocument();
+
+    const copyCodeButton = screen.getByRole("button", { name: "复制代码块" });
+    fireEvent.click(copyCodeButton);
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith('const status = "ok";'),
+    );
+    expect(
+      await within(
+        copyCodeButton.closest(".markdown-code-block") as HTMLElement,
+      ).findByText("已复制"),
+    ).toBeInTheDocument();
+    if (originalScrollIntoView) {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
   });
 
   it("shows a visible error when deleting a session fails", async () => {

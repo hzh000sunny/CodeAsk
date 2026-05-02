@@ -27,6 +27,9 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 1
 fi
 
+# Avoid LiteLLM startup network access to GitHub for model pricing metadata.
+export LITELLM_LOCAL_MODEL_COST_MAP=True
+
 uv sync --frozen 2>/dev/null || uv sync
 
 FRONTEND_DIST="${CODEASK_FRONTEND_DIST:-frontend/dist}"

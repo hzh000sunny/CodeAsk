@@ -191,7 +191,7 @@ draft → verified → archived
 
 | 阶段 | `verified_by` 取值 |
 |---|---|
-| 一期（无鉴权 + 自报身份） | `subject_id = nickname@client_id`（无昵称时 `device@client_id`，详见 `deployment-security.md` §3） |
+| 一期（普通用户无登录 + 自报身份） | `subject_id = nickname@client_id`（无昵称时 `device@client_id`，详见 `deployment-security.md` §3）；管理员功能由内置 admin cookie 保护 |
 | 未来（接入 AuthProvider） | `subject_id` 来自 `Identity`（详见 `deployment-security.md` §4） |
 
 UI 展示时同时显示 `subject_id` 和"自报"标识，提示团队成员这是软识别非鉴权（PRD §4.4.1 风险缓解）。

@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Activity,
   CheckCircle2,
@@ -7,6 +9,7 @@ import {
   MessageSquareText,
   Pencil,
   Trash2,
+  X,
   XCircle,
 } from "lucide-react";
 
@@ -36,17 +39,130 @@ export function InvestigationPanel({
   onRenameAttachment,
   stages,
 }: InvestigationPanelProps) {
+  const stageScrollRef = useRef<HTMLDivElement | null>(null);
+  const insightScrollRef = useRef<HTMLUListElement | null>(null);
+  const [preview, setPreview] = useState<{
+    insight: RuntimeInsight;
+    left: number;
+    maxHeight: number;
+    placement: "left" | "right" | "below";
+    top: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const currentStage =
+      stages.find((stage) => stage.status === "active") ??
+      [...stages].reverse().find((stage) => stage.status !== "pending");
+    if (!currentStage) {
+      return;
+    }
+    stageScrollRef.current
+      ?.querySelector(`[data-stage-key="${currentStage.key}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [stages]);
+
+  useEffect(() => {
+    const latestInsight = insights.at(-1);
+    if (!latestInsight) {
+      return;
+    }
+    insightScrollRef.current
+      ?.querySelector(`[data-insight-id="${latestInsight.id}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [insights]);
+
+  useEffect(() => {
+    if (!preview) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPreview(null);
+      }
+    }
+
+    function closeOnOutsideClick(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      if (target.closest(".insight-popover, .insight-card")) {
+        return;
+      }
+      setPreview(null);
+    }
+
+    function closeOnResize() {
+      setPreview(null);
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("pointerdown", closeOnOutsideClick);
+    window.addEventListener("resize", closeOnResize);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("pointerdown", closeOnOutsideClick);
+      window.removeEventListener("resize", closeOnResize);
+    };
+  }, [preview]);
+
+  function openPreview(insight: RuntimeInsight, target: HTMLButtonElement) {
+    const rect = target.getBoundingClientRect();
+    const width = Math.min(380, window.innerWidth - 24);
+    const gap = 12;
+    const verticalTop = Math.max(
+      12,
+      Math.min(rect.top - 4, window.innerHeight - 240),
+    );
+    const maxHeight = Math.max(160, window.innerHeight - verticalTop - 12);
+    const canOpenLeft = rect.left >= width + gap + 12;
+    const canOpenRight = window.innerWidth - rect.right >= width + gap + 12;
+
+    if (canOpenLeft) {
+      setPreview({
+        insight,
+        left: rect.left - width - gap,
+        maxHeight,
+        placement: "left",
+        top: verticalTop,
+      });
+      return;
+    }
+
+    if (canOpenRight) {
+      setPreview({
+        insight,
+        left: rect.right + gap,
+        maxHeight,
+        placement: "right",
+        top: verticalTop,
+      });
+      return;
+    }
+
+    setPreview({
+      insight,
+      left: Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)),
+      maxHeight: Math.max(160, window.innerHeight - rect.bottom - gap - 12),
+      placement: "below",
+      top: Math.max(12, Math.min(rect.bottom + gap, window.innerHeight - 340)),
+    });
+  }
+
   return (
     <aside className="progress-panel" role="region" aria-label="调查进度">
       <div className="panel-heading">
         <h2>调查进度</h2>
         <Badge>{isStreaming ? "运行中" : "Agent Runtime"}</Badge>
       </div>
-      <ol className="stage-list">
-        {stages.map((stage) => (
-          <StageItem key={stage.key} stage={stage} />
-        ))}
-      </ol>
+      <div className="progress-stage-scroll" ref={stageScrollRef}>
+        <ol className="stage-list">
+          {stages.map((stage) => (
+            <StageItem key={stage.key} stage={stage} />
+          ))}
+        </ol>
+      </div>
       <section className="insight-section" aria-label="运行事件">
         <div className="panel-subheading">
           <Activity aria-hidden="true" size={16} />
@@ -55,11 +171,22 @@ export function InvestigationPanel({
         {insights.length === 0 ? (
           <p className="empty-note">暂无运行事件</p>
         ) : (
-          <ul className="insight-list">
+          <ul className="insight-list insight-scroll" ref={insightScrollRef}>
             {insights.map((insight) => (
-              <li data-kind={insight.kind} key={insight.id}>
-                <strong>{insight.title}</strong>
-                <span>{insight.detail}</span>
+              <li
+                data-insight-id={insight.id}
+                data-kind={insight.kind}
+                key={insight.id}
+              >
+                <button
+                  aria-label={`${insight.title} 详情`}
+                  className="insight-card"
+                  onClick={(event) => openPreview(insight, event.currentTarget)}
+                  type="button"
+                >
+                  <strong>{insight.title}</strong>
+                  <span>{insight.detail}</span>
+                </button>
               </li>
             ))}
           </ul>
@@ -81,7 +208,7 @@ export function InvestigationPanel({
           <p className="empty-note">暂无上传数据</p>
         ) : null}
         {attachments.length > 0 ? (
-          <ul className="attachment-list">
+          <ul className="attachment-list attachment-scroll">
             {attachments.map((attachment) => (
               <li key={attachment.id}>
                 <div className="attachment-summary">
@@ -135,6 +262,19 @@ export function InvestigationPanel({
           </ul>
         ) : null}
       </section>
+      {preview
+        ? createPortal(
+            <EventPreviewPopover
+              insight={preview.insight}
+              left={preview.left}
+              maxHeight={preview.maxHeight}
+              onClose={() => setPreview(null)}
+              placement={preview.placement}
+              top={preview.top}
+            />,
+            document.body,
+          )
+        : null}
     </aside>
   );
 }
@@ -153,6 +293,7 @@ function StageItem({ stage }: { stage: RuntimeStage }) {
     <li
       className="stage-item"
       data-done={stage.status === "done"}
+      data-stage-key={stage.key}
       data-status={stage.status}
     >
       <Icon aria-hidden="true" size={17} />
@@ -162,6 +303,67 @@ function StageItem({ stage }: { stage: RuntimeStage }) {
       </div>
     </li>
   );
+}
+
+function EventPreviewPopover({
+  insight,
+  left,
+  maxHeight,
+  onClose,
+  placement,
+  top,
+}: {
+  insight: RuntimeInsight;
+  left: number;
+  maxHeight: number;
+  onClose: () => void;
+  placement: "left" | "right" | "below";
+  top: number;
+}) {
+  return (
+    <section
+      aria-label="运行事件详情"
+      aria-modal="false"
+      className="insight-popover"
+      data-placement={placement}
+      role="dialog"
+      style={{ left, maxHeight, top }}
+    >
+      <div className="insight-popover-header">
+        <span>{eventKindLabel(insight.kind)}</span>
+        <button
+          aria-label="关闭运行事件详情"
+          onClick={onClose}
+          title="关闭"
+          type="button"
+        >
+          <X aria-hidden="true" size={14} />
+        </button>
+      </div>
+      <strong>{insight.title}</strong>
+      <p>{insight.detail}</p>
+      <small>ID · {insight.id}</small>
+    </section>
+  );
+}
+
+function eventKindLabel(kind: string) {
+  if (kind === "scope") {
+    return "范围判断";
+  }
+  if (kind === "sufficiency") {
+    return "充分性判断";
+  }
+  if (kind === "tool") {
+    return "工具事件";
+  }
+  if (kind === "evidence") {
+    return "证据";
+  }
+  if (kind === "error") {
+    return "错误";
+  }
+  return "运行事件";
 }
 
 function shortAttachmentId(id: string) {

@@ -26,10 +26,12 @@ import {
   listUserLlmConfigs,
   refreshRepo,
   updateAdminLlmConfig,
+  updateRepo,
   updateUserLlmConfig,
 } from "../../lib/api";
 import { getNickname, getSubjectId, setNickname } from "../../lib/identity";
 import type { LLMConfigResponse, RepoOut } from "../../types/api";
+import { AnalysisPolicyManager } from "../policies/AnalysisPolicyManager";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -102,7 +104,7 @@ export function SettingsPage() {
         )}
       </aside>
 
-      <section className="settings-content">
+      <section className="settings-content" data-scroll-region="true">
         {!me ? <SettingsLoading /> : null}
         {me && !isAdmin ? <UserSettings /> : null}
         {isAdmin ? <GlobalSettings /> : null}
@@ -171,6 +173,11 @@ function GlobalSettings() {
     <div className="settings-stack">
       <LlmConfigManager scope="global" />
       <RepoManager />
+      <AnalysisPolicyManager
+        description="全局策略会注入 Agent 上下文，约束问题定位、代码调查和最终回答。"
+        scope="global"
+        title="全局分析策略"
+      />
     </div>
   );
 }
@@ -222,12 +229,7 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
     onSuccess: () => {
       showNotice("success", "LLM 配置已保存");
       setShowForm(false);
-      setConfigName("");
-      setProtocol("openai");
-      setBaseUrl("");
-      setApiKey("");
-      setModelName("");
-      setEnabled(true);
+      resetCreateForm();
       void queryClient.invalidateQueries({ queryKey });
     },
     onError: (error) => {
@@ -269,6 +271,15 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
     }, 3200);
   }
 
+  function resetCreateForm() {
+    setConfigName("");
+    setProtocol("openai");
+    setBaseUrl("");
+    setApiKey("");
+    setModelName("");
+    setEnabled(true);
+  }
+
   return (
     <section className="surface">
       <div className="section-title">
@@ -301,7 +312,7 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
       ) : null}
       {showForm ? (
         <form
-          className="inline-form"
+          className="inline-form llm-form llm-create-form"
           onSubmit={(event) => {
             event.preventDefault();
             createMutation.mutate();
@@ -357,18 +368,31 @@ function LlmConfigManager({ scope }: { scope: LlmScope }) {
               text={enabled ? "启用" : "停用"}
             />
           </div>
-          <Button
-            disabled={
-              !configName.trim() ||
-              !apiKey ||
-              !modelName.trim() ||
-              createMutation.isPending
-            }
-            type="submit"
-            variant="primary"
-          >
-            保存 LLM 配置
-          </Button>
+          <div className="form-actions">
+            <Button
+              disabled={
+                !configName.trim() ||
+                !apiKey ||
+                !modelName.trim() ||
+                createMutation.isPending
+              }
+              type="submit"
+              variant="primary"
+            >
+              保存 LLM 配置
+            </Button>
+            <Button
+              disabled={createMutation.isPending}
+              onClick={() => {
+                setShowForm(false);
+                resetCreateForm();
+              }}
+              type="button"
+              variant="quiet"
+            >
+              取消
+            </Button>
+          </div>
         </form>
       ) : null}
       <LlmConfigList
@@ -498,7 +522,7 @@ function LlmConfigEditForm({
 
   return (
     <form
-      className="inline-form llm-edit-form"
+      className="inline-form llm-form llm-edit-form"
       onSubmit={(event) => {
         event.preventDefault();
         const payload: LlmUpdatePayload = {
@@ -640,13 +664,39 @@ function messageFromApiError(error: unknown) {
 
 function RepoManager() {
   const queryClient = useQueryClient();
+  const noticeTimeoutRef = useRef<number | null>(null);
+  const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [source, setSource] = useState<"local_dir" | "git">("local_dir");
   const [location, setLocation] = useState("");
+  const [notice, setNotice] = useState<{
+    tone: "success" | "danger";
+    message: string;
+  } | null>(null);
   const { data: repos = [] } = useQuery({
     queryKey: ["repos"],
     queryFn: listRepos,
   });
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimeoutRef.current) {
+        window.clearTimeout(noticeTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  function showNotice(tone: "success" | "danger", message: string) {
+    if (noticeTimeoutRef.current) {
+      window.clearTimeout(noticeTimeoutRef.current);
+    }
+    setNotice({ tone, message });
+    noticeTimeoutRef.current = window.setTimeout(() => {
+      setNotice(null);
+      noticeTimeoutRef.current = null;
+    }, 3200);
+  }
+
   const createMutation = useMutation({
     mutationFn: () =>
       createRepo({
@@ -657,20 +707,55 @@ function RepoManager() {
       }),
     onSuccess: () => {
       setName("");
+      setSource("local_dir");
       setLocation("");
+      setShowForm(false);
+      showNotice("success", "仓库已添加");
       void queryClient.invalidateQueries({ queryKey: ["repos"] });
+    },
+    onError: (error) => {
+      showNotice("danger", `添加仓库失败：${messageFromApiError(error)}`);
+    },
+  });
+  const updateMutation = useMutation({
+    mutationFn: ({
+      repoId,
+      payload,
+    }: {
+      repoId: string;
+      payload: {
+        name: string;
+        source: "git" | "local_dir";
+        url: string | null;
+        local_path: string | null;
+      };
+    }) => updateRepo(repoId, payload),
+    onSuccess: () => {
+      showNotice("success", "仓库已保存");
+      void queryClient.invalidateQueries({ queryKey: ["repos"] });
+    },
+    onError: (error) => {
+      showNotice("danger", `保存仓库失败：${messageFromApiError(error)}`);
     },
   });
   const deleteMutation = useMutation({
     mutationFn: deleteRepo,
     onSuccess: () => {
+      showNotice("success", "仓库已删除");
       void queryClient.invalidateQueries({ queryKey: ["repos"] });
+    },
+    onError: (error) => {
+      showNotice("danger", `删除仓库失败：${messageFromApiError(error)}`);
     },
   });
   const refreshMutation = useMutation({
     mutationFn: refreshRepo,
     onSuccess: () => {
+      showNotice("success", "仓库同步已提交");
       void queryClient.invalidateQueries({ queryKey: ["repos"] });
+    },
+    onError: (error) => {
+      showNotice("danger", `同步仓库失败：${messageFromApiError(error)}`);
     },
   });
 
@@ -680,50 +765,87 @@ function RepoManager() {
         <GitBranch aria-hidden="true" size={18} />
         <h2>仓库管理</h2>
       </div>
-      <form
-        className="inline-form horizontal"
-        onSubmit={(event) => {
-          event.preventDefault();
-          createMutation.mutate();
-        }}
-      >
-        <label className="field-label compact">
-          仓库名称
-          <Input
-            onChange={(event) => setName(event.target.value)}
-            value={name}
-          />
-        </label>
-        <label className="field-label compact">
-          类型
-          <select
-            className="input"
-            onChange={(event) =>
-              setSource(event.target.value as "local_dir" | "git")
-            }
-            value={source}
-          >
-            <option value="local_dir">本地目录</option>
-            <option value="git">Git URL</option>
-          </select>
-        </label>
-        <label className="field-label compact">
-          {source === "local_dir" ? "本地路径" : "Git URL"}
-          <Input
-            onChange={(event) => setLocation(event.target.value)}
-            value={location}
-          />
-        </label>
+      <div className="content-toolbar slim">
+        <p>维护 CodeAsk 后端用于代码检索和 Agent 调查的全局仓库缓存。</p>
         <Button
-          disabled={
-            !name.trim() || !location.trim() || createMutation.isPending
-          }
-          type="submit"
+          icon={<Plus size={15} />}
+          onClick={() => setShowForm((value) => !value)}
+          type="button"
           variant="primary"
         >
           添加仓库
         </Button>
-      </form>
+      </div>
+      {notice ? (
+        <div
+          className="settings-toast"
+          data-tone={notice.tone}
+          role={notice.tone === "danger" ? "alert" : "status"}
+        >
+          {notice.message}
+        </div>
+      ) : null}
+      {showForm ? (
+        <form
+          className="inline-form repo-edit-form repo-create-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            createMutation.mutate();
+          }}
+        >
+          <label className="field-label compact repo-edit-field">
+            仓库名称
+            <Input
+              onChange={(event) => setName(event.target.value)}
+              value={name}
+            />
+          </label>
+          <label className="field-label compact repo-edit-field">
+            类型
+            <select
+              className="input"
+              onChange={(event) =>
+                setSource(event.target.value as "local_dir" | "git")
+              }
+              value={source}
+            >
+              <option value="local_dir">本地目录</option>
+              <option value="git">Git URL</option>
+            </select>
+          </label>
+          <label className="field-label compact repo-edit-field repo-location-field">
+            {source === "local_dir" ? "本地路径" : "Git URL"}
+            <Input
+              onChange={(event) => setLocation(event.target.value)}
+              value={location}
+            />
+          </label>
+          <div className="form-actions">
+            <Button
+              disabled={
+                !name.trim() || !location.trim() || createMutation.isPending
+              }
+              type="submit"
+              variant="primary"
+            >
+              创建仓库
+            </Button>
+            <Button
+              disabled={createMutation.isPending}
+              onClick={() => {
+                setShowForm(false);
+                setName("");
+                setSource("local_dir");
+                setLocation("");
+              }}
+              type="button"
+              variant="quiet"
+            >
+              取消
+            </Button>
+          </div>
+        </form>
+      ) : null}
       {repos.length === 0 ? (
         <div className="empty-block wide">
           <p>暂无仓库</p>
@@ -736,8 +858,12 @@ function RepoManager() {
               deleting={deleteMutation.isPending}
               onDelete={() => deleteMutation.mutate(repo.id)}
               onRefresh={() => refreshMutation.mutate(repo.id)}
+              onUpdate={(payload) =>
+                updateMutation.mutate({ repoId: repo.id, payload })
+              }
               refreshing={refreshMutation.isPending}
               repo={repo}
+              updating={updateMutation.isPending}
             />
           ))}
         </ul>
@@ -750,42 +876,135 @@ function RepoRow({
   deleting,
   onDelete,
   onRefresh,
+  onUpdate,
   refreshing,
   repo,
+  updating,
 }: {
   deleting: boolean;
   onDelete: () => void;
   onRefresh: () => void;
+  onUpdate: (payload: {
+    name: string;
+    source: "git" | "local_dir";
+    url: string | null;
+    local_path: string | null;
+  }) => void;
   refreshing: boolean;
   repo: RepoOut;
+  updating: boolean;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(repo.name);
+  const [source, setSource] = useState<"git" | "local_dir">(repo.source);
+  const [location, setLocation] = useState(
+    repo.source === "git" ? (repo.url ?? "") : (repo.local_path ?? ""),
+  );
+  const syncLabel = repo.status === "failed" ? "重试同步" : "同步";
+  const locationLabel =
+    source === "local_dir" ? "编辑本地路径" : "编辑 Git URL";
+
   return (
-    <li>
-      <div className="config-summary">
-        <span>{repo.name}</span>
-        <small>{repo.source === "git" ? repo.url : repo.local_path}</small>
-      </div>
-      <div className="row-actions">
-        <Badge>{repo.status}</Badge>
-        <Button
-          disabled={refreshing}
-          icon={<RefreshCw size={15} />}
-          onClick={onRefresh}
-          type="button"
-          variant="quiet"
+    <li data-editing={editing ? "true" : undefined}>
+      {editing ? (
+        <form
+          className="inline-form repo-edit-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onUpdate({
+              name: name.trim(),
+              source,
+              local_path: source === "local_dir" ? location.trim() : null,
+              url: source === "git" ? location.trim() : null,
+            });
+            setEditing(false);
+          }}
         >
-          刷新
-        </Button>
-        <Button
-          disabled={deleting}
-          icon={<Trash2 size={15} />}
-          onClick={onDelete}
-          type="button"
-          variant="quiet"
-        >
-          删除
-        </Button>
-      </div>
+          <label className="field-label compact repo-edit-field">
+            编辑仓库名称
+            <Input
+              onChange={(event) => setName(event.target.value)}
+              value={name}
+            />
+          </label>
+          <label className="field-label compact repo-edit-field">
+            编辑仓库类型
+            <select
+              className="input"
+              onChange={(event) =>
+                setSource(event.target.value as "git" | "local_dir")
+              }
+              value={source}
+            >
+              <option value="local_dir">本地目录</option>
+              <option value="git">Git URL</option>
+            </select>
+          </label>
+          <label className="field-label compact repo-edit-field repo-location-field">
+            {locationLabel}
+            <Input
+              onChange={(event) => setLocation(event.target.value)}
+              value={location}
+            />
+          </label>
+          <div className="form-actions">
+            <Button
+              disabled={!name.trim() || !location.trim() || updating}
+              type="submit"
+              variant="primary"
+            >
+              保存仓库
+            </Button>
+            <Button
+              disabled={updating}
+              onClick={() => setEditing(false)}
+              type="button"
+              variant="quiet"
+            >
+              取消
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <>
+          <div className="config-summary">
+            <span>{repo.name}</span>
+            <small>{repo.source === "git" ? repo.url : repo.local_path}</small>
+          </div>
+          <div className="row-actions">
+            <Badge>{repo.status}</Badge>
+            <Button
+              aria-label={`编辑仓库 ${repo.name}`}
+              disabled={updating}
+              icon={<Pencil size={15} />}
+              onClick={() => setEditing(true)}
+              type="button"
+              variant="quiet"
+            >
+              编辑
+            </Button>
+            <Button
+              aria-label={`${syncLabel}仓库 ${repo.name}`}
+              disabled={refreshing}
+              icon={<RefreshCw size={15} />}
+              onClick={onRefresh}
+              type="button"
+              variant="quiet"
+            >
+              {syncLabel}
+            </Button>
+            <Button
+              disabled={deleting}
+              icon={<Trash2 size={15} />}
+              onClick={onDelete}
+              type="button"
+              variant="quiet"
+            >
+              删除
+            </Button>
+          </div>
+        </>
+      )}
     </li>
   );
 }

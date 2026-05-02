@@ -115,3 +115,49 @@ async def test_refresh_enqueues(client: AsyncClient, tmp_path: Path) -> None:
     refreshed = await client.post(f"/api/repos/{repo_id}/refresh")
     assert refreshed.status_code == 200
     assert refreshed.json()["id"] == repo_id
+
+
+@pytest.mark.asyncio
+async def test_update_repo_name_without_reclone(client: AsyncClient, tmp_path: Path) -> None:
+    src = _bootstrap_local_repo(tmp_path / "src4")
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    created = await client.post(
+        "/api/repos",
+        json={"name": "old-name", "source": "local_dir", "local_path": str(src)},
+    )
+    assert created.status_code == 201
+    repo_id = created.json()["id"]
+
+    updated = await client.patch(f"/api/repos/{repo_id}", json={"name": "new-name"})
+
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["name"] == "new-name"
+    assert body["local_path"] == str(src)
+
+
+@pytest.mark.asyncio
+async def test_update_repo_location_resets_sync_state(client: AsyncClient, tmp_path: Path) -> None:
+    src = _bootstrap_local_repo(tmp_path / "src5")
+    next_src = _bootstrap_local_repo(tmp_path / "src5-next")
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    created = await client.post(
+        "/api/repos",
+        json={"name": "demo5", "source": "local_dir", "local_path": str(src)},
+    )
+    assert created.status_code == 201
+    repo_id = created.json()["id"]
+
+    updated = await client.patch(
+        f"/api/repos/{repo_id}",
+        json={"source": "local_dir", "local_path": str(next_src)},
+    )
+
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["local_path"] == str(next_src)
+    assert body["url"] is None
+    assert body["status"] in {"registered", "cloning", "ready"}
+    assert body["error_message"] is None
