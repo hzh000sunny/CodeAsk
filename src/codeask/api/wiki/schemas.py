@@ -70,6 +70,7 @@ class WikiDocumentDetailRead(BaseModel):
     draft_body_markdown: str | None
     index_status: str
     broken_refs_json: object | None
+    resolved_refs_json: list[dict[str, object]]
     provenance_json: object | None
     permissions: WikiNodePermissions
 

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.db.models import Feature, WikiDocument, WikiDocumentDraft, WikiDocumentVersion, WikiNode, WikiSpace
 from codeask.wiki.actor import WikiActor
+from codeask.wiki.documents.markdown_refs import parse_markdown_references, resolve_markdown_references
 from codeask.wiki.permissions import can_admin_feature, can_write_feature
 
 
@@ -41,6 +42,18 @@ class WikiDocumentService:
         feature = await self._load_feature_for_space(session, space_id=node.space_id)
         current_version = await self._current_version(session, document=document)
         draft = await self._draft_for_subject(session, document_id=document.id, subject_id=actor.subject_id)
+        if current_version is not None:
+            refs = await self._reference_state(
+                session,
+                space_id=node.space_id,
+                source_node_path=node.path,
+                body_markdown=current_version.body_markdown,
+            )
+            broken_refs_json = refs["broken_refs"]
+            resolved_refs_json = refs["resolved_refs"]
+        else:
+            broken_refs_json = document.broken_refs_json or {"links": [], "assets": []}
+            resolved_refs_json = []
         return {
             "document_id": document.id,
             "node_id": node.id,
@@ -49,7 +62,8 @@ class WikiDocumentService:
             "current_body_markdown": current_version.body_markdown if current_version is not None else None,
             "draft_body_markdown": draft.body_markdown if draft is not None else None,
             "index_status": document.index_status,
-            "broken_refs_json": document.broken_refs_json,
+            "broken_refs_json": broken_refs_json,
+            "resolved_refs_json": resolved_refs_json,
             "provenance_json": document.provenance_json,
             "permissions": {
                 "read": True,
@@ -104,7 +118,7 @@ class WikiDocumentService:
         actor: WikiActor,
         body_markdown: str | None,
     ) -> dict[str, object]:
-        _node, document = await self.load_document_by_node(session, node_id=node_id)
+        node, document = await self.load_document_by_node(session, node_id=node_id)
         feature = await self._load_feature_for_document(session, document=document)
         self._require_write(actor, feature)
 
@@ -127,6 +141,13 @@ class WikiDocumentService:
         await session.flush()
         document.current_version_id = version.id
         document.index_status = "ready"
+        refs = await self._reference_state(
+            session,
+            space_id=node.space_id,
+            source_node_path=node.path,
+            body_markdown=final_body,
+        )
+        document.broken_refs_json = refs["broken_refs"]
         if draft is not None:
             await session.delete(draft)
         await session.flush()
@@ -207,7 +228,7 @@ class WikiDocumentService:
         version_id: int,
         actor: WikiActor,
     ) -> dict[str, object]:
-        _node, document = await self.load_document_by_node(session, node_id=node_id)
+        node, document = await self.load_document_by_node(session, node_id=node_id)
         feature = await self._load_feature_for_document(session, document=document)
         self._require_write(actor, feature)
         version = await self._load_version(session, document_id=document.id, version_id=version_id)
@@ -222,6 +243,13 @@ class WikiDocumentService:
         await session.flush()
         document.current_version_id = new_version.id
         document.index_status = "ready"
+        refs = await self._reference_state(
+            session,
+            space_id=node.space_id,
+            source_node_path=node.path,
+            body_markdown=version.body_markdown,
+        )
+        document.broken_refs_json = refs["broken_refs"]
         await session.flush()
         return await self.get_document_detail(session, node_id=node_id, actor=actor)
 
@@ -286,6 +314,22 @@ class WikiDocumentService:
                 detail="wiki document version not found",
             )
         return version
+
+    async def _reference_state(
+        self,
+        session: AsyncSession,
+        *,
+        space_id: int,
+        source_node_path: str,
+        body_markdown: str,
+    ) -> dict[str, object]:
+        refs = parse_markdown_references(body_markdown)
+        return await resolve_markdown_references(
+            session,
+            space_id=space_id,
+            source_node_path=source_node_path,
+            references=refs,
+        )
 
     async def _load_feature_for_document(
         self,

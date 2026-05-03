@@ -144,3 +144,23 @@ async def test_non_owner_cannot_write_native_document(client: AsyncClient) -> No
         headers={"X-Subject-Id": "viewer@dev-9"},
     )
     assert response.status_code == 403, response.text
+
+
+@pytest.mark.asyncio
+async def test_publish_marks_missing_relative_links_as_broken(client: AsyncClient) -> None:
+    node_id = await _create_document_node(client, slug="wiki-doc-broken")
+
+    response = await client.post(
+        f"/api/wiki/documents/{node_id}/publish",
+        json={"body_markdown": "# Doc\n\nSee [Missing](./missing.md) and ![Img](./img.png)"},
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    refs = {item["target"]: item for item in body["resolved_refs_json"]}
+    assert refs["./missing.md"]["resolved_path"] == "docs/missing"
+    assert refs["./missing.md"]["broken"] is True
+    assert refs["./img.png"]["resolved_path"] == "docs/img.png"
+    assert refs["./img.png"]["broken"] is True
+    assert body["broken_refs_json"]["links"][0]["target"] == "./missing.md"
+    assert body["broken_refs_json"]["assets"][0]["target"] == "./img.png"
