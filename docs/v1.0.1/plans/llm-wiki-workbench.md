@@ -18,6 +18,14 @@
 - 前端 URL 必须能保持当前一级页面和 Wiki node，刷新不能回到会话页。
 - v1.0 的会话、特性、设置和报告 API 保持兼容，除非计划明确迁移。
 
+## 0.1 当前进度
+
+- 已完成：Phase 1 路由拆分。
+- 已完成：Phase 2 原生模型、迁移、feature 自动建 space、系统目录初始化。
+- 已完成：旧 Markdown 文档和旧报告到原生 Wiki 的同步桥，以及首次访问 Wiki 时的懒回填。
+- 已完成：Phase 3 的最小可用版本，包括 actor、权限判断、路径规范化、node detail、node create/update/delete、系统目录保护。
+- 未完成：历史特性虚拟根、完整文档编辑/草稿/版本 API、导入 staging、前端独立 Wiki 工作台。
+
 ## 1. 目标目录结构
 
 后端：
@@ -71,13 +79,13 @@ frontend/src/types/wiki.ts
 
 **步骤：**
 
-- [ ] 新建 `src/codeask/api/wiki/` 包，并让 `from codeask.api.wiki import router` 继续可用。
-- [ ] 把 `/api/features/*` 路由迁移到 `api/features.py`，保持路径和 response model 不变。
-- [ ] 把 `/api/reports/*` 路由迁移到 `api/reports.py`，保持路径和状态变更行为不变。
-- [ ] 把 `/api/documents/*` 路由迁移到 `api/documents_compat.py`，明确标注为兼容层。
-- [ ] `api/wiki/router.py` 暂时只挂载新 Wiki 空 router，为后续 `/api/wiki/*` 做入口。
-- [ ] 更新 `app.py` include_router 顺序，确保旧 API 测试不变。
-- [ ] 跑现有 Wiki、feature repo、report API 测试，确认只是结构迁移。
+- [x] 新建 `src/codeask/api/wiki/` 包，并让 `from codeask.api.wiki import router` 继续可用。
+- [x] 把 `/api/features/*` 路由迁移到 `api/features.py`，保持路径和 response model 不变。
+- [x] 把 `/api/reports/*` 路由迁移到 `api/reports.py`，保持路径和状态变更行为不变。
+- [x] 把 `/api/documents/*` 路由迁移到 `api/documents_compat.py`，明确标注为兼容层。
+- [x] `api/wiki/router.py` 建立 `/api/wiki/*` 新入口，并开始挂载原生子路由。
+- [x] 更新 `app.py` include_router 顺序，确保旧 API 测试不变。
+- [x] 跑现有 Wiki、feature repo、report API 测试，确认只是结构迁移。
 
 **验收：**
 
@@ -111,16 +119,16 @@ frontend/src/types/wiki.ts
 
 **步骤：**
 
-- [ ] 新增 `wiki_spaces`、`wiki_nodes`、`wiki_documents`、`wiki_document_versions`、`wiki_document_drafts`、`wiki_assets`、`wiki_sources`、`wiki_report_refs`、`wiki_node_events`、`wiki_import_jobs`、`wiki_import_items`。
-- [ ] 定义 active path 唯一约束、version 唯一约束、space-feature 唯一约束。
-- [ ] 为 document 和 asset 设计 provenance 字段，至少能表达 `manual_upload`、`directory_import`、`session_promotion` 这几类来源。
-- [ ] 写 migration 测试，验证空库升级成功。
-- [ ] 写已有 feature 初始化测试：每个 feature 生成一个 active current space。
-- [ ] 写系统目录测试：每个 space 自动创建 `知识库` 和 `问题定位报告`。
-- [ ] 写 document 迁移测试：旧 document 进入 `知识库` 并生成第一个正式版本。
-- [ ] 写 report ref 迁移测试：旧 report 投影到 `问题定位报告` 虚拟状态分组。
-- [ ] 实现迁移脚本，保证重复启动不会重复创建同一 space 和系统目录。
-- [ ] 为旧 `documents` 填充默认 provenance，避免新架构下出现无来源的正式知识。
+- [x] 新增 `wiki_spaces`、`wiki_nodes`、`wiki_documents`、`wiki_document_versions`、`wiki_document_drafts`、`wiki_assets`、`wiki_sources`、`wiki_report_refs`、`wiki_node_events`、`wiki_import_jobs`、`wiki_import_items`。
+- [x] 定义 active path 唯一约束、version 唯一约束、space-feature 唯一约束。
+- [x] 为 document 和 asset 设计 provenance 字段，至少能表达 `manual_upload`、`directory_import`、`session_promotion` 这几类来源。
+- [x] 写 migration 测试，验证空库升级成功。
+- [x] 写已有 feature 初始化测试：每个 feature 生成一个 active current space。
+- [x] 写系统目录测试：每个 space 自动创建 `知识库` 和 `问题定位报告`。
+- [x] 写 document 迁移测试：旧 document 进入 `知识库` 并生成第一个正式版本。
+- [x] 写 report ref 迁移测试：旧 report 投影到 `问题定位报告` 虚拟状态分组。
+- [x] 实现幂等 bootstrap / lazy backfill，保证重复访问不会重复创建同一 space 和系统目录。
+- [x] 为旧 `documents` 填充默认 provenance，避免新架构下出现无来源的正式知识。
 
 **验收：**
 
@@ -151,16 +159,16 @@ frontend/src/types/wiki.ts
 
 **步骤：**
 
-- [ ] 定义 `actor`：subject id、is_admin、未来 auth user 占位字段。
-- [ ] 实现 viewer、owner、admin 权限矩阵。
-- [ ] 实现路径规范化、展示路径生成、同级冲突检测。
-- [ ] 实现移动循环检测，防止目录移动到自己的子树下。
+- [x] 定义 `actor`：subject id、is_admin、未来 auth user 占位字段。
+- [x] 实现 viewer、owner、admin 权限矩阵。
+- [x] 实现路径规范化、展示路径生成、同级冲突检测。
+- [x] 实现移动循环检测，防止目录移动到自己的子树下。
 - [ ] 实现 `GET /api/wiki/tree`，返回 `当前特性` 和默认折叠的 `历史特性` 虚拟根。
-- [ ] 实现 `GET /api/wiki/nodes/{node_id}`，返回节点元信息和权限。
-- [ ] 实现 `POST /api/wiki/nodes` 创建普通目录和空 Markdown 节点。
-- [ ] 实现 `PUT /api/wiki/nodes/{node_id}` 重命名和移动。
-- [ ] 实现 `DELETE /api/wiki/nodes/{node_id}` 软删除。
-- [ ] 写 API 测试覆盖普通用户不可写、owner 可写、admin 可写。
+- [x] 实现 `GET /api/wiki/nodes/{node_id}`，返回节点元信息和权限。
+- [x] 实现 `POST /api/wiki/nodes` 创建普通目录和空 Markdown 节点。
+- [x] 实现 `PUT /api/wiki/nodes/{node_id}` 重命名和移动。
+- [x] 实现 `DELETE /api/wiki/nodes/{node_id}` 软删除。
+- [x] 写 API 测试覆盖普通用户不可写、owner 可写、admin 可写。
 
 **验收：**
 

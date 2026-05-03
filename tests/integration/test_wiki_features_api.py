@@ -2,6 +2,9 @@
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+
+from codeask.db.models import WikiNode, WikiSpace
 
 
 @pytest.mark.asyncio
@@ -58,3 +61,37 @@ async def test_invalid_slug_format_rejected(client: AsyncClient) -> None:
         headers={"X-Subject-Id": "x@y"},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_feature_bootstraps_wiki_space(client: AsyncClient, app) -> None:  # type: ignore[no-untyped-def]
+    response = await client.post(
+        "/api/features",
+        json={"name": "Payments", "slug": "payments", "description": "core"},
+        headers={"X-Subject-Id": "alice@dev-2"},
+    )
+    assert response.status_code == 201, response.text
+    feature_id = response.json()["id"]
+
+    async with app.state.session_factory() as session:
+        space = (
+            await session.execute(
+                select(WikiSpace).where(
+                    WikiSpace.feature_id == feature_id,
+                    WikiSpace.scope == "current",
+                )
+            )
+        ).scalar_one_or_none()
+        assert space is not None
+        assert space.slug == "payments"
+        nodes = (
+            await session.execute(
+                select(WikiNode).where(
+                    WikiNode.space_id == space.id,
+                    WikiNode.parent_id.is_(None),
+                )
+            )
+        ).scalars().all()
+
+    names = {node.name for node in nodes}
+    assert names == {"知识库", "问题定位报告"}

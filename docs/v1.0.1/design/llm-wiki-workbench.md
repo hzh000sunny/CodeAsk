@@ -33,6 +33,20 @@ v1.0 已具备基础文档上传、切块检索和报告回流，但它不是完
 
 v1.0.1 的设计目标不是重写整个系统，而是把新 Wiki 能力独立出来，同时保留 v1.0 API 的兼容路径。
 
+## 2.2 当前实现快照
+
+截至 2026-05-04，后端已经完成第一批可工作的 Wiki 原生骨架，作为 v1.0.1 的落地起点：
+
+- 旧 `src/codeask/api/wiki.py` 已拆分为 `api/features.py`、`api/reports.py`、`api/documents_compat.py` 和 `api/wiki/` 包。
+- `/api/wiki/spaces/by-feature/{feature_id}` 与 `/api/wiki/tree` 已可用，支持首次访问时的懒初始化。
+- 创建 feature 时，会自动创建 `current` wiki space，并生成两个系统根目录：`知识库`、`问题定位报告`。
+- 旧 `/api/documents` 上传的 Markdown，会同步映射成原生 `wiki_nodes` + `wiki_documents` + `wiki_document_versions`。
+- 旧 `/api/reports` 创建的报告，会同步映射成原生 `wiki_report_refs`。
+- 对旧库中的 feature / document / report，当前采用“首次访问 Wiki 时懒回填”的策略，而不是在 migration 中一次性重写全量历史数据。
+- 当前已实现 `GET/POST/PUT/DELETE /api/wiki/nodes*` 的最小读写能力，并接入 owner/admin 写权限和系统目录保护。
+
+这批实现的目标是先建立稳定的后端边界和数据归属，而不是一次完成整个 Wiki 工作台。
+
 ## 2.1 架构重心修正
 
 在研究 AnythingLLM 之后，CodeAsk 的 LLM Wiki 不应只被理解为“独立 Wiki 工作台”。更准确的定义是：
@@ -186,6 +200,7 @@ src/codeask/
 说明：
 
 - `src/codeask/api/wiki.py` 应迁移为 `src/codeask/api/wiki/` 包。`codeask.api.wiki.router` 仍向外导出 `router`，让 `app.py` 的导入变化最小。
+- 当前已经实际落地 `api/wiki/router.py`、`api/wiki/spaces.py`、`api/wiki/tree.py`、`api/wiki/nodes.py`，后续再继续补 documents/drafts/versions/imports 等子路由。
 - 旧 `src/codeask/wiki/chunker.py`、`search.py`、`signals.py`、`tokenizer.py` 可以先移动到 `src/codeask/wiki/index/`，保留兼容 re-export，避免一次性破坏现有测试。
 - 旧 `src/codeask/wiki/reports.py` 应拆到 `reports/service.py` 和 `wiki/reports/service.py`，明确报告生命周期和 Wiki 投影的差异。
 - 每个 service 文件只承载一个聚合根的业务规则。超过约 350 行时应继续拆分，不继续堆方法。
@@ -219,6 +234,12 @@ router.include_router(maintenance.router, prefix="/wiki/maintenance", tags=["wik
 ## 5. 数据模型
 
 v1.0.1 采用 Wiki 原生模型，不继续在 `documents` / `reports` 上补丁。
+
+当前已落地的关键补充：
+
+- `wiki_documents.legacy_document_id` 用于稳定绑定旧 `documents.id`，避免只依赖 `provenance_json` 做弱映射。
+- `wiki_nodes(space_id, path)` 当前使用“仅对 `deleted_at IS NULL` 生效”的唯一约束，满足软删除后的路径重建需求。
+- 旧 document/report 到 Wiki 原生树的同步由 `src/codeask/wiki/sync/service.py` 负责，不把兼容层逻辑直接堆进 API handler。
 
 ### 5.1 核心表
 

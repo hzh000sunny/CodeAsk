@@ -9,6 +9,19 @@ from codeask.db.models.feedback import Feedback
 from codeask.db.models.frontend_event import FrontendEvent
 from codeask.db.models.llm import LLMConfig
 from codeask.db.models.report import Report
+from codeask.db.models.wiki import (
+    WikiAsset,
+    WikiDocument,
+    WikiDocumentDraft,
+    WikiDocumentVersion,
+    WikiImportItem,
+    WikiImportJob,
+    WikiNode,
+    WikiNodeEvent,
+    WikiReportRef,
+    WikiSource,
+    WikiSpace,
+)
 from codeask.db.models.session import (
     Session,
     SessionAttachment,
@@ -32,6 +45,17 @@ __all__ = [
     "LLMConfig",
     "Repo",
     "Report",
+    "WikiAsset",
+    "WikiDocument",
+    "WikiDocumentDraft",
+    "WikiDocumentVersion",
+    "WikiImportItem",
+    "WikiImportJob",
+    "WikiNode",
+    "WikiNodeEvent",
+    "WikiReportRef",
+    "WikiSource",
+    "WikiSpace",
     "Session",
     "SessionAttachment",
     "SessionFeature",

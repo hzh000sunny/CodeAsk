@@ -4,6 +4,9 @@ from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+
+from codeask.db.models import WikiDocument, WikiDocumentVersion, WikiNode, WikiSpace
 
 MARKDOWN = """# Submit Order
 
@@ -111,3 +114,66 @@ async def test_pdf_spoofed_executable_rejected_before_parsing(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "unsupported file content: executable payload"
+
+
+@pytest.mark.asyncio
+async def test_markdown_upload_creates_native_wiki_document(
+    client: AsyncClient,
+    app,
+    tmp_path: Path,
+) -> None:  # type: ignore[no-untyped-def]
+    feature_id = await _create_feature(client, slug="wiki-sync-doc")
+    markdown_path = tmp_path / "sync.md"
+    markdown_path.write_text(MARKDOWN, encoding="utf-8")
+
+    with markdown_path.open("rb") as file:
+        response = await client.post(
+            "/api/documents",
+            data={"feature_id": str(feature_id), "title": "Sync Spec"},
+            files={"file": ("sync.md", file, "text/markdown")},
+            headers={"X-Subject-Id": "alice@dev-1"},
+        )
+    assert response.status_code == 201, response.text
+    document_id = int(response.json()["id"])
+
+    async with app.state.session_factory() as session:
+        space = (
+            await session.execute(
+                select(WikiSpace).where(WikiSpace.feature_id == feature_id, WikiSpace.scope == "current")
+            )
+        ).scalar_one()
+        knowledge_root = (
+            await session.execute(
+                select(WikiNode).where(
+                    WikiNode.space_id == space.id,
+                    WikiNode.system_role == "knowledge_base",
+                )
+            )
+        ).scalar_one()
+        node = (
+            await session.execute(
+                select(WikiNode).where(
+                    WikiNode.parent_id == knowledge_root.id,
+                    WikiNode.type == "document",
+                    WikiNode.name == "sync",
+                )
+            )
+        ).scalar_one_or_none()
+        assert node is not None
+        wiki_document = (
+            await session.execute(select(WikiDocument).where(WikiDocument.node_id == node.id))
+        ).scalar_one_or_none()
+        assert wiki_document is not None
+        version = (
+            await session.execute(
+                select(WikiDocumentVersion).where(WikiDocumentVersion.document_id == wiki_document.id)
+            )
+        ).scalar_one_or_none()
+
+    assert wiki_document.provenance_json == {
+        "source": "manual_upload",
+        "legacy_document_id": document_id,
+    }
+    assert version is not None
+    assert version.version_no == 1
+    assert version.body_markdown == MARKDOWN

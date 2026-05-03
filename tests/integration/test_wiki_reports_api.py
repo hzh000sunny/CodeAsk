@@ -2,6 +2,9 @@
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+
+from codeask.db.models import WikiNode, WikiReportRef, WikiSpace
 
 
 def _good_meta() -> dict:
@@ -189,3 +192,60 @@ async def test_delete_report_removes_verified_report_from_search(client: AsyncCl
     assert response.status_code == 404
     response = await client.get("/api/reports/search?q=ERR_DELETE_ME")
     assert all(hit["report_id"] != report_id for hit in response.json())
+
+
+@pytest.mark.asyncio
+async def test_create_report_creates_native_wiki_report_ref(
+    client: AsyncClient,
+    app,
+) -> None:  # type: ignore[no-untyped-def]
+    response = await client.post(
+        "/api/features",
+        json={"name": "Wiki Reports", "slug": "wiki-reports"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    feature_id = response.json()["id"]
+
+    response = await client.post(
+        "/api/reports",
+        json={
+            "feature_id": feature_id,
+            "title": "Order context empty",
+            "body_markdown": "see metadata",
+            "metadata": _good_meta(),
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert response.status_code == 201, response.text
+    report_id = int(response.json()["id"])
+
+    async with app.state.session_factory() as session:
+        space = (
+            await session.execute(
+                select(WikiSpace).where(WikiSpace.feature_id == feature_id, WikiSpace.scope == "current")
+            )
+        ).scalar_one()
+        reports_root = (
+            await session.execute(
+                select(WikiNode).where(
+                    WikiNode.space_id == space.id,
+                    WikiNode.system_role == "reports",
+                )
+            )
+        ).scalar_one()
+        node = (
+            await session.execute(
+                select(WikiNode).where(
+                    WikiNode.parent_id == reports_root.id,
+                    WikiNode.type == "report_ref",
+                    WikiNode.name == "Order context empty",
+                )
+            )
+        ).scalar_one_or_none()
+        assert node is not None
+        report_ref = (
+            await session.execute(select(WikiReportRef).where(WikiReportRef.node_id == node.id))
+        ).scalar_one_or_none()
+
+    assert report_ref is not None
+    assert report_ref.report_id == report_id
