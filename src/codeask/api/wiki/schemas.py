@@ -118,3 +118,33 @@ class WikiAssetRead(BaseModel):
     original_name: str
     file_name: str
     size_bytes: int | None
+
+
+class WikiImportPreflightIssueRead(BaseModel):
+    severity: str
+    code: str
+    message: str
+    target: str | None = None
+    resolved_path: str | None = None
+
+
+class WikiImportPreflightItemRead(BaseModel):
+    relative_path: str
+    kind: str
+    target_path: str
+    status: str
+    issues: list[WikiImportPreflightIssueRead]
+
+
+class WikiImportPreflightSummaryRead(BaseModel):
+    total_files: int
+    document_count: int
+    asset_count: int
+    conflict_count: int
+    warning_count: int
+
+
+class WikiImportPreflightRead(BaseModel):
+    ready: bool
+    summary: WikiImportPreflightSummaryRead
+    items: list[WikiImportPreflightItemRead]

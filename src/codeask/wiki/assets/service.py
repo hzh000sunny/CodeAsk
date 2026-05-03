@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import mimetypes
-import re
 import shutil
 from pathlib import Path
 from secrets import token_hex
@@ -14,15 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.db.models import Feature, WikiAsset, WikiNode, WikiSpace
 from codeask.wiki.actor import WikiActor
+from codeask.wiki.paths import normalize_asset_name
 from codeask.wiki.permissions import can_write_feature
-
-
-def _normalize_asset_filename(name: str) -> str:
-    safe_name = Path(name).name
-    stem = Path(safe_name).stem
-    suffix = Path(safe_name).suffix.lower()
-    normalized_stem = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-") or "asset"
-    return f"{normalized_stem}{suffix}"
 
 
 class WikiAssetService:
@@ -140,7 +132,7 @@ class WikiAssetService:
         parent_path: str | None,
         preferred_name: str,
     ) -> str:
-        safe = _normalize_asset_filename(preferred_name)
+        safe = normalize_asset_name(preferred_name)
         stem = Path(safe).stem
         suffix = Path(safe).suffix
         candidate = safe

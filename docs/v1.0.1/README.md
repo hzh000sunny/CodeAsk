@@ -36,11 +36,15 @@ v1.0.1 是一个聚焦版本，专门用于建设 CodeAsk 的独立 LLM Wiki 工
 - 原生 Wiki asset 上传与内容读取：
   - `POST /api/wiki/assets`
   - `GET /api/wiki/assets/{node_id}/content`
+- 目录导入 preflight：
+  - `POST /api/wiki/imports/preflight`
+  - 支持 `multipart files[]`
+  - 以上传文件名承载相对路径
+  - 返回路径冲突和 Markdown 断链警告
 - Markdown 中引用同目录 asset 时，可解析到原生 Wiki asset node。
 
 当前仍未完成的重点能力：
 
-- 目录导入 preflight。
 - staging import job / item 明细。
 - 批量导入和来源追踪。
 - 独立 Wiki 前端工作台。
