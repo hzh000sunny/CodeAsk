@@ -24,6 +24,7 @@
 - 已完成：Phase 2 原生模型、迁移、feature 自动建 space、系统目录初始化。
 - 已完成：旧 Markdown 文档和旧报告到原生 Wiki 的同步桥，以及首次访问 Wiki 时的懒回填。
 - 已完成：Phase 3 的最小可用版本，包括 actor、权限判断、路径规范化、node detail、node create/update/delete、系统目录保护。
+- 已完成：Phase 4 的第一批后端能力，包括原生文档读取、草稿保存/删除、正式发布、版本列表。
 - 未完成：历史特性虚拟根、完整文档编辑/草稿/版本 API、导入 staging、前端独立 Wiki 工作台。
 
 ## 1. 目标目录结构
@@ -200,11 +201,11 @@ frontend/src/types/wiki.ts
 
 **步骤：**
 
-- [ ] 实现读取当前正式 Markdown。
-- [ ] 实现保存正式版本：写 version、更新 current_version_id、清理当前用户草稿、触发索引事件。
-- [ ] 实现自动保存草稿：只写 draft，不触发索引。
-- [ ] 实现丢弃草稿。
-- [ ] 实现版本列表和历史版本读取。
+- [x] 实现读取当前正式 Markdown。
+- [x] 实现保存正式版本：写 version、更新 current_version_id、清理当前用户草稿。
+- [x] 实现自动保存草稿：只写 draft，不触发索引。
+- [x] 实现丢弃草稿。
+- [x] 实现版本列表和历史版本读取。
 - [ ] 实现版本 diff API。
 - [ ] 实现回滚：把历史版本内容保存为新的正式版本。
 - [ ] 实现 Markdown 相对图片和相对 `.md` 链接解析。

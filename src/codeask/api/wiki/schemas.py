@@ -59,3 +59,40 @@ class WikiNodeUpdate(BaseModel):
 class WikiTreeRead(BaseModel):
     space: WikiSpaceRead
     nodes: list[WikiNodeRead]
+
+
+class WikiDocumentDetailRead(BaseModel):
+    document_id: int
+    node_id: int
+    title: str
+    current_version_id: int | None
+    current_body_markdown: str | None
+    draft_body_markdown: str | None
+    index_status: str
+    broken_refs_json: object | None
+    provenance_json: object | None
+    permissions: WikiNodePermissions
+
+
+class WikiDraftWrite(BaseModel):
+    body_markdown: str
+
+
+class WikiPublishRequest(BaseModel):
+    body_markdown: str | None = None
+
+
+class WikiDocumentVersionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    document_id: int
+    version_no: int
+    body_markdown: str
+    created_by_subject_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class WikiDocumentVersionListRead(BaseModel):
+    versions: list[WikiDocumentVersionRead]
