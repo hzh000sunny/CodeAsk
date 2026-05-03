@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from difflib import unified_diff
+
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,6 +149,82 @@ class WikiDocumentService:
             )
         ).scalars().all()
 
+    async def get_version(
+        self,
+        session: AsyncSession,
+        *,
+        node_id: int,
+        version_id: int,
+        actor: WikiActor,
+    ) -> WikiDocumentVersion:
+        _node, document = await self.load_document_by_node(session, node_id=node_id)
+        await self._load_feature_for_document(session, document=document)
+        return await self._load_version(session, document_id=document.id, version_id=version_id)
+
+    async def diff_versions(
+        self,
+        session: AsyncSession,
+        *,
+        node_id: int,
+        from_version_id: int,
+        to_version_id: int,
+        actor: WikiActor,
+    ) -> dict[str, object]:
+        _node, document = await self.load_document_by_node(session, node_id=node_id)
+        await self._load_feature_for_document(session, document=document)
+        from_version = await self._load_version(
+            session,
+            document_id=document.id,
+            version_id=from_version_id,
+        )
+        to_version = await self._load_version(
+            session,
+            document_id=document.id,
+            version_id=to_version_id,
+        )
+        patch = "\n".join(
+            unified_diff(
+                from_version.body_markdown.splitlines(),
+                to_version.body_markdown.splitlines(),
+                fromfile=f"v{from_version.version_no}",
+                tofile=f"v{to_version.version_no}",
+                lineterm="",
+            )
+        )
+        return {
+            "from_version_id": from_version.id,
+            "from_version_no": from_version.version_no,
+            "to_version_id": to_version.id,
+            "to_version_no": to_version.version_no,
+            "patch": patch,
+        }
+
+    async def rollback_to_version(
+        self,
+        session: AsyncSession,
+        *,
+        node_id: int,
+        version_id: int,
+        actor: WikiActor,
+    ) -> dict[str, object]:
+        _node, document = await self.load_document_by_node(session, node_id=node_id)
+        feature = await self._load_feature_for_document(session, document=document)
+        self._require_write(actor, feature)
+        version = await self._load_version(session, document_id=document.id, version_id=version_id)
+        next_version_no = await self._next_version_no(session, document_id=document.id)
+        new_version = WikiDocumentVersion(
+            document_id=document.id,
+            version_no=next_version_no,
+            body_markdown=version.body_markdown,
+            created_by_subject_id=actor.subject_id,
+        )
+        session.add(new_version)
+        await session.flush()
+        document.current_version_id = new_version.id
+        document.index_status = "ready"
+        await session.flush()
+        return await self.get_document_detail(session, node_id=node_id, actor=actor)
+
     async def _current_version(
         self,
         session: AsyncSession,
@@ -186,6 +264,28 @@ class WikiDocumentService:
             )
         ).scalar_one()
         return int(current or 0) + 1
+
+    async def _load_version(
+        self,
+        session: AsyncSession,
+        *,
+        document_id: int,
+        version_id: int,
+    ) -> WikiDocumentVersion:
+        version = (
+            await session.execute(
+                select(WikiDocumentVersion).where(
+                    WikiDocumentVersion.id == version_id,
+                    WikiDocumentVersion.document_id == document_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if version is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="wiki document version not found",
+            )
+        return version
 
     async def _load_feature_for_document(
         self,

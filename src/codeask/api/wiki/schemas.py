@@ -96,3 +96,15 @@ class WikiDocumentVersionRead(BaseModel):
 
 class WikiDocumentVersionListRead(BaseModel):
     versions: list[WikiDocumentVersionRead]
+
+
+class WikiDocumentVersionDetailRead(WikiDocumentVersionRead):
+    pass
+
+
+class WikiDocumentDiffRead(BaseModel):
+    from_version_id: int
+    from_version_no: int
+    to_version_id: int
+    to_version_no: int
+    patch: str
