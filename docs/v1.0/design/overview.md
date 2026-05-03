@@ -110,7 +110,8 @@ CodeAsk 是单仓 monorepo，但**不引入**专用 monorepo 工具（nx / turbo
 
 ```text
 CodeAsk/
-├── README.md                       # 项目入口（本地部署说明）
+├── README.md                       # 产品入口
+├── INSTALL.md                      # 安装、配置、本地开发和验证
 ├── start.sh                        # 单脚本：build 前端 → 起 backend
 ├── docs/                           # PRD / SDD / Plans（版本树见 ../STRUCTURE.md）
 │
