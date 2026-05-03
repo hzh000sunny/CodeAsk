@@ -25,6 +25,26 @@ v1.0.1 是一个聚焦版本，专门用于建设 CodeAsk 的独立 LLM Wiki 工
 | `plans/llm-wiki-workbench.md` | v1.0.1 LLM Wiki 分阶段实施计划，明确目录结构和落地顺序 |
 | `specs/llm-wiki-brainstorm.md` | 头脑风暴记录和决策快照；正式实现以 PRD / SDD / Plan 为准 |
 
+## 当前实现进度
+
+截至 2026-05-04，v1.0.1 后端已经具备以下原生能力：
+
+- Wiki space、目录树和节点 CRUD。
+- owner / admin 写权限和系统目录保护。
+- Markdown 正式内容读取、草稿、发布、版本、diff、回滚。
+- Markdown 相对 `.md` 链接和图片引用解析，返回 resolved refs 和 broken refs。
+- 原生 Wiki asset 上传与内容读取：
+  - `POST /api/wiki/assets`
+  - `GET /api/wiki/assets/{node_id}/content`
+- Markdown 中引用同目录 asset 时，可解析到原生 Wiki asset node。
+
+当前仍未完成的重点能力：
+
+- 目录导入 preflight。
+- staging import job / item 明细。
+- 批量导入和来源追踪。
+- 独立 Wiki 前端工作台。
+
 ## 文档状态
 
 当前已经从头脑风暴收敛出正式 PRD、SDD 和实施计划。后续讨论如改变产品契约，必须先更新 `prd/llm-wiki.md`；如只改变实现方式，更新 `design/llm-wiki-workbench.md` 和 `plans/llm-wiki-workbench.md`。

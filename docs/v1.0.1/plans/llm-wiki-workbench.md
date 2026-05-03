@@ -25,7 +25,8 @@
 - 已完成：旧 Markdown 文档和旧报告到原生 Wiki 的同步桥，以及首次访问 Wiki 时的懒回填。
 - 已完成：Phase 3 的最小可用版本，包括 actor、权限判断、路径规范化、node detail、node create/update/delete、系统目录保护。
 - 已完成：Phase 4 的当前后端能力，包括原生文档读取、草稿保存/删除、正式发布、版本列表、diff、回滚、基础相对引用解析和断链返回。
-- 未完成：历史特性虚拟根、完整文档编辑/草稿/版本 API、导入 staging、前端独立 Wiki 工作台。
+- 已完成：Phase 7 的第一批资源能力，包括原生 asset 上传、内容读取，以及 Markdown 对同目录 asset 的原生引用解析。
+- 未完成：历史特性虚拟根、目录导入 preflight / staging、前端独立 Wiki 工作台。
 
 ## 1. 目标目录结构
 
@@ -331,8 +332,9 @@ frontend/src/types/wiki.ts
 - [ ] 实现目录 staging，保留相对路径。
 - [ ] 为导入任务写入 `wiki_import_items`，记录 source path、staging path、target path、token estimate 和 warnings。
 - [ ] 为导入生成 provenance，并在正式 document / asset 上保留来源摘要。
-- [ ] 实现 Markdown 引用资源入库。
-- [ ] 实现资源读取 API，让 Markdown 图片能渲染。
+- [x] 实现原生 asset 手工上传入库。
+- [x] 实现资源读取 API，让 Markdown 图片能渲染。
+- [x] 让 Markdown 相对图片引用可解析到同目录原生 asset node。
 - [ ] 导入成功后批量创建版本并触发索引。
 - [ ] 提供最小 `wiki_sources` 读写接口，为后续 repo docs 或外部来源刷新预留结构。
 - [ ] 前端导入弹窗展示冲突、警告和导入结果。

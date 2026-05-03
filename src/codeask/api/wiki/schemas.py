@@ -109,3 +109,12 @@ class WikiDocumentDiffRead(BaseModel):
     to_version_id: int
     to_version_no: int
     patch: str
+
+
+class WikiAssetRead(BaseModel):
+    node_id: int
+    path: str
+    mime_type: str
+    original_name: str
+    file_name: str
+    size_bytes: int | None
