@@ -13,3 +13,7 @@ def test_resolve_reference_path_for_parent_markdown() -> None:
 
 def test_resolve_reference_path_for_image_asset() -> None:
     assert resolve_reference_path("docs/runbook", "./images/diagram.png") == "docs/images/diagram.png"
+
+
+def test_resolve_reference_path_normalizes_markdown_leaf_and_folders() -> None:
+    assert resolve_reference_path("docs/runbook", "./Guides/Guide.md") == "docs/guides/guide"

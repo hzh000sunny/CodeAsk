@@ -72,6 +72,28 @@ class WikiImportPreflightService:
         parent: WikiNode | None,
         files: list[UploadFile],
     ) -> dict[str, object]:
+        items, summary, ready = await self.analyze_import(
+            session,
+            actor=actor,
+            space=space,
+            parent=parent,
+            files=files,
+        )
+        return {
+            "ready": ready,
+            "summary": summary,
+            "items": [item.as_dict() for item in items],
+        }
+
+    async def analyze_import(
+        self,
+        session: AsyncSession,
+        *,
+        actor: WikiActor,
+        space: WikiSpace,
+        parent: WikiNode | None,
+        files: list[UploadFile],
+    ) -> tuple[list[PreflightItem], dict[str, int], bool]:
         feature = await self._load_feature_for_space(session, space_id=space.id)
         self._require_write(actor, feature)
         self._validate_parent(space=space, parent=parent)
@@ -93,6 +115,7 @@ class WikiImportPreflightService:
             body = None
             if kind == "document":
                 body = (await file.read()).decode("utf-8", errors="replace")
+                await file.seek(0)
             items.append(
                 PreflightItem(
                     relative_path=relative_path,
@@ -114,17 +137,14 @@ class WikiImportPreflightService:
         warning_count = sum(
             1 for item in items for issue in item.issues if issue.severity == "warning"
         )
-        return {
-            "ready": error_count == 0,
-            "summary": {
-                "total_files": len(items),
-                "document_count": sum(1 for item in items if item.kind == "document"),
-                "asset_count": sum(1 for item in items if item.kind == "asset"),
-                "conflict_count": error_count,
-                "warning_count": warning_count,
-            },
-            "items": [item.as_dict() for item in items],
+        summary = {
+            "total_files": len(items),
+            "document_count": sum(1 for item in items if item.kind == "document"),
+            "asset_count": sum(1 for item in items if item.kind == "asset"),
+            "conflict_count": error_count,
+            "warning_count": warning_count,
         }
+        return items, summary, error_count == 0
 
     async def _load_feature_for_space(self, session: AsyncSession, *, space_id: int) -> Feature:
         feature = (

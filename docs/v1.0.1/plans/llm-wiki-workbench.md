@@ -27,7 +27,9 @@
 - 已完成：Phase 4 的当前后端能力，包括原生文档读取、草稿保存/删除、正式发布、版本列表、diff、回滚、基础相对引用解析和断链返回。
 - 已完成：Phase 7 的第一批资源能力，包括原生 asset 上传、内容读取，以及 Markdown 对同目录 asset 的原生引用解析。
 - 已完成：Phase 7 的第一批导入能力，包括 import preflight、路径冲突检测和 Markdown 断链告警。
-- 未完成：历史特性虚拟根、目录 staging / import job、前端独立 Wiki 工作台。
+- 已完成：Phase 7 的第二批导入能力，包括 import job 创建、staged 文件落盘、job/items 查询。
+- 已完成：Phase 7 的第三批导入能力，包括 apply 导入、文档版本生成、asset 落盘和引用解析统一。
+- 未完成：历史特性虚拟根、provenance 扩充、前端独立 Wiki 工作台。
 
 ## 1. 目标目录结构
 
@@ -337,6 +339,9 @@ frontend/src/types/wiki.ts
 - [x] 实现资源读取 API，让 Markdown 图片能渲染。
 - [x] 让 Markdown 相对图片引用可解析到同目录原生 asset node。
 - [x] 约定 preflight 使用 `multipart files[]`，相对路径通过上传文件名传递。
+- [x] 实现 `POST /api/wiki/imports` 创建 import job，并把上传文件按原相对路径写入 staging 目录。
+- [x] 实现 `GET /api/wiki/imports/{job_id}` 与 `/items`，返回 summary 和 item 明细。
+- [x] 实现 `POST /api/wiki/imports/{job_id}/apply`，把 staged 内容落成 native wiki nodes / documents / assets。
 - [ ] 导入成功后批量创建版本并触发索引。
 - [ ] 提供最小 `wiki_sources` 读写接口，为后续 repo docs 或外部来源刷新预留结构。
 - [ ] 前端导入弹窗展示冲突、警告和导入结果。

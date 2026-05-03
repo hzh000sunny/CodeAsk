@@ -41,12 +41,18 @@ v1.0.1 是一个聚焦版本，专门用于建设 CodeAsk 的独立 LLM Wiki 工
   - 支持 `multipart files[]`
   - 以上传文件名承载相对路径
   - 返回路径冲突和 Markdown 断链警告
+- 导入任务 staging：
+  - `POST /api/wiki/imports`
+  - `GET /api/wiki/imports/{job_id}`
+  - `GET /api/wiki/imports/{job_id}/items`
+  - 在 `data_dir/wiki/imports/job_{id}/` 按原相对路径保存 staged 文件
+  - `POST /api/wiki/imports/{job_id}/apply` 会把 staged 文件落成原生 Wiki node / document / asset
 - Markdown 中引用同目录 asset 时，可解析到原生 Wiki asset node。
 
 当前仍未完成的重点能力：
 
-- staging import job / item 明细。
 - 批量导入和来源追踪。
+- `POST /api/wiki/imports/{job_id}/apply`。
 - 独立 Wiki 前端工作台。
 
 ## 文档状态

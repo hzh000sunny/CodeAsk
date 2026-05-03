@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.db.models import WikiNode
+from codeask.wiki.paths import normalize_asset_name, normalize_node_name
 
 _IMG_LINK_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 _REL_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)\s#]+)(?:\s+\"[^\"]*\")?\)")
@@ -44,10 +45,28 @@ def resolve_reference_path(source_path: str, target: str) -> str:
     source_dir = PurePosixPath(source_path).parent
     candidate = source_dir.joinpath(PurePosixPath(target))
     normalized = posixpath.normpath(PurePosixPath(str(candidate)).as_posix())
+    parts = [part for part in PurePosixPath(normalized).parts if part not in {"", "."}]
     if normalized.endswith(".md"):
-        normalized = normalized[:-3]
+        normalized = "/".join(
+            [
+                *[normalize_node_name(part) for part in parts[:-1]],
+                normalize_node_name(PurePosixPath(parts[-1]).stem),
+            ]
+        )
     elif normalized.endswith(".markdown"):
-        normalized = normalized[:-9]
+        normalized = "/".join(
+            [
+                *[normalize_node_name(part) for part in parts[:-1]],
+                normalize_node_name(PurePosixPath(parts[-1]).stem),
+            ]
+        )
+    else:
+        normalized = "/".join(
+            [
+                *[normalize_node_name(part) for part in parts[:-1]],
+                normalize_asset_name(parts[-1]),
+            ]
+        )
     if normalized.startswith("./"):
         normalized = normalized[2:]
     return normalized.strip("/")

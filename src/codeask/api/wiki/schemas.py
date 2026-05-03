@@ -1,6 +1,7 @@
 """Schemas for native wiki APIs."""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -148,3 +149,28 @@ class WikiImportPreflightRead(BaseModel):
     ready: bool
     summary: WikiImportPreflightSummaryRead
     items: list[WikiImportPreflightItemRead]
+
+
+class WikiImportJobRead(BaseModel):
+    id: int
+    space_id: int
+    status: str
+    requested_by_subject_id: str
+    created_at: datetime
+    updated_at: datetime
+    summary: WikiImportPreflightSummaryRead
+
+
+class WikiImportJobItemRead(BaseModel):
+    id: int
+    source_path: str
+    target_path: str | None
+    item_kind: str | None
+    status: str
+    warnings: list[dict[str, Any]]
+    staging_path: str | None = None
+    result_node_id: int | None = None
+
+
+class WikiImportJobItemsRead(BaseModel):
+    items: list[WikiImportJobItemRead]

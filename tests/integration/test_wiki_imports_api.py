@@ -1,7 +1,8 @@
-"""End-to-end native wiki import preflight API tests."""
+"""End-to-end native wiki import API tests."""
 
 import pytest
 from httpx import AsyncClient
+from codeask.settings import Settings
 
 
 PNG_BYTES = (
@@ -144,6 +145,189 @@ async def test_non_owner_cannot_run_import_preflight(client: AsyncClient) -> Non
         "/api/wiki/imports/preflight",
         data={"space_id": str(space_id), "parent_id": str(parent_id)},
         files=[("files", ("Runbook.md", b"# Runbook", "text/markdown"))],
+        headers={"X-Subject-Id": "viewer@dev-9"},
+    )
+
+    assert response.status_code == 403, response.text
+
+
+@pytest.mark.asyncio
+async def test_create_import_job_persists_staged_files_and_items(
+    client: AsyncClient,
+    settings: Settings,
+) -> None:
+    space_id, parent_id = await _create_space_and_folder(client, slug="wiki-imports-job")
+
+    response = await client.post(
+        "/api/wiki/imports",
+        data={"space_id": str(space_id), "parent_id": str(parent_id)},
+        files=[
+            (
+                "files",
+                (
+                    "Runbook.md",
+                    b"# Runbook\n\nSee [Guide](./guides/Guide.md)\n\n![Diagram](./images/diagram.png)",
+                    "text/markdown",
+                ),
+            ),
+            ("files", ("guides/Guide.md", b"# Guide\n", "text/markdown")),
+            ("files", ("images/diagram.png", PNG_BYTES, "image/png")),
+        ],
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    job_id = int(body["id"])
+    assert body["status"] == "queued"
+    assert body["space_id"] == space_id
+    assert body["summary"] == {
+        "total_files": 3,
+        "document_count": 2,
+        "asset_count": 1,
+        "conflict_count": 0,
+        "warning_count": 0,
+    }
+
+    job_response = await client.get(
+        f"/api/wiki/imports/{job_id}",
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert job_response.status_code == 200, job_response.text
+    assert job_response.json()["id"] == job_id
+    assert job_response.json()["summary"] == body["summary"]
+
+    items_response = await client.get(
+        f"/api/wiki/imports/{job_id}/items",
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert items_response.status_code == 200, items_response.text
+    items = {item["source_path"]: item for item in items_response.json()["items"]}
+    assert items["Runbook.md"]["target_path"] == "docs/runbook"
+    assert items["Runbook.md"]["status"] == "pending"
+    assert items["Runbook.md"]["item_kind"] == "document"
+    assert items["guides/Guide.md"]["target_path"] == "docs/guides/guide"
+    assert items["images/diagram.png"]["target_path"] == "docs/images/diagram.png"
+    assert items["images/diagram.png"]["item_kind"] == "asset"
+    assert items["Runbook.md"]["warnings"] == []
+
+    staged_root = settings.data_dir / "wiki" / "imports" / f"job_{job_id}"
+    assert (staged_root / "Runbook.md").read_text(encoding="utf-8") == (
+        "# Runbook\n\nSee [Guide](./guides/Guide.md)\n\n![Diagram](./images/diagram.png)"
+    )
+    assert (staged_root / "guides" / "Guide.md").read_text(encoding="utf-8") == "# Guide\n"
+    assert (staged_root / "images" / "diagram.png").read_bytes() == PNG_BYTES
+
+
+@pytest.mark.asyncio
+async def test_create_import_job_rejects_conflicts(client: AsyncClient) -> None:
+    space_id, parent_id = await _create_space_and_folder(client, slug="wiki-imports-job-conflict")
+
+    existing = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": space_id,
+            "parent_id": parent_id,
+            "type": "document",
+            "name": "Existing",
+        },
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert existing.status_code == 201, existing.text
+
+    response = await client.post(
+        "/api/wiki/imports",
+        data={"space_id": str(space_id), "parent_id": str(parent_id)},
+        files=[("files", ("Existing.md", b"# Existing", "text/markdown"))],
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "import preflight has conflicts"
+
+
+@pytest.mark.asyncio
+async def test_apply_import_job_creates_native_wiki_content(client: AsyncClient) -> None:
+    space_id, parent_id = await _create_space_and_folder(client, slug="wiki-imports-apply")
+
+    create_response = await client.post(
+        "/api/wiki/imports",
+        data={"space_id": str(space_id), "parent_id": str(parent_id)},
+        files=[
+            (
+                "files",
+                (
+                    "Runbook.md",
+                    b"# Runbook\n\nSee [Guide](./guides/Guide.md)\n\n![Diagram](./images/diagram.png)",
+                    "text/markdown",
+                ),
+            ),
+            ("files", ("guides/Guide.md", b"# Guide\n", "text/markdown")),
+            ("files", ("images/diagram.png", PNG_BYTES, "image/png")),
+        ],
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert create_response.status_code == 201, create_response.text
+    job_id = int(create_response.json()["id"])
+
+    apply_response = await client.post(
+        f"/api/wiki/imports/{job_id}/apply",
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert apply_response.status_code == 200, apply_response.text
+    assert apply_response.json()["status"] == "succeeded"
+
+    items_response = await client.get(
+        f"/api/wiki/imports/{job_id}/items",
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert items_response.status_code == 200, items_response.text
+    items = {item["source_path"]: item for item in items_response.json()["items"]}
+    assert items["Runbook.md"]["status"] == "imported"
+    assert items["Runbook.md"]["result_node_id"] is not None
+    assert items["guides/Guide.md"]["status"] == "imported"
+    assert items["images/diagram.png"]["status"] == "imported"
+    assert items["images/diagram.png"]["result_node_id"] is not None
+
+    runbook_response = await client.get(
+        f"/api/wiki/documents/{items['Runbook.md']['result_node_id']}",
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert runbook_response.status_code == 200, runbook_response.text
+    runbook = runbook_response.json()
+    assert runbook["current_body_markdown"] == (
+        "# Runbook\n\nSee [Guide](./guides/Guide.md)\n\n![Diagram](./images/diagram.png)"
+    )
+    refs = {item["target"]: item for item in runbook["resolved_refs_json"]}
+    assert refs["./guides/Guide.md"]["broken"] is False
+    assert refs["./guides/Guide.md"]["resolved_node_id"] == items["guides/Guide.md"]["result_node_id"]
+    assert refs["./images/diagram.png"]["broken"] is False
+    assert refs["./images/diagram.png"]["resolved_node_id"] == items["images/diagram.png"]["result_node_id"]
+    assert runbook["broken_refs_json"] == {"links": [], "assets": []}
+
+    asset_response = await client.get(
+        f"/api/wiki/assets/{items['images/diagram.png']['result_node_id']}/content",
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert asset_response.status_code == 200, asset_response.text
+    assert asset_response.content == PNG_BYTES
+
+
+@pytest.mark.asyncio
+async def test_non_owner_cannot_apply_import_job(client: AsyncClient) -> None:
+    space_id, parent_id = await _create_space_and_folder(client, slug="wiki-imports-apply-denied")
+
+    create_response = await client.post(
+        "/api/wiki/imports",
+        data={"space_id": str(space_id), "parent_id": str(parent_id)},
+        files=[("files", ("Runbook.md", b"# Runbook", "text/markdown"))],
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert create_response.status_code == 201, create_response.text
+    job_id = int(create_response.json()["id"])
+
+    response = await client.post(
+        f"/api/wiki/imports/{job_id}/apply",
         headers={"X-Subject-Id": "viewer@dev-9"},
     )
 
