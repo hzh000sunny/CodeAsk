@@ -26,6 +26,9 @@ data/
 .worktrees/
 worktrees/
 
+# External reference repositories
+references/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 v1.0 主链路不变的前提下，新增独立 LLM Wiki 工作台，支持 Markdown-only 目录树、阅读、编辑、版本、导入、报告投影、权限通道、搜索索引和 Agent 回源引用。
+**Goal:** 在 v1.0 主链路不变的前提下，新增独立 LLM Wiki 工作台，并把它落成一个完整的工程知识生命周期系统，支持 Markdown-only 目录树、来源追踪、导入 staging、阅读、编辑、版本、报告投影、权限通道、搜索索引和 Agent 回源引用。
 
-**Architecture:** 采用独立 Wiki bounded context。后端新增 Wiki 原生模型和 `/api/wiki/*` 主 API，旧 `/api/documents` 仅做兼容；前端新增 `components/wiki` 和 `lib/wiki`，特性页只保留当前特性的树和预览入口。
+**Architecture:** 采用独立 Wiki bounded context。后端新增 Wiki 原生模型和 `/api/wiki/*` 主 API，旧 `/api/documents` 仅做兼容；同时引入来源、导入 item、临时证据晋级的架构预留。前端新增 `components/wiki` 和 `lib/wiki`，特性页只保留当前特性的树和预览入口。
 
 **Tech Stack:** FastAPI、SQLAlchemy async、Alembic、SQLite FTS5、React、TypeScript、TanStack Query、Lucide、MarkdownRenderer。
 
@@ -87,7 +87,7 @@ frontend/src/types/wiki.ts
 
 ## 3. Phase 2: Wiki 原生模型和迁移
 
-**目标：** 新增 Wiki 数据模型，并从现有 feature/document/report 初始化 Wiki 树。
+**目标：** 新增 Wiki 数据模型，并从现有 feature/document/report 初始化 Wiki 树，同时补上来源与导入谱系的结构基础。
 
 **主要文件：**
 
@@ -95,7 +95,9 @@ frontend/src/types/wiki.ts
 - 创建：`src/codeask/db/models/wiki/node.py`
 - 创建：`src/codeask/db/models/wiki/document.py`
 - 创建：`src/codeask/db/models/wiki/asset.py`
+- 创建：`src/codeask/db/models/wiki/source.py`
 - 创建：`src/codeask/db/models/wiki/import_job.py`
+- 创建：`src/codeask/db/models/wiki/import_item.py`
 - 创建：`src/codeask/db/models/wiki/event.py`
 - 修改：`src/codeask/db/models/__init__.py`
 - 创建：`alembic/versions/*_wiki_native_models.py`
@@ -109,20 +111,22 @@ frontend/src/types/wiki.ts
 
 **步骤：**
 
-- [ ] 新增 `wiki_spaces`、`wiki_nodes`、`wiki_documents`、`wiki_document_versions`、`wiki_document_drafts`、`wiki_assets`、`wiki_report_refs`、`wiki_node_events`、`wiki_import_jobs`。
+- [ ] 新增 `wiki_spaces`、`wiki_nodes`、`wiki_documents`、`wiki_document_versions`、`wiki_document_drafts`、`wiki_assets`、`wiki_sources`、`wiki_report_refs`、`wiki_node_events`、`wiki_import_jobs`、`wiki_import_items`。
 - [ ] 定义 active path 唯一约束、version 唯一约束、space-feature 唯一约束。
+- [ ] 为 document 和 asset 设计 provenance 字段，至少能表达 `manual_upload`、`directory_import`、`session_promotion` 这几类来源。
 - [ ] 写 migration 测试，验证空库升级成功。
 - [ ] 写已有 feature 初始化测试：每个 feature 生成一个 active current space。
 - [ ] 写系统目录测试：每个 space 自动创建 `知识库` 和 `问题定位报告`。
 - [ ] 写 document 迁移测试：旧 document 进入 `知识库` 并生成第一个正式版本。
 - [ ] 写 report ref 迁移测试：旧 report 投影到 `问题定位报告` 虚拟状态分组。
 - [ ] 实现迁移脚本，保证重复启动不会重复创建同一 space 和系统目录。
+- [ ] 为旧 `documents` 填充默认 provenance，避免新架构下出现无来源的正式知识。
 
 **验收：**
 
 - 新表可迁移、可回放、可幂等初始化。
 - 旧数据不会丢失。
-- 新模型具备完整 Wiki 树的基本表达能力。
+- 新模型具备完整 Wiki 树、来源信息和导入谱系的基本表达能力。
 
 ## 4. Phase 3: 权限、路径和目录树 API
 
@@ -287,7 +291,7 @@ frontend/src/types/wiki.ts
 
 ## 8. Phase 7: 上传目录、资源和断链
 
-**目标：** 支持上传 Markdown 和目录，保留相对路径和图片资源。
+**目标：** 支持上传 Markdown 和目录，保留相对路径和图片资源，并让导入过程具备 staging item、来源信息和结果明细。
 
 **主要文件：**
 
@@ -296,9 +300,12 @@ frontend/src/types/wiki.ts
 - 创建：`src/codeask/wiki/imports/preflight.py`
 - 创建：`src/codeask/wiki/imports/unpacker.py`
 - 创建：`src/codeask/wiki/imports/references.py`
+- 创建：`src/codeask/wiki/sources/service.py`
+- 创建：`src/codeask/wiki/sources/repo.py`
 - 创建：`src/codeask/wiki/assets/service.py`
 - 创建：`src/codeask/wiki/assets/storage.py`
 - 创建：`src/codeask/api/wiki/imports.py`
+- 创建：`src/codeask/api/wiki/sources.py`
 - 创建：`src/codeask/api/wiki/assets.py`
 - 创建：`frontend/src/components/wiki/WikiImportDialog.tsx`
 - 创建：`frontend/src/components/wiki/hooks/useWikiImport.ts`
@@ -313,9 +320,12 @@ frontend/src/types/wiki.ts
 - [ ] 实现 import preflight，列出同名冲突和断链警告。
 - [ ] 冲突时阻断导入，不覆盖、不重命名、不跳过。
 - [ ] 实现目录 staging，保留相对路径。
+- [ ] 为导入任务写入 `wiki_import_items`，记录 source path、staging path、target path、token estimate 和 warnings。
+- [ ] 为导入生成 provenance，并在正式 document / asset 上保留来源摘要。
 - [ ] 实现 Markdown 引用资源入库。
 - [ ] 实现资源读取 API，让 Markdown 图片能渲染。
 - [ ] 导入成功后批量创建版本并触发索引。
+- [ ] 提供最小 `wiki_sources` 读写接口，为后续 repo docs 或外部来源刷新预留结构。
 - [ ] 前端导入弹窗展示冲突、警告和导入结果。
 
 **验收：**
@@ -324,6 +334,7 @@ frontend/src/types/wiki.ts
 - 相对图片能在预览中显示。
 - 断链可见但不阻断。
 - 冲突阻断且提示清晰。
+- 导入结果可追溯到 item 级别，正式文档具备来源摘要。
 
 ## 9. Phase 8: 报告投影和特性页轻量入口
 
@@ -353,12 +364,14 @@ frontend/src/types/wiki.ts
 - [ ] 标记未通过、撤销验证、删除后从默认报告索引下架。
 - [ ] 特性页 KnowledgePanel 只展示当前特性目录树和预览。
 - [ ] 特性页上传、编辑、移动、删除、历史版本入口跳转到独立 Wiki 页面。
+- [ ] 预留“会话附件 / 会话产物晋级为 wiki 内容”的服务边界，哪怕首版先不做完整 UI。
 
 **验收：**
 
 - 报告列表不再只有草稿标签。
 - 报告状态动作来自生命周期 API，不允许拖拽改变。
 - 特性页不承载完整 Wiki 管理，但入口完整。
+- 会话、报告和正式 wiki 之间的边界在架构和服务层已清楚，不再只是概念描述。
 
 ## 10. Phase 9: 搜索、索引和 Agent 回源
 
@@ -403,7 +416,7 @@ frontend/src/types/wiki.ts
 
 ## 11. Phase 10: 清理、兼容和稳定化
 
-**目标：** 确保新旧 API 边界清楚，软删除清理可运行，文档同步完成。
+**目标：** 确保新旧 API 边界清楚，软删除清理可运行，来源和导入状态可观察，文档同步完成。
 
 **主要文件：**
 
@@ -422,6 +435,7 @@ frontend/src/types/wiki.ts
 
 - [ ] 加入 30 天软删除清理任务，保留历史版本和历史特性。
 - [ ] 实现手动重新索引 repair API，限制 owner/admin。
+- [ ] 为导入任务、来源刷新、session promotion 预留或补齐审计事件。
 - [ ] 标记旧 `/api/documents` 兼容层，不在其上增加新能力。
 - [ ] 更新 README 和 v1.0.1 文档的落地状态。
 - [ ] 跑全量后端测试。
@@ -433,6 +447,7 @@ frontend/src/types/wiki.ts
 - 新 Wiki 功能由 `/api/wiki/*` 承载。
 - 旧 API 测试通过。
 - 软删除清理不误删历史版本和历史特性。
+- 正式知识、导入任务和来源谱系都具备可检查状态。
 - 文档、代码、测试三者一致。
 
 ## 12. 风险和处理
