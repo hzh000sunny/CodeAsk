@@ -1174,6 +1174,8 @@ textarea:focus-visible {
 }
 
 .markdown-body {
+  min-width: 0;
+  max-width: 100%;
   margin-top: 6px;
   color: #1f2937;
   line-height: 1.62;
@@ -1241,6 +1243,7 @@ textarea:focus-visible {
 }
 
 .markdown-body code {
+  max-width: 100%;
   border-radius: 5px;
   background: #eef2f6;
   color: #1f2937;
@@ -1249,14 +1252,20 @@ textarea:focus-visible {
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "CodeAsk Sans CJK", "Noto Sans CJK SC", "Microsoft YaHei", monospace;
   font-size: 0.92em;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .markdown-code-block {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
   margin: 10px 0;
 }
 
 .markdown-code-block pre {
+  min-width: 0;
   max-width: 100%;
   overflow: auto;
   border: 1px solid #d9e1ea;
@@ -1299,7 +1308,10 @@ textarea:focus-visible {
 }
 
 .markdown-body table {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -1309,6 +1321,7 @@ textarea:focus-visible {
   border: 1px solid #d9e1ea;
   padding: 6px 8px;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .markdown-body th {
@@ -1852,7 +1865,10 @@ textarea:focus-visible {
 }
 
 .tab-content {
+  flex: 1;
+  min-height: 0;
   padding: 22px;
+  overflow: auto;
 }
 
 .two-column,
@@ -1863,6 +1879,7 @@ textarea:focus-visible {
 }
 
 .surface {
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
@@ -1906,6 +1923,27 @@ textarea:focus-visible {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.user-profile-form {
+  display: grid;
+  row-gap: 8px;
+  margin-top: 16px;
+}
+
+.user-profile-field {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 360px);
+  align-items: center;
+  column-gap: 14px;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.user-profile-actions {
+  margin-top: 0;
+  margin-left: 124px;
 }
 
 .content-toolbar {
@@ -2067,8 +2105,126 @@ textarea:focus-visible {
 
 .report-preview {
   display: grid;
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 0;
   gap: 12px;
   margin-top: 16px;
+  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.reports-tab-content {
+  overflow: hidden;
+}
+
+.report-list-surface,
+.report-detail-surface {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.report-list-surface {
+  overflow: hidden;
+}
+
+.report-list-surface .data-list {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.report-detail-surface {
+  overflow: hidden;
+}
+
+.report-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.report-detail-header .section-title {
+  margin: 0;
+}
+
+.report-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+
+.report-edit-form {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.report-edit-form .textarea {
+  min-height: 220px;
+}
+
+.report-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.report-action-status {
+  margin-bottom: 12px;
+}
+
+.report-action-status[data-tone="danger"] {
+  color: #b42318;
+}
+
+.report-filter-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 14px;
+  border: 1px solid #d9e1ea;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 4px;
+}
+
+.report-filter-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #475467;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.report-filter-button:hover {
+  color: #1f2937;
+}
+
+.report-filter-button[aria-selected="true"] {
+  background: #ffffff;
+  color: #1f2937;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+}
+
+.report-filter-button small {
+  color: #667085;
+  font-size: 12px;
 }
 
 .report-preview-title {

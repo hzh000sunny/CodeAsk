@@ -4,79 +4,39 @@
 
 from __future__ import annotations
 
-import inspect
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any, cast
 
 from jsonschema import Draft7Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
-from pydantic import BaseModel, Field
 
 from codeask.agent.state import AgentState
+from codeask.agent.tool_delegates import register_delegate_tools
+from codeask.agent.tool_models import (
+    AskUserSignal,
+    RegisteredTool,
+    RepoNotReadyError,
+    ToolContext,
+    ToolFn,
+    ToolResult,
+)
+from codeask.agent.tool_schemas import ASK_USER_SCHEMA, SELECT_FEATURE_SCHEMA
 from codeask.llm.types import ToolDef
 
 
-def _empty_evidence() -> list[dict[str, Any]]:
-    return []
-
-
-class ToolResult(BaseModel):
-    ok: bool
-    data: dict[str, Any] | None = None
-    summary: str | None = None
-    evidence: list[dict[str, Any]] = Field(default_factory=_empty_evidence)
-    truncated: bool = False
-    hint: str | None = None
-    error_code: str | None = None
-    message: str | None = None
-    recoverable: bool = True
-
-
-@dataclass(frozen=True)
-class ToolContext:
-    session_id: str
-    turn_id: str
-    feature_ids: list[int]
-    repo_bindings: list[dict[str, Any]]
-    subject_id: str
-    phase: AgentState
-    limits: dict[str, Any]
-
-
-class AskUserSignal(Exception):
-    def __init__(
-        self,
-        question: str,
-        options: list[str] | None,
-        ask_id: str,
-    ) -> None:
-        super().__init__(question)
-        self.question = question
-        self.options = options
-        self.ask_id = ask_id
-
-
-class RepoNotReadyError(Exception):
-    """Raised by code tools when a repo is not ready for investigation."""
-
-
-ToolFn = Callable[[dict[str, Any], ToolContext], Awaitable[ToolResult]]
-
-
-@dataclass(frozen=True)
-class _RegisteredTool:
-    name: str
-    description: str
-    schema: dict[str, Any]
-    validator: Draft7Validator
-    allowed_phases: set[AgentState]
-    fn: ToolFn
+__all__ = [
+    "AskUserSignal",
+    "RepoNotReadyError",
+    "ToolContext",
+    "ToolFn",
+    "ToolRegistry",
+    "ToolResult",
+]
 
 
 class ToolRegistry:
     def __init__(self) -> None:
-        self._tools: dict[str, _RegisteredTool] = {}
+        self._tools: dict[str, RegisteredTool] = {}
 
     def register(
         self,
@@ -90,7 +50,7 @@ class ToolRegistry:
         validator = Draft7Validator(schema)
 
         def decorator(fn: ToolFn) -> ToolFn:
-            self._tools[name] = _RegisteredTool(
+            self._tools[name] = RegisteredTool(
                 name=name,
                 description=description,
                 schema=schema,
@@ -172,7 +132,7 @@ class ToolRegistry:
 
         @registry.register(
             "select_feature",
-            schema=_SELECT_FEATURE_SCHEMA,
+            schema=SELECT_FEATURE_SCHEMA,
             allowed_phases={AgentState.ScopeDetection},
             description="Select relevant feature ids for the current question.",
         )
@@ -181,7 +141,7 @@ class ToolRegistry:
 
         @registry.register(
             "ask_user",
-            schema=_ASK_USER_SCHEMA,
+            schema=ASK_USER_SCHEMA,
             allowed_phases={AgentState.ScopeDetection, AgentState.VersionConfirmation},
             description="Pause the agent and ask the user for missing information.",
         )
@@ -198,222 +158,10 @@ class ToolRegistry:
                 ask_id=str(args["ask_id"]),
             )
 
-        _register_delegate_tools(
+        register_delegate_tools(
             registry,
             wiki_search_service,
             code_search_service,
             attachment_repo,
         )
         return registry
-
-
-def _object_schema(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": required,
-        "additionalProperties": False,
-    }
-
-
-_SELECT_FEATURE_SCHEMA = _object_schema(
-    {
-        "feature_ids": {"type": "array", "items": {"type": ["integer", "string"]}},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "reason": {"type": "string"},
-    },
-    ["feature_ids", "confidence", "reason"],
-)
-_ASK_USER_SCHEMA = _object_schema(
-    {
-        "question": {"type": "string"},
-        "options": {"type": ["array", "null"], "items": {"type": "string"}},
-        "ask_id": {"type": "string"},
-    },
-    ["question", "ask_id"],
-)
-_QUERY_SCHEMA = _object_schema(
-    {
-        "query": {"type": "string"},
-        "top_k": {"type": "integer", "minimum": 1},
-    },
-    ["query"],
-)
-_READ_WIKI_DOC_SCHEMA = _object_schema(
-    {
-        "document_id": {"type": "integer"},
-        "heading_path": {"type": ["string", "null"]},
-    },
-    ["document_id"],
-)
-_READ_REPORT_SCHEMA = _object_schema({"report_id": {"type": "integer"}}, ["report_id"])
-_GREP_CODE_SCHEMA = _object_schema(
-    {
-        "repo_id": {"type": "string"},
-        "commit_sha": {"type": "string"},
-        "query": {"type": "string"},
-        "path_glob": {"type": ["string", "null"]},
-    },
-    ["repo_id", "commit_sha", "query"],
-)
-_READ_FILE_SCHEMA = _object_schema(
-    {
-        "repo_id": {"type": "string"},
-        "commit_sha": {"type": "string"},
-        "path": {"type": "string"},
-        "line_start": {"type": ["integer", "null"]},
-        "line_end": {"type": ["integer", "null"]},
-    },
-    ["repo_id", "commit_sha", "path"],
-)
-_LIST_SYMBOLS_SCHEMA = _object_schema(
-    {
-        "repo_id": {"type": "string"},
-        "commit_sha": {"type": "string"},
-        "name": {"type": "string"},
-    },
-    ["repo_id", "commit_sha", "name"],
-)
-_READ_LOG_SCHEMA = _object_schema(
-    {
-        "attachment_id": {"type": "string"},
-        "line_start": {"type": ["integer", "null"]},
-        "line_end": {"type": ["integer", "null"]},
-    },
-    ["attachment_id"],
-)
-
-
-def _register_delegate_tools(
-    registry: ToolRegistry,
-    wiki_search_service: object | None,
-    code_search_service: object | None,
-    attachment_repo: object | None,
-) -> None:
-    async def wiki_delegate(args: dict[str, Any], ctx: ToolContext, method: str) -> ToolResult:
-        return await _delegate(wiki_search_service, method, args, ctx)
-
-    async def code_delegate(args: dict[str, Any], ctx: ToolContext, method: str) -> ToolResult:
-        return await _delegate(code_search_service, method, args, ctx)
-
-    async def attachment_delegate(
-        args: dict[str, Any],
-        ctx: ToolContext,
-        method: str,
-    ) -> ToolResult:
-        return await _delegate(attachment_repo, method, args, ctx)
-
-    @registry.register(
-        "search_wiki",
-        schema=_QUERY_SCHEMA,
-        allowed_phases={AgentState.KnowledgeRetrieval},
-        description="Search wiki documents.",
-    )
-    async def search_wiki(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        return await wiki_delegate(args, ctx, "search_wiki")
-
-    @registry.register(
-        "search_reports",
-        schema=_QUERY_SCHEMA,
-        allowed_phases={AgentState.KnowledgeRetrieval},
-        description="Search verified reports.",
-    )
-    async def search_reports(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        return await wiki_delegate(args, ctx, "search_reports")
-
-    @registry.register(
-        "read_wiki_doc",
-        schema=_READ_WIKI_DOC_SCHEMA,
-        allowed_phases={AgentState.KnowledgeRetrieval},
-        description="Read a wiki document section.",
-    )
-    async def read_wiki_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        return await wiki_delegate(args, ctx, "read_wiki_doc")
-
-    @registry.register(
-        "read_report",
-        schema=_READ_REPORT_SCHEMA,
-        allowed_phases={AgentState.KnowledgeRetrieval},
-        description="Read a verified report.",
-    )
-    async def read_report(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        return await wiki_delegate(args, ctx, "read_report")
-
-    @registry.register(
-        "grep_code",
-        schema=_GREP_CODE_SCHEMA,
-        allowed_phases={AgentState.CodeInvestigation},
-        description="Search code with ripgrep.",
-    )
-    async def grep_code(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        return await code_delegate(args, ctx, "grep_code")
-
-    @registry.register(
-        "read_file",
-        schema=_READ_FILE_SCHEMA,
-        allowed_phases={AgentState.CodeInvestigation},
-        description="Read a code file range.",
-    )
-    async def read_file(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        return await code_delegate(args, ctx, "read_file")
-
-    @registry.register(
-        "list_symbols",
-        schema=_LIST_SYMBOLS_SCHEMA,
-        allowed_phases={AgentState.CodeInvestigation},
-        description="Find symbols in a repository.",
-    )
-    async def list_symbols(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        return await code_delegate(args, ctx, "list_symbols")
-
-    @registry.register(
-        "read_log",
-        schema=_READ_LOG_SCHEMA,
-        allowed_phases={AgentState.InputAnalysis},
-        description="Read a session log attachment range.",
-    )
-    async def read_log(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        return await attachment_delegate(args, ctx, "read_log")
-
-
-async def _delegate(
-    service: object | None,
-    method_name: str,
-    args: dict[str, Any],
-    ctx: ToolContext,
-) -> ToolResult:
-    if service is None:
-        return ToolResult(
-            ok=False,
-            error_code="TOOL_NOT_CONFIGURED",
-            message=f"tool backend for {method_name!r} is not configured",
-        )
-
-    method = getattr(service, method_name, None)
-    if method is None:
-        if not callable(service):
-            return ToolResult(
-                ok=False,
-                error_code="TOOL_NOT_CONFIGURED",
-                message=f"tool backend does not implement {method_name!r}",
-            )
-        result = service(method_name, args, ctx)
-    else:
-        result = method(args, ctx)
-
-    if inspect.isawaitable(result):
-        result = await result
-    return _coerce_tool_result(result)
-
-
-def _coerce_tool_result(value: object) -> ToolResult:
-    if isinstance(value, ToolResult):
-        return value
-    if isinstance(value, dict):
-        data = {str(key): item for key, item in cast(dict[object, Any], value).items()}
-        if "ok" in data:
-            return ToolResult.model_validate(data)
-        return ToolResult(ok=True, data=data)
-    if isinstance(value, list):
-        return ToolResult(ok=True, data={"items": cast(list[object], value)})
-    return ToolResult(ok=True, data={"result": value})

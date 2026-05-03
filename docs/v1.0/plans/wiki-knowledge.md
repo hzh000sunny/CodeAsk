@@ -2201,7 +2201,7 @@ git commit -m "feat(wiki): WikiSearchService multi-channel recall + fusion"
 - Create: `tests/integration/test_wiki_reports_lifecycle.py`
 
 按 `evidence-report.md` §7：
-- `verify(report_id, subject_id)` 闸门：报告至少含一条日志证据 / 代码证据全部带 `commit_sha` / 有适用条件 / 有修复建议或验证方式。条件不满足 → 抛 `ReportVerificationError`。
+- `verify(report_id, subject_id)` 闸门：报告至少含一条日志或代码证据 / 代码证据全部带 `commit_sha` / 有适用条件 / 有修复建议或验证方式。条件不满足 → 抛 `ReportVerificationError`。
 - `verify` 通过：写 `verified=True` / `verified_by` / `verified_at` / `status=verified`，调 `WikiIndexer.index_report`，调 `audit.write("report.verified", ...)`。
 - `unverify(report_id, subject_id)`：把 `verified=False` / `status=draft`，调 `WikiIndexer.unindex_report`，调 `audit.write("report.unverified", ...)`。
 - `audit.write(event, payload, *, subject_id, log)`：一期写 structlog（`event="audit_log"`），由 06 metrics-eval 替换为写 `audit_log` 表。
@@ -2210,7 +2210,7 @@ git commit -m "feat(wiki): WikiSearchService multi-channel recall + fusion"
 
 | 字段 | 通过条件 |
 |---|---|
-| `evidence` | 至少一条 `type="log"` |
+| `evidence` | 至少一条 `type="log"` 或 `type="code"` |
 | `evidence` | 所有 `type="code"` 的条目都有非空 `source.commit_sha` |
 | `applicability` | 非空字符串 |
 | `recommended_fix` 或 `verification_steps` | 至少一个非空 |

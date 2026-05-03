@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 from collections.abc import AsyncIterator
 from dataclasses import asdict
@@ -40,6 +39,14 @@ from codeask.db.models import (
     Report,
 )
 from codeask.metrics.audit import record_audit_log
+from codeask.wiki.api_support import (
+    kind_from_filename,
+    markdown_references,
+    parse_tags,
+    repo_to_out,
+    unique_feature_slug,
+    wiki_storage_dir,
+)
 from codeask.wiki.chunker import DocumentChunker
 from codeask.wiki.indexer import WikiIndexer
 from codeask.wiki.reports import ReportService, ReportVerificationError
@@ -47,17 +54,6 @@ from codeask.wiki.search import WikiSearchService
 from codeask.wiki.uploads import UnsupportedMime, validate_upload
 
 router = APIRouter()
-
-_KIND_BY_EXT: dict[str, str] = {
-    ".md": "markdown",
-    ".markdown": "markdown",
-    ".txt": "text",
-    ".text": "text",
-    ".pdf": "pdf",
-    ".docx": "docx",
-}
-_IMG_LINK_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
-_REL_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)\s#]+)(?:\s+\"[^\"]*\")?\)")
 
 
 async def _session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -81,7 +77,7 @@ async def create_feature(
     request: Request,
     session: SessionDep,
 ) -> FeatureRead:
-    slug = payload.slug or await _unique_feature_slug(payload.name, session)
+    slug = payload.slug or await unique_feature_slug(payload.name, session)
     feature = Feature(
         name=payload.name,
         slug=slug,
@@ -111,22 +107,6 @@ async def get_feature(feature_id: int, session: SessionDep) -> FeatureRead:
     return FeatureRead.model_validate(feature)
 
 
-def _repo_to_out(repo: Repo) -> RepoOut:
-    return RepoOut(
-        id=repo.id,
-        name=repo.name,
-        source=repo.source,  # type: ignore[arg-type]
-        url=repo.url,
-        local_path=repo.local_path,
-        bare_path=repo.bare_path,
-        status=repo.status,  # type: ignore[arg-type]
-        error_message=repo.error_message,
-        last_synced_at=repo.last_synced_at,
-        created_at=repo.created_at,
-        updated_at=repo.updated_at,
-    )
-
-
 async def _load_feature(feature_id: int, session: AsyncSession) -> Feature:
     feature = (
         await session.execute(select(Feature).where(Feature.id == feature_id))
@@ -154,7 +134,7 @@ async def list_feature_repos(feature_id: int, session: SessionDep) -> RepoListOu
             .order_by(Repo.created_at.desc())
         )
     ).scalars()
-    return RepoListOut(repos=[_repo_to_out(repo) for repo in rows])
+    return RepoListOut(repos=[repo_to_out(repo) for repo in rows])
 
 
 @router.post("/features/{feature_id}/repos/{repo_id}", response_model=RepoOut)
@@ -165,25 +145,7 @@ async def link_feature_repo(feature_id: int, repo_id: str, session: SessionDep) 
     if existing is None:
         session.add(FeatureRepo(feature_id=feature_id, repo_id=repo_id))
         await session.commit()
-    return _repo_to_out(repo)
-
-
-def _slugify_feature_name(name: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return normalized[:120].strip("-") or "feature"
-
-
-async def _unique_feature_slug(name: str, session: AsyncSession) -> str:
-    base = _slugify_feature_name(name)
-    slug = base
-    suffix = 2
-    while (
-        await session.execute(select(Feature.id).where(Feature.slug == slug))
-    ).scalar_one_or_none() is not None:
-        tail = f"-{suffix}"
-        slug = f"{base[: 120 - len(tail)]}{tail}"
-        suffix += 1
-    return slug
+    return repo_to_out(repo)
 
 
 @router.delete("/features/{feature_id}/repos/{repo_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -227,28 +189,6 @@ async def delete_feature(feature_id: int, session: SessionDep) -> None:
     await session.commit()
 
 
-def _kind_from_filename(name: str) -> str:
-    extension = Path(name).suffix.lower()
-    if extension not in _KIND_BY_EXT:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"unsupported file extension: {extension}",
-        )
-    return _KIND_BY_EXT[extension]
-
-
-def _wiki_storage_dir(request: Request) -> Path:
-    settings = request.app.state.settings
-    path = settings.data_dir / "wiki"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def _parse_tags(tags: str | None) -> list[str] | None:
-    parsed = [tag.strip() for tag in (tags or "").split(",") if tag.strip()]
-    return parsed or None
-
-
 @router.get("/documents", response_model=list[DocumentRead])
 async def list_documents(session: SessionDep, feature_id: int | None = None) -> list[DocumentRead]:
     stmt = select(Document).where(Document.is_deleted.is_(False))
@@ -278,8 +218,8 @@ async def upload_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="feature not found")
 
     safe_name = Path(file.filename).name
-    kind = _kind_from_filename(safe_name)
-    storage_dir = _wiki_storage_dir(request) / f"feature_{feature_id}"
+    kind = kind_from_filename(safe_name)
+    storage_dir = wiki_storage_dir(request) / f"feature_{feature_id}"
     storage_dir.mkdir(parents=True, exist_ok=True)
     target = storage_dir / safe_name
     with target.open("wb") as output:
@@ -306,7 +246,7 @@ async def upload_document(
         kind=kind,
         title=title or Path(safe_name).stem,
         path=safe_name,
-        tags_json=_parse_tags(tags),
+        tags_json=parse_tags(tags),
         raw_file_path=str(target),
         uploaded_by_subject_id=request.state.subject_id,
     )
@@ -315,29 +255,14 @@ async def upload_document(
 
     if kind == "markdown":
         raw_text = target.read_text(encoding="utf-8")
-        seen_refs: set[tuple[str, str]] = set()
-        for match in _IMG_LINK_RE.finditer(raw_text):
-            key = (match.group(1), "image")
-            if key not in seen_refs:
-                seen_refs.add(key)
-                session.add(
-                    DocumentReference(
-                        document_id=document.id,
-                        target_path=key[0],
-                        kind=key[1],
-                    )
+        for target_path, reference_kind in markdown_references(raw_text):
+            session.add(
+                DocumentReference(
+                    document_id=document.id,
+                    target_path=target_path,
+                    kind=reference_kind,
                 )
-        for match in _REL_LINK_RE.finditer(raw_text):
-            key = (match.group(1), "link")
-            if key not in seen_refs:
-                seen_refs.add(key)
-                session.add(
-                    DocumentReference(
-                        document_id=document.id,
-                        target_path=key[0],
-                        kind=key[1],
-                    )
-                )
+            )
 
     indexer = WikiIndexer()
     for parsed in parsed_chunks:
@@ -508,3 +433,39 @@ async def unverify_report(
     await session.commit()
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
+
+
+@router.post("/reports/{report_id}/reject", response_model=ReportRead)
+async def reject_report(
+    report_id: int,
+    request: Request,
+    session: SessionDep,
+) -> ReportRead:
+    await ReportService().reject(
+        session, report_id=report_id, subject_id=request.state.subject_id
+    )
+    await session.commit()
+    report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
+    return ReportRead.model_validate(report)
+
+
+@router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_report(report_id: int, request: Request, session: SessionDep) -> None:
+    report = (
+        await session.execute(select(Report).where(Report.id == report_id))
+    ).scalar_one_or_none()
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="report not found")
+    from_status = report.status
+    await WikiIndexer().unindex_report(session, report_id=report_id)
+    await record_audit_log(
+        session,
+        entity_type="report",
+        entity_id=str(report_id),
+        action="delete",
+        from_status=from_status,
+        to_status="deleted",
+        subject_id=request.state.subject_id,
+    )
+    await session.delete(report)
+    await session.commit()

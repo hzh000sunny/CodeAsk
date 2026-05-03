@@ -9,8 +9,9 @@ from typing import Any, cast
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from codeask.db.models import Report
+from codeask.db.models import Report, SessionTurn
 from codeask.metrics.audit import record_audit_log
+from codeask.sessions.reports import merge_session_report_metadata
 from codeask.wiki.audit import AuditWriter
 from codeask.wiki.indexer import WikiIndexer
 
@@ -35,16 +36,16 @@ def _as_list(value: object) -> list[object]:
     return []
 
 
-def _is_log_evidence(item: object) -> bool:
+def _is_verifiable_evidence(item: object) -> bool:
     evidence = _as_mapping(item)
-    return evidence.get("type") == "log"
+    return evidence.get("type") in {"log", "code"}
 
 
 def _check_gate(metadata: Mapping[str, object]) -> None:
     evidence = _as_list(metadata.get("evidence"))
-    if not any(_is_log_evidence(item) for item in evidence):
+    if not any(_is_verifiable_evidence(item) for item in evidence):
         raise ReportVerificationError(
-            "report must include at least one log evidence before verification"
+            "report must include at least one log or code evidence before verification"
         )
 
     for item in evidence:
@@ -66,6 +67,31 @@ def _check_gate(metadata: Mapping[str, object]) -> None:
         raise ReportVerificationError(
             "report must include either recommended_fix or verification_steps"
         )
+
+
+async def _metadata_with_session_fallback(
+    session: AsyncSession,
+    metadata: Mapping[str, object],
+) -> Mapping[str, object]:
+    if metadata.get("source") != "session":
+        return metadata
+    session_id = metadata.get("session_id")
+    if not _non_empty_text(session_id):
+        return metadata
+    turns = (
+        (
+            await session.execute(
+                select(SessionTurn)
+                .where(SessionTurn.session_id == session_id)
+                .order_by(SessionTurn.turn_index, SessionTurn.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not turns:
+        return metadata
+    return merge_session_report_metadata(metadata, str(session_id), list(turns))
 
 
 class ReportService:
@@ -110,8 +136,8 @@ class ReportService:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
-        if report.status != "draft":
-            raise ReportVerificationError("only draft reports can be edited")
+        if report.status not in {"draft", "rejected"}:
+            raise ReportVerificationError("only draft or rejected reports can be edited")
         if title is not None:
             report.title = title
         if body_markdown is not None:
@@ -127,7 +153,11 @@ class ReportService:
         subject_id: str,
     ) -> None:
         report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
-        metadata = _as_mapping(cast(object, report.metadata_json))
+        metadata = await _metadata_with_session_fallback(
+            session,
+            _as_mapping(cast(object, report.metadata_json)),
+        )
+        report.metadata_json = dict(metadata)
         _check_gate(metadata)
 
         report.verified = True
@@ -175,6 +205,36 @@ class ReportService:
         )
         self._audit.write(
             "report.unverified",
+            {"report_id": int(report.id), "feature_id": report.feature_id},
+            subject_id=subject_id,
+        )
+
+    async def reject(
+        self,
+        session: AsyncSession,
+        *,
+        report_id: int,
+        subject_id: str,
+    ) -> None:
+        report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
+        from_status = report.status
+        report.verified = False
+        report.status = "rejected"
+        report.verified_by = None
+        report.verified_at = None
+        await session.flush()
+        await self._indexer.unindex_report(session, report_id=int(report.id))
+        await record_audit_log(
+            session,
+            entity_type="report",
+            entity_id=str(report.id),
+            action="reject",
+            from_status=from_status,
+            to_status="rejected",
+            subject_id=subject_id,
+        )
+        self._audit.write(
+            "report.rejected",
             {"report_id": int(report.id), "feature_id": report.feature_id},
             subject_id=subject_id,
         )

@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from codeask.db.models import AgentTrace, SessionRepoBinding, SessionTurn
+from codeask.db.models import AgentTrace, Report, SessionRepoBinding, SessionTurn
 from tests.mocks.mock_llm import MockLLMClient, text_message, tool_call_message
 
 
@@ -674,6 +674,7 @@ async def test_update_pin_bulk_delete_and_generate_report_are_owner_scoped(
     assert uploaded.status_code == 201, uploaded.text
     storage_dir = Path(uploaded.json()["file_path"]).parent
     assert storage_dir.exists()
+
     app.state.settings.data_dir = tmp_path / "bulk-new-runtime-data-dir"
 
     bulk_forbidden = await client.post(
@@ -693,3 +694,163 @@ async def test_update_pin_bulk_delete_and_generate_report_are_owner_scoped(
     assert bulk_deleted.status_code == 200
     assert bulk_deleted.json()["deleted_ids"] == [session_id]
     assert not storage_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_session_generated_report_with_code_evidence_can_be_verified(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    feature = await client.post(
+        "/api/features",
+        json={"name": "LLM 调用链", "description": "llm runtime"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert feature.status_code == 201, feature.text
+    feature_id = feature.json()["id"]
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "LLM 调用链排查"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    code_evidence = {
+        "items": [
+            {
+                "id": "ev_code_1",
+                "type": "code",
+                "summary": "LLMGateway passes base_url into the LiteLLM client",
+                "data": {
+                    "result": {
+                        "data": {
+                            "repo_id": "repo_codeask",
+                            "commit_sha": "abc1234",
+                            "path": "src/codeask/llm/gateway.py",
+                        }
+                    }
+                },
+            }
+        ]
+    }
+    async with app.state.session_factory() as db:
+        db.add_all(
+            [
+                SessionTurn(
+                    id="turn_report_code_user",
+                    session_id=session_id,
+                    turn_index=0,
+                    role="user",
+                    content="LLM 配置如何进入 LiteLLM？",
+                    evidence=code_evidence,
+                ),
+                SessionTurn(
+                    id="turn_report_code_agent",
+                    session_id=session_id,
+                    turn_index=1,
+                    role="agent",
+                    content="结论：LLMGateway 读取配置并创建 LiteLLM client。",
+                    evidence=None,
+                ),
+            ]
+        )
+        await db.commit()
+
+    report = await client.post(
+        f"/api/sessions/{session_id}/reports",
+        json={"feature_id": feature_id, "title": "LLM 调用链定位报告"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert report.status_code == 201, report.text
+    body = report.json()
+    assert body["metadata_json"]["evidence"][0]["type"] == "code"
+    assert body["metadata_json"]["evidence"][0]["source"]["commit_sha"] == "abc1234"
+
+    verified = await client.post(
+        f"/api/reports/{body['id']}/verify",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["status"] == "verified"
+
+
+@pytest.mark.asyncio
+async def test_legacy_session_report_backfills_metadata_before_verification(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    feature = await client.post(
+        "/api/features",
+        json={"name": "历史报告", "description": "legacy reports"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert feature.status_code == 201, feature.text
+    feature_id = feature.json()["id"]
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "历史报告验证"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    async with app.state.session_factory() as db:
+        db.add_all(
+            [
+                SessionTurn(
+                    id="turn_legacy_report_user",
+                    session_id=session_id,
+                    turn_index=0,
+                    role="user",
+                    content="历史报告为什么验证失败？",
+                    evidence={
+                        "items": [
+                            {
+                                "id": "ev_code_legacy",
+                                "type": "code",
+                                "summary": "ReportService can derive metadata from session evidence",
+                                "data": {
+                                    "result": {
+                                        "data": {
+                                            "repo_id": "repo_codeask",
+                                            "commit_sha": "def5678",
+                                            "path": "src/codeask/wiki/reports.py",
+                                        }
+                                    }
+                                },
+                            }
+                        ]
+                    },
+                ),
+                SessionTurn(
+                    id="turn_legacy_report_agent",
+                    session_id=session_id,
+                    turn_index=1,
+                    role="agent",
+                    content="结论：验证时应回填会话证据。",
+                    evidence=None,
+                ),
+            ]
+        )
+        report = Report(
+            feature_id=feature_id,
+            title="历史稀疏 metadata 报告",
+            body_markdown="# 历史稀疏 metadata 报告\n\n结论：验证时应回填会话证据。",
+            metadata_json={"source": "session", "session_id": session_id},
+            status="rejected",
+            verified=False,
+            created_by_subject_id="alice@dev-1",
+        )
+        db.add(report)
+        await db.commit()
+        report_id = report.id
+
+    verified = await client.post(
+        f"/api/reports/{report_id}/verify",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert verified.status_code == 200, verified.text
+    body = verified.json()
+    assert body["status"] == "verified"
+    assert body["metadata_json"]["evidence"][0]["source"]["commit_sha"] == "def5678"

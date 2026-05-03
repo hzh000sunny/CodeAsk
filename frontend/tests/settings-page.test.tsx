@@ -149,6 +149,45 @@ describe("SettingsPage LLM configuration", () => {
     ).toBeInTheDocument();
   });
 
+  it("aligns the nickname field and save action in the user profile card", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/auth/me") {
+        return jsonResponse(memberMe);
+      }
+      if (path === "/api/sessions") {
+        return jsonResponse([]);
+      }
+      if (path === "/api/me/llm-configs") {
+        return jsonResponse([]);
+      }
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+
+    const profileSection = (
+      await screen.findByRole("heading", { name: "用户配置" })
+    ).closest("section") as HTMLElement;
+    const nicknameInput = within(profileSection).getByLabelText("昵称");
+    const nicknameField = nicknameInput.closest("label") as HTMLElement;
+    const profileForm = nicknameField.closest(".user-profile-form") as HTMLElement;
+    const actions = within(profileSection)
+      .getByRole("button", { name: "保存用户设置" })
+      .closest(".form-actions") as HTMLElement;
+
+    expect(nicknameField).toHaveClass("user-profile-field");
+    expect(getComputedStyle(nicknameField).gridTemplateColumns).toBe(
+      "110px minmax(0, 360px)",
+    );
+    expect(getComputedStyle(nicknameField).columnGap).toBe("14px");
+    expect(getComputedStyle(profileForm).rowGap).toBe("8px");
+    expect(actions).toHaveClass("user-profile-actions");
+    expect(getComputedStyle(actions).marginTop).toBe("0px");
+  });
+
   it("creates a personal LLM config from user settings", async () => {
     let userConfigs: unknown[] = [];
     const fetchMock = vi.fn(

@@ -41,7 +41,32 @@ function jsonResponse(payload: unknown, status = 200) {
   });
 }
 
-function installFeatureFetchMock(options: { repos?: unknown[] } = {}) {
+const defaultReports = [
+  {
+    id: 21,
+    feature_id: 7,
+    title: "启动失败复盘",
+    body_markdown: "配置缺失导致启动失败",
+    metadata_json: {},
+    status: "draft",
+    verified: false,
+    verified_by: null,
+    verified_at: null,
+    created_by_subject_id: "client_test",
+    created_at: "2026-04-30T10:00:00",
+    updated_at: "2026-04-30T10:00:00",
+  },
+];
+
+function installFeatureFetchMock(
+  options: { repos?: unknown[]; reports?: unknown[] } = {},
+) {
+  const reportRows = new Map<number, Record<string, unknown>>(
+    (options.reports ?? defaultReports).map((report) => {
+      const row = report as Record<string, unknown>;
+      return [Number(row.id), { ...row }];
+    }),
+  );
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
@@ -87,22 +112,69 @@ function installFeatureFetchMock(options: { repos?: unknown[] } = {}) {
         );
       }
       if (path === "/api/reports?feature_id=7") {
-        return jsonResponse([
-          {
-            id: 21,
-            feature_id: 7,
-            title: "启动失败复盘",
-            body_markdown: "配置缺失导致启动失败",
-            metadata_json: {},
+        return jsonResponse(Array.from(reportRows.values()));
+      }
+      const reportMatch = path.match(
+        /^\/api\/reports\/(\d+)(?:\/(verify|reject|unverify))?$/,
+      );
+      if (reportMatch) {
+        const reportId = Number(reportMatch[1]);
+        const action = reportMatch[2];
+        const report = reportRows.get(reportId);
+        if (!report) {
+          return jsonResponse({ detail: "report not found" }, 404);
+        }
+        if (init?.method === "PUT") {
+          const body = JSON.parse(String(init.body));
+          const updated = {
+            ...report,
+            ...("title" in body ? { title: body.title } : {}),
+            ...("body_markdown" in body
+              ? { body_markdown: body.body_markdown }
+              : {}),
+            ...("metadata" in body ? { metadata_json: body.metadata } : {}),
+            updated_at: "2026-04-30T12:00:00",
+          };
+          reportRows.set(reportId, updated);
+          return jsonResponse(updated);
+        }
+        if (init?.method === "DELETE") {
+          reportRows.delete(reportId);
+          return new Response(null, { status: 204 });
+        }
+        if (init?.method === "POST" && action === "verify") {
+          const updated = {
+            ...report,
+            status: "verified",
+            verified: true,
+            verified_by: "client_test",
+            verified_at: "2026-04-30T12:00:00",
+          };
+          reportRows.set(reportId, updated);
+          return jsonResponse(updated);
+        }
+        if (init?.method === "POST" && action === "reject") {
+          const updated = {
+            ...report,
+            status: "rejected",
+            verified: false,
+            verified_by: null,
+            verified_at: null,
+          };
+          reportRows.set(reportId, updated);
+          return jsonResponse(updated);
+        }
+        if (init?.method === "POST" && action === "unverify") {
+          const updated = {
+            ...report,
             status: "draft",
             verified: false,
             verified_by: null,
             verified_at: null,
-            created_by_subject_id: "client_test",
-            created_at: "2026-04-30T10:00:00",
-            updated_at: "2026-04-30T10:00:00",
-          },
-        ]);
+          };
+          reportRows.set(reportId, updated);
+          return jsonResponse(updated);
+        }
       }
       if (path === "/api/repos") {
         if (init?.method === "POST") {
@@ -278,6 +350,140 @@ describe("FeatureWorkbench management actions", () => {
         "Wiki",
       ),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows report status filters and filters reports by lifecycle state", async () => {
+    installFeatureFetchMock({
+      reports: [
+        defaultReports[0],
+        {
+          ...defaultReports[0],
+          id: 22,
+          title: "验证通过复盘",
+          body_markdown: "人工验证后的报告",
+          status: "verified",
+          verified: true,
+          verified_by: "maintainer",
+          verified_at: "2026-04-30T11:00:00",
+        },
+      ],
+    });
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+    expect(await screen.findAllByText("支付结算")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("tab", { name: "问题报告" }));
+
+    const statusTabs = await screen.findByRole("tablist", {
+      name: "报告状态筛选",
+    });
+    expect(within(statusTabs).getByRole("tab", { name: /全部/ })).toBeInTheDocument();
+    expect(within(statusTabs).getByRole("tab", { name: /草稿/ })).toBeInTheDocument();
+    expect(within(statusTabs).getByRole("tab", { name: /已验证/ })).toBeInTheDocument();
+    expect(within(statusTabs).getByRole("tab", { name: /未通过/ })).toBeInTheDocument();
+
+    fireEvent.click(within(statusTabs).getByRole("tab", { name: /已验证/ }));
+
+    expect(await screen.findByText("验证通过复盘")).toBeInTheDocument();
+    expect(screen.queryByText("启动失败复盘")).not.toBeInTheDocument();
+  });
+
+  it("constrains rendered markdown report details inside the preview pane", async () => {
+    installFeatureFetchMock({
+      reports: [
+        {
+          ...defaultReports[0],
+          id: 23,
+          title: "长格式报告",
+          body_markdown:
+            "| 字段 | 值 |\n| --- | --- |\n| 路径 | `/var/log/codeask/service/node-a/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.log` |\n\n`trace_id=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`",
+        },
+      ],
+    });
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+    expect(await screen.findAllByText("支付结算")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("tab", { name: "问题报告" }));
+    fireEvent.click(await screen.findByRole("button", { name: /长格式报告/ }));
+
+    const previewTitle = screen.getByText("长格式报告", {
+      selector: ".report-preview-title",
+    });
+    const preview = previewTitle.closest(".report-preview");
+    expect(preview).toBeInTheDocument();
+    expect(["0", "0px"]).toContain(
+      getComputedStyle(preview as Element).minWidth,
+    );
+    expect(getComputedStyle(preview as Element).overflowY).toBe("auto");
+    expect(getComputedStyle(screen.getByRole("table")).overflowX).toBe("auto");
+  });
+
+  it("edits, verifies, rejects, un-verifies, and deletes reports from the detail pane", async () => {
+    const fetchMock = installFeatureFetchMock({
+      reports: [
+        {
+          ...defaultReports[0],
+          body_markdown: "初始报告内容",
+        },
+      ],
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+    expect(await screen.findAllByText("支付结算")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("tab", { name: "问题报告" }));
+    fireEvent.click(await screen.findByRole("button", { name: /启动失败复盘/ }));
+
+    expect(screen.getByRole("button", { name: "编辑报告" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除报告" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "验证通过" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "验证不通过" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑报告" }));
+    fireEvent.change(screen.getByLabelText("报告标题"), {
+      target: { value: "编辑后的复盘" },
+    });
+    fireEvent.change(screen.getByLabelText("报告内容"), {
+      target: { value: "编辑后的报告正文" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存报告" }));
+    expect(await screen.findAllByText("编辑后的复盘")).not.toHaveLength(0);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/reports/21",
+      expect.objectContaining({ method: "PUT" }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "验证通过" }));
+    expect(await screen.findByText("已验证")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/reports/21/verify",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "撤销验证" }));
+    expect(await screen.findByText("草稿")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/reports/21/unverify",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "验证不通过" }));
+    expect(await screen.findByText("未通过")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/reports/21/reject",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "删除报告" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/reports/21",
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    expect(screen.queryByText("编辑后的复盘")).not.toBeInTheDocument();
   });
 
   it("links existing global repos inside the selected feature page", async () => {

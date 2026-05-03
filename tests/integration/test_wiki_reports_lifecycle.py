@@ -108,12 +108,14 @@ async def test_verify_succeeds_then_unverify(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_verify_fails_without_log_evidence(tmp_path: Path) -> None:
+async def test_verify_fails_without_log_or_code_evidence(tmp_path: Path) -> None:
     engine = await _setup(tmp_path)
     factory = session_factory(engine)
     service = ReportService()
     bad = _good_metadata()
-    bad["evidence"] = [item for item in bad["evidence"] if item["type"] != "log"]
+    bad["evidence"] = [
+        item for item in bad["evidence"] if item["type"] not in {"log", "code"}
+    ]
 
     async with factory() as session:
         report_id = await service.create_draft(
@@ -126,7 +128,7 @@ async def test_verify_fails_without_log_evidence(tmp_path: Path) -> None:
         )
         await session.commit()
     async with factory() as session:
-        with pytest.raises(ReportVerificationError, match="log"):
+        with pytest.raises(ReportVerificationError, match="log or code"):
             await service.verify(session, report_id=report_id, subject_id="x@y")
     await engine.dispose()
 
