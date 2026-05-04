@@ -14,7 +14,7 @@ async def get_tree(feature_id: int, session: SessionDep) -> WikiTreeRead:
     feature = await load_feature(feature_id, session)
     service = WikiTreeService()
     space = await service.ensure_current_space_for_feature(session, feature=feature)
-    nodes = await service.list_root_nodes(session, space_id=space.id)
+    nodes = await service.list_active_nodes(session, space_id=space.id)
     await session.commit()
     return WikiTreeRead(
         space=WikiSpaceRead.model_validate(space),

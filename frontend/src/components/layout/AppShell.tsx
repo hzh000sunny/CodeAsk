@@ -4,6 +4,15 @@ import { AdminLoginPage } from "../auth/AdminLoginPage";
 import { FeatureWorkbench } from "../features/FeatureWorkbench";
 import { SessionWorkspace } from "../session/SessionWorkspace";
 import { SettingsPage } from "../settings/SettingsPage";
+import { WikiWorkbench } from "../wiki/WikiWorkbench";
+import {
+  defaultAppRouteState,
+  mergeWikiRouteState,
+  readRouteStateFromLocation,
+  writeRouteStateToLocation,
+  type AppRouteState,
+  type AppViewId,
+} from "../../lib/wiki/routing";
 import { Sidebar, type SectionId } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
@@ -12,44 +21,45 @@ interface ReportTarget {
   reportId: number;
 }
 
-type ViewId = SectionId | "login";
-
 export function AppShell() {
-  const [initialView] = useState(readViewFromLocation);
-  const [activeSection, setActiveSection] = useState<SectionId>(
-    sectionForView(initialView),
+  const [routeState, setRouteState] = useState<AppRouteState>(
+    typeof window === "undefined" ? defaultAppRouteState : readRouteStateFromLocation(),
   );
-  const [activeView, setActiveView] = useState<ViewId>(initialView);
+  const activeSection = sectionForView(routeState.view);
   const [primaryCollapsed, setPrimaryCollapsed] = useState(false);
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
 
   useEffect(() => {
-    function syncViewFromLocation() {
-      const nextView = readViewFromLocation();
-      setActiveView(nextView);
-      if (isSectionId(nextView)) {
-        setActiveSection(nextView);
-      }
+    function syncRouteFromLocation() {
+      setRouteState(readRouteStateFromLocation());
     }
 
-    window.addEventListener("hashchange", syncViewFromLocation);
-    window.addEventListener("popstate", syncViewFromLocation);
+    window.addEventListener("hashchange", syncRouteFromLocation);
+    window.addEventListener("popstate", syncRouteFromLocation);
     return () => {
-      window.removeEventListener("hashchange", syncViewFromLocation);
-      window.removeEventListener("popstate", syncViewFromLocation);
+      window.removeEventListener("hashchange", syncRouteFromLocation);
+      window.removeEventListener("popstate", syncRouteFromLocation);
     };
   }, []);
 
-  function showView(view: ViewId) {
-    if (isSectionId(view)) {
-      setActiveSection(view);
-    }
-    setActiveView(view);
-    writeViewToLocation(view);
+  function showView(view: AppViewId) {
+    const nextState: AppRouteState = {
+      ...routeState,
+      view,
+      wiki: view === "wiki" ? routeState.wiki : defaultAppRouteState.wiki,
+    };
+    setRouteState(nextState);
+    writeRouteStateToLocation(nextState);
   }
 
   function navigate(section: SectionId) {
     showView(section);
+  }
+
+  function navigateWiki(patch: Partial<AppRouteState["wiki"]>) {
+    const nextState = mergeWikiRouteState(routeState, patch);
+    setRouteState(nextState);
+    writeRouteStateToLocation(nextState);
   }
 
   return (
@@ -66,7 +76,7 @@ export function AppShell() {
           onToggleCollapsed={() => setPrimaryCollapsed((value) => !value)}
         />
         <main className="app-main">
-          {activeView === "sessions" ? (
+          {routeState.view === "sessions" ? (
             <SessionWorkspace
               onOpenReport={(target) => {
                 setReportTarget(target);
@@ -74,11 +84,41 @@ export function AppShell() {
               }}
             />
           ) : null}
-          {activeView === "features" ? (
-            <FeatureWorkbench reportTarget={reportTarget} />
+          {routeState.view === "features" ? (
+            <FeatureWorkbench
+              onOpenWiki={(featureId) => {
+                setReportTarget(null);
+                navigateWiki({
+                  featureId,
+                  nodeId: null,
+                  mode: "view",
+                  drawer: null,
+                });
+              }}
+              reportTarget={reportTarget}
+            />
           ) : null}
-          {activeView === "settings" ? <SettingsPage /> : null}
-          {activeView === "login" ? (
+          {routeState.view === "wiki" ? (
+            <WikiWorkbench
+              routeState={routeState.wiki}
+              onRouteChange={navigateWiki}
+              onOpenFeature={(featureId) => {
+                setReportTarget(null);
+                const nextState: AppRouteState = {
+                  ...routeState,
+                  view: "features",
+                  wiki: {
+                    ...routeState.wiki,
+                    featureId,
+                  },
+                };
+                setRouteState(nextState);
+                writeRouteStateToLocation(nextState);
+              }}
+            />
+          ) : null}
+          {routeState.view === "settings" ? <SettingsPage /> : null}
+          {routeState.view === "login" ? (
             <AdminLoginPage
               onSuccess={() => {
                 showView("settings");
@@ -91,32 +131,9 @@ export function AppShell() {
   );
 }
 
-function readViewFromLocation(): ViewId {
-  if (typeof window === "undefined") {
+function sectionForView(view: AppViewId): SectionId {
+  if (view === "login") {
     return "sessions";
   }
-  const value = window.location.hash.replace(/^#\/?/, "");
-  if (value === "login") {
-    return "login";
-  }
-  return isSectionId(value) ? value : "sessions";
-}
-
-function writeViewToLocation(view: ViewId) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  const nextHash = `#/${view}`;
-  if (window.location.hash === nextHash) {
-    return;
-  }
-  window.history.pushState(null, "", nextHash);
-}
-
-function isSectionId(value: string): value is SectionId {
-  return value === "sessions" || value === "features" || value === "settings";
-}
-
-function sectionForView(view: ViewId): SectionId {
-  return isSectionId(view) ? view : "sessions";
+  return view;
 }

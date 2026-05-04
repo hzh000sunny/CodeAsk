@@ -15,10 +15,14 @@ interface ReportTarget {
 }
 
 interface FeatureWorkbenchProps {
+  onOpenWiki: (featureId: number) => void;
   reportTarget?: ReportTarget | null;
 }
 
-export function FeatureWorkbench({ reportTarget }: FeatureWorkbenchProps) {
+export function FeatureWorkbench({
+  onOpenWiki,
+  reportTarget,
+}: FeatureWorkbenchProps) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState("settings");
@@ -135,7 +139,18 @@ export function FeatureWorkbench({ reportTarget }: FeatureWorkbenchProps) {
                 "特性内统一管理设置、知识库、问题报告、仓库关联和专属 Skill。"}
             </p>
           </div>
-          <Badge>{selected?.slug ?? "feature"}</Badge>
+          <div className="header-actions">
+            {selected ? (
+              <button
+                className="button button-secondary"
+                onClick={() => onOpenWiki(selected.id)}
+                type="button"
+              >
+                打开 Wiki
+              </button>
+            ) : null}
+            <Badge>{selected?.slug ?? "feature"}</Badge>
+          </div>
         </div>
 
         <FeatureTabs

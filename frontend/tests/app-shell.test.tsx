@@ -44,7 +44,7 @@ describe("CodeAsk AppShell information architecture", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("keeps the primary navigation to sessions, features, and settings", () => {
+  it("keeps the primary navigation to sessions, features, wiki, and settings", () => {
     render(<App />);
 
     const navigation = screen.getByRole("navigation", { name: "主导航" });
@@ -57,7 +57,9 @@ describe("CodeAsk AppShell information architecture", () => {
     expect(
       within(navigation).getByRole("button", { name: "设置" }),
     ).toBeInTheDocument();
-    expect(within(navigation).queryByText("Wiki")).not.toBeInTheDocument();
+    expect(
+      within(navigation).getByRole("button", { name: "Wiki" }),
+    ).toBeInTheDocument();
     expect(within(navigation).queryByText("全局配置")).not.toBeInTheDocument();
   });
 

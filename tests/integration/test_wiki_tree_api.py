@@ -43,6 +43,52 @@ async def test_get_wiki_tree_for_feature(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_wiki_tree_returns_full_active_node_set(client: AsyncClient) -> None:
+    feature_id = await _create_feature(client)
+
+    tree = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
+    assert tree.status_code == 200, tree.text
+    space_id = int(tree.json()["space"]["id"])
+    knowledge_root = next(
+        node for node in tree.json()["nodes"] if node["name"] == "知识库"
+    )
+
+    folder = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": space_id,
+            "parent_id": int(knowledge_root["id"]),
+            "type": "folder",
+            "name": "Runbooks",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert folder.status_code == 201, folder.text
+
+    document = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": space_id,
+            "parent_id": int(folder.json()["id"]),
+            "type": "document",
+            "name": "Payment Callback",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert document.status_code == 201, document.text
+
+    response = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    paths = [node["path"] for node in body["nodes"]]
+    root_path = str(knowledge_root["path"])
+    assert root_path in paths
+    assert f"{root_path}/runbooks" in paths
+    assert f"{root_path}/runbooks/payment-callback" in paths
+
+
+@pytest.mark.asyncio
 async def test_get_wiki_space_bootstraps_legacy_feature_without_space(
     client: AsyncClient,
     app,

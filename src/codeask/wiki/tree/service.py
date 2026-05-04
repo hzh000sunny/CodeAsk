@@ -80,6 +80,28 @@ class WikiTreeService:
             )
         ).scalars().all()
 
+    async def list_active_nodes(
+        self,
+        session: AsyncSession,
+        *,
+        space_id: int,
+    ) -> list[WikiNode]:
+        return (
+            await session.execute(
+                select(WikiNode)
+                .where(
+                    WikiNode.space_id == space_id,
+                    WikiNode.deleted_at.is_(None),
+                )
+                .order_by(
+                    WikiNode.path.asc(),
+                    WikiNode.sort_order.asc(),
+                    WikiNode.name.asc(),
+                    WikiNode.id.asc(),
+                )
+            )
+        ).scalars().all()
+
     async def get_node_detail(
         self,
         session: AsyncSession,

@@ -1,4 +1,5 @@
 import {
+  BookOpenText,
   ChevronLeft,
   ChevronRight,
   MessageSquareText,
@@ -6,7 +7,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-export type SectionId = "sessions" | "features" | "settings";
+export type SectionId = "sessions" | "features" | "wiki" | "settings";
 
 interface SidebarProps {
   activeSection: SectionId;
@@ -18,6 +19,7 @@ interface SidebarProps {
 const items = [
   { id: "sessions", label: "会话", icon: MessageSquareText },
   { id: "features", label: "特性", icon: Sparkles },
+  { id: "wiki", label: "Wiki", icon: BookOpenText },
   { id: "settings", label: "设置", icon: Settings },
 ] satisfies Array<{
   id: SectionId;

@@ -14,7 +14,7 @@ export class ApiError extends Error {
   }
 }
 
-export type JsonBody = Record<string, unknown> | Array<unknown>;
+export type JsonBody = object | Array<unknown>;
 export type ApiRequestInit = Omit<RequestInit, "body"> & {
   body?: BodyInit | JsonBody | null;
 };

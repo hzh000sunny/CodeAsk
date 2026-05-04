@@ -7,17 +7,29 @@ import remarkGfm from "remark-gfm";
 interface MarkdownRendererProps {
   content: string;
   onCopyCode?: (code: string) => Promise<void> | void;
+  imageSrcMap?: Record<string, string>;
+  linkHrefMap?: Record<string, string>;
 }
 
 export function MarkdownRenderer({
   content,
   onCopyCode,
+  imageSrcMap,
+  linkHrefMap,
 }: MarkdownRendererProps) {
   return (
     <div className="markdown-body">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          a({ href, children }) {
+            const nextHref = (href && linkHrefMap?.[href]) || href || "#";
+            return <a href={nextHref}>{children}</a>;
+          },
+          img({ src, alt }) {
+            const nextSrc = (src && imageSrcMap?.[src]) || src || "";
+            return <img alt={alt ?? ""} className="markdown-image" src={nextSrc} />;
+          },
           pre({ children }) {
             const code = textFromNode(children).replace(/\n$/, "");
             return (
