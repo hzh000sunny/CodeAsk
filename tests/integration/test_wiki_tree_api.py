@@ -89,6 +89,43 @@ async def test_get_wiki_tree_returns_full_active_node_set(client: AsyncClient) -
 
 
 @pytest.mark.asyncio
+async def test_rename_wiki_document_updates_document_title(client: AsyncClient, app) -> None:  # type: ignore[no-untyped-def]
+    feature_id = await _create_feature(client)
+
+    tree = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
+    assert tree.status_code == 200, tree.text
+    body = tree.json()
+    knowledge_root = next(node for node in body["nodes"] if node["system_role"] == "knowledge_base")
+
+    created = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": body["space"]["id"],
+            "parent_id": knowledge_root["id"],
+            "type": "document",
+            "name": "旧标题",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    node_id = int(created.json()["id"])
+
+    renamed = await client.put(
+        f"/api/wiki/nodes/{node_id}",
+        json={"name": "新标题"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert renamed.status_code == 200, renamed.text
+
+    async with app.state.session_factory() as session:
+        document = (
+            await session.execute(select(WikiDocument).where(WikiDocument.node_id == node_id))
+        ).scalar_one()
+
+    assert document.title == "新标题"
+
+
+@pytest.mark.asyncio
 async def test_get_wiki_space_bootstraps_legacy_feature_without_space(
     client: AsyncClient,
     app,

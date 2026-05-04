@@ -1,22 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { listFeatures } from "../../lib/api";
+import { getMe, listFeatures } from "../../lib/api";
 import {
   applyWikiImportJob,
   createWikiImportJob,
   createWikiNode,
+  deleteWikiNode,
   deleteWikiDraft,
   getWikiDiff,
   listWikiImportJobItems,
   preflightWikiImport,
   publishWikiDocument,
   rollbackWikiVersion,
+  updateWikiNode,
 } from "../../lib/wiki/api";
 import { buildWikiMarkdownLinkMaps } from "../../lib/wiki/markdown";
+import { groupWikiSearchHits, injectWikiReportProjections } from "../../lib/wiki/presentation";
 import { wikiQueryKeys } from "../../lib/wiki/query-keys";
-import type { WikiDrawer, WikiRouteState } from "../../lib/wiki/routing";
-import type { WikiTreeNodeRecord } from "../../lib/wiki/tree";
+import type { WikiRouteState } from "../../lib/wiki/routing";
+import {
+  findFirstReadableDocument,
+  findNodeById,
+  type WikiTreeNodeRecord,
+} from "../../lib/wiki/tree";
 import type {
   WikiDocumentDiffRead,
   WikiImportJobItemsRead,
@@ -24,18 +31,45 @@ import type {
   WikiImportPreflightRead,
 } from "../../types/wiki";
 import { messageFromError } from "../features/feature-utils";
+import {
+  WikiEditLeaveDialog,
+  WikiNodeDeleteDialog,
+  WikiNodeInputDialog,
+} from "./WikiDialogs";
 import { WikiDetailDrawer } from "./WikiDetailDrawer";
 import { WikiEditor } from "./WikiEditor";
 import { WikiEmptyState } from "./WikiEmptyState";
 import { WikiFloatingActions } from "./WikiFloatingActions";
 import { WikiImportDialog } from "./WikiImportDialog";
 import { WikiReader } from "./WikiReader";
+import { WikiReportViewer } from "./WikiReportViewer";
 import { WikiTreePane } from "./WikiTreePane";
 import { WikiVersionDrawer } from "./WikiVersionDrawer";
 import { useWikiDocument } from "./hooks/useWikiDocument";
 import { useWikiDraftAutosave } from "./hooks/useWikiDraftAutosave";
+import { useWikiReport, useWikiReportProjections } from "./hooks/useWikiReport";
+import { useWikiSearch } from "./hooks/useWikiSearch";
 import { useWikiTree } from "./hooks/useWikiTree";
 import { copyTextToClipboard } from "../session/session-clipboard";
+
+type WikiNodeDialogState =
+  | {
+      kind: "create_document";
+      parent: WikiTreeNodeRecord | null;
+    }
+  | {
+      kind: "create_folder";
+      parent: WikiTreeNodeRecord;
+    }
+  | {
+      kind: "rename";
+      node: WikiTreeNodeRecord;
+    }
+  | {
+      kind: "delete";
+      node: WikiTreeNodeRecord;
+    }
+  | null;
 
 export function WikiWorkbench({
   onOpenFeature,
@@ -57,19 +91,52 @@ export function WikiWorkbench({
   const [importJob, setImportJob] = useState<WikiImportJobRead | null>(null);
   const [importItems, setImportItems] = useState<WikiImportJobItemsRead | null>(null);
   const [selectedImportFiles, setSelectedImportFiles] = useState<File[]>([]);
+  const [nodeDialog, setNodeDialog] = useState<WikiNodeDialogState>(null);
+  const [nodeDialogError, setNodeDialogError] = useState("");
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const featureQuery = useQuery({
     queryKey: ["features"],
     queryFn: listFeatures,
+  });
+  const authQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: getMe,
   });
   const features = featureQuery.data ?? [];
   const activeFeature =
     features.find((feature) => feature.id === routeState.featureId) ?? features[0] ?? null;
   const treeQuery = useWikiTree(activeFeature?.id ?? null, routeState.nodeId);
-  const selectedNode = treeQuery.selectedNode;
+  const reportProjectionQuery = useWikiReportProjections(activeFeature?.id ?? null);
+  const tree = useMemo(
+    () => injectWikiReportProjections(treeQuery.tree, reportProjectionQuery.data?.items ?? []),
+    [reportProjectionQuery.data?.items, treeQuery.tree],
+  );
+  const selectedNode = useMemo(
+    () => findNodeById(tree, routeState.nodeId),
+    [routeState.nodeId, tree],
+  );
+  const firstDocument = useMemo(() => findFirstReadableDocument(tree), [tree]);
   const documentEnabled = selectedNode?.type === "document";
+  const reportEnabled = selectedNode?.type === "report_ref";
   const { currentVersion, documentQuery, versionsQuery } = useWikiDocument(
     selectedNode?.id ?? null,
     Boolean(documentEnabled),
+  );
+  const reportQuery = useWikiReport(selectedNode?.id ?? null, Boolean(reportEnabled));
+  const searchQuery = useWikiSearch(activeFeature?.id ?? null, search);
+  const searchGroups = useMemo(
+    () => groupWikiSearchHits(searchQuery.data?.items ?? []),
+    [searchQuery.data?.items],
+  );
+  const knowledgeRoot = useMemo(
+    () => tree.find((node) => node.system_role === "knowledge_base") ?? null,
+    [tree],
+  );
+  const canManageFeature = Boolean(
+    activeFeature &&
+      authQuery.data &&
+      (authQuery.data.role === "admin" ||
+        authQuery.data.subject_id === activeFeature.owner_subject_id),
   );
 
   useEffect(() => {
@@ -85,41 +152,47 @@ export function WikiWorkbench({
   }, [features, onRouteChange, routeState.featureId]);
 
   useEffect(() => {
-    if (!treeQuery.tree.length || !activeFeature) {
+    if (!tree.length || !activeFeature) {
       return;
     }
-    if (routeState.nodeId != null && treeQuery.selectedNode) {
+    if (routeState.nodeId != null && selectedNode) {
       return;
     }
-    if (treeQuery.firstDocument) {
-      onRouteChange({ featureId: activeFeature.id, nodeId: treeQuery.firstDocument.id });
+    if (firstDocument) {
+      onRouteChange({ featureId: activeFeature.id, nodeId: firstDocument.id });
       return;
     }
     onRouteChange({ featureId: activeFeature.id, nodeId: null });
   }, [
     activeFeature,
+    firstDocument,
     onRouteChange,
     routeState.nodeId,
-    treeQuery.firstDocument,
-    treeQuery.selectedNode,
-    treeQuery.tree,
+    selectedNode,
+    tree,
   ]);
 
   useEffect(() => {
     const nextExpanded = new Set<number>();
-    for (const root of treeQuery.tree) {
+    for (const root of tree) {
       if (root.system_role === "knowledge_base") {
         nextExpanded.add(root.id);
       }
     }
     setExpandedIds(nextExpanded);
-  }, [activeFeature?.id, treeQuery.tree]);
+  }, [activeFeature?.id, tree]);
 
   useEffect(() => {
     if (routeState.mode === "edit") {
       setTreeCollapsed(true);
     }
   }, [routeState.mode]);
+
+  useEffect(() => {
+    if (reportEnabled && routeState.mode === "edit") {
+      onRouteChange({ mode: "view" });
+    }
+  }, [onRouteChange, reportEnabled, routeState.mode]);
 
   useEffect(() => {
     if (!documentQuery.data) {
@@ -143,6 +216,10 @@ export function WikiWorkbench({
       window.clearTimeout(timer);
     };
   }, [banner]);
+
+  useEffect(() => {
+    setNodeDialogError("");
+  }, [nodeDialog]);
 
   const publishMutation = useMutation({
     mutationFn: async () => {
@@ -171,32 +248,35 @@ export function WikiWorkbench({
     nodeId: selectedNode?.id ?? null,
   });
 
-  const createDocMutation = useMutation({
-    mutationFn: async () => {
+  const createNodeMutation = useMutation({
+    mutationFn: async ({
+      name,
+      parentId,
+      type,
+    }: {
+      name: string;
+      parentId: number | null;
+      type: "folder" | "document";
+    }) => {
       if (!treeQuery.space) {
         return null;
       }
-      const parentId = treeQuery.tree.find((node) => node.system_role === "knowledge_base")?.id ?? null;
       return createWikiNode({
         space_id: treeQuery.space.id,
         parent_id: parentId,
-        type: "document",
-        name: "New Wiki",
+        type,
+        name,
       });
     },
-    onSuccess: (node) => {
-      if (!node || !activeFeature) {
-        return;
-      }
-      setBanner("已创建新的 Wiki 文档");
-      void queryClient.invalidateQueries({ queryKey: wikiQueryKeys.tree(activeFeature.id) });
-      onRouteChange({
-        featureId: activeFeature.id,
-        nodeId: node.id,
-        mode: "edit",
-        drawer: null,
-      });
-    },
+  });
+
+  const renameNodeMutation = useMutation({
+    mutationFn: async ({ nodeId, name }: { nodeId: number; name: string }) =>
+      updateWikiNode(nodeId, { name }),
+  });
+
+  const deleteNodeMutation = useMutation({
+    mutationFn: async (nodeId: number) => deleteWikiNode(nodeId),
   });
 
   const compareMutation = useMutation({
@@ -295,20 +375,148 @@ export function WikiWorkbench({
   const canEdit = Boolean(documentQuery.data?.permissions.write);
   const drawer = routeState.drawer;
 
+  function openCreateDocumentDialog(parent?: WikiTreeNodeRecord | null) {
+    setNodeDialog({
+      kind: "create_document",
+      parent: parent ?? knowledgeRoot,
+    });
+  }
+
+  function openCreateFolderDialog(parent: WikiTreeNodeRecord) {
+    setNodeDialog({
+      kind: "create_folder",
+      parent,
+    });
+  }
+
+  function openRenameDialog(node: WikiTreeNodeRecord) {
+    setNodeDialog({
+      kind: "rename",
+      node,
+    });
+  }
+
+  function openDeleteDialog(node: WikiTreeNodeRecord) {
+    setNodeDialog({
+      kind: "delete",
+      node,
+    });
+  }
+
+  async function handleNodeDialogSubmit(value: string) {
+    if (!activeFeature || !nodeDialog) {
+      return;
+    }
+    try {
+      if (nodeDialog.kind === "rename") {
+        await renameNodeMutation.mutateAsync({
+          nodeId: nodeDialog.node.id,
+          name: value.trim(),
+        });
+        await queryClient.invalidateQueries({ queryKey: wikiQueryKeys.tree(activeFeature.id) });
+        if (nodeDialog.node.type === "document") {
+          await queryClient.invalidateQueries({
+            queryKey: wikiQueryKeys.document(nodeDialog.node.id),
+          });
+        }
+        setBanner("Wiki 节点已重命名");
+        setNodeDialog(null);
+        return;
+      }
+      if (nodeDialog.kind !== "create_document" && nodeDialog.kind !== "create_folder") {
+        return;
+      }
+
+      const parent = nodeDialog.parent;
+      const parentId = parent?.id ?? null;
+      const type = nodeDialog.kind === "create_folder" ? "folder" : "document";
+      const created = await createNodeMutation.mutateAsync({
+        name: value.trim(),
+        parentId,
+        type,
+      });
+      await queryClient.invalidateQueries({ queryKey: wikiQueryKeys.tree(activeFeature.id) });
+      if (parentId != null) {
+        setExpandedIds((current) => new Set(current).add(parentId));
+      }
+      setNodeDialog(null);
+      if (!created) {
+        return;
+      }
+      if (type === "document") {
+        setBanner("已创建新的 Wiki 文档");
+        onRouteChange({
+          featureId: activeFeature.id,
+          nodeId: created.id,
+          mode: "edit",
+          drawer: null,
+        });
+      } else {
+        setBanner("已创建新的目录");
+      }
+    } catch (error) {
+      setNodeDialogError(messageFromError(error));
+    }
+  }
+
+  async function handleDeleteNode() {
+    if (!activeFeature || nodeDialog?.kind !== "delete") {
+      return;
+    }
+    try {
+      await deleteNodeMutation.mutateAsync(nodeDialog.node.id);
+      await queryClient.invalidateQueries({ queryKey: wikiQueryKeys.tree(activeFeature.id) });
+      if (
+        selectedNode &&
+        (selectedNode.id === nodeDialog.node.id ||
+          selectedNode.path.startsWith(`${nodeDialog.node.path}/`))
+      ) {
+        onRouteChange({ nodeId: null, mode: "view", drawer: null });
+      }
+      setNodeDialog(null);
+      setBanner("Wiki 节点已删除");
+    } catch (error) {
+      setNodeDialogError(messageFromError(error));
+    }
+  }
+
+  async function discardDraftAndLeave() {
+    if (!selectedNode || !documentQuery.data) {
+      return;
+    }
+    try {
+      await deleteWikiDraft(selectedNode.id);
+      draftAutosave.markSavedBaseline(documentQuery.data.current_body_markdown ?? "");
+      setEditingBody(documentQuery.data.current_body_markdown ?? "");
+      setLeaveDialogOpen(false);
+      onRouteChange({ mode: "view" });
+      setBanner("已丢弃当前草稿");
+    } catch (error) {
+      setBanner(`丢弃草稿失败：${messageFromError(error)}`);
+    }
+  }
+
   return (
     <section className="workspace wiki-workspace" data-list-collapsed={treeCollapsed}>
       <WikiTreePane
         activeFeature={activeFeature}
+        canManageFeature={canManageFeature}
         collapsed={treeCollapsed}
         expandedIds={expandedIds}
         featureOptions={features}
-        onCreateDocument={() => createDocMutation.mutate()}
+        onCreateDocument={(parent) => openCreateDocumentDialog(parent)}
+        onCreateFolder={openCreateFolderDialog}
+        onDeleteNode={openDeleteDialog}
         onFeatureChange={(featureId) =>
           onRouteChange({ featureId, nodeId: null, mode: "view", drawer: null })
         }
         onImport={() => onRouteChange({ drawer: "import" })}
+        onRenameNode={openRenameDialog}
+        onSelectSearchHit={(hit) => {
+          onRouteChange({ nodeId: hit.node_id, mode: "view", drawer: null });
+        }}
         onSelectNode={(node: WikiTreeNodeRecord) => {
-          if (node.type === "document") {
+          if (node.type === "document" || node.type === "report_ref") {
             onRouteChange({ nodeId: node.id, mode: "view", drawer: null });
           }
         }}
@@ -324,8 +532,10 @@ export function WikiWorkbench({
             return next;
           })
         }
-        roots={treeQuery.tree}
+        roots={tree}
         search={search}
+        searchGroups={searchGroups}
+        searchLoading={searchQuery.isLoading}
         selectedNodeId={selectedNode?.id ?? null}
         setSearch={setSearch}
       />
@@ -371,23 +581,17 @@ export function WikiWorkbench({
             imageSrcMap={imageAndLinkMaps.imageSrcMap}
             linkHrefMap={imageAndLinkMaps.linkHrefMap}
             onCancel={async () => {
-              if (selectedNode && editingBody === (documentQuery.data.draft_body_markdown ?? documentQuery.data.current_body_markdown ?? "")) {
+              if (
+                selectedNode &&
+                editingBody ===
+                  (documentQuery.data.draft_body_markdown ??
+                    documentQuery.data.current_body_markdown ??
+                    "")
+              ) {
                 onRouteChange({ mode: "view" });
                 return;
               }
-              const decision = window.prompt("输入 keep 保留草稿退出，drop 丢弃草稿，publish 直接发布", "keep");
-              if (decision === "drop" && selectedNode) {
-                await deleteWikiDraft(selectedNode.id);
-                draftAutosave.markSavedBaseline(documentQuery.data.current_body_markdown ?? "");
-                setEditingBody(documentQuery.data.current_body_markdown ?? "");
-                onRouteChange({ mode: "view" });
-                return;
-              }
-              if (decision === "publish") {
-                publishMutation.mutate();
-                return;
-              }
-              onRouteChange({ mode: "view" });
+              setLeaveDialogOpen(true);
             }}
             onOpenHistory={() => onRouteChange({ drawer: "history" })}
             onPublish={() => publishMutation.mutate()}
@@ -399,12 +603,25 @@ export function WikiWorkbench({
           />
         ) : null}
 
-        {!documentQuery.data && activeFeature ? (
+        {reportQuery.data && routeState.mode === "view" ? (
+          <WikiReportViewer
+            onOpenFeaturePage={() => {
+              if (activeFeature) {
+                onOpenFeature(activeFeature.id);
+              }
+            }}
+            report={reportQuery.data}
+          />
+        ) : null}
+
+        {!documentQuery.data && !reportQuery.data && activeFeature ? (
           <WikiEmptyState
-            canCreate
+            canCreate={canManageFeature}
             description="当前特性还没有 Wiki 文档，或当前选择的节点不是文档。"
-            onCreateDocument={() => createDocMutation.mutate()}
-            onImport={() => onRouteChange({ drawer: "import" })}
+            onCreateDocument={
+              canManageFeature ? () => openCreateDocumentDialog(knowledgeRoot) : undefined
+            }
+            onImport={canManageFeature ? () => onRouteChange({ drawer: "import" }) : undefined}
             title="开始建设这个特性的 Wiki"
           />
         ) : null}
@@ -456,6 +673,70 @@ export function WikiWorkbench({
         pending={importMutation.isPending || createImportJobMutation.isPending}
         preflight={importPreflight}
       />
+      {nodeDialog?.kind === "create_document" ? (
+        <WikiNodeInputDialog
+          confirmLabel="创建 Wiki"
+          errorMessage={nodeDialogError}
+          initialValue=""
+          isSubmitting={createNodeMutation.isPending}
+          modeLabel="document"
+          onCancel={() => setNodeDialog(null)}
+          onSubmit={handleNodeDialogSubmit}
+          parentPath={nodeDialog.parent?.path ?? knowledgeRoot?.path ?? null}
+          title="新建 Wiki"
+        />
+      ) : null}
+      {nodeDialog?.kind === "create_folder" ? (
+        <WikiNodeInputDialog
+          confirmLabel="创建目录"
+          errorMessage={nodeDialogError}
+          initialValue=""
+          isSubmitting={createNodeMutation.isPending}
+          modeLabel="folder"
+          onCancel={() => setNodeDialog(null)}
+          onSubmit={handleNodeDialogSubmit}
+          parentPath={nodeDialog.parent.path}
+          title="新建目录"
+        />
+      ) : null}
+      {nodeDialog?.kind === "rename" ? (
+        <WikiNodeInputDialog
+          confirmLabel="保存名称"
+          errorMessage={nodeDialogError}
+          initialValue={nodeDialog.node.name}
+          isSubmitting={renameNodeMutation.isPending}
+          modeLabel="rename"
+          onCancel={() => setNodeDialog(null)}
+          onSubmit={handleNodeDialogSubmit}
+          parentPath={nodeDialog.node.path}
+          title="重命名节点"
+        />
+      ) : null}
+      {nodeDialog?.kind === "delete" ? (
+        <WikiNodeDeleteDialog
+          errorMessage={nodeDialogError}
+          isDeleting={deleteNodeMutation.isPending}
+          nodeName={nodeDialog.node.name}
+          onCancel={() => setNodeDialog(null)}
+          onConfirm={handleDeleteNode}
+          path={nodeDialog.node.path}
+        />
+      ) : null}
+      {leaveDialogOpen ? (
+        <WikiEditLeaveDialog
+          isPublishing={publishMutation.isPending}
+          onCancel={() => setLeaveDialogOpen(false)}
+          onDiscard={discardDraftAndLeave}
+          onLeaveWithDraft={() => {
+            setLeaveDialogOpen(false);
+            onRouteChange({ mode: "view" });
+          }}
+          onPublish={() => {
+            setLeaveDialogOpen(false);
+            publishMutation.mutate();
+          }}
+        />
+      ) : null}
     </section>
   );
 }

@@ -243,6 +243,12 @@ class WikiTreeService:
         node.name = next_name
         node.parent_id = next_parent_id
         node.path = new_path
+        if node.type == "document":
+            document = (
+                await session.execute(select(WikiDocument).where(WikiDocument.node_id == node.id))
+            ).scalar_one_or_none()
+            if document is not None:
+                document.title = next_name
         for row in subtree:
             if row.id == node.id:
                 continue

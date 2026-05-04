@@ -18,11 +18,13 @@ export function FeatureTabs({
   activeTab,
   feature,
   onChange,
+  onOpenWiki,
   selectedReportId,
 }: {
   activeTab: string;
   feature: FeatureRead | null;
   onChange: (tab: string) => void;
+  onOpenWiki: (featureId: number) => void;
   selectedReportId: number | null;
 }) {
   return (
@@ -30,6 +32,7 @@ export function FeatureTabs({
       <FeatureTabContent
         activeTab={activeTab}
         feature={feature}
+        onOpenWiki={onOpenWiki}
         selectedReportId={selectedReportId}
       />
     </Tabs>
@@ -39,17 +42,24 @@ export function FeatureTabs({
 function FeatureTabContent({
   activeTab,
   feature,
+  onOpenWiki,
   selectedReportId,
 }: {
   activeTab: string;
   feature: FeatureRead | null;
+  onOpenWiki: (featureId: number) => void;
   selectedReportId: number | null;
 }) {
   if (activeTab === "settings") {
     return <FeatureSettings feature={feature} />;
   }
   if (activeTab === "knowledge") {
-    return <KnowledgePanel featureId={feature?.id} />;
+    return (
+      <KnowledgePanel
+        featureId={feature?.id}
+        onOpenWiki={(featureId) => onOpenWiki(featureId)}
+      />
+    );
   }
   if (activeTab === "reports") {
     return (

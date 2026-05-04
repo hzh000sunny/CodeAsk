@@ -1,110 +1,68 @@
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Database, FilePlus2, Trash2 } from "lucide-react";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { BookOpenText, FolderTree, ShieldCheck } from "lucide-react";
 
-import { deleteDocument, listDocuments, uploadDocument } from "../../lib/api";
-import type { DocumentRead } from "../../types/api";
+import { getWikiTree, listWikiReportProjections } from "../../lib/wiki/api";
 import { Button } from "../ui/button";
 
-export function KnowledgePanel({ featureId }: { featureId?: number }) {
-  const queryClient = useQueryClient();
-  const [status, setStatus] = useState("");
-  const [selectedDocument, setSelectedDocument] = useState<DocumentRead | null>(
-    null,
-  );
-  const { data: fetchedDocuments = [] } = useQuery({
-    queryKey: ["documents", featureId],
-    queryFn: () => listDocuments(featureId),
+export function KnowledgePanel({
+  featureId,
+  onOpenWiki,
+}: {
+  featureId?: number;
+  onOpenWiki: (featureId: number) => void;
+}) {
+  const treeQuery = useQuery({
+    queryKey: ["feature-knowledge-preview", featureId],
+    queryFn: () => getWikiTree(featureId as number),
     enabled: Boolean(featureId),
   });
-  const uploadMutation = useMutation({
-    mutationFn: async (files: File[]) => {
-      const uploaded: DocumentRead[] = [];
-      for (const file of files) {
-        const relativePath = file.webkitRelativePath || file.name;
-        uploaded.push(
-          await uploadDocument({
-            feature_id: featureId ?? 0,
-            file,
-            title: relativePath,
-          }),
-        );
-      }
-      return uploaded;
-    },
-    onSuccess: (documents) => {
-      setStatus(`已上传 ${documents.length} 个 Wiki 文件`);
-      void queryClient.invalidateQueries({
-        queryKey: ["documents", featureId],
-      });
-    },
+  const reportsQuery = useQuery({
+    queryKey: ["feature-knowledge-reports", featureId],
+    queryFn: () => listWikiReportProjections(featureId as number),
+    enabled: Boolean(featureId),
   });
-  const deleteMutation = useMutation({
-    mutationFn: deleteDocument,
-    onSuccess: () => {
-      setSelectedDocument(null);
-      setStatus("已删除 Wiki 文档");
-      void queryClient.invalidateQueries({
-        queryKey: ["documents", featureId],
-      });
-    },
-  });
+
+  const knowledgeRoots = useMemo(() => {
+    return (treeQuery.data?.nodes ?? []).filter(
+      (node) => node.parent_id == null || node.system_role != null,
+    );
+  }, [treeQuery.data?.nodes]);
 
   return (
     <div className="tab-content two-column">
       <section className="surface">
         <div className="content-toolbar">
           <div className="section-title">
-            <Database aria-hidden="true" size={18} />
-            <h2>知识库</h2>
+            <FolderTree aria-hidden="true" size={18} />
+            <h2>Wiki 目录预览</h2>
           </div>
-          <label className="file-button">
-            <FilePlus2 aria-hidden="true" size={16} />
-            上传 Wiki
-            <input
-              aria-label="选择 Wiki 文件或目录"
-              accept=".md,.markdown,.txt,.pdf,.docx"
-              disabled={!featureId || uploadMutation.isPending}
-              multiple
-              onChange={(event) => {
-                const files = Array.from(event.target.files ?? []);
-                if (files.length > 0) {
-                  uploadMutation.mutate(files);
-                }
-              }}
-              type="file"
-              {...{ webkitdirectory: "" }}
-            />
-          </label>
+          {featureId ? (
+            <Button onClick={() => onOpenWiki(featureId)} type="button" variant="secondary">
+              进入 Wiki 工作台
+            </Button>
+          ) : null}
         </div>
-        {status ? <p className="action-status">{status}</p> : null}
-        {fetchedDocuments.length === 0 ? (
+        {!featureId ? (
           <div className="empty-block wide">
-            <p>当前特性还没有上传 Wiki 文档。</p>
+            <p>先选择一个特性，再查看该特性的 Wiki 目录。</p>
+          </div>
+        ) : treeQuery.isLoading ? (
+          <div className="empty-block wide">
+            <p>正在加载 Wiki 目录。</p>
+          </div>
+        ) : knowledgeRoots.length === 0 ? (
+          <div className="empty-block wide">
+            <p>当前特性还没有 Wiki 内容。</p>
           </div>
         ) : (
           <ul className="data-list">
-            {fetchedDocuments.map((document) => (
-              <li key={document.id}>
-                <button
-                  className="plain-row-button"
-                  onClick={() => setSelectedDocument(document)}
-                  type="button"
-                >
-                  <span>{document.title}</span>
-                  <small>
-                    {document.kind} · {document.path}
-                  </small>
-                </button>
-                <Button
-                  disabled={deleteMutation.isPending}
-                  icon={<Trash2 size={15} />}
-                  onClick={() => deleteMutation.mutate(document.id)}
-                  type="button"
-                  variant="quiet"
-                >
-                  删除
-                </Button>
+            {knowledgeRoots.map((node) => (
+              <li key={node.id}>
+                <div className="plain-row-button static">
+                  <span>{node.name}</span>
+                  <small>{node.path}</small>
+                </div>
               </li>
             ))}
           </ul>
@@ -112,26 +70,31 @@ export function KnowledgePanel({ featureId }: { featureId?: number }) {
       </section>
       <section className="surface">
         <div className="section-title">
-          <FilePlus2 aria-hidden="true" size={18} />
-          <h2>预览</h2>
+          <BookOpenText aria-hidden="true" size={18} />
+          <h2>知识状态</h2>
         </div>
-        {selectedDocument ? (
-          <dl className="meta-grid">
-            <dt>标题</dt>
-            <dd>{selectedDocument.title}</dd>
-            <dt>路径</dt>
-            <dd>{selectedDocument.path}</dd>
-            <dt>类型</dt>
-            <dd>{selectedDocument.kind}</dd>
-            <dt>上传人</dt>
-            <dd>{selectedDocument.uploaded_by_subject_id}</dd>
-            <dt>更新时间</dt>
-            <dd>{new Date(selectedDocument.updated_at).toLocaleString()}</dd>
-          </dl>
-        ) : (
+        {!featureId ? (
           <div className="empty-block wide">
-            <p>选择左侧文档后预览元信息。</p>
+            <p>当前没有可预览的特性。</p>
           </div>
+        ) : (
+          <dl className="meta-grid">
+            <dt>文档节点</dt>
+            <dd>
+              {(treeQuery.data?.nodes ?? []).filter((node) => node.type === "document").length}
+            </dd>
+            <dt>报告投影</dt>
+            <dd>
+              <span className="inline-icon-text">
+                <ShieldCheck aria-hidden="true" size={14} />
+                {reportsQuery.data?.items.length ?? 0}
+              </span>
+            </dd>
+            <dt>系统目录</dt>
+            <dd>
+              {(treeQuery.data?.nodes ?? []).filter((node) => node.system_role != null).length}
+            </dd>
+          </dl>
         )}
       </section>
     </div>

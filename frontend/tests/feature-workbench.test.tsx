@@ -93,6 +93,76 @@ function installFeatureFetchMock(
       if (path === "/api/documents?feature_id=7") {
         return jsonResponse([]);
       }
+      if (path === "/api/wiki/tree?feature_id=7") {
+        return jsonResponse({
+          space: {
+            id: 70,
+            feature_id: 7,
+            scope: "current",
+            display_name: "支付结算",
+            slug: "payment-settlement",
+            status: "ready",
+            created_at: "2026-04-30T10:00:00",
+            updated_at: "2026-04-30T10:00:00",
+          },
+          nodes: [
+            {
+              id: 701,
+              space_id: 70,
+              parent_id: null,
+              type: "folder",
+              name: "知识库",
+              path: "知识库",
+              system_role: "knowledge_base",
+              sort_order: 0,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+            {
+              id: 702,
+              space_id: 70,
+              parent_id: null,
+              type: "folder",
+              name: "问题定位报告",
+              path: "问题定位报告",
+              system_role: "reports",
+              sort_order: 1,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+            {
+              id: 703,
+              space_id: 70,
+              parent_id: 701,
+              type: "document",
+              name: "支付接入说明",
+              path: "知识库/支付接入说明",
+              system_role: null,
+              sort_order: 0,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+          ],
+        });
+      }
+      if (path === "/api/wiki/reports/projections?feature_id=7") {
+        return jsonResponse({
+          items: [
+            {
+              node_id: 704,
+              report_id: 21,
+              feature_id: 7,
+              title: "启动失败复盘",
+              status: "draft",
+              status_group: "draft",
+              verified: false,
+              verified_by: null,
+              verified_at: null,
+              updated_at: "2026-04-30T10:00:00",
+            },
+          ],
+        });
+      }
       if (path === "/api/documents" && init?.method === "POST") {
         return jsonResponse(
           {
@@ -285,14 +355,10 @@ describe("FeatureWorkbench management actions", () => {
     expect(await screen.findAllByText("支付结算")).not.toHaveLength(0);
 
     fireEvent.click(screen.getByRole("tab", { name: "知识库" }));
-    fireEvent.change(screen.getByLabelText("选择 Wiki 文件或目录"), {
-      target: {
-        files: [new File(["# 支付"], "payment.md", { type: "text/markdown" })],
-      },
-    });
     expect(
-      await screen.findByText("已上传 1 个 Wiki 文件"),
+      await screen.findByRole("button", { name: "进入 Wiki 工作台" }),
     ).toBeInTheDocument();
+    expect(screen.getByText("知识库")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "问题报告" }));
     expect(await screen.findByText("启动失败复盘")).toBeInTheDocument();
@@ -318,13 +384,6 @@ describe("FeatureWorkbench management actions", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "创建分析策略" }));
     expect(await screen.findByText("支付排障")).toBeInTheDocument();
-
-    const documentUpload = fetchMock.mock.calls.find(
-      ([path, options]) =>
-        path === "/api/documents" &&
-        (options as RequestInit | undefined)?.method === "POST",
-    ) as unknown as [string, RequestInit];
-    expect(documentUpload[1].body).toBeInstanceOf(FormData);
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/features/7/repos/repo_existing",

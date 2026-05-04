@@ -6,9 +6,12 @@ import type {
   WikiImportJobItemsRead,
   WikiImportJobRead,
   WikiImportPreflightRead,
+  WikiReportDetailRead,
+  WikiReportProjectionListRead,
   WikiNodeDetailRead,
   WikiNodeRead,
   WikiSpaceRead,
+  WikiSearchResultsRead,
   WikiTreeRead,
   WikiUpdateNodePayload,
 } from "../../types/wiki";
@@ -139,6 +142,24 @@ export function applyWikiImportJob(jobId: number) {
   return apiRequest<WikiImportJobRead>(`/api/wiki/imports/${jobId}/apply`, {
     method: "POST",
   });
+}
+
+export function listWikiReportProjections(featureId: number) {
+  return apiRequest<WikiReportProjectionListRead>(
+    `/api/wiki/reports/projections?feature_id=${featureId}`,
+  );
+}
+
+export function getWikiReportByNode(nodeId: number) {
+  return apiRequest<WikiReportDetailRead>(`/api/wiki/reports/by-node/${nodeId}`);
+}
+
+export function searchWiki(query: string, featureId?: number | null, limit = 20) {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  if (featureId != null) {
+    params.set("feature_id", String(featureId));
+  }
+  return apiRequest<WikiSearchResultsRead>(`/api/wiki/search?${params.toString()}`);
 }
 
 export function getWikiAssetContentUrl(nodeId: number) {

@@ -174,3 +174,54 @@ class WikiImportJobItemRead(BaseModel):
 
 class WikiImportJobItemsRead(BaseModel):
     items: list[WikiImportJobItemRead]
+
+
+class WikiReportProjectionRead(BaseModel):
+    node_id: int
+    report_id: int
+    feature_id: int | None
+    title: str
+    status: str
+    status_group: str
+    verified: bool
+    verified_by: str | None
+    verified_at: datetime | None
+    updated_at: datetime
+
+
+class WikiReportProjectionListRead(BaseModel):
+    items: list[WikiReportProjectionRead]
+
+
+class WikiReportDetailRead(BaseModel):
+    node_id: int
+    report_id: int
+    feature_id: int | None
+    title: str
+    body_markdown: str
+    metadata_json: dict[str, Any]
+    status: str
+    verified: bool
+    verified_by: str | None
+    verified_at: datetime | None
+    created_by_subject_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class WikiSearchHitRead(BaseModel):
+    kind: str
+    node_id: int
+    title: str
+    path: str
+    feature_id: int | None
+    group_key: str
+    group_label: str
+    snippet: str
+    score: float
+    document_id: int | None = None
+    report_id: int | None = None
+
+
+class WikiSearchResultsRead(BaseModel):
+    items: list[WikiSearchHitRead]

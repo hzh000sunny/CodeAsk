@@ -157,6 +157,7 @@ export function FeatureWorkbench({
           activeTab={activeTab}
           feature={selected}
           onChange={setActiveTab}
+          onOpenWiki={onOpenWiki}
           selectedReportId={reportTarget?.reportId ?? null}
         />
       </section>

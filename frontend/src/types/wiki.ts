@@ -141,6 +141,57 @@ export interface WikiImportJobItemsRead {
   items: WikiImportJobItemRead[];
 }
 
+export interface WikiReportProjectionRead {
+  node_id: number;
+  report_id: number;
+  feature_id: number | null;
+  title: string;
+  status: string;
+  status_group: "draft" | "verified" | "rejected" | string;
+  verified: boolean;
+  verified_by: string | null;
+  verified_at: string | null;
+  updated_at: string;
+}
+
+export interface WikiReportProjectionListRead {
+  items: WikiReportProjectionRead[];
+}
+
+export interface WikiReportDetailRead {
+  node_id: number;
+  report_id: number;
+  feature_id: number | null;
+  title: string;
+  body_markdown: string;
+  metadata_json: Record<string, unknown>;
+  status: string;
+  verified: boolean;
+  verified_by: string | null;
+  verified_at: string | null;
+  created_by_subject_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WikiSearchHitRead {
+  kind: "document" | "report_ref" | string;
+  node_id: number;
+  title: string;
+  path: string;
+  feature_id: number | null;
+  group_key: string;
+  group_label: string;
+  snippet: string;
+  score: number;
+  document_id?: number | null;
+  report_id?: number | null;
+}
+
+export interface WikiSearchResultsRead {
+  items: WikiSearchHitRead[];
+}
+
 export interface WikiCreateNodePayload {
   space_id: number;
   parent_id?: number | null;
