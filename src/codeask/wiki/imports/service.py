@@ -12,14 +12,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.db.models import Feature, WikiAsset, WikiDocument, WikiImportItem, WikiImportJob, WikiNode, WikiSpace
+from codeask.metrics.audit import record_audit_log
+from codeask.wiki.audit import AuditWriter
 from codeask.wiki.actor import WikiActor
 from codeask.wiki.documents.service import WikiDocumentService
 from codeask.wiki.imports.preflight import WikiImportPreflightService
 from codeask.wiki.permissions import can_write_feature
+from codeask.wiki.sources import WikiSourceService
 from codeask.wiki.tree import WikiTreeService
 
 
 class WikiImportJobService:
+    def __init__(self, audit: AuditWriter | None = None) -> None:
+        self._audit = audit or AuditWriter()
+
     async def create_job(
         self,
         session: AsyncSession,
@@ -54,6 +60,19 @@ class WikiImportJobService:
         )
         session.add(job)
         await session.flush()
+        source = await WikiSourceService().create_source(
+            session,
+            actor=actor,
+            space_id=space.id,
+            kind="directory_import",
+            display_name=f"导入任务 {job.id}",
+            uri=None,
+            metadata_json={
+                "import_job_id": job.id,
+                "requested_by_subject_id": actor.subject_id,
+            },
+        )
+        job.source_id = source.id
 
         staging_root = settings_data_dir / "wiki" / "imports" / f"job_{job.id}"
         staging_root.mkdir(parents=True, exist_ok=True)
@@ -86,6 +105,19 @@ class WikiImportJobService:
                 )
             )
         await session.flush()
+        await record_audit_log(
+            session,
+            entity_type="wiki_import_job",
+            entity_id=str(job.id),
+            action="create",
+            subject_id=actor.subject_id,
+            to_status=job.status,
+        )
+        self._audit.write(
+            "wiki_import_job.created",
+            {"job_id": int(job.id), "space_id": int(job.space_id), "source_id": int(source.id)},
+            subject_id=actor.subject_id,
+        )
         return {
             "id": job.id,
             "space_id": job.space_id,
@@ -161,6 +193,7 @@ class WikiImportJobService:
                 detail=f"wiki import job is not applyable from status {job.status}",
             )
 
+        previous_status = job.status
         items = await self._load_items(session, job_id=job.id)
         nodes_by_path = await self._load_existing_nodes(session, space_id=job.space_id)
         document_items: list[tuple[WikiImportItem, WikiNode, Path]] = []
@@ -211,6 +244,7 @@ class WikiImportJobService:
                     target_path=target_path,
                     staged_path=staged_path,
                     job_id=job.id,
+                    source_id=job.source_id,
                 )
                 nodes_by_path[node.path] = node
                 item.status = "imported"
@@ -232,6 +266,7 @@ class WikiImportJobService:
             ).scalar_one()
             document.provenance_json = {
                 "source": "directory_import",
+                "source_id": job.source_id,
                 "import_job_id": job.id,
                 "source_path": item.source_path,
             }
@@ -252,6 +287,20 @@ class WikiImportJobService:
 
         job.status = "succeeded"
         await session.flush()
+        await record_audit_log(
+            session,
+            entity_type="wiki_import_job",
+            entity_id=str(job.id),
+            action="apply",
+            subject_id=actor.subject_id,
+            from_status=previous_status,
+            to_status=job.status,
+        )
+        self._audit.write(
+            "wiki_import_job.applied",
+            {"job_id": int(job.id), "space_id": int(job.space_id), "source_id": int(job.source_id or 0)},
+            subject_id=actor.subject_id,
+        )
         return await self.get_job(session, actor=actor, job_id=job.id)
 
     async def _load_feature_for_space(self, session: AsyncSession, *, space_id: int) -> Feature:
@@ -349,6 +398,7 @@ class WikiImportJobService:
         target_path: str,
         staged_path: Path,
         job_id: int,
+        source_id: int | None,
     ) -> WikiNode:
         node = WikiNode(
             space_id=space.id,
@@ -376,6 +426,7 @@ class WikiImportJobService:
                 size_bytes=stored_path.stat().st_size,
                 provenance_json={
                     "source": "directory_import",
+                    "source_id": source_id,
                     "import_job_id": job_id,
                     "source_path": source_path,
                 },

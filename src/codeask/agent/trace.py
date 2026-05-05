@@ -133,6 +133,20 @@ class AgentTraceLogger:
             {"input": input_ctx, "output": output},
         )
 
+    async def log_wiki_scope_resolution(
+        self,
+        session_id: str,
+        turn_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        await self.log(
+            session_id,
+            turn_id,
+            "knowledge_retrieval",
+            "wiki_scope_resolution",
+            payload,
+        )
+
     async def log_user_feedback(
         self,
         session_id: str,

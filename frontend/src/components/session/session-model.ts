@@ -22,6 +22,7 @@ export interface RuntimeInsight {
   kind: string;
   title: string;
   detail: string;
+  detailMarkdown?: string;
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -153,6 +154,33 @@ export function runtimeInsightFromEvent(
       detail: stringData(event, "reason") ?? "Agent 已完成特性范围判断",
     };
   }
+  if (event.type === "wiki_scope_resolution") {
+    const featureId = intData(event, "feature_id");
+    const defaults = objectArrayData(event, "defaults");
+    const matches = objectArrayData(event, "matches");
+    const titleLabels = defaults
+      .map((item) => stringValue(item.label) ?? stringValue(item.path))
+      .filter((value): value is string => Boolean(value))
+      .slice(0, 2);
+    return {
+      id: `wiki_scope_${Date.now()}`,
+      kind: "wiki_scope",
+      title:
+        titleLabels.length > 0
+          ? `Wiki 范围：${titleLabels.join("、")}`
+          : "Wiki 范围",
+      detail:
+        matches.length > 0
+          ? `显式命中 ${matches.length} 个节点，默认范围 ${defaults.length} 个`
+          : `默认范围 ${defaults.length} 个`,
+      detailMarkdown: wikiScopeMarkdown(
+        featureId,
+        stringData(event, "query"),
+        defaults,
+        matches,
+      ),
+    };
+  }
   if (event.type === "sufficiency_judgement") {
     return {
       id: `sufficiency_${Date.now()}`,
@@ -187,6 +215,16 @@ export function runtimeInsightFromEvent(
   }
   if (event.type === "evidence") {
     const item = recordData(event, "item");
+    const path = stringValue(item?.path);
+    const headingPath = stringValue(item?.heading_path);
+    const featureId =
+      typeof item?.feature_id === "number" && Number.isInteger(item.feature_id)
+        ? item.feature_id
+        : null;
+    const nodeId =
+      typeof item?.node_id === "number" && Number.isInteger(item.node_id)
+        ? item.node_id
+        : null;
     return {
       id: stringValue(item?.id) ?? `evidence_${Date.now()}`,
       kind: "evidence",
@@ -195,10 +233,18 @@ export function runtimeInsightFromEvent(
         [
           stringValue(item?.source),
           stringValue(item?.locator),
-          stringValue(item?.path),
+          path,
+          headingPath,
         ]
           .filter(Boolean)
           .join(" · ") || compactJson(item),
+      detailMarkdown: evidenceMarkdown({
+        featureId,
+        headingPath,
+        nodeId,
+        path,
+        summary: stringValue(item?.title) ?? stringValue(item?.id),
+      }),
     };
   }
   if (event.type === "ask_user") {
@@ -256,8 +302,118 @@ function recordData(event: AgentEvent, key: string) {
     : null;
 }
 
+function objectArrayData(event: AgentEvent, key: string) {
+  const value = event.data[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter(
+      (item): item is Record<string, unknown> =>
+        typeof item === "object" && item !== null && !Array.isArray(item),
+    );
+}
+
 function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function intData(event: AgentEvent, key: string) {
+  const value = event.data[key];
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function wikiScopeMarkdown(
+  featureId: number | null,
+  query: string | null,
+  defaults: Record<string, unknown>[],
+  matches: Record<string, unknown>[],
+) {
+  const sections: string[] = [];
+  if (query) {
+    sections.push(`**检索问题**\n${query}`);
+  }
+  if (defaults.length > 0) {
+    sections.push(
+      `**默认范围**\n${defaults
+        .map((item) => `- ${wikiScopeItemLabel(item, featureId)}`)
+        .join("\n")}`,
+    );
+  }
+  if (matches.length > 0) {
+    sections.push(
+      `**显式命中**\n${matches
+        .map((item) => {
+          const extras = [
+            stringValue(item.match_reason),
+            stringValue(item.matched_phrase)
+              ? `“${stringValue(item.matched_phrase)}”`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return `- ${wikiScopeItemLabel(item, featureId)}${
+            extras ? ` · ${extras}` : ""
+          }`;
+        })
+        .join("\n")}`,
+    );
+  }
+  return sections.join("\n\n");
+}
+
+function wikiScopeItemLabel(
+  item: Record<string, unknown>,
+  featureId: number | null,
+) {
+  const path = stringValue(item.path) ?? stringValue(item.label) ?? "未命名节点";
+  const itemFeatureId =
+    typeof item.feature_id === "number" && Number.isInteger(item.feature_id)
+      ? item.feature_id
+      : featureId;
+  const nodeId =
+    typeof item.node_id === "number" && Number.isInteger(item.node_id)
+      ? item.node_id
+      : null;
+  if (itemFeatureId !== null && nodeId !== null) {
+    return `[${escapeMarkdown(path)}](#/wiki?feature=${itemFeatureId}&node=${nodeId})`;
+  }
+  return escapeMarkdown(path);
+}
+
+function evidenceMarkdown({
+  featureId,
+  headingPath,
+  nodeId,
+  path,
+  summary,
+}: {
+  featureId: number | null;
+  headingPath: string | null;
+  nodeId: number | null;
+  path: string | null;
+  summary: string | null;
+}) {
+  if (featureId === null || nodeId === null) {
+    return undefined;
+  }
+  const label = escapeMarkdown(path ?? summary ?? "查看证据");
+  const params = new URLSearchParams({
+    feature: String(featureId),
+    node: String(nodeId),
+  });
+  if (headingPath) {
+    params.set("heading", headingPath);
+  }
+  const lines = [`[${label}](#/wiki?${params.toString()})`];
+  if (headingPath) {
+    lines.push(`命中小节：${escapeMarkdown(headingPath)}`);
+  }
+  return lines.join("\n\n");
+}
+
+function escapeMarkdown(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

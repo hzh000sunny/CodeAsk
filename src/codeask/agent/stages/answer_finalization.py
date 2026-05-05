@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from codeask.agent.answer_links import rewrite_wiki_evidence_links
 from codeask.agent.prompts import assemble_messages
 from codeask.agent.sse import AgentEvent
 from codeask.agent.stages import StageContext, StageResult
@@ -15,7 +16,6 @@ async def run(ctx: StageContext) -> StageResult:
 
     messages = assemble_messages(AgentState.AnswerFinalization, ctx.prompt_context)
     text_parts: list[str] = []
-    events: list[AgentEvent] = []
     async for event in ctx.llm_client.stream(
         messages=messages,
         tools=[],
@@ -33,9 +33,14 @@ async def run(ctx: StageContext) -> StageResult:
             delta = event.data.get("delta", "")
             if isinstance(delta, str):
                 text_parts.append(delta)
-                events.append(AgentEvent(type="text_delta", data={"delta": delta}))
 
-    content = "".join(text_parts)
+    content = rewrite_wiki_evidence_links(
+        "".join(text_parts),
+        ctx.collected_evidence,
+    )
+    events: list[AgentEvent] = []
+    if content:
+        events.append(AgentEvent(type="text_delta", data={"delta": content}))
     appended: list[LLMMessage] = []
     if content:
         appended.append(

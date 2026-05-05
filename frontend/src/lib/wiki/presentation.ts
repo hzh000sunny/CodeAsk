@@ -11,6 +11,20 @@ export interface WikiSearchHitGroup {
   items: WikiSearchHitRead[];
 }
 
+export function formatWikiSearchHitHeading(
+  hit: Pick<WikiSearchHitRead, "heading_path">,
+) {
+  const headingPath = hit.heading_path?.trim();
+  return headingPath && headingPath.length > 0 ? headingPath : null;
+}
+
+const SEARCH_GROUP_ORDER = new Map<string, number>([
+  ["current_feature", 0],
+  ["current_feature_reports", 1],
+  ["other_current_features", 2],
+  ["history_features", 3],
+]);
+
 const REPORT_GROUP_DEFINITIONS: Array<{
   key: WikiReportProjectionRead["status_group"];
   label: string;
@@ -24,12 +38,13 @@ const REPORT_GROUP_DEFINITIONS: Array<{
 export function injectWikiReportProjections(
   roots: WikiTreeNodeRecord[],
   projections: WikiReportProjectionRead[],
+  featureId?: number | null,
 ): WikiTreeNodeRecord[] {
   const tree = cloneTree(roots);
   const byId = new Map<number, WikiTreeNodeRecord>();
   indexTree(tree, byId);
 
-  const reportsRoot = tree.find((node) => node.system_role === "reports");
+  const reportsRoot = findReportsRoot(tree, featureId);
   if (!reportsRoot) {
     return tree;
   }
@@ -63,7 +78,22 @@ export function injectWikiReportProjections(
     };
 
     for (const projection of projectionsByStatus.get(definition.key) ?? []) {
-      const node = byId.get(projection.node_id);
+      const node =
+        byId.get(projection.node_id) ??
+        ({
+          id: projection.node_id,
+          space_id: reportsRoot.space_id,
+          feature_id: projection.feature_id,
+          parent_id: group.id,
+          type: "report_ref",
+          name: projection.title,
+          path: `${group.path}/${projection.title}`,
+          system_role: null,
+          sort_order: group.children.length,
+          created_at: projection.updated_at,
+          updated_at: projection.updated_at,
+          children: [],
+        } satisfies WikiTreeNodeRecord);
       if (node) {
         node.parent_id = group.id;
         node.path = `${group.path}/${node.name}`;
@@ -93,7 +123,14 @@ export function groupWikiSearchHits(hits: WikiSearchHitRead[]): WikiSearchHitGro
       items: [hit],
     });
   }
-  return Array.from(groups.values());
+  return Array.from(groups.values()).sort((left, right) => {
+    const leftOrder = SEARCH_GROUP_ORDER.get(left.key) ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = SEARCH_GROUP_ORDER.get(right.key) ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    return left.label.localeCompare(right.label, "zh-CN");
+  });
 }
 
 function cloneTree(roots: WikiTreeNodeRecord[]): WikiTreeNodeRecord[] {
@@ -120,4 +157,23 @@ function sortTree(nodes: WikiTreeNodeRecord[]) {
   for (const node of nodes) {
     sortTree(node.children);
   }
+}
+
+function findReportsRoot(
+  roots: WikiTreeNodeRecord[],
+  featureId?: number | null,
+): WikiTreeNodeRecord | null {
+  for (const node of roots) {
+    if (
+      node.system_role === "reports" &&
+      (featureId == null || node.feature_id === featureId)
+    ) {
+      return node;
+    }
+    const child = findReportsRoot(node.children, featureId);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
 }

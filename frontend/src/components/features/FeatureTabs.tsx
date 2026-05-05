@@ -1,10 +1,16 @@
 import type { FeatureRead } from "../../types/api";
+import type { WikiDrawer } from "../../lib/wiki/routing";
 import { AnalysisPolicyManager } from "../policies/AnalysisPolicyManager";
 import { Tabs } from "../ui/tabs";
 import { FeatureSettings } from "./FeatureSettings";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { ReportsPanel } from "./ReportsPanel";
 import { ReposPanel } from "./ReposPanel";
+
+export interface FeatureWikiOpenOptions {
+  drawer?: Exclude<WikiDrawer, "detail" | "history"> | null;
+  nodeId?: number | null;
+}
 
 const tabs = [
   { id: "settings", label: "设置" },
@@ -24,7 +30,7 @@ export function FeatureTabs({
   activeTab: string;
   feature: FeatureRead | null;
   onChange: (tab: string) => void;
-  onOpenWiki: (featureId: number) => void;
+  onOpenWiki: (featureId: number, options?: FeatureWikiOpenOptions) => void;
   selectedReportId: number | null;
 }) {
   return (
@@ -47,7 +53,7 @@ function FeatureTabContent({
 }: {
   activeTab: string;
   feature: FeatureRead | null;
-  onOpenWiki: (featureId: number) => void;
+  onOpenWiki: (featureId: number, options?: FeatureWikiOpenOptions) => void;
   selectedReportId: number | null;
 }) {
   if (activeTab === "settings") {
@@ -57,7 +63,7 @@ function FeatureTabContent({
     return (
       <KnowledgePanel
         featureId={feature?.id}
-        onOpenWiki={(featureId) => onOpenWiki(featureId)}
+        onOpenWiki={(featureId, options) => onOpenWiki(featureId, options)}
       />
     );
   }

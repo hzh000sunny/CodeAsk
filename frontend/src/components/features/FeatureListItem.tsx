@@ -24,7 +24,9 @@ export function FeatureListItem({
         type="button"
       >
         <span className="item-title">{feature.name}</span>
-        <span className="item-meta">{feature.slug}</span>
+        {feature.description ? (
+          <span className="item-meta feature-item-description">{feature.description}</span>
+        ) : null}
       </button>
       <button
         aria-label={`删除特性 ${feature.name}`}

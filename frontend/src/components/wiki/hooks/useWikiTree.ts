@@ -13,8 +13,7 @@ import {
 export function useWikiTree(featureId: number | null, nodeId: number | null) {
   const query = useQuery({
     queryKey: wikiQueryKeys.tree(featureId),
-    queryFn: () => getWikiTree(featureId as number),
-    enabled: featureId != null,
+    queryFn: () => getWikiTree(featureId),
   });
 
   const tree = useMemo<WikiTreeNodeRecord[]>(

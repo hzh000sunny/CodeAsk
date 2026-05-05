@@ -1,4 +1,9 @@
-"""Compatibility router for legacy /api/documents endpoints."""
+"""Compatibility router for legacy /api/documents endpoints.
+
+This module is intentionally frozen as a compatibility layer.
+New native wiki behavior must land under ``/api/wiki/*`` instead of
+expanding this router further.
+"""
 
 from __future__ import annotations
 

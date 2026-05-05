@@ -505,9 +505,14 @@ describe("SessionWorkspace streaming interaction", () => {
               items: [
                 {
                   id: "ev_1",
-                  type: "code",
-                  summary: "src/codeask/api/sessions.py 包含 turns API",
-                  data: { path: "src/codeask/api/sessions.py" },
+                  type: "wiki_doc",
+                  summary: "支付接入说明",
+                  data: {
+                    path: "知识库/支付接入说明",
+                    heading_path: "支付接入说明 > 排查步骤",
+                    feature_id: 7,
+                    node_id: 703,
+                  },
                 },
               ],
             },
@@ -561,6 +566,32 @@ describe("SessionWorkspace streaming interaction", () => {
             updated_at: "2026-05-02T10:04:00",
           },
           {
+            id: "tr_wiki_scope",
+            session_id: "sess_9965",
+            turn_id: "turn_user_1",
+            stage: "knowledge_retrieval",
+            event_type: "wiki_scope_resolution",
+            payload: {
+              feature_id: 7,
+              query: "请完整分析 GLM 调试链路。",
+              defaults: [
+                { node_id: 2, path: "知识库", label: "知识库" },
+                { node_id: 3, path: "问题定位报告", label: "问题定位报告" },
+              ],
+              matches: [
+                {
+                  node_id: 11,
+                  path: "知识库/调试链路",
+                  label: "调试链路",
+                  match_reason: "contains",
+                  matched_phrase: "调试链路",
+                },
+              ],
+            },
+            created_at: "2026-05-02T10:04:10",
+            updated_at: "2026-05-02T10:04:10",
+          },
+          {
             id: "tr_tool_result",
             session_id: "sess_9965",
             turn_id: "turn_user_1",
@@ -612,6 +643,7 @@ describe("SessionWorkspace streaming interaction", () => {
     ).toBeInTheDocument();
     expect(screen.getByText('const status = "ok";')).toBeInTheDocument();
     expect(screen.getByText("日志命中支付特性")).toBeInTheDocument();
+    expect(screen.getByText("Wiki 范围：知识库、问题定位报告")).toBeInTheDocument();
     expect(screen.getByText(/需要代码证据/)).toBeInTheDocument();
     expect(screen.getByText("工具结果：call_1")).toBeInTheDocument();
     expect(
@@ -619,7 +651,7 @@ describe("SessionWorkspace streaming interaction", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/"ok":true/)).not.toBeInTheDocument();
     expect(
-      screen.getByText(/src\/codeask\/api\/sessions.py 包含 turns API/),
+      screen.getByRole("button", { name: /证据：支付接入说明 详情/ }),
     ).toBeInTheDocument();
     expect(screen.getByText("这次回答是否解决问题？")).toBeInTheDocument();
     expect(scrollIntoView).not.toHaveBeenCalledWith(
@@ -653,6 +685,15 @@ describe("SessionWorkspace streaming interaction", () => {
     expect(
       within(eventDialog).getByText(/2 code matches for '启动失败'/),
     ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /证据：支付接入说明/ }));
+    const evidenceDialog = screen.getByRole("dialog", { name: "运行事件详情" });
+    expect(
+      within(evidenceDialog).getByRole("link", { name: "知识库/支付接入说明" }),
+    ).toHaveAttribute(
+      "href",
+      "#/wiki?feature=7&node=703&heading=%E6%94%AF%E4%BB%98%E6%8E%A5%E5%85%A5%E8%AF%B4%E6%98%8E+%3E+%E6%8E%92%E6%9F%A5%E6%AD%A5%E9%AA%A4",
+    );
 
     const copyCodeButton = screen.getByRole("button", { name: "复制代码块" });
     fireEvent.click(copyCodeButton);

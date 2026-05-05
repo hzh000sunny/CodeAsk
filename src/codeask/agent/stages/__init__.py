@@ -56,6 +56,7 @@ class StageResult:
     events: list[AgentEvent] = field(default_factory=_empty_events)
     evidence_added: list[Evidence] = field(default_factory=_empty_evidence)
     messages_appended: list[LLMMessage] = field(default_factory=_empty_messages)
+    metadata_updates: dict[str, Any] = field(default_factory=_empty_data)
 
 
 @dataclass(frozen=True)

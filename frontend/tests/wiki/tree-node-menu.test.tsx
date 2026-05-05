@@ -39,6 +39,7 @@ describe("WikiTreeNode menu", () => {
           onCreateDocument={() => undefined}
           onCreateFolder={() => undefined}
           onDelete={() => undefined}
+          onImport={() => undefined}
           onRename={() => undefined}
           onSelect={() => undefined}
           onToggle={() => undefined}
@@ -51,11 +52,12 @@ describe("WikiTreeNode menu", () => {
 
     expect(screen.getByRole("menuitem", { name: "新建目录" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "新建 Wiki" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "导入 Wiki" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "重命名" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "删除" })).toBeInTheDocument();
   });
 
-  it("keeps system knowledge root create-only", () => {
+  it("keeps system knowledge root non-renamable but clearable", () => {
     render(
       <ul>
         <WikiTreeNode
@@ -71,6 +73,7 @@ describe("WikiTreeNode menu", () => {
           onCreateDocument={() => undefined}
           onCreateFolder={() => undefined}
           onDelete={() => undefined}
+          onImport={() => undefined}
           onRename={() => undefined}
           onSelect={() => undefined}
           onToggle={() => undefined}
@@ -83,8 +86,41 @@ describe("WikiTreeNode menu", () => {
 
     expect(screen.getByRole("menuitem", { name: "新建目录" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "新建 Wiki" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "导入 Wiki" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "重命名" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: "删除" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "删除" })).toBeInTheDocument();
+  });
+
+  it("shows clear actions for report lifecycle groups", () => {
+    render(
+      <ul>
+        <WikiTreeNode
+          canManage
+          depth={0}
+          expandedIds={new Set()}
+          node={createNode({
+            id: -1001,
+            name: "已验证",
+            path: "问题定位报告/已验证",
+            system_role: "report_group",
+          })}
+          onCreateDocument={() => undefined}
+          onCreateFolder={() => undefined}
+          onDelete={() => undefined}
+          onImport={() => undefined}
+          onRename={() => undefined}
+          onSelect={() => undefined}
+          onToggle={() => undefined}
+          selectedNodeId={null}
+        />
+      </ul>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /打开节点 已验证 的更多操作/ }));
+
+    expect(screen.queryByRole("menuitem", { name: "新建目录" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "重命名" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "删除" })).toBeInTheDocument();
   });
 
   it("does not show a manage menu for report projections", () => {
@@ -104,6 +140,7 @@ describe("WikiTreeNode menu", () => {
           onCreateDocument={() => undefined}
           onCreateFolder={() => undefined}
           onDelete={() => undefined}
+          onImport={() => undefined}
           onRename={() => undefined}
           onSelect={() => undefined}
           onToggle={() => undefined}

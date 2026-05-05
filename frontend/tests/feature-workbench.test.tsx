@@ -59,7 +59,25 @@ const defaultReports = [
 ];
 
 function installFeatureFetchMock(
-  options: { repos?: unknown[]; reports?: unknown[] } = {},
+  options: {
+    auth?: {
+      subject_id: string;
+      display_name: string;
+      role: string;
+      authenticated: boolean;
+    };
+    document?: {
+      current_body_markdown: string;
+      resolved_refs_json: unknown[];
+      broken_refs_json?: {
+        links: unknown[];
+        assets: unknown[];
+      };
+    };
+    repos?: unknown[];
+    reports?: unknown[];
+    featureWikiNodes?: unknown[];
+  } = {},
 ) {
   const reportRows = new Map<number, Record<string, unknown>>(
     (options.reports ?? defaultReports).map((report) => {
@@ -71,12 +89,14 @@ function installFeatureFetchMock(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/auth/me") {
-        return jsonResponse({
-          subject_id: "client_test",
-          display_name: "client_test",
-          role: "member",
-          authenticated: false,
-        });
+        return jsonResponse(
+          options.auth ?? {
+            subject_id: "client_test",
+            display_name: "client_test",
+            role: "member",
+            authenticated: false,
+          },
+        );
       }
       if (path === "/api/features" && init?.method !== "POST") {
         return jsonResponse([feature]);
@@ -105,38 +125,125 @@ function installFeatureFetchMock(
             created_at: "2026-04-30T10:00:00",
             updated_at: "2026-04-30T10:00:00",
           },
+          nodes:
+            options.featureWikiNodes ??
+            [
+              {
+                id: 701,
+                space_id: 70,
+                parent_id: null,
+                type: "folder",
+                name: "知识库",
+                path: "知识库",
+                system_role: "knowledge_base",
+                sort_order: 0,
+                created_at: "2026-04-30T10:00:00",
+                updated_at: "2026-04-30T10:00:00",
+              },
+              {
+                id: 702,
+                space_id: 70,
+                parent_id: null,
+                type: "folder",
+                name: "问题定位报告",
+                path: "问题定位报告",
+                system_role: "reports",
+                sort_order: 1,
+                created_at: "2026-04-30T10:00:00",
+                updated_at: "2026-04-30T10:00:00",
+              },
+              {
+                id: 703,
+                space_id: 70,
+                parent_id: 701,
+                type: "document",
+                name: "支付接入说明",
+                path: "知识库/支付接入说明",
+                system_role: null,
+                sort_order: 0,
+                created_at: "2026-04-30T10:00:00",
+                updated_at: "2026-04-30T10:00:00",
+              },
+            ],
+        });
+      }
+      if (path === "/api/wiki/tree") {
+        return jsonResponse({
+          space: null,
           nodes: [
+            {
+              id: -1,
+              space_id: 0,
+              feature_id: null,
+              parent_id: null,
+              type: "folder",
+              name: "当前特性",
+              path: "当前特性",
+              system_role: "feature_group_current",
+              sort_order: 0,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+            {
+              id: -2,
+              space_id: 0,
+              feature_id: null,
+              parent_id: null,
+              type: "folder",
+              name: "历史特性",
+              path: "历史特性",
+              system_role: "feature_group_history",
+              sort_order: 1,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+            {
+              id: -100007,
+              space_id: 70,
+              feature_id: 7,
+              parent_id: -1,
+              type: "folder",
+              name: "支付结算",
+              path: "当前特性/payment-settlement",
+              system_role: "feature_space_current",
+              sort_order: 0,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
             {
               id: 701,
               space_id: 70,
-              parent_id: null,
+              feature_id: 7,
+              parent_id: -100007,
               type: "folder",
               name: "知识库",
-              path: "知识库",
+              path: "knowledge-base",
               system_role: "knowledge_base",
-              sort_order: 0,
+              sort_order: 100,
               created_at: "2026-04-30T10:00:00",
               updated_at: "2026-04-30T10:00:00",
             },
             {
               id: 702,
               space_id: 70,
-              parent_id: null,
+              feature_id: 7,
+              parent_id: -100007,
               type: "folder",
               name: "问题定位报告",
-              path: "问题定位报告",
+              path: "reports",
               system_role: "reports",
-              sort_order: 1,
+              sort_order: 200,
               created_at: "2026-04-30T10:00:00",
               updated_at: "2026-04-30T10:00:00",
             },
             {
               id: 703,
               space_id: 70,
+              feature_id: 7,
               parent_id: 701,
               type: "document",
               name: "支付接入说明",
-              path: "知识库/支付接入说明",
+              path: "knowledge-base/payment-access",
               system_role: null,
               sort_order: 0,
               created_at: "2026-04-30T10:00:00",
@@ -161,6 +268,56 @@ function installFeatureFetchMock(
               updated_at: "2026-04-30T10:00:00",
             },
           ],
+        });
+      }
+      if (path === "/api/wiki/documents/703") {
+        return jsonResponse({
+          document_id: 1703,
+          node_id: 703,
+          title: "支付接入说明",
+          current_version_id: 2703,
+          current_body_markdown:
+            options.document?.current_body_markdown ??
+            "# 支付接入说明\n\n这里是接入说明正文。",
+          draft_body_markdown: null,
+          index_status: "ready",
+          broken_refs_json:
+            options.document?.broken_refs_json ?? { links: [], assets: [] },
+          resolved_refs_json: options.document?.resolved_refs_json ?? [],
+          provenance_json: { source: "manual_create" },
+          permissions: { read: true, write: true, admin: false },
+        });
+      }
+      if (path === "/api/wiki/documents/703/versions") {
+        return jsonResponse({
+          versions: [
+            {
+              id: 2703,
+              document_id: 1703,
+              version_no: 1,
+              body_markdown: "# 支付接入说明\n\n这里是接入说明正文。",
+              created_by_subject_id: "client_test",
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+          ],
+        });
+      }
+      if (path === "/api/wiki/reports/by-node/704") {
+        return jsonResponse({
+          node_id: 704,
+          report_id: 21,
+          feature_id: 7,
+          title: "启动失败复盘",
+          body_markdown: "配置缺失导致启动失败",
+          metadata_json: {},
+          status: "draft",
+          verified: false,
+          verified_by: null,
+          verified_at: null,
+          created_by_subject_id: "client_test",
+          created_at: "2026-04-30T10:00:00",
+          updated_at: "2026-04-30T10:00:00",
         });
       }
       if (path === "/api/documents" && init?.method === "POST") {
@@ -323,6 +480,44 @@ function installFeatureFetchMock(
 }
 
 describe("FeatureWorkbench management actions", () => {
+  it("shows a visible error when loading features fails instead of pretending the list is empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/auth/me") {
+          return jsonResponse({
+            subject_id: "client_test",
+            display_name: "client_test",
+            role: "member",
+            authenticated: false,
+          });
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/features" && init?.method !== "POST") {
+          return jsonResponse({ detail: "backend unavailable" }, 500);
+        }
+        throw new Error(`unexpected request ${path}`);
+      }),
+    );
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+
+    await waitFor(
+      () => {
+        expect(screen.getByRole("alert")).toHaveTextContent(
+          "加载特性失败：backend unavailable",
+        );
+      },
+      { timeout: 3000 },
+    );
+    expect(screen.queryByText("暂无特性")).not.toBeInTheDocument();
+  });
+
   it("creates features from an inline list form", async () => {
     const fetchMock = installFeatureFetchMock();
     render(<App />);
@@ -335,7 +530,7 @@ describe("FeatureWorkbench management actions", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "创建特性" }));
 
-    expect(await screen.findAllByText("risk-policy")).not.toHaveLength(0);
+    expect(await screen.findAllByText("风控策略")).not.toHaveLength(0);
     const [, init] = fetchMock.mock.calls.find(
       ([path, options]) =>
         path === "/api/features" &&
@@ -347,7 +542,37 @@ describe("FeatureWorkbench management actions", () => {
     expect(JSON.parse(String(init.body))).not.toHaveProperty("slug");
   });
 
-  it("uploads wiki, shows generated reports, links a repo, and creates a feature analysis policy in feature tabs", async () => {
+  it("shows feature descriptions in the tree and hides slug badges from the detail header", async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+
+    const list = screen.getByRole("region", { name: "特性列表" });
+    expect(await within(list).findByText("支付链路知识域")).toBeInTheDocument();
+    expect(within(list).queryByText("payment-settlement")).not.toBeInTheDocument();
+
+    expect(screen.getByText("支付链路知识域", { selector: ".page-header p" })).toBeInTheDocument();
+    expect(screen.queryByText("payment-settlement")).not.toBeInTheDocument();
+  });
+
+  it("truncates long feature descriptions in the tree to a single ellipsis line", async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+
+    const list = screen.getByRole("region", { name: "特性列表" });
+    const description = await within(list).findByText("支付链路知识域", {
+      selector: ".feature-item-description",
+    });
+    expect(description).toHaveClass("feature-item-description");
+
+    const styles = getComputedStyle(description);
+    expect(styles.whiteSpace).toBe("nowrap");
+    expect(styles.overflow).toBe("hidden");
+    expect(styles.textOverflow).toBe("ellipsis");
+  });
+
+  it("shows wiki management, generated reports, links a repo, and creates a feature analysis policy in feature tabs", async () => {
     const fetchMock = installFeatureFetchMock({ repos: [existingRepo] });
     render(<App />);
 
@@ -358,7 +583,25 @@ describe("FeatureWorkbench management actions", () => {
     expect(
       await screen.findByRole("button", { name: "进入 Wiki 工作台" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("知识库")).toBeInTheDocument();
+    expect(await screen.findByText("支付接入说明")).toBeInTheDocument();
+    expect(await screen.findByText("这里是接入说明正文。")).toBeInTheDocument();
+    expect(screen.queryByText(/篇报告$/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("支付接入说明", { selector: ".knowledge-preview-title" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "进入 Wiki 工作台" }));
+    const wikiTreePane = await screen.findByRole("complementary", {
+      name: "Wiki 目录树",
+    });
+    expect(within(wikiTreePane).getByLabelText("搜索 Wiki 目录")).toBeInTheDocument();
+    expect(await within(wikiTreePane).findByRole("button", { name: "当前特性" })).toBeInTheDocument();
+    expect(within(wikiTreePane).getByRole("button", { name: "历史特性" })).toBeInTheDocument();
+    expect(within(wikiTreePane).getByRole("button", { name: "支付结算" })).toBeInTheDocument();
+    expect(await screen.findByText("这里是接入说明正文。")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+    expect(await screen.findByRole("tab", { name: "问题报告" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "问题报告" }));
     expect(await screen.findByText("启动失败复盘")).toBeInTheDocument();
@@ -409,6 +652,160 @@ describe("FeatureWorkbench management actions", () => {
         "Wiki",
       ),
     ).not.toBeInTheDocument();
+  });
+
+  it("resolves relative wiki links and images inside the feature knowledge preview", async () => {
+    installFeatureFetchMock({
+      document: {
+        current_body_markdown:
+          "# 支付接入说明\n\n[排障手册](./runbook.md)\n\n![架构图](./images/diagram.png)",
+        resolved_refs_json: [
+          {
+            target: "./runbook.md",
+            kind: "link",
+            resolved_path: "知识库/runbook.md",
+            resolved_node_id: 709,
+            broken: false,
+          },
+          {
+            target: "./images/diagram.png",
+            kind: "image",
+            resolved_path: "知识库/images/diagram.png",
+            resolved_node_id: 811,
+            broken: false,
+          },
+        ],
+      },
+    });
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+    expect(await screen.findAllByText("支付结算")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("tab", { name: "知识库" }));
+
+    expect(await screen.findByRole("link", { name: "排障手册" })).toHaveAttribute(
+      "href",
+      "#/wiki?feature=7&node=709",
+    );
+    expect(await screen.findByRole("img", { name: "架构图" })).toHaveAttribute(
+      "src",
+      "/api/wiki/assets/811/content",
+    );
+  });
+
+  it("keeps only the knowledge root expanded by default in the feature knowledge tree", async () => {
+    installFeatureFetchMock({
+      featureWikiNodes: [
+        {
+          id: 701,
+          space_id: 70,
+          parent_id: null,
+          type: "folder",
+          name: "知识库",
+          path: "知识库",
+          system_role: "knowledge_base",
+          sort_order: 0,
+          created_at: "2026-04-30T10:00:00",
+          updated_at: "2026-04-30T10:00:00",
+        },
+        {
+          id: 710,
+          space_id: 70,
+          parent_id: 701,
+          type: "folder",
+          name: "接入指南",
+          path: "知识库/接入指南",
+          system_role: null,
+          sort_order: 0,
+          created_at: "2026-04-30T10:00:00",
+          updated_at: "2026-04-30T10:00:00",
+        },
+        {
+          id: 711,
+          space_id: 70,
+          parent_id: 710,
+          type: "document",
+          name: "支付接入说明",
+          path: "知识库/接入指南/支付接入说明",
+          system_role: null,
+          sort_order: 0,
+          created_at: "2026-04-30T10:00:00",
+          updated_at: "2026-04-30T10:00:00",
+        },
+        {
+          id: 702,
+          space_id: 70,
+          parent_id: null,
+          type: "folder",
+          name: "问题定位报告",
+          path: "问题定位报告",
+          system_role: "reports",
+          sort_order: 1,
+          created_at: "2026-04-30T10:00:00",
+          updated_at: "2026-04-30T10:00:00",
+        },
+      ],
+    });
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+    expect(await screen.findAllByText("支付结算")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("tab", { name: "知识库" }));
+
+    const knowledgeRoot = await screen.findByRole("button", { name: "知识库" });
+    expect(knowledgeRoot).toHaveAttribute("aria-expanded", "true");
+
+    const guideFolder = await screen.findByRole("button", { name: "接入指南" });
+    expect(guideFolder).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "支付接入说明" })).not.toBeInTheDocument();
+
+    fireEvent.click(guideFolder);
+    expect(await screen.findByRole("button", { name: "支付接入说明" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "接入指南" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "接入指南" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "支付接入说明" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "接入指南" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("keeps wiki management actions visible for authenticated non-owner members in v1.0.1", async () => {
+    installFeatureFetchMock({
+      auth: {
+        subject_id: "viewer_test",
+        display_name: "viewer_test",
+        role: "member",
+        authenticated: true,
+      },
+    });
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+    expect(await screen.findAllByText("支付结算")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("tab", { name: "知识库" }));
+    fireEvent.click(await screen.findByRole("button", { name: "进入 Wiki 工作台" }));
+
+    const wikiTreePane = await screen.findByRole("complementary", {
+      name: "Wiki 目录树",
+    });
+
+    fireEvent.click(
+      await within(wikiTreePane).findByRole("button", {
+        name: /打开节点 知识库 的更多操作/,
+      }),
+    );
+    expect(screen.getByRole("menuitem", { name: "新建目录" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "新建 Wiki" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "导入 Wiki" })).toBeInTheDocument();
+
+    expect(await screen.findByRole("button", { name: "编辑" })).toBeInTheDocument();
   });
 
   it("shows report status filters and filters reports by lifecycle state", async () => {

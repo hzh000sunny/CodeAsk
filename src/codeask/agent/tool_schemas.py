@@ -44,6 +44,13 @@ READ_WIKI_DOC_SCHEMA = object_schema(
     },
     ["document_id"],
 )
+READ_WIKI_NODE_SCHEMA = object_schema(
+    {
+        "node_id": {"type": "integer"},
+        "heading_path": {"type": ["string", "null"]},
+    },
+    ["node_id"],
+)
 READ_REPORT_SCHEMA = object_schema({"report_id": {"type": "integer"}}, ["report_id"])
 GREP_CODE_SCHEMA = object_schema(
     {

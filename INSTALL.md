@@ -133,6 +133,12 @@ http://127.0.0.1:5173
 
 Vite 会把 `/api/*` 代理到后端 `:8000`。
 
+如需把前端 dev server 或浏览器测试代理到非默认后端地址，可覆盖：
+
+```bash
+CODEASK_API_PROXY_TARGET=http://127.0.0.1:8010 corepack pnpm --dir frontend dev --host 0.0.0.0 --port 5173
+```
+
 ## 配置项
 
 | 环境变量 | 必填 | 默认值 | 说明 |
@@ -212,6 +218,13 @@ corepack pnpm --dir frontend typecheck
 corepack pnpm --dir frontend build
 corepack pnpm --dir frontend test:e2e --project=chromium
 ```
+
+Playwright 端到端测试当前会自动拉起一套隔离的真实服务：
+
+- 后端：`127.0.0.1:8010`
+- 前端：`127.0.0.1:4173`
+
+这样不会复用你本地可能已经运行的 `5173 + 8000` 联调环境，也不会污染默认 `~/.codeask` 数据目录。
 
 常用全量收尾：
 

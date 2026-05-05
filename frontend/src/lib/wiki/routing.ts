@@ -5,6 +5,7 @@ export type WikiDrawer = "detail" | "history" | "import" | null;
 export interface WikiRouteState {
   featureId: number | null;
   nodeId: number | null;
+  heading: string | null;
   mode: WikiMode;
   drawer: WikiDrawer;
 }
@@ -17,6 +18,7 @@ export interface AppRouteState {
 export const defaultWikiRouteState: WikiRouteState = {
   featureId: null,
   nodeId: null,
+  heading: null,
   mode: "view",
   drawer: null,
 };
@@ -39,6 +41,7 @@ export function readRouteStateFromLocation(): AppRouteState {
     wiki: {
       featureId: readInt(search.get("feature")),
       nodeId: readInt(search.get("node")),
+      heading: readString(search.get("heading")),
       mode: search.get("mode") === "edit" ? "edit" : "view",
       drawer: readDrawer(search.get("drawer")),
     },
@@ -56,6 +59,9 @@ export function writeRouteStateToLocation(state: AppRouteState) {
     }
     if (state.wiki.nodeId != null) {
       params.set("node", String(state.wiki.nodeId));
+    }
+    if (state.wiki.heading) {
+      params.set("heading", state.wiki.heading);
     }
     if (state.wiki.mode === "edit") {
       params.set("mode", "edit");
@@ -99,6 +105,10 @@ function readDrawer(raw: string | null): WikiDrawer {
     return raw;
   }
   return null;
+}
+
+function readString(raw: string | null) {
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
 }
 
 function isAppViewId(raw: string): raw is AppViewId {

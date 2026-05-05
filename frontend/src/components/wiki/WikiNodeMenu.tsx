@@ -3,20 +3,18 @@ import { createPortal } from "react-dom";
 import {
   FilePlus2,
   FolderPlus,
+  FolderUp,
   MoreHorizontal,
   Pencil,
   Trash2,
 } from "lucide-react";
 
 import type { WikiTreeNodeRecord } from "../../lib/wiki/tree";
-
-function canCreateChildren(node: WikiTreeNodeRecord) {
-  return node.type === "folder" && !node.path.startsWith("问题定位报告");
-}
-
-function canMutateNode(node: WikiTreeNodeRecord) {
-  return node.system_role == null && (node.type === "folder" || node.type === "document");
-}
+import {
+  canCreateChildrenInWikiNode,
+  canDeleteWikiNode,
+  canRenameWikiNode,
+} from "../../lib/wiki/system-node-actions";
 
 export function WikiNodeMenu({
   canManage,
@@ -24,6 +22,7 @@ export function WikiNodeMenu({
   onCreateDocument,
   onCreateFolder,
   onDelete,
+  onImport,
   onRename,
 }: {
   canManage: boolean;
@@ -31,10 +30,12 @@ export function WikiNodeMenu({
   onCreateDocument: (node: WikiTreeNodeRecord) => void;
   onCreateFolder: (node: WikiTreeNodeRecord) => void;
   onDelete: (node: WikiTreeNodeRecord) => void;
+  onImport: (node: WikiTreeNodeRecord) => void;
   onRename: (node: WikiTreeNodeRecord) => void;
 }) {
-  const allowCreateChildren = canCreateChildren(node);
-  const allowMutate = canMutateNode(node);
+  const allowCreateChildren = canCreateChildrenInWikiNode(node);
+  const allowRename = canRenameWikiNode(node);
+  const allowDelete = canDeleteWikiNode(node);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -80,7 +81,7 @@ export function WikiNodeMenu({
     };
   }, [open]);
 
-  if (!canManage || (!allowCreateChildren && !allowMutate)) {
+  if (!canManage || (!allowCreateChildren && !allowRename && !allowDelete)) {
     return null;
   }
 
@@ -102,6 +103,17 @@ export function WikiNodeMenu({
           <button
             onClick={() => {
               setOpen(false);
+              onImport(node);
+            }}
+            role="menuitem"
+            type="button"
+          >
+            <FolderUp aria-hidden="true" size={15} />
+            导入 Wiki
+          </button>
+          <button
+            onClick={() => {
+              setOpen(false);
               onCreateDocument(node);
             }}
             role="menuitem"
@@ -112,31 +124,35 @@ export function WikiNodeMenu({
           </button>
         </>
       ) : null}
-      {allowMutate ? (
+      {allowRename || allowDelete ? (
         <>
-          <button
-            onClick={() => {
-              setOpen(false);
-              onRename(node);
-            }}
-            role="menuitem"
-            type="button"
-          >
-            <Pencil aria-hidden="true" size={15} />
-            重命名
-          </button>
-          <button
-            className="danger"
-            onClick={() => {
-              setOpen(false);
-              onDelete(node);
-            }}
-            role="menuitem"
-            type="button"
-          >
-            <Trash2 aria-hidden="true" size={15} />
-            删除
-          </button>
+          {allowRename ? (
+            <button
+              onClick={() => {
+                setOpen(false);
+                onRename(node);
+              }}
+              role="menuitem"
+              type="button"
+            >
+              <Pencil aria-hidden="true" size={15} />
+              重命名
+            </button>
+          ) : null}
+          {allowDelete ? (
+            <button
+              className="danger"
+              onClick={() => {
+                setOpen(false);
+                onDelete(node);
+              }}
+              role="menuitem"
+              type="button"
+            >
+              <Trash2 aria-hidden="true" size={15} />
+              删除
+            </button>
+          ) : null}
         </>
       ) : null}
     </div>

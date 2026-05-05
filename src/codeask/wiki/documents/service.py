@@ -8,9 +8,18 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from codeask.db.models import Feature, WikiDocument, WikiDocumentDraft, WikiDocumentVersion, WikiNode, WikiSpace
+from codeask.db.models import (
+    Feature,
+    WikiDocument,
+    WikiDocumentDraft,
+    WikiDocumentVersion,
+    WikiNode,
+    WikiSource,
+    WikiSpace,
+)
 from codeask.wiki.actor import WikiActor
 from codeask.wiki.documents.markdown_refs import parse_markdown_references, resolve_markdown_references
+from codeask.wiki.index import WikiIndexService
 from codeask.wiki.permissions import can_admin_feature, can_write_feature
 
 
@@ -65,6 +74,10 @@ class WikiDocumentService:
             "broken_refs_json": broken_refs_json,
             "resolved_refs_json": resolved_refs_json,
             "provenance_json": document.provenance_json,
+            "provenance_summary": await self._build_provenance_summary(
+                session,
+                provenance_json=document.provenance_json,
+            ),
             "permissions": {
                 "read": True,
                 "write": can_write_feature(actor, feature),
@@ -140,16 +153,13 @@ class WikiDocumentService:
         session.add(version)
         await session.flush()
         document.current_version_id = version.id
-        document.index_status = "ready"
-        refs = await self._reference_state(
-            session,
-            space_id=node.space_id,
-            source_node_path=node.path,
-            body_markdown=final_body,
-        )
-        document.broken_refs_json = refs["broken_refs"]
         if draft is not None:
             await session.delete(draft)
+        await WikiIndexService().refresh_document(
+            session,
+            node=node,
+            document=document,
+        )
         await session.flush()
         return await self.get_document_detail(session, node_id=node_id, actor=actor)
 
@@ -242,14 +252,11 @@ class WikiDocumentService:
         session.add(new_version)
         await session.flush()
         document.current_version_id = new_version.id
-        document.index_status = "ready"
-        refs = await self._reference_state(
+        await WikiIndexService().refresh_document(
             session,
-            space_id=node.space_id,
-            source_node_path=node.path,
-            body_markdown=version.body_markdown,
+            node=node,
+            document=document,
         )
-        document.broken_refs_json = refs["broken_refs"]
         await session.flush()
         return await self.get_document_detail(session, node_id=node_id, actor=actor)
 
@@ -353,6 +360,50 @@ class WikiDocumentService:
         if feature is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="feature not found")
         return feature
+
+    async def _build_provenance_summary(
+        self,
+        session: AsyncSession,
+        *,
+        provenance_json: object | None,
+    ) -> dict[str, object] | None:
+        if not isinstance(provenance_json, dict):
+            return None
+        source_name = provenance_json.get("source")
+        summary: dict[str, object] = {
+            "source": source_name,
+            "source_label": self._provenance_label(source_name if isinstance(source_name, str) else None),
+            "source_path": provenance_json.get("source_path"),
+            "import_job_id": provenance_json.get("import_job_id"),
+            "import_session_id": provenance_json.get("import_session_id"),
+            "legacy_document_id": provenance_json.get("legacy_document_id"),
+            "source_id": provenance_json.get("source_id"),
+        }
+        source_id = provenance_json.get("source_id")
+        if isinstance(source_id, int):
+            source = (
+                await session.execute(select(WikiSource).where(WikiSource.id == source_id))
+            ).scalar_one_or_none()
+            if source is not None:
+                summary["source_display_name"] = source.display_name
+                summary["source_uri"] = source.uri
+                summary["source_status"] = source.status
+                summary["source_last_synced_at"] = source.last_synced_at
+                if summary["source"] is None:
+                    summary["source"] = source.kind
+                    summary["source_label"] = self._provenance_label(source.kind)
+        return {key: value for key, value in summary.items() if value is not None}
+
+    def _provenance_label(self, source_name: str | None) -> str | None:
+        if source_name == "manual_upload":
+            return "手工上传"
+        if source_name == "manual_create":
+            return "手工创建"
+        if source_name == "directory_import":
+            return "目录导入"
+        if source_name == "session_promotion":
+            return "会话晋级"
+        return source_name
 
     def _require_write(self, actor: WikiActor, feature: Feature) -> None:
         if not can_write_feature(actor, feature):

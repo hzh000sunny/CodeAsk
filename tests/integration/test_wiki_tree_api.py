@@ -43,6 +43,59 @@ async def test_get_wiki_tree_for_feature(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_wiki_tree_returns_global_virtual_roots(client: AsyncClient) -> None:
+    first_feature_id = await _create_feature(client)
+    second = await client.post(
+        "/api/features",
+        json={"name": "Billing", "slug": "billing"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert second.status_code == 201, second.text
+    second_feature_id = int(second.json()["id"])
+
+    response = await client.get("/api/wiki/tree")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["space"] is None
+
+    current_root = next(
+        node for node in body["nodes"] if node["system_role"] == "feature_group_current"
+    )
+    history_root = next(
+        node for node in body["nodes"] if node["system_role"] == "feature_group_history"
+    )
+    assert current_root["name"] == "当前特性"
+    assert history_root["name"] == "历史特性"
+    assert current_root["parent_id"] is None
+    assert history_root["parent_id"] is None
+
+    current_feature_nodes = [
+        node
+        for node in body["nodes"]
+        if node["parent_id"] == current_root["id"]
+        and node["system_role"] == "feature_space_current"
+    ]
+    assert [node["name"] for node in current_feature_nodes] == ["Knowledge", "Billing"]
+
+    first_feature_root = next(
+        node for node in current_feature_nodes if node["feature_id"] == first_feature_id
+    )
+    second_feature_root = next(
+        node for node in current_feature_nodes if node["feature_id"] == second_feature_id
+    )
+
+    first_children = [
+        node["name"] for node in body["nodes"] if node["parent_id"] == first_feature_root["id"]
+    ]
+    second_children = [
+        node["name"] for node in body["nodes"] if node["parent_id"] == second_feature_root["id"]
+    ]
+    assert first_children == ["知识库", "问题定位报告"]
+    assert second_children == ["知识库", "问题定位报告"]
+
+
+@pytest.mark.asyncio
 async def test_get_wiki_tree_returns_full_active_node_set(client: AsyncClient) -> None:
     feature_id = await _create_feature(client)
 
@@ -123,6 +176,79 @@ async def test_rename_wiki_document_updates_document_title(client: AsyncClient, 
         ).scalar_one()
 
     assert document.title == "新标题"
+
+
+@pytest.mark.asyncio
+async def test_renaming_target_document_refreshes_linking_document_reference_state(
+    client: AsyncClient,
+) -> None:
+    feature_id = await _create_feature(client)
+
+    tree = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
+    assert tree.status_code == 200, tree.text
+    body = tree.json()
+    knowledge_root = next(node for node in body["nodes"] if node["system_role"] == "knowledge_base")
+
+    runbook = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": body["space"]["id"],
+            "parent_id": knowledge_root["id"],
+            "type": "document",
+            "name": "Runbook",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert runbook.status_code == 201, runbook.text
+    runbook_id = int(runbook.json()["id"])
+
+    guide = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": body["space"]["id"],
+            "parent_id": knowledge_root["id"],
+            "type": "document",
+            "name": "Guide",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert guide.status_code == 201, guide.text
+    guide_id = int(guide.json()["id"])
+
+    publish_runbook = await client.post(
+        f"/api/wiki/documents/{runbook_id}/publish",
+        json={"body_markdown": "# Runbook\n\nSee [Guide](./Guide.md)"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert publish_runbook.status_code == 200, publish_runbook.text
+
+    publish_guide = await client.post(
+        f"/api/wiki/documents/{guide_id}/publish",
+        json={"body_markdown": "# Guide\n\nStable target."},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert publish_guide.status_code == 200, publish_guide.text
+
+    detail_before = await client.get(
+        f"/api/wiki/documents/{runbook_id}",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert detail_before.status_code == 200, detail_before.text
+    assert detail_before.json()["broken_refs_json"] == {"links": [], "assets": []}
+
+    renamed = await client.put(
+        f"/api/wiki/nodes/{guide_id}",
+        json={"name": "Guide v2"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert renamed.status_code == 200, renamed.text
+
+    detail_after = await client.get(
+        f"/api/wiki/documents/{runbook_id}",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert detail_after.status_code == 200, detail_after.text
+    assert detail_after.json()["broken_refs_json"]["links"][0]["target"] == "./Guide.md"
 
 
 @pytest.mark.asyncio
@@ -209,3 +335,165 @@ async def test_get_wiki_tree_backfills_legacy_docs_and_reports(
     assert wiki_doc is not None
     assert wiki_doc.legacy_document_id is not None
     assert wiki_report is not None
+
+
+@pytest.mark.asyncio
+async def test_archived_feature_moves_from_current_root_to_history_root(
+    client: AsyncClient,
+) -> None:
+    active_feature_id = await _create_feature(client)
+    archived_feature = await client.post(
+        "/api/features",
+        json={"name": "Legacy Billing", "slug": "legacy-billing"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert archived_feature.status_code == 201, archived_feature.text
+    archived_feature_id = int(archived_feature.json()["id"])
+
+    archived_tree = await client.get("/api/wiki/tree", params={"feature_id": archived_feature_id})
+    assert archived_tree.status_code == 200, archived_tree.text
+    archived_knowledge_root = next(
+        node for node in archived_tree.json()["nodes"] if node["system_role"] == "knowledge_base"
+    )
+    archived_document = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": archived_tree.json()["space"]["id"],
+            "parent_id": archived_knowledge_root["id"],
+            "type": "document",
+            "name": "Archived Runbook",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert archived_document.status_code == 201, archived_document.text
+
+    archived_delete = await client.delete(
+        f"/api/features/{archived_feature_id}",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert archived_delete.status_code == 204, archived_delete.text
+
+    global_tree = await client.get("/api/wiki/tree")
+    assert global_tree.status_code == 200, global_tree.text
+    body = global_tree.json()
+
+    current_root = next(
+        node for node in body["nodes"] if node["system_role"] == "feature_group_current"
+    )
+    history_root = next(
+        node for node in body["nodes"] if node["system_role"] == "feature_group_history"
+    )
+
+    current_feature_nodes = [
+        node
+        for node in body["nodes"]
+        if node["parent_id"] == current_root["id"]
+        and node["system_role"] == "feature_space_current"
+    ]
+    history_feature_nodes = [
+        node
+        for node in body["nodes"]
+        if node["parent_id"] == history_root["id"]
+        and node["system_role"] == "feature_space_history"
+    ]
+
+    assert [node["feature_id"] for node in current_feature_nodes] == [active_feature_id]
+    assert [node["feature_id"] for node in history_feature_nodes] == [archived_feature_id]
+
+    archived_history_root = next(
+        node for node in history_feature_nodes if node["feature_id"] == archived_feature_id
+    )
+    archived_history_children = [
+        node["name"] for node in body["nodes"] if node["parent_id"] == archived_history_root["id"]
+    ]
+    assert archived_history_children == ["知识库", "问题定位报告"]
+
+    archived_doc_node = next(
+        node for node in body["nodes"] if node["id"] == archived_document.json()["id"]
+    )
+    assert archived_doc_node["name"] == "Archived Runbook"
+
+
+@pytest.mark.asyncio
+async def test_archived_feature_tree_and_space_remain_accessible_by_feature_id(
+    client: AsyncClient,
+) -> None:
+    feature_id = await _create_feature(client)
+
+    tree = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
+    assert tree.status_code == 200, tree.text
+    body = tree.json()
+    knowledge_root = next(node for node in body["nodes"] if node["system_role"] == "knowledge_base")
+
+    created = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": body["space"]["id"],
+            "parent_id": knowledge_root["id"],
+            "type": "document",
+            "name": "History Runbook",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+
+    archived = await client.delete(
+        f"/api/features/{feature_id}",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert archived.status_code == 204, archived.text
+
+    space_response = await client.get(f"/api/wiki/spaces/by-feature/{feature_id}")
+    assert space_response.status_code == 200, space_response.text
+    assert space_response.json()["scope"] == "history"
+    assert space_response.json()["status"] == "archived"
+
+    archived_tree = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
+    assert archived_tree.status_code == 200, archived_tree.text
+    archived_body = archived_tree.json()
+    assert archived_body["space"]["scope"] == "history"
+    assert archived_body["space"]["status"] == "archived"
+    archived_names = [node["name"] for node in archived_body["nodes"]]
+    assert "知识库" in archived_names
+    assert "问题定位报告" in archived_names
+    assert "History Runbook" in archived_names
+
+
+@pytest.mark.asyncio
+async def test_admin_can_restore_archived_feature_space(client: AsyncClient) -> None:
+    feature_id = await _create_feature(client)
+
+    archived = await client.delete(
+        f"/api/features/{feature_id}",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert archived.status_code == 204, archived.text
+
+    history_space = await client.get(f"/api/wiki/spaces/by-feature/{feature_id}")
+    assert history_space.status_code == 200, history_space.text
+    assert history_space.json()["scope"] == "history"
+
+    login = await client.post(
+        "/api/auth/admin/login",
+        json={"username": "admin", "password": "admin"},
+    )
+    assert login.status_code == 200, login.text
+
+    restored = await client.post(f"/api/wiki/spaces/{history_space.json()['id']}/restore")
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["feature_id"] == feature_id
+    assert restored.json()["scope"] == "current"
+    assert restored.json()["status"] == "active"
+
+    features = await client.get("/api/features")
+    assert features.status_code == 200, features.text
+    assert any(item["id"] == feature_id for item in features.json())
+
+    global_tree = await client.get("/api/wiki/tree")
+    assert global_tree.status_code == 200, global_tree.text
+    current_feature_nodes = [
+        node
+        for node in global_tree.json()["nodes"]
+        if node["system_role"] == "feature_space_current"
+    ]
+    assert any(node["feature_id"] == feature_id for node in current_feature_nodes)

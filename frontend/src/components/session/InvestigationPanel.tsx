@@ -17,6 +17,7 @@ import type { RuntimeInsight, RuntimeStage } from "./session-model";
 import type { AttachmentResponse } from "../../types/api";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 
 interface InvestigationPanelProps {
   attachments: AttachmentResponse[];
@@ -341,13 +342,22 @@ function EventPreviewPopover({
         </button>
       </div>
       <strong>{insight.title}</strong>
-      <p>{insight.detail}</p>
+      {insight.detailMarkdown ? (
+        <div className="insight-markdown">
+          <MarkdownRenderer content={insight.detailMarkdown} />
+        </div>
+      ) : (
+        <p>{insight.detail}</p>
+      )}
       <small>ID · {insight.id}</small>
     </section>
   );
 }
 
 function eventKindLabel(kind: string) {
+  if (kind === "wiki_scope") {
+    return "Wiki 范围";
+  }
   if (kind === "scope") {
     return "范围判断";
   }

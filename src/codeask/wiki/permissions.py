@@ -9,8 +9,15 @@ def can_read_feature(actor: WikiActor, feature: Feature) -> bool:
 
 
 def can_write_feature(actor: WikiActor, feature: Feature) -> bool:
-    return actor.is_admin or actor.subject_id == feature.owner_subject_id
+    del actor
+    del feature
+    return True
 
 
 def can_admin_feature(actor: WikiActor, feature: Feature) -> bool:
+    del feature
     return actor.is_admin
+
+
+def can_maintain_feature(actor: WikiActor, feature: Feature) -> bool:
+    return actor.is_admin or actor.subject_id == feature.owner_subject_id

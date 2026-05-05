@@ -4,6 +4,9 @@ from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+
+from codeask.db.models import WikiAsset, WikiSource
 
 
 PNG_BYTES = (
@@ -40,7 +43,7 @@ async def _create_space_and_folder(client: AsyncClient, slug: str = "wiki-assets
 
 
 @pytest.mark.asyncio
-async def test_upload_asset_and_stream_content(client: AsyncClient, tmp_path: Path) -> None:
+async def test_upload_asset_and_stream_content(client: AsyncClient, app, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     space_id, parent_id = await _create_space_and_folder(client)
     file_path = tmp_path / "diagram.png"
     file_path.write_bytes(PNG_BYTES)
@@ -65,6 +68,17 @@ async def test_upload_asset_and_stream_content(client: AsyncClient, tmp_path: Pa
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "image/png"
     assert response.content == PNG_BYTES
+
+    async with app.state.session_factory() as session:
+        asset = (
+            await session.execute(select(WikiAsset).where(WikiAsset.node_id == node_id))
+        ).scalar_one_or_none()
+        source = await session.get(WikiSource, asset.provenance_json["source_id"]) if asset else None
+    assert asset is not None
+    assert asset.provenance_json["source"] == "manual_upload"
+    assert asset.provenance_json["source_id"] is not None
+    assert source is not None
+    assert source.kind == "manual_upload"
 
 
 @pytest.mark.asyncio
@@ -109,7 +123,7 @@ async def test_published_markdown_resolves_uploaded_asset(client: AsyncClient, t
 
 
 @pytest.mark.asyncio
-async def test_non_owner_cannot_upload_asset(client: AsyncClient, tmp_path: Path) -> None:
+async def test_non_owner_can_upload_asset_in_v1_0_1(client: AsyncClient, tmp_path: Path) -> None:
     space_id, parent_id = await _create_space_and_folder(client, slug="wiki-assets-denied")
     file_path = tmp_path / "diagram.png"
     file_path.write_bytes(PNG_BYTES)
@@ -121,4 +135,5 @@ async def test_non_owner_cannot_upload_asset(client: AsyncClient, tmp_path: Path
             files={"file": ("diagram.png", file, "image/png")},
             headers={"X-Subject-Id": "viewer@dev-9"},
         )
-    assert response.status_code == 403, response.text
+    assert response.status_code == 201, response.text
+    assert response.json()["original_name"] == "diagram.png"

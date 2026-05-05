@@ -12,6 +12,7 @@ export function WikiTreeNode({
   onCreateDocument,
   onCreateFolder,
   onDelete,
+  onImport,
   onRename,
   onSelect,
   onToggle,
@@ -24,6 +25,7 @@ export function WikiTreeNode({
   onCreateDocument: (node: WikiTreeNodeRecord) => void;
   onCreateFolder: (node: WikiTreeNodeRecord) => void;
   onDelete: (node: WikiTreeNodeRecord) => void;
+  onImport: (node: WikiTreeNodeRecord) => void;
   onRename: (node: WikiTreeNodeRecord) => void;
   onSelect: (node: WikiTreeNodeRecord) => void;
   onToggle: (nodeId: number) => void;
@@ -42,12 +44,14 @@ export function WikiTreeNode({
           data-selected={selected}
           onClick={() => {
             if (isFolder) {
+              onSelect(node);
               onToggle(node.id);
             } else {
               onSelect(node);
             }
           }}
           style={{ paddingLeft: `${12 + depth * 16}px` }}
+          title={node.name}
           type="button"
         >
           <span
@@ -81,6 +85,7 @@ export function WikiTreeNode({
           onCreateDocument={onCreateDocument}
           onCreateFolder={onCreateFolder}
           onDelete={onDelete}
+          onImport={onImport}
           onRename={onRename}
         />
       </div>
@@ -96,6 +101,7 @@ export function WikiTreeNode({
               onCreateDocument={onCreateDocument}
               onCreateFolder={onCreateFolder}
               onDelete={onDelete}
+              onImport={onImport}
               onRename={onRename}
               onSelect={onSelect}
               onToggle={onToggle}

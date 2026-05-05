@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,11 +17,11 @@ from codeask.db.models import (
     WikiReportRef,
     WikiSpace,
 )
+from codeask.wiki.paths import normalize_node_name
 
 
 def _slugify_node_name(value: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return normalized or "item"
+    return normalize_node_name(value)
 
 
 class LegacyWikiSyncService:
@@ -158,11 +157,22 @@ class LegacyWikiSyncService:
         existing = (
             await session.execute(select(WikiReportRef).where(WikiReportRef.report_id == report_id))
         ).scalar_one_or_none()
-        if existing is not None:
-            return
-
         space = await self._require_current_space(session, feature_id=feature_id)
         root = await self._require_system_root(session, space_id=space.id, role="reports")
+        if existing is not None:
+            node = await session.get(WikiNode, existing.node_id)
+            if node is not None:
+                next_path = await self._unique_report_ref_path(
+                    session,
+                    space_id=space.id,
+                    root_path=root.path,
+                    title=title,
+                    current_node_id=int(node.id),
+                )
+                node.name = title
+                node.path = next_path
+                return
+
         leaf = await self._unique_child_leaf(
             session,
             space_id=space.id,
@@ -194,6 +204,33 @@ class LegacyWikiSyncService:
         await session.delete(report_ref)
         if node is not None:
             await session.delete(node)
+
+    async def _unique_report_ref_path(
+        self,
+        session: AsyncSession,
+        *,
+        space_id: int,
+        root_path: str,
+        title: str,
+        current_node_id: int,
+    ) -> str:
+        leaf = _slugify_node_name(title)
+        candidate = leaf or "item"
+        suffix = 2
+        while True:
+            path = f"{root_path}/{candidate}"
+            owner_id = (
+                await session.execute(
+                    select(WikiNode.id).where(
+                        WikiNode.space_id == space_id,
+                        WikiNode.path == path,
+                    )
+                )
+            ).scalar_one_or_none()
+            if owner_id is None or int(owner_id) == current_node_id:
+                return path
+            candidate = f"{leaf or 'item'}-{suffix}"
+            suffix += 1
 
     async def _require_current_space(self, session: AsyncSession, *, feature_id: int) -> WikiSpace:
         return (

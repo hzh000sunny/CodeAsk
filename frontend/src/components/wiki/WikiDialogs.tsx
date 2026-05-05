@@ -94,6 +94,7 @@ export function WikiNodeInputDialog({
 }
 
 export function WikiNodeDeleteDialog({
+  clearOnly = false,
   errorMessage,
   isDeleting,
   nodeName,
@@ -101,6 +102,7 @@ export function WikiNodeDeleteDialog({
   onConfirm,
   path,
 }: {
+  clearOnly?: boolean;
   errorMessage: string;
   isDeleting: boolean;
   nodeName: string;
@@ -120,8 +122,12 @@ export function WikiNodeDeleteDialog({
           <AlertTriangle aria-hidden="true" size={18} />
         </div>
         <div className="dialog-content">
-          <h2 id="wiki-delete-node-title">删除 Wiki 节点</h2>
-          <p>确认删除“{nodeName}”？其下游子节点会一起进入软删除状态。</p>
+          <h2 id="wiki-delete-node-title">{clearOnly ? "清空目录内容" : "删除 Wiki 节点"}</h2>
+          <p>
+            {clearOnly
+              ? `确认清空“${nodeName}”下的数据？目录本身会保留，目录下的文档、静态资源或问题报告会被删除。`
+              : `确认删除“${nodeName}”？其下游子节点会一起进入软删除状态。`}
+          </p>
           <div className="wiki-node-dialog-note">
             <strong>当前路径</strong>
             <span>{path}</span>
@@ -141,7 +147,7 @@ export function WikiNodeDeleteDialog({
               type="button"
               variant="danger"
             >
-              {isDeleting ? "删除中" : "确认删除"}
+              {isDeleting ? (clearOnly ? "清空中" : "删除中") : clearOnly ? "确认清空" : "确认删除"}
             </Button>
           </div>
         </div>
@@ -176,7 +182,7 @@ export function WikiEditLeaveDialog({
         </div>
         <div className="dialog-content">
           <h2 id="wiki-edit-leave-title">离开编辑态</h2>
-          <p>当前内容还没有正式发布。你可以保留自动草稿返回阅读态，也可以丢弃草稿或直接发布。</p>
+          <p>当前内容还没有保存。你可以保留自动草稿返回阅读态，也可以丢弃草稿或直接保存。</p>
           <div className="dialog-actions wiki-dialog-actions-stack">
             <Button disabled={isPublishing} onClick={onCancel} type="button" variant="secondary">
               继续编辑
@@ -203,7 +209,7 @@ export function WikiEditLeaveDialog({
               type="button"
               variant="primary"
             >
-              {isPublishing ? "发布中" : "发布并离开"}
+              {isPublishing ? "保存中" : "保存并离开"}
             </Button>
           </div>
         </div>

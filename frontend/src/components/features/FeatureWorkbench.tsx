@@ -3,10 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { createFeature, deleteFeature, listFeatures } from "../../lib/api";
 import type { FeatureRead } from "../../types/api";
-import { Badge } from "../ui/badge";
 import { DeleteFeatureDialog } from "./FeatureDialogs";
 import { FeatureListPanel } from "./FeatureListPanel";
-import { FeatureTabs } from "./FeatureTabs";
+import { FeatureTabs, type FeatureWikiOpenOptions } from "./FeatureTabs";
 import { mergeById, messageFromError } from "./feature-utils";
 
 interface ReportTarget {
@@ -15,7 +14,7 @@ interface ReportTarget {
 }
 
 interface FeatureWorkbenchProps {
-  onOpenWiki: (featureId: number) => void;
+  onOpenWiki: (featureId: number, options?: FeatureWikiOpenOptions) => void;
   reportTarget?: ReportTarget | null;
 }
 
@@ -37,7 +36,12 @@ export function FeatureWorkbench({
   const [showCreate, setShowCreate] = useState(false);
   const [featureName, setFeatureName] = useState("");
   const [featureDescription, setFeatureDescription] = useState("");
-  const { data: fetchedFeatures = [], isLoading } = useQuery({
+  const {
+    data: fetchedFeatures = [],
+    error: featuresError,
+    isError: hasFeaturesError,
+    isLoading,
+  } = useQuery({
     queryKey: ["features"],
     queryFn: listFeatures,
   });
@@ -110,6 +114,11 @@ export function FeatureWorkbench({
         createPending={createMutation.isPending}
         featureDescription={featureDescription}
         featureName={featureName}
+        loadErrorMessage={
+          hasFeaturesError
+            ? `加载特性失败：${messageFromError(featuresError)}`
+            : ""
+        }
         isLoading={isLoading}
         listCollapsed={listCollapsed}
         onCreateSubmit={() => createMutation.mutate()}
@@ -149,7 +158,6 @@ export function FeatureWorkbench({
                 打开 Wiki
               </button>
             ) : null}
-            <Badge>{selected?.slug ?? "feature"}</Badge>
           </div>
         </div>
 

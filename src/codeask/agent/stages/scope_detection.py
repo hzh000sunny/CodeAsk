@@ -81,13 +81,18 @@ async def run(ctx: StageContext) -> StageResult:
         events.append(AgentEvent(type="ask_user", data=_ask_user_payload(ctx, decision)))
         return StageResult(next_state=AgentState.AskUser, events=events)
 
-    return StageResult(next_state=AgentState.KnowledgeRetrieval, events=events)
+    return StageResult(
+        next_state=AgentState.KnowledgeRetrieval,
+        events=events,
+        metadata_updates={"selected_feature_ids": decision["feature_ids"]},
+    )
 
 
 def _normalize_decision(value: object) -> dict[str, Any]:
     args = cast(dict[str, Any], value) if isinstance(value, dict) else {}
     raw_feature_ids = args.get("feature_ids", [])
-    feature_ids = cast(list[object], raw_feature_ids) if isinstance(raw_feature_ids, list) else []
+    raw_items = cast(list[object], raw_feature_ids) if isinstance(raw_feature_ids, list) else []
+    feature_ids = [item for item in raw_items if isinstance(item, int)]
 
     raw_confidence = args.get("confidence", "low")
     if isinstance(raw_confidence, str) and raw_confidence in {"high", "medium", "low"}:

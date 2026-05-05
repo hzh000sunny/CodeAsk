@@ -116,6 +116,12 @@ function agentEventFromTrace(trace: AgentTraceResponse): AgentEvent | null {
       data: recordValue(payload.output),
     };
   }
+  if (trace.event_type === "wiki_scope_resolution") {
+    return {
+      type: "wiki_scope_resolution",
+      data: payload,
+    };
+  }
   if (trace.event_type === "tool_call") {
     return { type: "tool_call", data: payload };
   }
@@ -144,6 +150,15 @@ function evidenceInsightsFromTurn(turn: SessionTurnResponse): RuntimeInsight[] {
       const summary = stringValue(row.summary) ?? "已收集证据";
       const data = recordValue(row.data);
       const path = stringValue(data.path);
+      const headingPath = stringValue(data.heading_path);
+      const featureId =
+        typeof data.feature_id === "number" && Number.isInteger(data.feature_id)
+          ? data.feature_id
+          : null;
+      const nodeId =
+        typeof data.node_id === "number" && Number.isInteger(data.node_id)
+          ? data.node_id
+          : null;
       const result = recordValue(data.result);
       const resultData = recordValue(result.data);
       const resultPath = stringValue(resultData.path);
@@ -151,9 +166,22 @@ function evidenceInsightsFromTurn(turn: SessionTurnResponse): RuntimeInsight[] {
         id,
         kind: "evidence",
         title: `证据：${summary}`,
-        detail: [stringValue(row.type), path ?? resultPath]
+        detail: [stringValue(row.type), path ?? resultPath, headingPath]
           .filter(Boolean)
           .join(" · "),
+        detailMarkdown:
+          featureId !== null && nodeId !== null
+            ? [
+                `[${path ?? summary}](#/wiki?${new URLSearchParams({
+                  feature: String(featureId),
+                  node: String(nodeId),
+                  ...(headingPath ? { heading: headingPath } : {}),
+                }).toString()})`,
+                headingPath ? `命中小节：${headingPath}` : null,
+              ]
+                .filter(Boolean)
+                .join("\n\n")
+            : undefined,
       };
     })
     .filter((item) => item.detail || item.title);

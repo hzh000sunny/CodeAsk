@@ -233,8 +233,50 @@ test("global settings config forms align with analysis policy layout and keep li
   }
 });
 
+test("wiki import drawer keeps queue details visible across failure and unfinished close confirmation", async ({
+  page,
+}) => {
+  await installApiMocks(page);
+  await page.goto("/");
+
+  const primaryNav = page.getByRole("navigation", { name: "主导航" });
+  await primaryNav.getByRole("button", { name: "Wiki", exact: true }).click();
+  await expect(page.getByRole("complementary", { name: "Wiki 目录树" })).toBeVisible();
+
+  await page
+    .getByRole("button", { name: "打开节点 知识库 的更多操作" })
+    .click();
+  await page.getByRole("menuitem", { name: "导入 Wiki" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+
+  await page.getByLabel("选择 Markdown 文件").setInputFiles([
+    {
+      name: "Runbook-A.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("# Runbook A\n\nfirst upload fails"),
+    },
+    {
+      name: "Runbook-B.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("# Runbook B\n\nsecond upload succeeds"),
+    },
+  ]);
+
+  await expect(page.getByText("失败 1")).toBeVisible();
+  await expect(page.getByText("已上传 1")).toBeVisible();
+  await expect(page.getByRole("note").getByText("first upload failed")).toBeVisible();
+  await expect(page.getByText("Runbook-B.md")).toBeVisible();
+
+  await page.getByRole("button", { name: "关闭" }).click();
+  await expect(page.getByText("导入尚未完成")).toBeVisible();
+  await page.getByRole("button", { name: "继续后台" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
 async function installApiMocks(page: Page) {
   let isAdmin = false;
+  let wikiImportStage: "initial" | "after_first_failure" | "after_second_uploaded" =
+    "initial";
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -332,6 +374,149 @@ async function installApiMocks(page: Page) {
     if (path === "/api/features" && method === "GET") {
       return json(route, [feature]);
     }
+    if (path === "/api/wiki/tree" && method === "GET") {
+      return json(route, {
+        space: null,
+        nodes: [
+          {
+            id: -1,
+            space_id: 0,
+            feature_id: null,
+            parent_id: null,
+            type: "folder",
+            name: "当前特性",
+            path: "当前特性",
+            system_role: "feature_group_current",
+            sort_order: 0,
+            created_at: "2026-04-30T10:00:00",
+            updated_at: "2026-04-30T10:00:00",
+          },
+          {
+            id: -2,
+            space_id: 0,
+            feature_id: null,
+            parent_id: null,
+            type: "folder",
+            name: "历史特性",
+            path: "历史特性",
+            system_role: "feature_group_history",
+            sort_order: 1,
+            created_at: "2026-04-30T10:00:00",
+            updated_at: "2026-04-30T10:00:00",
+          },
+          {
+            id: -100007,
+            space_id: 70,
+            feature_id: 7,
+            parent_id: -1,
+            type: "folder",
+            name: "支付结算",
+            path: "当前特性/payment-settlement",
+            system_role: "feature_space_current",
+            sort_order: 0,
+            created_at: "2026-04-30T10:00:00",
+            updated_at: "2026-04-30T10:00:00",
+          },
+          {
+            id: 701,
+            space_id: 70,
+            feature_id: 7,
+            parent_id: -100007,
+            type: "folder",
+            name: "知识库",
+            path: "knowledge-base",
+            system_role: "knowledge_base",
+            sort_order: 100,
+            created_at: "2026-04-30T10:00:00",
+            updated_at: "2026-04-30T10:00:00",
+          },
+        ],
+      });
+    }
+    if (path === "/api/wiki/spaces/by-feature/7" && method === "GET") {
+      return json(route, {
+        id: 70,
+        feature_id: 7,
+        scope: "current",
+        display_name: "支付结算",
+        slug: "payment-settlement",
+        status: "ready",
+        created_at: "2026-04-30T10:00:00",
+        updated_at: "2026-04-30T10:00:00",
+      });
+    }
+    if (path === "/api/wiki/reports/projections?feature_id=7" && method === "GET") {
+      return json(route, { items: [] });
+    }
+    if (path === "/api/wiki/import-sessions" && method === "POST") {
+      return json(
+        route,
+        {
+          id: 401,
+          space_id: 70,
+          parent_id: 701,
+          mode: "markdown",
+          status: "running",
+          requested_by_subject_id: "client_e2e",
+          created_at: "2026-04-30T10:00:00",
+          updated_at: "2026-04-30T10:00:00",
+          summary: {
+            total_files: 2,
+            pending_count: 2,
+            uploading_count: 0,
+            uploaded_count: 0,
+            conflict_count: 0,
+            failed_count: 0,
+            ignored_count: 0,
+            skipped_count: 0,
+          },
+        },
+        201,
+      );
+    }
+    if (path === "/api/wiki/import-sessions/401/scan" && method === "POST") {
+      return json(route, {
+        id: 401,
+        space_id: 70,
+        parent_id: 701,
+        mode: "markdown",
+        status: "running",
+        requested_by_subject_id: "client_e2e",
+        created_at: "2026-04-30T10:00:00",
+        updated_at: "2026-04-30T10:00:00",
+        summary: {
+          total_files: 2,
+          pending_count: 2,
+          uploading_count: 0,
+          uploaded_count: 0,
+          conflict_count: 0,
+          failed_count: 0,
+          ignored_count: 0,
+          skipped_count: 0,
+        },
+      });
+    }
+    if (path === "/api/wiki/import-sessions/401" && method === "GET") {
+      return json(route, currentImportSessionSummary(wikiImportStage));
+    }
+    if (path === "/api/wiki/import-sessions/401/items" && method === "GET") {
+      return json(route, { items: currentImportItems(wikiImportStage) });
+    }
+    if (path === "/api/wiki/import-sessions/401/items/1/upload" && method === "POST") {
+      wikiImportStage = "after_first_failure";
+      return route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "first upload failed" }),
+      });
+    }
+    if (path === "/api/wiki/import-sessions/401/items/2/upload" && method === "POST") {
+      wikiImportStage = "after_second_uploaded";
+      return json(route, {
+        session: currentImportSessionSummary(wikiImportStage),
+        item: currentImportItems(wikiImportStage)[1],
+      });
+    }
     if (path === "/api/documents?feature_id=7" && method === "GET") {
       return json(route, []);
     }
@@ -381,4 +566,100 @@ function json(route: Route, payload: unknown, status = 200) {
     contentType: "application/json",
     body: JSON.stringify(payload),
   });
+}
+
+function currentImportSessionSummary(stage: "initial" | "after_first_failure" | "after_second_uploaded") {
+  if (stage === "after_second_uploaded") {
+    return {
+      id: 401,
+      space_id: 70,
+      parent_id: 701,
+      mode: "markdown",
+      status: "running",
+      requested_by_subject_id: "client_e2e",
+      created_at: "2026-04-30T10:00:00",
+      updated_at: "2026-04-30T10:00:00",
+      summary: {
+        total_files: 2,
+        pending_count: 0,
+        uploading_count: 0,
+        uploaded_count: 1,
+        conflict_count: 0,
+        failed_count: 1,
+        ignored_count: 0,
+        skipped_count: 0,
+      },
+    };
+  }
+  if (stage === "after_first_failure") {
+    return {
+      id: 401,
+      space_id: 70,
+      parent_id: 701,
+      mode: "markdown",
+      status: "running",
+      requested_by_subject_id: "client_e2e",
+      created_at: "2026-04-30T10:00:00",
+      updated_at: "2026-04-30T10:00:00",
+      summary: {
+        total_files: 2,
+        pending_count: 1,
+        uploading_count: 0,
+        uploaded_count: 0,
+        conflict_count: 0,
+        failed_count: 1,
+        ignored_count: 0,
+        skipped_count: 0,
+      },
+    };
+  }
+  return {
+    id: 401,
+    space_id: 70,
+    parent_id: 701,
+    mode: "markdown",
+    status: "running",
+    requested_by_subject_id: "client_e2e",
+    created_at: "2026-04-30T10:00:00",
+    updated_at: "2026-04-30T10:00:00",
+    summary: {
+      total_files: 2,
+      pending_count: 2,
+      uploading_count: 0,
+      uploaded_count: 0,
+      conflict_count: 0,
+      failed_count: 0,
+      ignored_count: 0,
+      skipped_count: 0,
+    },
+  };
+}
+
+function currentImportItems(stage: "initial" | "after_first_failure" | "after_second_uploaded") {
+  return [
+    {
+      id: 1,
+      source_path: "Runbook-A.md",
+      target_path: "knowledge-base/runbook-a",
+      item_kind: "document",
+      status: stage === "initial" ? "pending" : "failed",
+      progress_percent: stage === "initial" ? 0 : 100,
+      ignore_reason: null,
+      staging_path: "/tmp/wiki/imports/session_401/Runbook-A.md",
+      result_node_id: null,
+      error_message: stage === "initial" ? null : "first upload failed",
+    },
+    {
+      id: 2,
+      source_path: "Runbook-B.md",
+      target_path: "knowledge-base/runbook-b",
+      item_kind: "document",
+      status: stage === "after_second_uploaded" ? "uploaded" : "pending",
+      progress_percent: stage === "after_second_uploaded" ? 100 : 0,
+      ignore_reason: null,
+      staging_path: "/tmp/wiki/imports/session_401/Runbook-B.md",
+      result_node_id: stage === "after_second_uploaded" ? 706 : null,
+      error_message: null,
+    },
+  ];
 }

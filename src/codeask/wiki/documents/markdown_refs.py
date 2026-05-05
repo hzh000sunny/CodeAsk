@@ -15,6 +15,7 @@ from codeask.wiki.paths import normalize_asset_name, normalize_node_name
 
 _IMG_LINK_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 _REL_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)\s#]+)(?:\s+\"[^\"]*\")?\)")
+_HTML_IMG_SRC_RE = re.compile(r"<img\b[^>]*\bsrc\s*=\s*[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +39,12 @@ def parse_markdown_references(raw_text: str) -> list[MarkdownReference]:
         if key not in seen:
             seen.add(key)
             refs.append(MarkdownReference(target=target, kind="link"))
+    for match in _HTML_IMG_SRC_RE.finditer(raw_text):
+        target = match.group(1)
+        key = (target, "image")
+        if key not in seen:
+            seen.add(key)
+            refs.append(MarkdownReference(target=target, kind="image"))
     return refs
 
 

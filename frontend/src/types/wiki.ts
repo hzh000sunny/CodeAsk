@@ -12,6 +12,7 @@ export interface WikiSpaceRead {
 export interface WikiNodeRead {
   id: number;
   space_id: number;
+  feature_id?: number | null;
   parent_id: number | null;
   type: "folder" | "document" | "asset" | "report_ref" | string;
   name: string;
@@ -33,7 +34,7 @@ export interface WikiNodeDetailRead extends WikiNodeRead {
 }
 
 export interface WikiTreeRead {
-  space: WikiSpaceRead;
+  space: WikiSpaceRead | null;
   nodes: WikiNodeRead[];
 }
 
@@ -61,6 +62,7 @@ export interface WikiDocumentDetailRead {
   broken_refs_json: WikiDocumentBrokenRefs;
   resolved_refs_json: WikiDocumentResolvedRef[];
   provenance_json: Record<string, unknown> | null;
+  provenance_summary?: Record<string, unknown> | null;
   permissions: WikiNodePermissions;
 }
 
@@ -116,6 +118,14 @@ export interface WikiImportPreflightRead {
   items: WikiImportPreflightItemRead[];
 }
 
+export interface WikiImportSelectionItem {
+  file: File;
+  relativePath: string;
+  itemKind: "document" | "asset" | "ignored";
+  included: boolean;
+  ignoreReason: "unsupported" | "not_referenced" | null;
+}
+
 export interface WikiImportJobRead {
   id: number;
   space_id: number;
@@ -139,6 +149,46 @@ export interface WikiImportJobItemRead {
 
 export interface WikiImportJobItemsRead {
   items: WikiImportJobItemRead[];
+}
+
+export interface WikiImportSessionSummaryRead {
+  total_files: number;
+  pending_count: number;
+  uploading_count: number;
+  uploaded_count: number;
+  conflict_count: number;
+  failed_count: number;
+  ignored_count: number;
+  skipped_count: number;
+}
+
+export interface WikiImportSessionRead {
+  id: number;
+  space_id: number;
+  parent_id: number | null;
+  mode: string;
+  status: string;
+  requested_by_subject_id: string;
+  created_at: string;
+  updated_at: string;
+  summary: WikiImportSessionSummaryRead;
+}
+
+export interface WikiImportSessionItemRead {
+  id: number;
+  source_path: string;
+  target_path: string | null;
+  item_kind: string;
+  status: string;
+  progress_percent: number;
+  ignore_reason: string | null;
+  staging_path: string | null;
+  result_node_id: number | null;
+  error_message?: string | null;
+}
+
+export interface WikiImportSessionItemsRead {
+  items: WikiImportSessionItemRead[];
 }
 
 export interface WikiReportProjectionRead {
@@ -179,6 +229,7 @@ export interface WikiSearchHitRead {
   node_id: number;
   title: string;
   path: string;
+  heading_path?: string | null;
   feature_id: number | null;
   group_key: string;
   group_label: string;

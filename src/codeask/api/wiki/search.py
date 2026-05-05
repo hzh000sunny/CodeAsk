@@ -16,15 +16,20 @@ async def search_wiki(
     q: str,
     session: SessionDep,
     feature_id: int | None = None,
+    current_feature_id: int | None = None,
     limit: int = 20,
 ) -> WikiSearchResultsRead:
     if feature_id is not None:
         feature = await load_feature(feature_id, session)
         del feature
+    if current_feature_id is not None and current_feature_id != feature_id:
+        feature = await load_feature(current_feature_id, session)
+        del feature
     hits = await NativeWikiSearchService().search(
         session,
         q,
         feature_id=feature_id,
+        current_feature_id=current_feature_id,
         limit=limit,
     )
     return WikiSearchResultsRead(items=[WikiSearchHitRead(**asdict(hit)) for hit in hits])

@@ -4,6 +4,7 @@ from codeask.db.models.wiki.asset import WikiAsset
 from codeask.db.models.wiki.document import WikiDocument, WikiDocumentDraft, WikiDocumentVersion
 from codeask.db.models.wiki.event import WikiNodeEvent
 from codeask.db.models.wiki.import_job import WikiImportItem, WikiImportJob
+from codeask.db.models.wiki.import_session import WikiImportSession, WikiImportSessionItem
 from codeask.db.models.wiki.node import WikiNode, WikiReportRef
 from codeask.db.models.wiki.source import WikiSource
 from codeask.db.models.wiki.space import WikiSpace
@@ -15,6 +16,8 @@ __all__ = [
     "WikiDocumentVersion",
     "WikiImportItem",
     "WikiImportJob",
+    "WikiImportSession",
+    "WikiImportSessionItem",
     "WikiNode",
     "WikiNodeEvent",
     "WikiReportRef",

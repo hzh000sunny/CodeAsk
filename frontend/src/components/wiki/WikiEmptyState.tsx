@@ -38,7 +38,7 @@ export function WikiEmptyState({
             type="button"
             variant="secondary"
           >
-            导入目录
+            导入 Wiki
           </Button>
         </div>
       ) : null}

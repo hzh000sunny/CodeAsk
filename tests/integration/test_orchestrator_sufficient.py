@@ -65,8 +65,41 @@ async def orchestrator(tmp_path: Path):  # type: ignore[no-untyped-def]
                     "title": "OrderService timeout",
                     "summary": "OrderService timeout doc",
                     "score": 0.9,
+                    "feature_id": 1,
+                    "node_id": 11,
+                    "path": "知识库/OrderService timeout",
+                    "heading_path": "排查步骤",
                 }
             ]
+
+        async def describe_scope(self, query, feature_ids):  # type: ignore[no-untyped-def]
+            return {
+                "feature_id": 1,
+                "query": query,
+                "defaults": [
+                    {
+                        "node_id": 2,
+                        "path": "知识库",
+                        "label": "知识库",
+                        "system_role": "knowledge_base",
+                    },
+                    {
+                        "node_id": 3,
+                        "path": "问题定位报告",
+                        "label": "问题定位报告",
+                        "system_role": "reports",
+                    },
+                ],
+                "matches": [
+                    {
+                        "node_id": 11,
+                        "path": "知识库/OrderService timeout",
+                        "label": "OrderService timeout",
+                        "match_reason": "contains",
+                        "matched_phrase": "timeout",
+                    }
+                ],
+            }
 
     class FakeCodeService:
         async def grep_code(self, args, ctx):  # type: ignore[no-untyped-def]
@@ -146,13 +179,24 @@ async def test_full_happy_path(orchestrator) -> None:  # type: ignore[no-untyped
 
     events = [event async for event in agent.run("sess_1", "turn_1", "为什么订单偶发 500")]
     event_types = [event.type for event in events]
+    streamed_answer = "".join(
+        str(event.data.get("delta", ""))
+        for event in events
+        if event.type == "text_delta"
+    )
 
     assert "scope_detection" in event_types
+    assert "wiki_scope_resolution" in event_types
     assert "evidence" in event_types
     assert "sufficiency_judgement" in event_types
     assert "text_delta" in event_types
     assert event_types[-1] == "done"
     assert event_types.count("done") == 1
+    assert "[ev_knowledge_1]" not in streamed_answer
+    assert (
+        "[OrderService timeout](#/wiki?feature=1&node=11&heading=%E6%8E%92%E6%9F%A5%E6%AD%A5%E9%AA%A4)"
+        in streamed_answer
+    )
 
     async with factory() as session:
         traces = (
@@ -166,6 +210,7 @@ async def test_full_happy_path(orchestrator) -> None:  # type: ignore[no-untyped
         )
 
     assert any(trace.event_type == "scope_decision" for trace in traces)
+    assert any(trace.event_type == "wiki_scope_resolution" for trace in traces)
     assert any(trace.event_type == "sufficiency_decision" for trace in traces)
     assert any(
         trace.event_type == "stage_enter" and trace.stage == "answer_finalization"
@@ -192,6 +237,65 @@ async def test_orchestrator_includes_attachment_mapping_in_prompt(orchestrator) 
     assert "att_log.log" in first_call_text
     assert "数据库节点 A 的启动日志" in first_call_text
     assert "reference_names" in first_call_text
+
+
+@pytest.mark.asyncio
+async def test_knowledge_retrieval_uses_scope_selected_feature_ids(
+    orchestrator,
+) -> None:  # type: ignore[no-untyped-def]
+    agent, _factory, _mock = orchestrator
+
+    search_calls: list[list[int]] = []
+    describe_scope_calls: list[list[int]] = []
+
+    class CapturingWikiService:
+        async def search(self, query, feature_ids, top_k=10):  # type: ignore[no-untyped-def]
+            del query, top_k
+            search_calls.append(list(feature_ids))
+            return [
+                {
+                    "id": "doc_2",
+                    "source": "doc",
+                    "title": "Payments timeout",
+                    "summary": "payments doc",
+                    "feature_id": 2,
+                    "node_id": 22,
+                    "path": "知识库/Payments timeout",
+                }
+            ]
+
+        async def describe_scope(self, query, feature_ids):  # type: ignore[no-untyped-def]
+            del query
+            describe_scope_calls.append(list(feature_ids))
+            return {
+                "feature_ids": list(feature_ids),
+                "defaults": [],
+                "matches": [],
+            }
+
+    agent._wiki_search_service = CapturingWikiService()  # type: ignore[attr-defined]
+
+    scope_mock = MockLLMClient(
+        [
+            tool_call_message(
+                "tc_scope_selected",
+                "select_feature",
+                {
+                    "feature_ids": [2],
+                    "confidence": "high",
+                    "reason": "payment domain",
+                },
+            ),
+            text_message('{"verdict":"enough","reason":"docs cover this","next":"answer_finalization"}'),
+            text_message("结论：看支付特性即可。证据 [ev_knowledge_1]."),
+        ]
+    )
+    agent._gateway.client_factory.provider_clients["openai"] = lambda **_: scope_mock  # type: ignore[index]
+
+    _events = [event async for event in agent.run("sess_1", "turn_1", "支付超时是什么原因")]
+
+    assert describe_scope_calls == [[2]]
+    assert search_calls == [[2]]
 
 
 def _call_text(call: dict[str, object]) -> str:

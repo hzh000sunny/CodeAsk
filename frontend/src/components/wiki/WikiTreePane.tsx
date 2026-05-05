@@ -1,25 +1,26 @@
-import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 
-import type { FeatureRead } from "../../types/api";
 import type { WikiSearchHitRead } from "../../types/wiki";
-import type { WikiSearchHitGroup } from "../../lib/wiki/presentation";
+import {
+  formatWikiSearchHitHeading,
+  type WikiSearchHitGroup,
+} from "../../lib/wiki/presentation";
 import { filterWikiTreeByQuery, type WikiTreeNodeRecord } from "../../lib/wiki/tree";
-import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { WikiTreeNode } from "./WikiTreeNode";
 
 export function WikiTreePane({
-  activeFeature,
   canManageFeature,
   collapsed,
   expandedIds,
-  featureOptions,
   onCreateDocument,
   onCreateFolder,
   onDeleteNode,
-  onFeatureChange,
   onImport,
+  onImportNode,
   onRenameNode,
+  onResizeFromCollapseButton,
   onSelectSearchHit,
   onSelectNode,
   onToggleCollapsed,
@@ -31,17 +32,16 @@ export function WikiTreePane({
   selectedNodeId,
   setSearch,
 }: {
-  activeFeature: FeatureRead | null;
   canManageFeature: boolean;
   collapsed: boolean;
   expandedIds: Set<number>;
-  featureOptions: FeatureRead[];
   onCreateDocument: (node?: WikiTreeNodeRecord | null) => void;
   onCreateFolder: (node: WikiTreeNodeRecord) => void;
   onDeleteNode: (node: WikiTreeNodeRecord) => void;
-  onFeatureChange: (featureId: number) => void;
   onImport: () => void;
+  onImportNode: (node: WikiTreeNodeRecord) => void;
   onRenameNode: (node: WikiTreeNodeRecord) => void;
+  onResizeFromCollapseButton: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   onSelectSearchHit: (hit: WikiSearchHitRead) => void;
   onSelectNode: (node: WikiTreeNodeRecord) => void;
   onToggleCollapsed: () => void;
@@ -57,12 +57,22 @@ export function WikiTreePane({
   const showSearchResults = search.trim().length > 0;
 
   return (
-    <aside className="wiki-tree-pane" data-collapsed={collapsed}>
+    <aside
+      aria-label="Wiki 目录树"
+      className="wiki-tree-pane"
+      data-collapsed={collapsed}
+    >
       <button
         aria-label={collapsed ? "展开 Wiki 目录" : "收起 Wiki 目录"}
-        className="edge-collapse-button secondary"
+        className="edge-collapse-button secondary wiki-tree-collapse-button"
         data-collapsed={collapsed}
-        onClick={onToggleCollapsed}
+        onKeyDown={(event: ReactKeyboardEvent<HTMLButtonElement>) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onToggleCollapsed();
+          }
+        }}
+        onMouseDown={onResizeFromCollapseButton}
         title={collapsed ? "展开 Wiki 目录" : "收起 Wiki 目录"}
         type="button"
       >
@@ -73,51 +83,17 @@ export function WikiTreePane({
       ) : (
         <>
           <div className="wiki-tree-toolbar">
-            <label className="field-label compact">
-              当前特性
-              <select
-                className="input wiki-select"
-                onChange={(event) => onFeatureChange(Number(event.target.value))}
-                value={activeFeature?.id ?? ""}
-              >
-                {featureOptions.map((feature) => (
-                  <option key={feature.id} value={feature.id}>
-                    {feature.name}
-                  </option>
-                ))}
-              </select>
-            </label>
             <div className="list-toolbar wiki-toolbar-row">
               <label className="search-field">
                 <Search aria-hidden="true" size={16} />
                 <Input
                   aria-label="搜索 Wiki 目录"
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="搜索目录"
+                  placeholder="搜索"
                   value={search}
                 />
               </label>
-              {canManageFeature ? (
-                <Button
-                  aria-label="导入 Wiki"
-                  className="icon-only"
-                  icon={<Plus size={17} />}
-                  onClick={onImport}
-                  title="导入目录或文件"
-                  type="button"
-                />
-              ) : null}
             </div>
-            {canManageFeature ? (
-              <Button
-                icon={<Plus size={16} />}
-                onClick={() => onCreateDocument()}
-                type="button"
-                variant="secondary"
-              >
-                新建 Wiki
-              </Button>
-            ) : null}
           </div>
           <div className="list-scroll wiki-tree-scroll">
             {showSearchResults ? (
@@ -146,6 +122,9 @@ export function WikiTreePane({
                           >
                             <strong>{item.title}</strong>
                             <span>{item.path}</span>
+                            {formatWikiSearchHitHeading(item) ? (
+                              <em>{formatWikiSearchHitHeading(item)}</em>
+                            ) : null}
                             <small>{item.snippet}</small>
                           </button>
                         ))}
@@ -171,6 +150,7 @@ export function WikiTreePane({
                     onCreateDocument={(targetNode) => onCreateDocument(targetNode)}
                     onCreateFolder={onCreateFolder}
                     onDelete={onDeleteNode}
+                    onImport={onImportNode}
                     onRename={onRenameNode}
                     onSelect={onSelectNode}
                     onToggle={onToggleNode}

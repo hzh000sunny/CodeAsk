@@ -16,6 +16,7 @@ from codeask.agent.tool_schemas import (
     READ_LOG_SCHEMA,
     READ_REPORT_SCHEMA,
     READ_WIKI_DOC_SCHEMA,
+    READ_WIKI_NODE_SCHEMA,
 )
 
 
@@ -75,6 +76,15 @@ def register_delegate_tools(
     )
     async def read_wiki_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return await wiki_delegate(args, ctx, "read_wiki_doc")
+
+    @registry.register(
+        "read_wiki_node",
+        schema=READ_WIKI_NODE_SCHEMA,
+        allowed_phases={AgentState.KnowledgeRetrieval},
+        description="Read a wiki node section.",
+    )
+    async def read_wiki_node(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        return await wiki_delegate(args, ctx, "read_wiki_node")
 
     @registry.register(
         "read_report",

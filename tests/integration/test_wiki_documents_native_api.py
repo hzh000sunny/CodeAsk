@@ -2,6 +2,9 @@
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+
+from codeask.db.models import WikiDocument, WikiNode, WikiSource
 
 
 async def _create_document_node(client: AsyncClient, slug: str = "wiki-doc-native") -> int:
@@ -128,7 +131,7 @@ async def test_delete_draft_clears_subject_draft(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_owner_cannot_write_native_document(client: AsyncClient) -> None:
+async def test_non_owner_can_write_native_document_in_v1_0_1(client: AsyncClient) -> None:
     node_id = await _create_document_node(client, slug="wiki-doc-denied")
 
     response = await client.put(
@@ -136,14 +139,16 @@ async def test_non_owner_cannot_write_native_document(client: AsyncClient) -> No
         json={"body_markdown": "# No access"},
         headers={"X-Subject-Id": "viewer@dev-9"},
     )
-    assert response.status_code == 403, response.text
+    assert response.status_code == 200, response.text
+    assert response.json()["draft_body_markdown"] == "# No access"
 
     response = await client.post(
         f"/api/wiki/documents/{node_id}/publish",
         json={"body_markdown": "# No access"},
         headers={"X-Subject-Id": "viewer@dev-9"},
     )
-    assert response.status_code == 403, response.text
+    assert response.status_code == 200, response.text
+    assert response.json()["current_body_markdown"] == "# No access"
 
 
 @pytest.mark.asyncio
@@ -164,3 +169,46 @@ async def test_publish_marks_missing_relative_links_as_broken(client: AsyncClien
     assert refs["./img.png"]["broken"] is True
     assert body["broken_refs_json"]["links"][0]["target"] == "./missing.md"
     assert body["broken_refs_json"]["assets"][0]["target"] == "./img.png"
+
+
+@pytest.mark.asyncio
+async def test_document_detail_returns_provenance_summary(client: AsyncClient, app) -> None:  # type: ignore[no-untyped-def]
+    node_id = await _create_document_node(client, slug="wiki-doc-provenance")
+
+    async with app.state.session_factory() as session:
+        node = await session.get(WikiNode, node_id)
+        assert node is not None
+        document = (
+            await session.execute(select(WikiDocument).where(WikiDocument.node_id == node_id))
+        ).scalar_one()
+        source = WikiSource(
+            space_id=node.space_id,
+            kind="directory_import",
+            display_name="Payment Runbooks",
+            uri="file:///srv/wiki/payment",
+            metadata_json={"root_path": "docs/runbooks"},
+            status="active",
+        )
+        session.add(source)
+        await session.flush()
+        document.provenance_json = {
+            "source": "directory_import",
+            "source_id": source.id,
+            "source_path": "runbooks/payment.md",
+            "import_session_id": 301,
+        }
+        await session.commit()
+
+    response = await client.get(
+        f"/api/wiki/documents/{node_id}",
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+
+    assert response.status_code == 200, response.text
+    summary = response.json()["provenance_summary"]
+    assert summary["source"] == "directory_import"
+    assert summary["source_label"] == "目录导入"
+    assert summary["source_display_name"] == "Payment Runbooks"
+    assert summary["source_uri"] == "file:///srv/wiki/payment"
+    assert summary["source_path"] == "runbooks/payment.md"
+    assert summary["import_session_id"] == 301

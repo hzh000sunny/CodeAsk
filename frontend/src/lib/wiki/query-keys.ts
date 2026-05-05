@@ -8,8 +8,11 @@ export const wikiQueryKeys = {
   reportProjections: (featureId: number | null) =>
     [...wikiQueryKeys.all, "report-projections", featureId] as const,
   report: (nodeId: number | null) => [...wikiQueryKeys.all, "report", nodeId] as const,
-  search: (featureId: number | null, query: string) =>
-    [...wikiQueryKeys.all, "search", featureId, query] as const,
+  search: (
+    featureId: number | null,
+    currentFeatureId: number | null,
+    query: string,
+  ) => [...wikiQueryKeys.all, "search", featureId, currentFeatureId, query] as const,
   importJob: (jobId: number | null) => [...wikiQueryKeys.all, "import-job", jobId] as const,
   importItems: (jobId: number | null) => [...wikiQueryKeys.all, "import-items", jobId] as const,
 };

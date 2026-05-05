@@ -12,6 +12,7 @@ export function FeatureListPanel({
   featureName,
   isLoading,
   listCollapsed,
+  loadErrorMessage,
   onCreateSubmit,
   onDelete,
   onFeatureDescriptionChange,
@@ -31,6 +32,7 @@ export function FeatureListPanel({
   featureName: string;
   isLoading: boolean;
   listCollapsed: boolean;
+  loadErrorMessage: string;
   onCreateSubmit: () => void;
   onDelete: (feature: FeatureRead) => void;
   onFeatureDescriptionChange: (value: string) => void;
@@ -125,8 +127,13 @@ export function FeatureListPanel({
                 </Button>
               </form>
             ) : null}
+            {loadErrorMessage ? (
+              <div className="inline-alert danger" role="alert">
+                {loadErrorMessage}
+              </div>
+            ) : null}
             {isLoading ? <p className="empty-note">正在加载特性</p> : null}
-            {!isLoading && visibleFeatures.length === 0 ? (
+            {!isLoading && !loadErrorMessage && visibleFeatures.length === 0 ? (
               <div className="empty-block">
                 <p>暂无特性</p>
                 <span>

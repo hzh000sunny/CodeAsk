@@ -11,6 +11,7 @@ EventName = Literal[
     "tool_call",
     "tool_result",
     "evidence",
+    "wiki_scope_resolution",
     "scope_detection",
     "sufficiency_judgement",
     "ask_user",

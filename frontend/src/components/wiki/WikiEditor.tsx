@@ -62,7 +62,7 @@ export function WikiEditor({
             取消
           </Button>
           <Button disabled={publishing} onClick={onPublish} type="button" variant="primary">
-            发布
+            保存
           </Button>
         </div>
       </div>

@@ -17,6 +17,7 @@ import {
   updateReport,
   verifyReport,
 } from "../../lib/api";
+import { wikiQueryKeys } from "../../lib/wiki/query-keys";
 import type { ReportRead } from "../../types/api";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -98,6 +99,7 @@ export function ReportsPanel({
       setIsEditing(false);
       setActionStatus({ message: "报告已保存", tone: "success" });
       void queryClient.invalidateQueries({ queryKey: reportsQueryKey });
+      void invalidateWikiViews();
     },
     onError: (error) => {
       setActionStatus({
@@ -113,6 +115,7 @@ export function ReportsPanel({
       setSelectedLocalReportId(report.id);
       setActionStatus({ message: "报告已验证通过", tone: "success" });
       void queryClient.invalidateQueries({ queryKey: reportsQueryKey });
+      void invalidateWikiViews();
     },
     onError: (error) => {
       setActionStatus({
@@ -128,6 +131,7 @@ export function ReportsPanel({
       setSelectedLocalReportId(report.id);
       setActionStatus({ message: "报告已标记为未通过", tone: "success" });
       void queryClient.invalidateQueries({ queryKey: reportsQueryKey });
+      void invalidateWikiViews();
     },
     onError: (error) => {
       setActionStatus({
@@ -143,6 +147,7 @@ export function ReportsPanel({
       setSelectedLocalReportId(report.id);
       setActionStatus({ message: "报告已撤销验证", tone: "success" });
       void queryClient.invalidateQueries({ queryKey: reportsQueryKey });
+      void invalidateWikiViews();
     },
     onError: (error) => {
       setActionStatus({
@@ -159,6 +164,7 @@ export function ReportsPanel({
       setIsEditing(false);
       setActionStatus({ message: "报告已删除", tone: "success" });
       void queryClient.invalidateQueries({ queryKey: reportsQueryKey });
+      void invalidateWikiViews();
     },
     onError: (error) => {
       setActionStatus({
@@ -173,6 +179,20 @@ export function ReportsPanel({
     rejectMutation.isPending ||
     unverifyMutation.isPending ||
     deleteMutation.isPending;
+
+  async function invalidateWikiViews() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: wikiQueryKeys.tree(null) }),
+      queryClient.invalidateQueries({
+        queryKey: wikiQueryKeys.tree(featureId ?? null),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: wikiQueryKeys.reportProjections(featureId ?? null),
+      }),
+      queryClient.invalidateQueries({ queryKey: [...wikiQueryKeys.all, "report"] }),
+      queryClient.invalidateQueries({ queryKey: [...wikiQueryKeys.all, "search"] }),
+    ]);
+  }
 
   function cacheReport(report: ReportRead) {
     queryClient.setQueryData<ReportRead[]>(reportsQueryKey, (current = []) => {

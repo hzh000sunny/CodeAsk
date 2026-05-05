@@ -288,10 +288,12 @@ class AgentOrchestrator:
                 *result.messages_appended,
             ],
         )
+        metadata = {**ctx.metadata, **result.metadata_updates}
         return replace(
             ctx,
             prompt_context=prompt_context,
             collected_evidence=[*ctx.collected_evidence, *result.evidence_added],
+            metadata=metadata,
         )
 
     async def _persist_turn_evidence(

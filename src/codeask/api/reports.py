@@ -80,6 +80,7 @@ async def update_report(
     payload: ReportUpdate,
     session: SessionDep,
 ) -> ReportRead:
+    sync_service = LegacyWikiSyncService()
     try:
         await ReportService().update_draft(
             session,
@@ -90,8 +91,14 @@ async def update_report(
         )
     except ReportVerificationError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    await session.commit()
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
+    await sync_service.sync_report_ref(
+        session,
+        report_id=report_id,
+        feature_id=report.feature_id,
+        title=report.title,
+    )
+    await session.commit()
     return ReportRead.model_validate(report)
 
 

@@ -4,11 +4,14 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from codeask.db.models import WikiNode, WikiSpace
+from codeask.db.models import Feature, WikiNode, WikiSpace
 
 
 @pytest.mark.asyncio
-async def test_create_list_get_update_delete_feature(client: AsyncClient) -> None:
+async def test_create_list_get_update_archive_feature(
+    client: AsyncClient,
+    app,
+) -> None:  # type: ignore[no-untyped-def]
     response = await client.post(
         "/api/features",
         json={"name": "Order", "slug": "order", "description": "core"},
@@ -31,11 +34,37 @@ async def test_create_list_get_update_delete_feature(client: AsyncClient) -> Non
     assert response.status_code == 200
     assert response.json()["description"] == "updated"
 
-    response = await client.delete(f"/api/features/{feature_id}")
+    response = await client.delete(
+        f"/api/features/{feature_id}",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
     assert response.status_code == 204
+
+    response = await client.get("/api/features")
+    assert response.status_code == 200
+    assert all(feature["id"] != feature_id for feature in response.json())
 
     response = await client.get(f"/api/features/{feature_id}")
     assert response.status_code == 404
+
+    async with app.state.session_factory() as session:
+        feature = await session.get(Feature, feature_id)
+        assert feature is not None
+        assert feature.status == "archived"
+        assert feature.archived_at is not None
+        assert feature.archived_by_subject_id == "alice@dev-1"
+        history_space = (
+            await session.execute(
+                select(WikiSpace).where(
+                    WikiSpace.feature_id == feature_id,
+                    WikiSpace.scope == "history",
+                )
+            )
+        ).scalar_one_or_none()
+    assert history_space is not None
+    assert history_space.status == "archived"
+    assert history_space.archived_at is not None
+    assert history_space.archived_by_subject_id == "alice@dev-1"
 
 
 @pytest.mark.asyncio

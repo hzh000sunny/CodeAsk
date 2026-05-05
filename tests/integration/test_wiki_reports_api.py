@@ -249,3 +249,90 @@ async def test_create_report_creates_native_wiki_report_ref(
 
     assert report_ref is not None
     assert report_ref.report_id == report_id
+
+
+@pytest.mark.asyncio
+async def test_report_projection_updates_status_groups_and_tree_title(
+    client: AsyncClient,
+) -> None:
+    feature = await client.post(
+        "/api/features",
+        json={"name": "Projection Flow", "slug": "projection-flow"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert feature.status_code == 201, feature.text
+    feature_id = int(feature.json()["id"])
+
+    created = await client.post(
+        "/api/reports",
+        json={
+            "feature_id": feature_id,
+            "title": "Projection draft",
+            "body_markdown": "projection body",
+            "metadata": _good_meta(),
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    report_id = int(created.json()["id"])
+
+    projections = await client.get(
+        "/api/wiki/reports/projections",
+        params={"feature_id": feature_id},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert projections.status_code == 200, projections.text
+    body = projections.json()["items"]
+    assert body[0]["report_id"] == report_id
+    assert body[0]["title"] == "Projection draft"
+    assert body[0]["status_group"] == "draft"
+
+    verified = await client.post(
+        f"/api/reports/{report_id}/verify",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert verified.status_code == 200, verified.text
+
+    projections = await client.get(
+        "/api/wiki/reports/projections",
+        params={"feature_id": feature_id},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    body = projections.json()["items"]
+    assert body[0]["status"] == "verified"
+    assert body[0]["status_group"] == "verified"
+
+    rejected = await client.post(
+        f"/api/reports/{report_id}/reject",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert rejected.status_code == 200, rejected.text
+
+    renamed = await client.put(
+        f"/api/reports/{report_id}",
+        json={"title": "Projection rejected renamed"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert renamed.status_code == 200, renamed.text
+
+    projections = await client.get(
+        "/api/wiki/reports/projections",
+        params={"feature_id": feature_id},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    body = projections.json()["items"]
+    assert body[0]["title"] == "Projection rejected renamed"
+    assert body[0]["status"] == "rejected"
+    assert body[0]["status_group"] == "rejected"
+
+    tree = await client.get(
+        "/api/wiki/tree",
+        params={"feature_id": feature_id},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert tree.status_code == 200, tree.text
+    report_nodes = [
+        node for node in tree.json()["nodes"] if node["type"] == "report_ref"
+    ]
+    assert len(report_nodes) == 1
+    assert report_nodes[0]["name"] == "Projection rejected renamed"

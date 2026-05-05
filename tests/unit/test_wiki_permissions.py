@@ -38,7 +38,7 @@ def test_admin_can_write_any_feature() -> None:
     assert can_write_feature(actor, feature) is True
 
 
-def test_non_owner_member_cannot_write() -> None:
+def test_non_owner_member_can_write_in_v1_0_1() -> None:
     feature = Feature(
         id=1,
         name="Payments",
@@ -46,4 +46,4 @@ def test_non_owner_member_cannot_write() -> None:
         owner_subject_id="owner@dev-1",
     )
     actor = WikiActor(subject_id="viewer@dev-1", role="member")
-    assert can_write_feature(actor, feature) is False
+    assert can_write_feature(actor, feature) is True

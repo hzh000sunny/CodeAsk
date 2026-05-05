@@ -2,24 +2,28 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 
 import { saveWikiDraft } from "../../../lib/wiki/api";
+import type { WikiDocumentDetailRead } from "../../../types/wiki";
 
 export function useWikiDraftAutosave({
+  baselineBody,
   bodyMarkdown,
   enabled,
   nodeId,
   onSaved,
 }: {
+  baselineBody: string;
   bodyMarkdown: string;
   enabled: boolean;
   nodeId: number | null;
-  onSaved?: () => void;
+  onSaved?: (document: WikiDocumentDetailRead | null, savedBody: string) => void;
 }) {
   const lastSavedRef = useRef(bodyMarkdown);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
-    lastSavedRef.current = bodyMarkdown;
-  }, [nodeId]);
+    lastSavedRef.current = baselineBody;
+    setStatus("idle");
+  }, [baselineBody, nodeId]);
 
   const mutation = useMutation({
     mutationFn: async (nextBody: string) => {
@@ -31,10 +35,10 @@ export function useWikiDraftAutosave({
     onMutate: () => {
       setStatus("saving");
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
       lastSavedRef.current = variables;
       setStatus("saved");
-      onSaved?.();
+      onSaved?.(data, variables);
     },
     onError: () => {
       setStatus("error");

@@ -4,6 +4,11 @@ export interface WikiTreeNodeRecord extends WikiNodeRead {
   children: WikiTreeNodeRecord[];
 }
 
+const STORED_PATH_ROOT_LABELS = new Map<string, string>([
+  ["knowledge-base", "知识库"],
+  ["reports", "问题定位报告"],
+]);
+
 export function buildWikiTree(nodes: WikiNodeRead[]): WikiTreeNodeRecord[] {
   const byId = new Map<number, WikiTreeNodeRecord>();
   const roots: WikiTreeNodeRecord[] = [];
@@ -88,6 +93,56 @@ export function findNodeById(
   return null;
 }
 
+export function buildWikiNodeDisplayPath(
+  roots: WikiTreeNodeRecord[],
+  nodeId: number | null,
+): string | null {
+  if (nodeId == null) {
+    return null;
+  }
+  const chain = findNodeChain(roots, nodeId);
+  if (chain == null) {
+    return null;
+  }
+  const visibleNames = chain
+    .filter((node) => !isSyntheticNode(node.system_role))
+    .map((node) => node.name.trim())
+    .filter(Boolean);
+  if (visibleNames.length > 0) {
+    return visibleNames.join(" / ");
+  }
+  const terminalName = chain[chain.length - 1]?.name.trim();
+  return terminalName || null;
+}
+
+export function formatWikiStoredPath(path: string | null | undefined): string | null {
+  const normalized = path?.trim();
+  if (!normalized) {
+    return null;
+  }
+  const segments = normalized
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (segments.length === 0) {
+    return null;
+  }
+  return segments
+    .map((segment, index) =>
+      index === 0 ? (STORED_PATH_ROOT_LABELS.get(segment) ?? segment) : segment,
+    )
+    .join(" / ");
+}
+
+export function formatWikiPathMentions(message: string | null | undefined): string {
+  if (!message) {
+    return "";
+  }
+  return message.replace(/\b(?:knowledge-base|reports)(?:\/[^\s"'<>()[\],:;]+)*/g, (match) => {
+    return formatWikiStoredPath(match) ?? match;
+  });
+}
+
 export function findFirstDocumentInSubtree(
   node: WikiTreeNodeRecord,
 ): WikiTreeNodeRecord | null {
@@ -113,6 +168,44 @@ function sortTree(nodes: WikiTreeNodeRecord[]) {
   for (const node of nodes) {
     sortTree(node.children);
   }
+}
+
+function findNodeChain(
+  roots: WikiTreeNodeRecord[],
+  nodeId: number,
+): WikiTreeNodeRecord[] | null {
+  for (const root of roots) {
+    const chain = findNodeChainInSubtree(root, nodeId);
+    if (chain) {
+      return chain;
+    }
+  }
+  return null;
+}
+
+function findNodeChainInSubtree(
+  node: WikiTreeNodeRecord,
+  nodeId: number,
+): WikiTreeNodeRecord[] | null {
+  if (node.id === nodeId) {
+    return [node];
+  }
+  for (const child of node.children) {
+    const chain = findNodeChainInSubtree(child, nodeId);
+    if (chain) {
+      return [node, ...chain];
+    }
+  }
+  return null;
+}
+
+function isSyntheticNode(systemRole: string | null) {
+  return (
+    systemRole === "feature_group_current" ||
+    systemRole === "feature_group_history" ||
+    systemRole === "feature_space_current" ||
+    systemRole === "feature_space_history"
+  );
 }
 
 function filterNode(

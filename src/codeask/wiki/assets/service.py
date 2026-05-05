@@ -15,6 +15,7 @@ from codeask.db.models import Feature, WikiAsset, WikiNode, WikiSpace
 from codeask.wiki.actor import WikiActor
 from codeask.wiki.paths import normalize_asset_name
 from codeask.wiki.permissions import can_write_feature
+from codeask.wiki.sources import WikiSourceService
 
 
 class WikiAssetService:
@@ -73,6 +74,18 @@ class WikiAssetService:
             shutil.copyfileobj(file.file, output)
 
         mime_type = file.content_type or mimetypes.guess_type(display_name)[0] or "application/octet-stream"
+        source = await WikiSourceService().create_source(
+            session,
+            actor=actor,
+            space_id=space.id,
+            kind="manual_upload",
+            display_name=display_name,
+            uri=None,
+            metadata_json={
+                "node_id": node.id,
+                "original_name": display_name,
+            },
+        )
         asset = WikiAsset(
             node_id=node.id,
             original_name=display_name,
@@ -80,7 +93,10 @@ class WikiAssetService:
             storage_path=str(target),
             mime_type=mime_type,
             size_bytes=target.stat().st_size,
-            provenance_json={"source": "manual_upload"},
+            provenance_json={
+                "source": "manual_upload",
+                "source_id": source.id,
+            },
         )
         session.add(asset)
         await session.flush()

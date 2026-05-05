@@ -85,3 +85,20 @@ async def delete_node(node_id: int, request: Request, session: SessionDep) -> No
         node=node,
     )
     await session.commit()
+
+
+@router.post("/nodes/{node_id}/restore", response_model=WikiNodeRead)
+async def restore_node(
+    node_id: int,
+    request: Request,
+    session: SessionDep,
+) -> WikiNodeRead:
+    node = await load_node(node_id, session)
+    restored = await WikiTreeService().restore_node(
+        session,
+        actor=_actor_from_request(request),
+        node=node,
+    )
+    await session.commit()
+    await session.refresh(restored)
+    return WikiNodeRead.model_validate(restored)
