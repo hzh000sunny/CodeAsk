@@ -8,7 +8,6 @@ import { WikiReportViewer } from "./WikiReportViewer";
 
 export function WikiWorkspacePane({
   activeFeature,
-  banner,
   brokenImageTargets,
   canCreate,
   canEdit,
@@ -31,14 +30,13 @@ export function WikiWorkspacePane({
   routeMode,
   saveToast,
   selectedNodePath,
-  setBanner,
+  setSaveToast,
   setEditingBody,
   showTreeToggle,
   showNoFeatureState,
   autosaveLabel,
 }: {
   activeFeature: { id: number } | null;
-  banner: string;
   brokenImageTargets: Set<string>;
   canCreate: boolean;
   canEdit: boolean;
@@ -61,7 +59,7 @@ export function WikiWorkspacePane({
   routeMode: "view" | "edit";
   saveToast: string;
   selectedNodePath: string | null;
-  setBanner: (value: string) => void;
+  setSaveToast: (value: string) => void;
   setEditingBody: (value: string) => void;
   showTreeToggle: boolean;
   showNoFeatureState: boolean;
@@ -74,7 +72,6 @@ export function WikiWorkspacePane({
           {saveToast}
         </div>
       ) : null}
-      {banner ? <div className="action-banner">{banner}</div> : null}
       {document && routeMode === "view" ? (
         <>
           <div className="page-header compact wiki-page-header">
@@ -86,7 +83,7 @@ export function WikiWorkspacePane({
               canEdit={canEdit}
               onCopyLink={async () => {
                 await copyTextToClipboard(window.location.href);
-                setBanner("已复制当前 Wiki 链接");
+                setSaveToast("已复制当前 Wiki 链接");
               }}
               onEdit={onEdit}
               onOpenDetail={onOpenDetail}
@@ -132,6 +129,7 @@ export function WikiWorkspacePane({
         <WikiEmptyState
           canCreate={canCreate}
           description="当前特性还没有 Wiki 文档，或当前选择的节点不是文档。"
+          mode="feature"
           onCreateDocument={canCreate ? onCreateDocument : undefined}
           onImport={canCreate ? onOpenImport : undefined}
           title="开始建设这个特性的 Wiki"
@@ -142,6 +140,7 @@ export function WikiWorkspacePane({
         <WikiEmptyState
           canCreate={false}
           description="当前还没有可用特性，先创建特性后再进入 Wiki。"
+          mode="global"
           onCreateDocument={undefined}
           onImport={undefined}
           title="还没有可用特性"

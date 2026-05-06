@@ -217,3 +217,37 @@ export function WikiEditLeaveDialog({
     </div>
   );
 }
+
+export function WikiMessageDialog({
+  message,
+  onClose,
+  title = "操作失败",
+}: {
+  message: string;
+  onClose: () => void;
+  title?: string;
+}) {
+  return (
+    <div className="dialog-backdrop">
+      <section
+        aria-labelledby="wiki-message-dialog-title"
+        aria-modal="true"
+        className="confirm-dialog wiki-node-dialog"
+        role="dialog"
+      >
+        <div className="dialog-icon danger">
+          <AlertTriangle aria-hidden="true" size={18} />
+        </div>
+        <div className="dialog-content">
+          <h2 id="wiki-message-dialog-title">{title}</h2>
+          <p>{message}</p>
+          <div className="dialog-actions">
+            <Button onClick={onClose} type="button" variant="primary">
+              知道了
+            </Button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}

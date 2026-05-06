@@ -1,6 +1,7 @@
 import { WikiDetailDrawer } from "./WikiDetailDrawer";
 import {
   WikiEditLeaveDialog,
+  WikiMessageDialog,
   WikiNodeDeleteDialog,
   WikiNodeInputDialog,
 } from "./WikiDialogs";
@@ -56,6 +57,7 @@ export function WikiWorkbenchDialogs({
   importSession,
   importSessionItems,
   leaveDialogOpen,
+  messageDialog,
   nodeDialog,
   nodeDialogError,
   path,
@@ -76,6 +78,7 @@ export function WikiWorkbenchDialogs({
   onConfirmLeavePublish,
   onConfirmLeaveWithDraft,
   onDeleteNodeCancel,
+  onDismissMessageDialog,
   onImportCancel,
   onImportFilesSelected,
   onImportResolveItem,
@@ -103,6 +106,7 @@ export function WikiWorkbenchDialogs({
   importSession: WikiImportSessionRead | null;
   importSessionItems: WikiImportSessionItemsRead | null;
   leaveDialogOpen: boolean;
+  messageDialog: string;
   nodeDialog: WikiNodeDialogState;
   nodeDialogError: string;
   path: string | null;
@@ -122,6 +126,7 @@ export function WikiWorkbenchDialogs({
   onConfirmLeavePublish: () => void;
   onConfirmLeaveWithDraft: () => void;
   onDeleteNodeCancel: () => void;
+  onDismissMessageDialog: () => void;
   onImportCancel: () => void;
   onImportFilesSelected: (payload: {
     files: File[];
@@ -220,6 +225,12 @@ export function WikiWorkbenchDialogs({
           onCancel={onDeleteNodeCancel}
           onConfirm={onConfirmDeleteNode}
           path={resolveNodePath(nodeDialog.node) ?? nodeDialog.node.name}
+        />
+      ) : null}
+      {messageDialog ? (
+        <WikiMessageDialog
+          message={messageDialog}
+          onClose={onDismissMessageDialog}
         />
       ) : null}
       {leaveDialogOpen ? (

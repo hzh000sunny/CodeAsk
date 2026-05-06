@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  ArrowDown,
+  ArrowUp,
   FilePlus2,
   FolderPlus,
   FolderUp,
@@ -18,24 +20,34 @@ import {
 
 export function WikiNodeMenu({
   canManage,
+  canMoveDown,
+  canMoveUp,
   node,
   onCreateDocument,
   onCreateFolder,
   onDelete,
   onImport,
+  onMoveDown,
+  onMoveUp,
   onRename,
 }: {
   canManage: boolean;
+  canMoveDown?: boolean;
+  canMoveUp?: boolean;
   node: WikiTreeNodeRecord;
   onCreateDocument: (node: WikiTreeNodeRecord) => void;
   onCreateFolder: (node: WikiTreeNodeRecord) => void;
   onDelete: (node: WikiTreeNodeRecord) => void;
   onImport: (node: WikiTreeNodeRecord) => void;
+  onMoveDown?: (node: WikiTreeNodeRecord) => void;
+  onMoveUp?: (node: WikiTreeNodeRecord) => void;
   onRename: (node: WikiTreeNodeRecord) => void;
 }) {
   const allowCreateChildren = canCreateChildrenInWikiNode(node);
   const allowRename = canRenameWikiNode(node);
   const allowDelete = canDeleteWikiNode(node);
+  const allowMoveUp = Boolean(canMoveUp && onMoveUp);
+  const allowMoveDown = Boolean(canMoveDown && onMoveDown);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -81,12 +93,41 @@ export function WikiNodeMenu({
     };
   }, [open]);
 
-  if (!canManage || (!allowCreateChildren && !allowRename && !allowDelete)) {
+  if (
+    !canManage ||
+    (!allowCreateChildren && !allowRename && !allowDelete && !allowMoveUp && !allowMoveDown)
+  ) {
     return null;
   }
 
   const menu = open ? (
     <div className="row-menu" ref={menuRef} role="menu" style={position}>
+      {allowMoveUp ? (
+        <button
+          onClick={() => {
+            setOpen(false);
+            onMoveUp?.(node);
+          }}
+          role="menuitem"
+          type="button"
+        >
+          <ArrowUp aria-hidden="true" size={15} />
+          上移
+        </button>
+      ) : null}
+      {allowMoveDown ? (
+        <button
+          onClick={() => {
+            setOpen(false);
+            onMoveDown?.(node);
+          }}
+          role="menuitem"
+          type="button"
+        >
+          <ArrowDown aria-hidden="true" size={15} />
+          下移
+        </button>
+      ) : null}
       {allowCreateChildren ? (
         <>
           <button

@@ -194,7 +194,7 @@
 | **Elasticsearch / Meilisearch** | 同上 |
 | **Kubernetes Helm chart 作为默认部署形态** | 同上 |
 | **Sourcegraph 作为代码检索引擎** | 重；ripgrep + worktree + ctags 更贴合"会话级隔离"模型 |
-| **AnythingLLM / Dify / FastGPT 作为底座** | 数据模型不匹配（无飞轮 / 无 A2/A3 / 无自报身份），改造成本 > 自研 |
+| **Dify / FastGPT 作为底座** | 数据模型不匹配（无飞轮 / 无 A2/A3 / 无自报身份），改造成本 > 自研 |
 
 ## 8. 未来扩展的依赖位
 
@@ -227,6 +227,6 @@ PRD §4.4.2 + §6.2 锁定的扩展通道，对应的依赖**今天不加**但**
 
 简短答复（详细讨论见 conversation 记录）：
 
-CodeAsk 产品独特价值集中在**飞轮机制 + A2/A3 透明 + 自报身份 + commit 绑定证据**四件事上。市面候选（AnythingLLM / Dify / Sourcegraph / Bloop / llm-wiki）的数据模型都不贴这套设计——选它们做底座意味着持续跟人家的会话模型 / 报告流转 / 检索哲学打架，最后改的代码比自研还多，且把"30 秒部署"承诺拆了。
+CodeAsk 产品独特价值集中在**飞轮机制 + A2/A3 透明 + 自报身份 + commit 绑定证据**四件事上。市面候选（Dify / Sourcegraph / Bloop / llm-wiki）的数据模型都不贴这套设计——选它们做底座意味着持续跟人家的会话模型 / 报告流转 / 检索哲学打架，最后改的代码比自研还多，且把"30 秒部署"承诺拆了。
 
 **该复用的是组件**（FastAPI、SQLite、ripgrep、ctags、lucide-react、TanStack Query、Markdown renderer、后续按需接入的 shiki……），**不该复用的是应用骨架**。本文 §2-§6 列的是前者，§7 列的是后者。

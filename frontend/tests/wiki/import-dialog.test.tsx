@@ -62,6 +62,65 @@ function buildSessionItems(overrides?: Partial<WikiImportSessionItemsRead>): Wik
 }
 
 describe("WikiImportDialog", () => {
+  it("renders the compact workbench intro for option A without extra helper copy", () => {
+    const { container } = render(
+      <WikiImportDialog
+        actionPendingKey={null}
+        errorMessage=""
+        hasUnfinishedSession={false}
+        importTargetLabel="knowledge-base"
+        onBulkResolve={vi.fn()}
+        onCancelImport={vi.fn()}
+        onClose={vi.fn()}
+        onContinueInBackground={vi.fn()}
+        onFilesSelected={vi.fn()}
+        onResolveItem={vi.fn()}
+        onRetryFailed={vi.fn()}
+        onRetryItem={vi.fn()}
+        open
+        pending={false}
+        session={buildSession()}
+        sessionItems={buildSessionItems()}
+      />,
+    );
+
+    expect(
+      screen.queryByText("支持 Markdown、目录导入、相对资源和内部链接。"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("导入后自动索引")).not.toBeInTheDocument();
+    expect(screen.queryByText("图片自动保留")).not.toBeInTheDocument();
+    expect(screen.getByText("导入 Markdown")).toBeInTheDocument();
+    expect(screen.getByText("导入目录")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "导入队列" })).toBeInTheDocument();
+    expect(container.querySelector(".wiki-import-picker-grid.wiki-import-picker-grid-compact")).not.toBeNull();
+    expect(container.querySelector('.wiki-import-section[data-empty="false"]')).not.toBeNull();
+  });
+
+  it("marks the queue container as empty before files are selected", () => {
+    const { container } = render(
+      <WikiImportDialog
+        actionPendingKey={null}
+        errorMessage=""
+        hasUnfinishedSession={false}
+        importTargetLabel="knowledge-base"
+        onBulkResolve={vi.fn()}
+        onCancelImport={vi.fn()}
+        onClose={vi.fn()}
+        onContinueInBackground={vi.fn()}
+        onFilesSelected={vi.fn()}
+        onResolveItem={vi.fn()}
+        onRetryFailed={vi.fn()}
+        onRetryItem={vi.fn()}
+        open
+        pending={false}
+        session={null}
+        sessionItems={null}
+      />,
+    );
+
+    expect(container.querySelector('.wiki-import-section[data-empty="true"]')).not.toBeNull();
+  });
+
   it("supports picking markdown files and directories and returns full queue items", async () => {
     const onFilesSelected = vi.fn();
     render(

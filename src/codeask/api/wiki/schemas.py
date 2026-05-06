@@ -59,6 +59,11 @@ class WikiNodeUpdate(BaseModel):
     sort_order: int | None = None
 
 
+class WikiNodeMove(BaseModel):
+    target_parent_id: int | None = None
+    target_index: int
+
+
 class WikiTreeRead(BaseModel):
     space: WikiSpaceRead | None = None
     nodes: list[WikiNodeRead]

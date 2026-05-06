@@ -255,3 +255,8 @@ export interface WikiUpdateNodePayload {
   name?: string | null;
   sort_order?: number | null;
 }
+
+export interface WikiMoveNodePayload {
+  target_parent_id?: number | null;
+  target_index: number;
+}

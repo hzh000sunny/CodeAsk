@@ -8,6 +8,7 @@ import type {
   WikiImportPreflightRead,
   WikiImportSessionItemsRead,
   WikiImportSessionRead,
+  WikiMoveNodePayload,
   WikiReportDetailRead,
   WikiReportProjectionListRead,
   WikiNodeDetailRead,
@@ -49,6 +50,38 @@ export function updateWikiNode(nodeId: number, payload: WikiUpdateNodePayload) {
     method: "PUT",
     body: payload,
   });
+}
+
+export function moveWikiNode(nodeId: number, payload: WikiMoveNodePayload) {
+  return apiRequest<WikiNodeRead>(`/api/wiki/nodes/${nodeId}/move`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function moveWikiNodeWithLegacyFallback(
+  nodeId: number,
+  payload: WikiMoveNodePayload,
+  legacyUpdates: Array<{ nodeId: number; update: WikiUpdateNodePayload }>,
+) {
+  try {
+    return await moveWikiNode(nodeId, payload);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 405 || legacyUpdates.length === 0) {
+      throw error;
+    }
+    let moved: WikiNodeRead | null = null;
+    for (const update of legacyUpdates) {
+      const result = await updateWikiNode(update.nodeId, update.update);
+      if (update.nodeId === nodeId) {
+        moved = result;
+      }
+    }
+    if (moved == null) {
+      throw error;
+    }
+    return moved;
+  }
 }
 
 export function deleteWikiNode(nodeId: number) {

@@ -7,6 +7,17 @@ from sqlalchemy import select
 from codeask.db.models import Document, Feature, Report, WikiDocument, WikiReportRef, WikiSpace
 
 
+PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR"
+    b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
+    b"\x1f\x15\xc4\x89"
+    b"\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00"
+    b"\x18\xdd\x8d\xb1"
+    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
 async def _create_feature(client: AsyncClient) -> int:
     response = await client.post(
         "/api/features",
@@ -249,6 +260,114 @@ async def test_renaming_target_document_refreshes_linking_document_reference_sta
     )
     assert detail_after.status_code == 200, detail_after.text
     assert detail_after.json()["broken_refs_json"]["links"][0]["target"] == "./Guide.md"
+
+
+@pytest.mark.asyncio
+async def test_moving_document_out_and_back_restores_relative_asset_references(
+    client: AsyncClient,
+    tmp_path,
+) -> None:
+    feature_id = await _create_feature(client)
+
+    tree = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
+    assert tree.status_code == 200, tree.text
+    body = tree.json()
+    space_id = int(body["space"]["id"])
+    knowledge_root = next(node for node in body["nodes"] if node["system_role"] == "knowledge_base")
+
+    asset_folder = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": space_id,
+            "parent_id": int(knowledge_root["id"]),
+            "type": "folder",
+            "name": "Untitled.assets",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert asset_folder.status_code == 201, asset_folder.text
+
+    image_path = tmp_path / "image.png"
+    image_path.write_bytes(PNG_BYTES)
+    with image_path.open("rb") as image_file:
+        asset = await client.post(
+            "/api/wiki/assets",
+            data={"space_id": str(space_id), "parent_id": str(asset_folder.json()["id"])},
+            files={"file": ("image.png", image_file, "image/png")},
+            headers={"X-Subject-Id": "alice@dev-1"},
+        )
+    assert asset.status_code == 201, asset.text
+    asset_node_id = int(asset.json()["node_id"])
+
+    nested_folder = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": space_id,
+            "parent_id": int(knowledge_root["id"]),
+            "type": "folder",
+            "name": "test",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert nested_folder.status_code == 201, nested_folder.text
+
+    document = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": space_id,
+            "parent_id": int(knowledge_root["id"]),
+            "type": "document",
+            "name": "Xiaomi",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert document.status_code == 201, document.text
+    document_node_id = int(document.json()["id"])
+
+    publish = await client.post(
+        f"/api/wiki/documents/{document_node_id}/publish",
+        json={
+            "body_markdown": (
+                '<img src="Untitled.assets/image.png" alt="image" style="zoom:50%;" />'
+            )
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert publish.status_code == 200, publish.text
+    refs_before = {item["target"]: item for item in publish.json()["resolved_refs_json"]}
+    assert refs_before["Untitled.assets/image.png"]["broken"] is False
+    assert refs_before["Untitled.assets/image.png"]["resolved_node_id"] == asset_node_id
+
+    moved_into_folder = await client.post(
+        f"/api/wiki/nodes/{document_node_id}/move",
+        json={"target_parent_id": int(nested_folder.json()["id"]), "target_index": 0},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert moved_into_folder.status_code == 200, moved_into_folder.text
+
+    detail_inside = await client.get(
+        f"/api/wiki/documents/{document_node_id}",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert detail_inside.status_code == 200, detail_inside.text
+    assert detail_inside.json()["broken_refs_json"]["assets"][0]["target"] == "Untitled.assets/image.png"
+
+    moved_back = await client.post(
+        f"/api/wiki/nodes/{document_node_id}/move",
+        json={"target_parent_id": int(knowledge_root["id"]), "target_index": 0},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert moved_back.status_code == 200, moved_back.text
+
+    detail_after = await client.get(
+        f"/api/wiki/documents/{document_node_id}",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert detail_after.status_code == 200, detail_after.text
+    refs_after = {item["target"]: item for item in detail_after.json()["resolved_refs_json"]}
+    assert detail_after.json()["broken_refs_json"]["assets"] == []
+    assert refs_after["Untitled.assets/image.png"]["broken"] is False
+    assert refs_after["Untitled.assets/image.png"]["resolved_node_id"] == asset_node_id
 
 
 @pytest.mark.asyncio

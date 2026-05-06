@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FolderUp, X } from "lucide-react";
+import { FileText, FolderTree, FolderUp, X } from "lucide-react";
 
 import type {
   WikiImportSelectionItem,
@@ -153,6 +153,11 @@ export function WikiImportDialog({
   }, [activeQueueItems, queueFilter]);
 
   const showingIgnoredItems = session ? queueFilter === "ignored" : ignoredExpanded;
+  const queueHeadline = session
+    ? `已选择 ${session.summary.total_files} 个文件`
+    : fileLabel
+      ? "已选择文件，队列会继续展示上传进度和冲突处理。"
+      : "选择文件后，这里会显示完整队列、上传进度和冲突处理。";
 
   function toggleSummaryFilter(filter: QueueFilter) {
     setQueueFilter((current) => (current === filter ? "all" : filter));
@@ -243,29 +248,37 @@ export function WikiImportDialog({
   return (
     <div className="wiki-drawer-backdrop" onClick={requestClose} role="presentation">
       <aside
+        aria-labelledby="wiki-import-title"
         className="wiki-drawer wide"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
         <div className="wiki-drawer-header">
           <div>
-            <h2>导入 Wiki</h2>
+            <h2 id="wiki-import-title">导入 Wiki</h2>
             <p>
               {importTargetLabel
                 ? `将内容导入到 ${importTargetLabel}`
                 : "导入队列会直接展示完整文件列表。"}
             </p>
           </div>
-          <button className="list-menu-button" onClick={requestClose} type="button">
+          <button
+            aria-label="关闭导入抽屉"
+            className="list-menu-button"
+            onClick={requestClose}
+            type="button"
+          >
             <X size={16} />
           </button>
         </div>
         <div className="wiki-import-content">
-          <section className="wiki-import-picker-grid">
-            <label className="wiki-import-dropzone">
-              <FolderUp size={20} />
+          <section className="wiki-import-picker-grid wiki-import-picker-grid-compact">
+            <label className="wiki-import-dropzone" data-mode="markdown">
+              <span className="wiki-import-dropzone-icon" aria-hidden="true">
+                <FileText size={18} />
+              </span>
               <strong>导入 Markdown</strong>
-              <span>选择单个或多个 Markdown 文件，适合零散文档补录</span>
+              <span>适合零散补录。直接选择一个或多个 Markdown 文件，落到当前目录。</span>
               <span className="file-button wiki-import-picker-button">
                 选择 Markdown
                 <input
@@ -281,10 +294,12 @@ export function WikiImportDialog({
                 />
               </span>
             </label>
-            <label className="wiki-import-dropzone">
-              <FolderUp size={20} />
+            <label className="wiki-import-dropzone" data-mode="directory">
+              <span className="wiki-import-dropzone-icon" aria-hidden="true">
+                <FolderTree size={18} />
+              </span>
               <strong>导入目录</strong>
-              <span>保留相对路径、图片和内部链接，适合整批导入 Wiki</span>
+              <span>适合完整迁移。保留目录层级、相对图片路径和内部链接关系。</span>
               <span className="file-button wiki-import-picker-button">
                 选择目录
                 <input
@@ -302,99 +317,224 @@ export function WikiImportDialog({
             </label>
           </section>
 
-          {fileLabel ? <div className="wiki-import-selection-summary">{fileLabel}</div> : null}
-
-          {selectionMessage ? (
-            <div className="wiki-import-status-banner" data-tone={selectionTone} role="status">
-              {selectionMessage}
-            </div>
-          ) : null}
-
-          {pending && fileLabel ? (
-            <div className="wiki-import-status-banner" data-tone="info" role="status">
-              正在准备导入队列…
-            </div>
-          ) : null}
-
-          {errorMessage ? (
-            <div className="wiki-import-status-banner" data-tone="danger" role="alert">
-              {formatWikiPathMentions(errorMessage)}
-            </div>
-          ) : null}
-
-          {session ? (
-            <section className="wiki-import-section">
-              <div className="wiki-import-summary">
-                <span>目标目录 {importTargetLabel ?? "未知"}</span>
-                {renderSummaryFilterButton("待上传", session.summary.pending_count, "pending")}
-                {renderSummaryFilterButton("上传中", session.summary.uploading_count, "uploading")}
-                {renderSummaryFilterButton("已上传", session.summary.uploaded_count, "uploaded")}
-                {renderSummaryFilterButton("冲突", session.summary.conflict_count, "conflict")}
-                {renderSummaryFilterButton("失败", session.summary.failed_count, "failed")}
-                {renderSummaryFilterButton("已忽略", session.summary.ignored_count, "ignored")}
-                {renderSummaryFilterButton("已跳过", session.summary.skipped_count, "skipped")}
+          <section className="wiki-import-section" data-empty={!session && ignoredItems.length === 0}>
+            <div className="wiki-import-section-head">
+              <div>
+                <h3>导入队列</h3>
+                <p>{queueHeadline}</p>
               </div>
-              {session.summary.failed_count > 0 ? (
-                <div className="wiki-import-summary-actions">
-                  <Button
-                    disabled={actionPendingKey != null}
-                    onClick={() => onRetryFailed()}
-                    type="button"
-                    variant="quiet"
-                  >
-                    {actionPendingKey === "session:retry-failed" ? "处理中…" : "重试失败项"}
-                  </Button>
-                </div>
+              {importTargetLabel ? (
+                <div className="wiki-import-section-target">目标目录 {importTargetLabel}</div>
               ) : null}
-              {activeQueueItems.length > 0 ? (
-                <div aria-label="导入队列筛选" className="report-filter-tabs" role="tablist">
-                  <button
-                    aria-selected={queueFilter === "all"}
-                    className="report-filter-button"
-                    onClick={() => setQueueFilter("all")}
-                    role="tab"
-                    type="button"
-                  >
-                    <span>全部</span>
-                    <small>{activeQueueItems.length}</small>
-                  </button>
-                  <button
-                    aria-selected={queueFilter === "active"}
-                    className="report-filter-button"
-                    onClick={() => setQueueFilter("active")}
-                    role="tab"
-                    type="button"
-                  >
-                    <span>仅看进行中与失败</span>
-                    <small>
-                      {
-                        activeQueueItems.filter(
-                          (item) =>
-                            item.status === "pending" ||
-                            item.status === "uploading" ||
-                            item.status === "failed" ||
-                            item.status === "conflict",
-                        ).length
-                      }
-                    </small>
-                  </button>
-                </div>
-              ) : null}
-              {activeQueueItems.length > 0 ? (
-                <div className="wiki-import-summary-meta">
-                  <div className="wiki-import-summary-meta-card">
-                    <span>总进度 {summaryProgressPercent}%</span>
-                    {currentProcessingLabel ? (
-                      <strong>当前处理 {currentProcessingLabel}</strong>
-                    ) : (
-                      <strong>队列已处理完成</strong>
-                    )}
-                  </div>
-                </div>
-              ) : null}
+            </div>
 
-              {showingIgnoredItems && ignoredItems.length > 0 ? (
-                <section className="wiki-import-ignored">
+            {fileLabel ? <div className="wiki-import-selection-summary">{fileLabel}</div> : null}
+
+            {selectionMessage ? (
+              <div className="wiki-import-status-banner" data-tone={selectionTone} role="status">
+                {selectionMessage}
+              </div>
+            ) : null}
+
+            {pending && fileLabel ? (
+              <div className="wiki-import-status-banner" data-tone="info" role="status">
+                正在准备导入队列…
+              </div>
+            ) : null}
+
+            {errorMessage ? (
+              <div className="wiki-import-status-banner" data-tone="danger" role="alert">
+                {formatWikiPathMentions(errorMessage)}
+              </div>
+            ) : null}
+
+            {session ? (
+              <>
+                <div className="wiki-import-summary">
+                  {renderSummaryFilterButton("待上传", session.summary.pending_count, "pending")}
+                  {renderSummaryFilterButton("上传中", session.summary.uploading_count, "uploading")}
+                  {renderSummaryFilterButton("已上传", session.summary.uploaded_count, "uploaded")}
+                  {renderSummaryFilterButton("冲突", session.summary.conflict_count, "conflict")}
+                  {renderSummaryFilterButton("失败", session.summary.failed_count, "failed")}
+                  {renderSummaryFilterButton("已忽略", session.summary.ignored_count, "ignored")}
+                  {renderSummaryFilterButton("已跳过", session.summary.skipped_count, "skipped")}
+                </div>
+                {session.summary.failed_count > 0 ? (
+                  <div className="wiki-import-summary-actions">
+                    <Button
+                      disabled={actionPendingKey != null}
+                      onClick={() => onRetryFailed()}
+                      type="button"
+                      variant="quiet"
+                    >
+                      {actionPendingKey === "session:retry-failed" ? "处理中…" : "重试失败项"}
+                    </Button>
+                  </div>
+                ) : null}
+                {activeQueueItems.length > 0 ? (
+                  <div aria-label="导入队列筛选" className="report-filter-tabs" role="tablist">
+                    <button
+                      aria-selected={queueFilter === "all"}
+                      className="report-filter-button"
+                      onClick={() => setQueueFilter("all")}
+                      role="tab"
+                      type="button"
+                    >
+                      <span>全部</span>
+                      <small>{activeQueueItems.length}</small>
+                    </button>
+                    <button
+                      aria-selected={queueFilter === "active"}
+                      className="report-filter-button"
+                      onClick={() => setQueueFilter("active")}
+                      role="tab"
+                      type="button"
+                    >
+                      <span>仅看进行中与失败</span>
+                      <small>
+                        {
+                          activeQueueItems.filter(
+                            (item) =>
+                              item.status === "pending" ||
+                              item.status === "uploading" ||
+                              item.status === "failed" ||
+                              item.status === "conflict",
+                          ).length
+                        }
+                      </small>
+                    </button>
+                  </div>
+                ) : null}
+                {activeQueueItems.length > 0 ? (
+                  <div className="wiki-import-summary-meta">
+                    <div className="wiki-import-summary-meta-card">
+                      <span>总进度 {summaryProgressPercent}%</span>
+                      {currentProcessingLabel ? (
+                        <strong>当前处理 {currentProcessingLabel}</strong>
+                      ) : (
+                        <strong>队列已处理完成</strong>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
+                {showingIgnoredItems && ignoredItems.length > 0 ? (
+                  <section className="wiki-import-ignored">
+                    <div className="wiki-import-items">
+                      {ignoredItems.map((item) => (
+                        <article className="wiki-import-item" key={item.source_path}>
+                          <div className="wiki-import-item-top">
+                            <div>
+                              <strong>{item.source_path}</strong>
+                              <div className="item-meta">{item.ignore_reason ?? "ignored"}</div>
+                            </div>
+                            <span data-status={item.status}>{statusLabel(item.status)}</span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                {visibleQueueItems.length > 0 ? (
+                  <div className="wiki-import-items">
+                    {visibleQueueItems.map((item) => (
+                      <article className="wiki-import-item" key={item.id}>
+                        <div className="wiki-import-item-top">
+                          <div>
+                            <strong>{item.source_path}</strong>
+                            <div className="item-meta">
+                              {formatWikiStoredPath(item.target_path) ?? "未分配目标路径"}
+                            </div>
+                          </div>
+                          <span data-status={item.status}>{statusLabel(item.status)}</span>
+                        </div>
+                        <div className="wiki-import-progress">
+                          <div
+                            className="wiki-import-progress-bar"
+                            style={{ width: `${item.progress_percent}%` }}
+                          />
+                        </div>
+                        {item.error_message ? (
+                          <div className="item-meta" role="note">
+                            {formatWikiPathMentions(item.error_message)}
+                          </div>
+                        ) : null}
+                        {item.status === "conflict" ? (
+                          <div className="wiki-import-conflict-actions">
+                            <Button
+                              disabled={actionPendingKey != null}
+                              onClick={() => onResolveItem(item.id, "overwrite")}
+                              type="button"
+                              variant="primary"
+                            >
+                              {actionPendingKey === `item:${item.id}:overwrite` ? "处理中…" : "覆盖"}
+                            </Button>
+                            <Button
+                              disabled={actionPendingKey != null}
+                              onClick={() => onResolveItem(item.id, "skip")}
+                              type="button"
+                              variant="secondary"
+                            >
+                              {actionPendingKey === `item:${item.id}:skip` ? "处理中…" : "跳过"}
+                            </Button>
+                            <Button
+                              disabled={actionPendingKey != null}
+                              onClick={() => onBulkResolve("overwrite_all")}
+                              type="button"
+                              variant="quiet"
+                            >
+                              {actionPendingKey === "bulk:overwrite_all" ? "处理中…" : "全部覆盖"}
+                            </Button>
+                            <Button
+                              disabled={actionPendingKey != null}
+                              onClick={() => onBulkResolve("skip_all")}
+                              type="button"
+                              variant="quiet"
+                            >
+                              {actionPendingKey === "bulk:skip_all" ? "处理中…" : "全部跳过"}
+                            </Button>
+                          </div>
+                        ) : null}
+                        {item.status === "failed" ? (
+                          <div className="wiki-import-conflict-actions">
+                            <Button
+                              disabled={actionPendingKey != null}
+                              onClick={() => onRetryItem(item.id)}
+                              type="button"
+                              variant="primary"
+                            >
+                              {actionPendingKey === `item:${item.id}:retry` ? "处理中…" : "重试"}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="wiki-import-empty-queue">
+                <div className="wiki-import-empty-queue-icon">
+                  <FolderUp aria-hidden="true" size={18} />
+                </div>
+                <div>
+                  <strong>选择文件后开始建立导入队列</strong>
+                  <p>这里会显示可上传文件、忽略项、冲突处理和逐个文件的进度。</p>
+                </div>
+              </div>
+            )}
+
+            {!session && ignoredItems.length > 0 ? (
+              <section className="wiki-import-ignored">
+                <button
+                  className="wiki-import-ignored-toggle"
+                  onClick={() => setIgnoredExpanded((value) => !value)}
+                  type="button"
+                >
+                  已忽略 {ignoredItems.length} 个文件
+                </button>
+                {ignoredExpanded ? (
                   <div className="wiki-import-items">
                     {ignoredItems.map((item) => (
                       <article className="wiki-import-item" key={item.source_path}>
@@ -408,115 +548,10 @@ export function WikiImportDialog({
                       </article>
                     ))}
                   </div>
-                </section>
-              ) : null}
-
-              {visibleQueueItems.length > 0 ? (
-                <div className="wiki-import-items">
-                  {visibleQueueItems.map((item) => (
-                    <article className="wiki-import-item" key={item.id}>
-                      <div className="wiki-import-item-top">
-                        <div>
-                          <strong>{item.source_path}</strong>
-                          <div className="item-meta">
-                            {formatWikiStoredPath(item.target_path) ?? "未分配目标路径"}
-                          </div>
-                        </div>
-                        <span data-status={item.status}>{statusLabel(item.status)}</span>
-                      </div>
-                      <div className="wiki-import-progress">
-                        <div
-                          className="wiki-import-progress-bar"
-                          style={{ width: `${item.progress_percent}%` }}
-                        />
-                      </div>
-                      {item.error_message ? (
-                        <div className="item-meta" role="note">
-                          {formatWikiPathMentions(item.error_message)}
-                        </div>
-                      ) : null}
-                      {item.status === "conflict" ? (
-                        <div className="wiki-import-conflict-actions">
-                          <Button
-                            disabled={actionPendingKey != null}
-                            onClick={() => onResolveItem(item.id, "overwrite")}
-                            type="button"
-                            variant="primary"
-                          >
-                            {actionPendingKey === `item:${item.id}:overwrite` ? "处理中…" : "覆盖"}
-                          </Button>
-                          <Button
-                            disabled={actionPendingKey != null}
-                            onClick={() => onResolveItem(item.id, "skip")}
-                            type="button"
-                            variant="secondary"
-                          >
-                            {actionPendingKey === `item:${item.id}:skip` ? "处理中…" : "跳过"}
-                          </Button>
-                          <Button
-                            disabled={actionPendingKey != null}
-                            onClick={() => onBulkResolve("overwrite_all")}
-                            type="button"
-                            variant="quiet"
-                          >
-                            {actionPendingKey === "bulk:overwrite_all" ? "处理中…" : "全部覆盖"}
-                          </Button>
-                          <Button
-                            disabled={actionPendingKey != null}
-                            onClick={() => onBulkResolve("skip_all")}
-                            type="button"
-                            variant="quiet"
-                          >
-                            {actionPendingKey === "bulk:skip_all" ? "处理中…" : "全部跳过"}
-                          </Button>
-                        </div>
-                      ) : null}
-                      {item.status === "failed" ? (
-                        <div className="wiki-import-conflict-actions">
-                          <Button
-                            disabled={actionPendingKey != null}
-                            onClick={() => onRetryItem(item.id)}
-                            type="button"
-                            variant="primary"
-                          >
-                            {actionPendingKey === `item:${item.id}:retry` ? "处理中…" : "重试"}
-                          </Button>
-                        </div>
-                      ) : null}
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-
-            </section>
-          ) : null}
-
-          {!session && ignoredItems.length > 0 ? (
-            <section className="wiki-import-ignored">
-              <button
-                className="wiki-import-ignored-toggle"
-                onClick={() => setIgnoredExpanded((value) => !value)}
-                type="button"
-              >
-                已忽略 {ignoredItems.length} 个文件
-              </button>
-              {ignoredExpanded ? (
-                <div className="wiki-import-items">
-                  {ignoredItems.map((item) => (
-                    <article className="wiki-import-item" key={item.source_path}>
-                      <div className="wiki-import-item-top">
-                        <div>
-                          <strong>{item.source_path}</strong>
-                          <div className="item-meta">{item.ignore_reason ?? "ignored"}</div>
-                        </div>
-                        <span data-status={item.status}>{statusLabel(item.status)}</span>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-            </section>
-          ) : null}
+                ) : null}
+              </section>
+            ) : null}
+          </section>
         </div>
         <div className="dialog-actions wiki-import-actions">
           <Button onClick={requestClose} type="button" variant="secondary">

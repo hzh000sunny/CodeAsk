@@ -37,6 +37,7 @@ import { WikiWorkspacePane } from "./WikiWorkspacePane";
 import { useWikiDocument } from "./hooks/useWikiDocument";
 import { useWikiDraftAutosave } from "./hooks/useWikiDraftAutosave";
 import { useWikiImportSessionFlow } from "./hooks/useWikiImportSessionFlow";
+import { useWikiNodeOrdering } from "./hooks/useWikiNodeOrdering";
 import { useWikiReport, useWikiReportProjections } from "./hooks/useWikiReport";
 import { useWikiSearch } from "./hooks/useWikiSearch";
 import { useWikiTree } from "./hooks/useWikiTree";
@@ -70,8 +71,8 @@ export function WikiWorkbench({
     useWikiTreeLayout(routeState.mode);
   const [search, setSearch] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const [banner, setBanner] = useState("");
   const [saveToast, setSaveToast] = useState("");
+  const [messageDialog, setMessageDialog] = useState("");
   const [editingBody, setEditingBody] = useState("");
   const [versionDiff, setVersionDiff] = useState<WikiDocumentDiffRead | null>(null);
   const [nodeDialog, setNodeDialog] = useState<WikiNodeDialogState>(null);
@@ -161,6 +162,12 @@ export function WikiWorkbench({
   const canManageFeature = Boolean(activeFeatureId != null && authQuery.data);
   const activeSpace = activeSpaceQuery.data ?? treeQuery.space ?? null;
   const drawer = routeState.drawer;
+  const nodeOrdering = useWikiNodeOrdering({
+    onError: setMessageDialog,
+    onSuccess: setSaveToast,
+    queryClient,
+    tree,
+  });
 
   async function invalidateActiveFeatureTree(featureId: number) {
     await Promise.all([
@@ -187,7 +194,7 @@ export function WikiWorkbench({
     queryClient,
     onRouteChange,
     invalidateActiveFeatureTree,
-    onCompleted: () => setBanner("Wiki 导入完成"),
+    onCompleted: () => setSaveToast("Wiki 导入完成"),
   });
 
   useEffect(() => {
@@ -295,14 +302,6 @@ export function WikiWorkbench({
   }, [documentBaselineBody, documentQuery.data, routeState.mode]);
 
   useEffect(() => {
-    if (!banner) {
-      return;
-    }
-    const timer = window.setTimeout(() => setBanner(""), 2400);
-    return () => window.clearTimeout(timer);
-  }, [banner]);
-
-  useEffect(() => {
     if (!saveToast) {
       return;
     }
@@ -331,7 +330,7 @@ export function WikiWorkbench({
       onRouteChange({ mode: "view", heading: null });
     },
     onError: (error) => {
-      setBanner(`保存失败：${messageFromError(error)}`);
+      setMessageDialog(`保存失败：${messageFromError(error)}`);
     },
   });
 
@@ -420,12 +419,12 @@ export function WikiWorkbench({
       if (!selectedNode) {
         return;
       }
-      setBanner("已回滚到指定版本并生成新快照");
+      setSaveToast("已回滚到指定版本并生成新快照");
       void queryClient.invalidateQueries({ queryKey: wikiQueryKeys.document(selectedNode.id) });
       void queryClient.invalidateQueries({ queryKey: wikiQueryKeys.versions(selectedNode.id) });
     },
     onError: (error) => {
-      setBanner(`回滚失败：${messageFromError(error)}`);
+      setMessageDialog(`回滚失败：${messageFromError(error)}`);
     },
   });
 
@@ -497,7 +496,7 @@ export function WikiWorkbench({
             queryKey: wikiQueryKeys.document(nodeDialog.node.id),
           });
         }
-        setBanner("Wiki 节点已重命名");
+        setSaveToast("Wiki 节点已重命名");
         setNodeDialog(null);
         return;
       }
@@ -522,7 +521,7 @@ export function WikiWorkbench({
         return;
       }
       if (type === "document") {
-        setBanner("已创建新的 Wiki 文档");
+        setSaveToast("已创建新的 Wiki 文档");
         onRouteChange({
           featureId: activeFeatureId,
           nodeId: created.id,
@@ -531,7 +530,7 @@ export function WikiWorkbench({
           drawer: null,
         });
       } else {
-        setBanner("已创建新的目录");
+        setSaveToast("已创建新的目录");
       }
     } catch (error) {
       setNodeDialogError(messageFromError(error));
@@ -543,30 +542,34 @@ export function WikiWorkbench({
       return;
     }
     try {
-      const clearOnly = isClearOnlyWikiNode(nodeDialog.node);
+      const deletingNode = nodeDialog.node;
+      const clearOnly = isClearOnlyWikiNode(deletingNode);
       if (clearOnly) {
-        await clearNodeContentsMutation.mutateAsync(nodeDialog.node);
+        await clearNodeContentsMutation.mutateAsync(deletingNode);
       } else {
-        await deleteNodeMutation.mutateAsync(nodeDialog.node.id);
+        await deleteNodeMutation.mutateAsync(deletingNode.id);
       }
-      await invalidateActiveFeatureTree(activeFeatureId);
-      await invalidateFeatureDerivedViews(activeFeatureId);
+
+      setNodeDialog(null);
+      setSaveToast(clearOnly ? "目录内容已清空" : "Wiki 节点已删除");
+
       const clearsWholeFeature =
         clearOnly &&
-        (nodeDialog.node.system_role === "feature_space_current" ||
-          nodeDialog.node.system_role === "feature_space_history");
+        (deletingNode.system_role === "feature_space_current" ||
+          deletingNode.system_role === "feature_space_history");
       if (
         (clearsWholeFeature &&
           selectedNode?.feature_id != null &&
-          selectedNode.feature_id === nodeDialog.node.feature_id) ||
+          selectedNode.feature_id === deletingNode.feature_id) ||
         (selectedNode &&
-          (selectedNode.id === nodeDialog.node.id ||
-            selectedNode.path.startsWith(`${nodeDialog.node.path}/`)))
+          (selectedNode.id === deletingNode.id ||
+            selectedNode.path.startsWith(`${deletingNode.path}/`)))
       ) {
         onRouteChange({ nodeId: null, heading: null, mode: "view", drawer: null });
       }
-      setNodeDialog(null);
-      setBanner(clearOnly ? "目录内容已清空" : "Wiki 节点已删除");
+
+      await invalidateActiveFeatureTree(activeFeatureId);
+      await invalidateFeatureDerivedViews(activeFeatureId);
     } catch (error) {
       setNodeDialogError(messageFromError(error));
     }
@@ -582,9 +585,9 @@ export function WikiWorkbench({
       setEditingBody(documentQuery.data.current_body_markdown ?? "");
       setLeaveDialogOpen(false);
       onRouteChange({ mode: "view", heading: null });
-      setBanner("已丢弃当前草稿");
+      setSaveToast("已丢弃当前草稿");
     } catch (error) {
-      setBanner(`丢弃草稿失败：${messageFromError(error)}`);
+      setMessageDialog(`丢弃草稿失败：${messageFromError(error)}`);
     }
   }
 
@@ -603,6 +606,9 @@ export function WikiWorkbench({
         onDeleteNode={openDeleteDialog}
         onImport={() => importFlow.openImportDialog(knowledgeRoot)}
         onImportNode={(node) => importFlow.openImportDialog(node)}
+        onMoveDownNode={nodeOrdering.moveDown}
+        onMoveNodeRequest={nodeOrdering.moveNode}
+        onMoveUpNode={nodeOrdering.moveUp}
         onRenameNode={openRenameDialog}
         onResizeFromCollapseButton={(event) =>
           startTreeResize(event, {
@@ -683,7 +689,6 @@ export function WikiWorkbench({
               ? "草稿已自动保存"
               : "编辑中 · 自动草稿已开启"
         }
-        banner={banner}
         brokenImageTargets={brokenImageTargets}
         canCreate={canManageFeature}
         canEdit={canEdit}
@@ -720,7 +725,7 @@ export function WikiWorkbench({
         routeMode={routeState.mode}
         saveToast={saveToast}
         selectedNodePath={selectedNodeDisplayPath}
-        setBanner={setBanner}
+        setSaveToast={setSaveToast}
         setEditingBody={setEditingBody}
         showNoFeatureState={activeFeatureId == null && !featureQuery.isLoading}
         showTreeToggle={treeCollapsed}
@@ -744,6 +749,7 @@ export function WikiWorkbench({
         importSession={importFlow.importSession}
         importSessionItems={importFlow.importSessionItems}
         leaveDialogOpen={leaveDialogOpen}
+        messageDialog={messageDialog}
         nodeDialog={nodeDialog}
         nodeDialogError={nodeDialogError}
         onCloseDetail={() => onRouteChange({ drawer: null })}
@@ -765,6 +771,7 @@ export function WikiWorkbench({
           onRouteChange({ mode: "view", heading: null });
         }}
         onDeleteNodeCancel={() => setNodeDialog(null)}
+        onDismissMessageDialog={() => setMessageDialog("")}
         onImportCancel={importFlow.cancelImport}
         onImportFilesSelected={importFlow.onFilesSelected}
         onImportResolveItem={importFlow.resolveItem}

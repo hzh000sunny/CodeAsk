@@ -37,6 +37,8 @@ describe("WikiTreePane usability", () => {
         onDeleteNode={() => undefined}
         onImport={() => undefined}
         onImportNode={() => undefined}
+        onMoveDownNode={() => undefined}
+        onMoveUpNode={() => undefined}
         onRenameNode={() => undefined}
         onResizeFromCollapseButton={() => undefined}
         onSelectSearchHit={() => undefined}
@@ -75,6 +77,8 @@ describe("WikiTreePane usability", () => {
         onDeleteNode={() => undefined}
         onImport={() => undefined}
         onImportNode={() => undefined}
+        onMoveDownNode={() => undefined}
+        onMoveUpNode={() => undefined}
         onRenameNode={() => undefined}
         onResizeFromCollapseButton={() => undefined}
         onSelectSearchHit={() => undefined}
@@ -142,6 +146,8 @@ describe("WikiTreePane usability", () => {
         onDeleteNode={() => undefined}
         onImport={() => undefined}
         onImportNode={() => undefined}
+        onMoveDownNode={() => undefined}
+        onMoveUpNode={() => undefined}
         onRenameNode={() => undefined}
         onResizeFromCollapseButton={() => undefined}
         onSelectSearchHit={onSelectSearchHit}

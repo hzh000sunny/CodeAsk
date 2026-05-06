@@ -1,0 +1,974 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CodeAsk Wiki 导入抽屉方案对比</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f6f9;
+        --panel: #ffffff;
+        --panel-soft: #f8fafc;
+        --line: #dbe2ea;
+        --line-strong: #c8d1dc;
+        --text: #142033;
+        --muted: #617086;
+        --accent: #2563eb;
+        --accent-soft: #eaf1ff;
+        --success: #1d7a46;
+        --warning: #9f5f08;
+        --shadow: 0 18px 44px rgba(15, 23, 42, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at top, rgba(37, 99, 235, 0.06), transparent 28%),
+          var(--bg);
+        color: var(--text);
+        font:
+          14px/1.55 Inter,
+          "CodeAsk Sans CJK",
+          "PingFang SC",
+          "Microsoft YaHei",
+          system-ui,
+          sans-serif;
+      }
+
+      .page {
+        width: min(1520px, calc(100vw - 48px));
+        margin: 0 auto;
+        padding: 32px 0 48px;
+      }
+
+      .hero {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 28px;
+      }
+
+      .hero span {
+        width: fit-content;
+        min-height: 28px;
+        border: 1px solid #d7e3ff;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        padding: 0 12px;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 26px;
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-size: 34px;
+        line-height: 1.08;
+        font-weight: 780;
+      }
+
+      .hero p {
+        max-width: 760px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 22px;
+      }
+
+      .option {
+        display: grid;
+        gap: 16px;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.78);
+        padding: 20px;
+        box-shadow: 0 20px 50px rgba(15, 23, 42, 0.06);
+        backdrop-filter: blur(10px);
+      }
+
+      .option-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .option-copy {
+        display: grid;
+        gap: 6px;
+      }
+
+      .option-copy h2 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.2;
+      }
+
+      .option-copy p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        border-radius: 999px;
+        border: 1px solid #d7e3ff;
+        background: #eef4ff;
+        color: #1d4ed8;
+        padding: 0 12px;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .mock {
+        position: relative;
+        overflow: hidden;
+        min-height: 580px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: linear-gradient(180deg, #fbfcfe 0%, #f2f5f9 100%);
+      }
+
+      .app-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 52px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.86);
+        padding: 0 18px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 760;
+      }
+
+      .brand-icon {
+        display: inline-grid;
+        width: 30px;
+        height: 30px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #ffffff;
+        color: var(--accent);
+      }
+
+      .avatar {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #ffffff;
+        padding: 0 10px;
+        height: 34px;
+        color: #22304a;
+      }
+
+      .app-body {
+        display: grid;
+        grid-template-columns: 176px 340px minmax(0, 1fr);
+        min-height: 528px;
+      }
+
+      .nav-col,
+      .tree-col,
+      .content-col {
+        min-height: 100%;
+      }
+
+      .nav-col {
+        border-right: 1px solid var(--line);
+        background: #f8fafd;
+        padding: 16px 10px;
+      }
+
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 40px;
+        border-radius: 10px;
+        padding: 0 12px;
+        color: #304057;
+      }
+
+      .nav-item.active {
+        background: #eaf0fb;
+        color: #173b8f;
+        font-weight: 650;
+      }
+
+      .tree-col {
+        border-right: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.58);
+        padding: 16px;
+      }
+
+      .tree-search {
+        height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #ffffff;
+      }
+
+      .tree-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .tree-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 38px;
+        color: #324158;
+        padding: 0 10px;
+      }
+
+      .tree-row strong {
+        font-weight: 650;
+      }
+
+      .content-col {
+        position: relative;
+        background: #f5f7fb;
+      }
+
+      .workspace-card {
+        position: absolute;
+        right: 120px;
+        bottom: 56px;
+        width: 490px;
+        border: 1px solid #d9e0ea;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 22px;
+        box-shadow: var(--shadow);
+      }
+
+      .drawer {
+        position: absolute;
+        top: 52px;
+        right: 0;
+        bottom: 0;
+        width: min(760px, 100%);
+        border-left: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: -16px 0 34px rgba(15, 23, 42, 0.12);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .drawer-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+        padding: 20px 22px 16px;
+      }
+
+      .drawer-header h3 {
+        margin: 0;
+        font-size: 26px;
+        line-height: 1.08;
+      }
+
+      .drawer-header p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .close {
+        width: 34px;
+        height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #ffffff;
+      }
+
+      .drawer-body {
+        display: grid;
+        gap: 16px;
+        padding: 18px 22px 22px;
+      }
+
+      .subtle-banner {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        border: 1px solid #dbe4f0;
+        border-radius: 14px;
+        background: #f8fbff;
+        padding: 12px 14px;
+        color: #47607f;
+      }
+
+      .subtle-banner strong {
+        color: #1d2d47;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        border: 1px solid #dbe4f0;
+        border-radius: 999px;
+        background: #ffffff;
+        padding: 0 10px;
+        font-size: 12px;
+        font-weight: 650;
+        color: #42556f;
+      }
+
+      .import-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .import-card {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+        min-height: 216px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: #ffffff;
+        padding: 18px;
+      }
+
+      .import-card .icon {
+        display: inline-grid;
+        width: 40px;
+        height: 40px;
+        place-items: center;
+        border: 1px solid #d9e4fb;
+        border-radius: 12px;
+        background: #eef4ff;
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .import-card h4 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      .import-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: auto;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 38px;
+        border-radius: 10px;
+        padding: 0 14px;
+        font-weight: 650;
+      }
+
+      .btn.primary {
+        border: 1px solid #2c63ea;
+        background: #2f67ee;
+        color: #ffffff;
+      }
+
+      .btn.secondary {
+        border: 1px solid var(--line);
+        background: #ffffff;
+        color: #22304a;
+      }
+
+      .queue-panel {
+        display: grid;
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: #ffffff;
+        padding: 16px;
+      }
+
+      .queue-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .queue-head h4 {
+        margin: 0;
+        font-size: 15px;
+      }
+
+      .queue-head small {
+        color: var(--muted);
+      }
+
+      .tabs,
+      .summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .tab {
+        min-height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #f8fafc;
+        padding: 0 12px;
+        color: #475569;
+        font-size: 12px;
+        font-weight: 650;
+        line-height: 28px;
+      }
+
+      .tab.active {
+        border-color: #cad9ff;
+        background: #eef4ff;
+        color: #1d4ed8;
+      }
+
+      .queue-card {
+        display: grid;
+        gap: 10px;
+        border: 1px solid #e3e8ef;
+        border-radius: 14px;
+        background: #fbfcfe;
+        padding: 14px;
+      }
+
+      .queue-title {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .queue-title strong,
+      .queue-title span {
+        display: block;
+      }
+
+      .queue-title span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        border-radius: 999px;
+        padding: 0 10px;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .status.uploading {
+        background: #eef4ff;
+        color: #1d4ed8;
+      }
+
+      .status.conflict {
+        background: #fff4e5;
+        color: var(--warning);
+      }
+
+      .status.done {
+        background: #eaf8ef;
+        color: var(--success);
+      }
+
+      .progress {
+        overflow: hidden;
+        height: 8px;
+        border-radius: 999px;
+        background: #e7edf5;
+      }
+
+      .progress > i {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #5d86f7, #7ea8ff);
+      }
+
+      .inline-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .ghost-link {
+        color: #1d4ed8;
+        font-weight: 650;
+      }
+
+      .segmented {
+        display: inline-flex;
+        gap: 6px;
+        padding: 4px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #f8fafc;
+      }
+
+      .segmented b {
+        min-height: 32px;
+        border-radius: 9px;
+        padding: 0 12px;
+        line-height: 32px;
+        color: #5b6b80;
+        font-size: 12px;
+      }
+
+      .segmented b.active {
+        background: #ffffff;
+        color: #173b8f;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+      }
+
+      .single-mode-card {
+        display: grid;
+        gap: 14px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: #ffffff;
+        padding: 18px;
+      }
+
+      .single-mode-card .hero-copy {
+        display: grid;
+        gap: 6px;
+      }
+
+      .single-mode-card .hero-copy h4 {
+        margin: 0;
+        font-size: 17px;
+      }
+
+      .dual-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(240px, 0.95fr);
+        gap: 14px;
+      }
+
+      .side-note {
+        display: grid;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: #ffffff;
+        padding: 18px;
+      }
+
+      .side-note h4,
+      .side-note h5 {
+        margin: 0;
+      }
+
+      .side-note p,
+      .side-note li {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .side-note ul {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      .footer-note {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      @media (max-width: 1200px) {
+        .page {
+          width: min(100vw, calc(100vw - 24px));
+        }
+
+        .app-body {
+          grid-template-columns: 112px 220px minmax(0, 1fr);
+        }
+
+        .drawer {
+          width: min(680px, 100%);
+        }
+
+        .workspace-card {
+          width: 420px;
+          right: 84px;
+        }
+      }
+
+      @media (max-width: 980px) {
+        .import-grid,
+        .dual-layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .drawer {
+          width: min(100%, calc(100vw - 12px));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <span>CodeAsk / Wiki 导入抽屉</span>
+        <h1>三个方案，直接看样式</h1>
+        <p>
+          这三个方案只比较导入抽屉的视觉结构，不涉及流程逻辑变更。你重点看信息层级、入口卡片、队列区主次，以及和当前工作台是否协调。
+        </p>
+      </header>
+
+      <section class="stack">
+        <article class="option">
+          <div class="option-head">
+            <div class="option-copy">
+              <h2>方案 A / 紧凑型导入工作台</h2>
+              <p>推荐。保留双入口，但把入口高度压缩，队列成为主视觉，整体更像工作台里的稳定面板。</p>
+            </div>
+            <span class="badge">推荐</span>
+          </div>
+          <div class="mock">
+            <div class="app-topbar">
+              <div class="brand"><span class="brand-icon">C</span>CodeAsk</div>
+              <div class="avatar">未登录</div>
+            </div>
+            <div class="app-body">
+              <aside class="nav-col">
+                <div class="nav-item">会话</div>
+                <div class="nav-item">特性</div>
+                <div class="nav-item active">Wiki</div>
+                <div class="nav-item">设置</div>
+              </aside>
+              <aside class="tree-col">
+                <div class="tree-search"></div>
+                <div class="tree-list">
+                  <div class="tree-row"><strong>当前特性</strong></div>
+                  <div class="tree-row">小米</div>
+                  <div class="tree-row">知识库</div>
+                  <div class="tree-row">问题定位报告</div>
+                </div>
+              </aside>
+              <section class="content-col">
+                <div class="workspace-card"></div>
+              </section>
+            </div>
+            <aside class="drawer">
+              <div class="drawer-header">
+                <div>
+                  <h3>导入 Wiki</h3>
+                  <p>目标目录 / 小米 / 知识库</p>
+                </div>
+                <button class="close" type="button"></button>
+              </div>
+              <div class="drawer-body">
+                <div class="subtle-banner">
+                  <strong>支持 Markdown、目录导入、相对资源和内部链接。</strong>
+                  <span class="pill">导入后自动索引</span>
+                  <span class="pill">图片自动保留</span>
+                </div>
+
+                <div class="import-grid">
+                  <section class="import-card">
+                    <div class="icon">M</div>
+                    <h4>导入 Markdown</h4>
+                    <p>适合零散补录。直接选择一个或多个 Markdown 文件，落到当前目录。</p>
+                    <div class="button-row">
+                      <div class="btn primary">选择 Markdown</div>
+                    </div>
+                  </section>
+                  <section class="import-card">
+                    <div class="icon">D</div>
+                    <h4>导入目录</h4>
+                    <p>适合完整迁移。保留目录层级、相对图片路径和内部链接关系。</p>
+                    <div class="button-row">
+                      <div class="btn secondary">选择目录</div>
+                    </div>
+                  </section>
+                </div>
+
+                <section class="queue-panel">
+                  <div class="queue-head">
+                    <div>
+                      <h4>导入队列</h4>
+                      <small>已选择 23 个文件，忽略 8 个非 Wiki 文件</small>
+                    </div>
+                    <div class="summary">
+                      <span class="tab">待上传 6</span>
+                      <span class="tab active">上传中 3</span>
+                      <span class="tab">冲突 2</span>
+                      <span class="tab">已上传 12</span>
+                    </div>
+                  </div>
+                  <div class="tabs">
+                    <span class="tab active">全部</span>
+                    <span class="tab">仅看进行中与失败</span>
+                    <span class="tab">已忽略</span>
+                  </div>
+                  <article class="queue-card">
+                    <div class="queue-title">
+                      <div>
+                        <strong>Xiaomi.md</strong>
+                        <span>知识库 / Xiaomi.md</span>
+                      </div>
+                      <b class="status uploading">上传中 72%</b>
+                    </div>
+                    <div class="progress"><i style="width: 72%"></i></div>
+                  </article>
+                  <article class="queue-card">
+                    <div class="queue-title">
+                      <div>
+                        <strong>小米病历.md</strong>
+                        <span>知识库 / 诊疗记录 / 小米病历.md</span>
+                      </div>
+                      <b class="status conflict">冲突待处理</b>
+                    </div>
+                    <div class="inline-actions">
+                      <div class="btn primary">覆盖</div>
+                      <div class="btn secondary">跳过</div>
+                      <span class="ghost-link">全部覆盖</span>
+                      <span class="ghost-link">全部跳过</span>
+                    </div>
+                  </article>
+                </section>
+              </div>
+            </aside>
+          </div>
+        </article>
+
+        <article class="option">
+          <div class="option-head">
+            <div class="option-copy">
+              <h2>方案 B / 分段式导入抽屉</h2>
+              <p>先选导入模式，再进入对应操作面板。视觉更聚焦，但用户要先做一次模式判断。</p>
+            </div>
+            <span class="badge">更聚焦</span>
+          </div>
+          <div class="mock">
+            <div class="app-topbar">
+              <div class="brand"><span class="brand-icon">C</span>CodeAsk</div>
+              <div class="avatar">未登录</div>
+            </div>
+            <div class="app-body">
+              <aside class="nav-col">
+                <div class="nav-item">会话</div>
+                <div class="nav-item">特性</div>
+                <div class="nav-item active">Wiki</div>
+                <div class="nav-item">设置</div>
+              </aside>
+              <aside class="tree-col">
+                <div class="tree-search"></div>
+                <div class="tree-list">
+                  <div class="tree-row"><strong>当前特性</strong></div>
+                  <div class="tree-row">小米</div>
+                  <div class="tree-row">知识库</div>
+                  <div class="tree-row">问题定位报告</div>
+                </div>
+              </aside>
+              <section class="content-col">
+                <div class="workspace-card"></div>
+              </section>
+            </div>
+            <aside class="drawer">
+              <div class="drawer-header">
+                <div>
+                  <h3>导入 Wiki</h3>
+                  <p>目标目录 / 小米 / 知识库</p>
+                </div>
+                <button class="close" type="button"></button>
+              </div>
+              <div class="drawer-body">
+                <div class="segmented">
+                  <b class="active">导入 Markdown</b>
+                  <b>导入目录</b>
+                </div>
+
+                <section class="single-mode-card">
+                  <div class="hero-copy">
+                    <h4>导入 Markdown 文件</h4>
+                    <p>适合把单篇说明、排障记录、经验沉淀快速补进当前目录，不改变现有树结构。</p>
+                  </div>
+                  <div class="subtle-banner">
+                    <span class="pill">支持多选</span>
+                    <span class="pill">仅保留 Markdown</span>
+                    <span class="pill">导入后自动索引</span>
+                  </div>
+                  <div class="button-row">
+                    <div class="btn primary">选择 Markdown</div>
+                    <div class="btn secondary">切换到目录导入</div>
+                  </div>
+                </section>
+
+                <section class="queue-panel">
+                  <div class="queue-head">
+                    <div>
+                      <h4>导入队列</h4>
+                      <small>模式：Markdown 导入</small>
+                    </div>
+                    <div class="summary">
+                      <span class="tab active">待上传 4</span>
+                      <span class="tab">已上传 11</span>
+                      <span class="tab">失败 1</span>
+                    </div>
+                  </div>
+                  <article class="queue-card">
+                    <div class="queue-title">
+                      <div>
+                        <strong>FAQ.md</strong>
+                        <span>知识库 / FAQ.md</span>
+                      </div>
+                      <b class="status done">已上传</b>
+                    </div>
+                    <div class="progress"><i style="width: 100%"></i></div>
+                  </article>
+                  <article class="queue-card">
+                    <div class="queue-title">
+                      <div>
+                        <strong>排查记录.md</strong>
+                        <span>知识库 / 排查记录.md</span>
+                      </div>
+                      <b class="status uploading">上传中 41%</b>
+                    </div>
+                    <div class="progress"><i style="width: 41%"></i></div>
+                  </article>
+                </section>
+              </div>
+            </aside>
+          </div>
+        </article>
+
+        <article class="option">
+          <div class="option-head">
+            <div class="option-copy">
+              <h2>方案 C / 双栏导入面板</h2>
+              <p>左边做操作，右边做说明、规则和当前目标。信息完整，但在抽屉里会更满，也更容易变复杂。</p>
+            </div>
+            <span class="badge">信息完整</span>
+          </div>
+          <div class="mock">
+            <div class="app-topbar">
+              <div class="brand"><span class="brand-icon">C</span>CodeAsk</div>
+              <div class="avatar">未登录</div>
+            </div>
+            <div class="app-body">
+              <aside class="nav-col">
+                <div class="nav-item">会话</div>
+                <div class="nav-item">特性</div>
+                <div class="nav-item active">Wiki</div>
+                <div class="nav-item">设置</div>
+              </aside>
+              <aside class="tree-col">
+                <div class="tree-search"></div>
+                <div class="tree-list">
+                  <div class="tree-row"><strong>当前特性</strong></div>
+                  <div class="tree-row">小米</div>
+                  <div class="tree-row">知识库</div>
+                  <div class="tree-row">问题定位报告</div>
+                </div>
+              </aside>
+              <section class="content-col">
+                <div class="workspace-card"></div>
+              </section>
+            </div>
+            <aside class="drawer">
+              <div class="drawer-header">
+                <div>
+                  <h3>导入 Wiki</h3>
+                  <p>目标目录 / 小米 / 知识库</p>
+                </div>
+                <button class="close" type="button"></button>
+              </div>
+              <div class="drawer-body">
+                <div class="dual-layout">
+                  <div class="queue-panel">
+                    <div class="import-grid">
+                      <section class="import-card">
+                        <div class="icon">M</div>
+                        <h4>导入 Markdown</h4>
+                        <p>单篇或多篇文档补录。</p>
+                        <div class="button-row">
+                          <div class="btn primary">选择 Markdown</div>
+                        </div>
+                      </section>
+                      <section class="import-card">
+                        <div class="icon">D</div>
+                        <h4>导入目录</h4>
+                        <p>保留目录、图片和相对链接。</p>
+                        <div class="button-row">
+                          <div class="btn secondary">选择目录</div>
+                        </div>
+                      </section>
+                    </div>
+                    <article class="queue-card">
+                      <div class="queue-title">
+                        <div>
+                          <strong>导入预览</strong>
+                          <span>队列建立后在这里继续处理冲突、失败和进度</span>
+                        </div>
+                      </div>
+                    </article>
+                  </div>
+                  <aside class="side-note">
+                    <h4>导入说明</h4>
+                    <p>当前目录下导入的内容会自动建立索引，文档和资源会按目标节点写入。</p>
+                    <h5>这版会保留</h5>
+                    <ul>
+                      <li>Markdown 正文</li>
+                      <li>Markdown 引用到的静态资源</li>
+                      <li>相对路径和内部链接</li>
+                    </ul>
+                    <div class="subtle-banner">
+                      <span class="pill">忽略非 Wiki 文件</span>
+                      <span class="pill">冲突逐项处理</span>
+                    </div>
+                    <div class="footer-note">适合第一次使用时解释规则，但视觉负担会更高。</div>
+                  </aside>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

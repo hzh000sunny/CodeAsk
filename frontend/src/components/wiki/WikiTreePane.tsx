@@ -2,12 +2,14 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 
 import type { WikiSearchHitRead } from "../../types/wiki";
+import type { WikiMoveNodePayload } from "../../types/wiki";
 import {
   formatWikiSearchHitHeading,
   type WikiSearchHitGroup,
 } from "../../lib/wiki/presentation";
 import { filterWikiTreeByQuery, type WikiTreeNodeRecord } from "../../lib/wiki/tree";
 import { Input } from "../ui/input";
+import { useWikiTreeDrag } from "./hooks/useWikiTreeDrag";
 import { WikiTreeNode } from "./WikiTreeNode";
 
 export function WikiTreePane({
@@ -19,6 +21,9 @@ export function WikiTreePane({
   onDeleteNode,
   onImport,
   onImportNode,
+  onMoveDownNode,
+  onMoveNodeRequest,
+  onMoveUpNode,
   onRenameNode,
   onResizeFromCollapseButton,
   onSelectSearchHit,
@@ -40,6 +45,12 @@ export function WikiTreePane({
   onDeleteNode: (node: WikiTreeNodeRecord) => void;
   onImport: () => void;
   onImportNode: (node: WikiTreeNodeRecord) => void;
+  onMoveDownNode: (node: WikiTreeNodeRecord) => void;
+  onMoveNodeRequest?: (
+    node: WikiTreeNodeRecord,
+    payload: WikiMoveNodePayload,
+  ) => void;
+  onMoveUpNode: (node: WikiTreeNodeRecord) => void;
   onRenameNode: (node: WikiTreeNodeRecord) => void;
   onResizeFromCollapseButton: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   onSelectSearchHit: (hit: WikiSearchHitRead) => void;
@@ -55,6 +66,10 @@ export function WikiTreePane({
 }) {
   const visibleRoots = filterWikiTreeByQuery(roots, search);
   const showSearchResults = search.trim().length > 0;
+  const treeDrag = useWikiTreeDrag({
+    onMoveNodeRequest,
+    roots,
+  });
 
   return (
     <aside
@@ -150,11 +165,19 @@ export function WikiTreePane({
                     onCreateDocument={(targetNode) => onCreateDocument(targetNode)}
                     onCreateFolder={onCreateFolder}
                     onDelete={onDeleteNode}
+                    onDragEnd={treeDrag.handleDragEnd}
+                    onDragOverNode={treeDrag.handleDragOver}
+                    onDragStart={treeDrag.handleDragStart}
+                    onDropOnNode={treeDrag.handleDrop}
                     onImport={onImportNode}
+                    onMoveDown={onMoveDownNode}
+                    onMoveTarget={treeDrag.dropTarget}
+                    onMoveUp={onMoveUpNode}
                     onRename={onRenameNode}
                     onSelect={onSelectNode}
                     onToggle={onToggleNode}
                     selectedNodeId={selectedNodeId}
+                    treeRoots={roots}
                   />
                 ))}
               </ul>

@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   BookOpenText,
-  ChevronDown,
-  ChevronRight,
+  FolderOpen,
   FolderTree,
 } from "lucide-react";
 
@@ -239,7 +238,7 @@ function KnowledgeTreePreviewNode({
         type="button"
       >
         <span className="knowledge-tree-prefix" aria-hidden="true">
-          {isFolder ? (expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}
+          {isFolder ? <FolderOpen size={14} /> : null}
         </span>
         <span className="knowledge-tree-name">{node.name}</span>
         {node.type === "report_ref" ? <small>问题报告</small> : null}

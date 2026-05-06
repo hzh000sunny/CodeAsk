@@ -23,6 +23,120 @@ function createNode(
 }
 
 describe("WikiTreeNode menu", () => {
+  it("uses folder icons instead of disclosure chevrons for folders", () => {
+    const { container, rerender } = render(
+      <ul>
+        <WikiTreeNode
+          canManage
+          depth={0}
+          expandedIds={new Set()}
+          node={createNode({
+            id: 10,
+            name: "运行手册",
+            path: "知识库/运行手册",
+            parent_id: 1,
+            children: [
+              createNode({
+                id: 11,
+                parent_id: 10,
+                type: "document",
+                name: "子文档",
+                path: "知识库/运行手册/子文档",
+              }),
+            ],
+          })}
+          onCreateDocument={() => undefined}
+          onCreateFolder={() => undefined}
+          onDelete={() => undefined}
+          onImport={() => undefined}
+          onRename={() => undefined}
+          onSelect={() => undefined}
+          onToggle={() => undefined}
+          selectedNodeId={null}
+        />
+      </ul>,
+    );
+
+    expect(container.querySelector(".lucide-folder-open")).toBeInTheDocument();
+    expect(container.querySelector(".lucide-chevron-right")).not.toBeInTheDocument();
+    expect(container.querySelector(".lucide-chevron-down")).not.toBeInTheDocument();
+
+    rerender(
+      <ul>
+        <WikiTreeNode
+          canManage
+          depth={0}
+          expandedIds={new Set([10])}
+          node={createNode({
+            id: 10,
+            name: "运行手册",
+            path: "知识库/运行手册",
+            parent_id: 1,
+            children: [
+              createNode({
+                id: 11,
+                parent_id: 10,
+                type: "document",
+                name: "子文档",
+                path: "知识库/运行手册/子文档",
+              }),
+            ],
+          })}
+          onCreateDocument={() => undefined}
+          onCreateFolder={() => undefined}
+          onDelete={() => undefined}
+          onImport={() => undefined}
+          onRename={() => undefined}
+          onSelect={() => undefined}
+          onToggle={() => undefined}
+          selectedNodeId={null}
+        />
+      </ul>,
+    );
+
+    expect(container.querySelector(".lucide-folder-open")).toBeInTheDocument();
+    expect(container.querySelector(".lucide-chevron-right")).not.toBeInTheDocument();
+    expect(container.querySelector(".lucide-chevron-down")).not.toBeInTheDocument();
+  });
+
+  it("uses a component icon for feature root nodes", () => {
+    const { container } = render(
+      <ul>
+        <WikiTreeNode
+          canManage
+          depth={0}
+          expandedIds={new Set()}
+          node={createNode({
+            id: -100007,
+            name: "小米",
+            path: "当前特性/xiaomi",
+            system_role: "feature_space_current",
+            children: [
+              createNode({
+                id: 1,
+                parent_id: -100007,
+                name: "知识库",
+                path: "knowledge-base",
+                system_role: "knowledge_base",
+              }),
+            ],
+          })}
+          onCreateDocument={() => undefined}
+          onCreateFolder={() => undefined}
+          onDelete={() => undefined}
+          onImport={() => undefined}
+          onRename={() => undefined}
+          onSelect={() => undefined}
+          onToggle={() => undefined}
+          selectedNodeId={null}
+        />
+      </ul>,
+    );
+
+    expect(container.querySelector(".lucide-component")).toBeInTheDocument();
+    expect(container.querySelector(".lucide-folder-open")).not.toBeInTheDocument();
+  });
+
   it("shows create and mutate actions for regular folders", () => {
     render(
       <ul>
@@ -152,5 +266,56 @@ describe("WikiTreeNode menu", () => {
     expect(
       screen.queryByRole("button", { name: /打开节点 支付失败复盘 的更多操作/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows move-up for later movable siblings and hides move-down at the end", () => {
+    render(
+      <ul>
+        <WikiTreeNode
+          canManage
+          depth={0}
+          expandedIds={new Set([1])}
+          node={createNode({
+            id: 1,
+            name: "知识库",
+            path: "knowledge-base",
+            system_role: "knowledge_base",
+            children: [
+              createNode({
+                id: 11,
+                parent_id: 1,
+                type: "document",
+                name: "Alpha",
+                path: "knowledge-base/alpha",
+                sort_order: 0,
+              }),
+              createNode({
+                id: 12,
+                parent_id: 1,
+                type: "document",
+                name: "Beta",
+                path: "knowledge-base/beta",
+                sort_order: 1,
+              }),
+            ],
+          })}
+          onCreateDocument={() => undefined}
+          onCreateFolder={() => undefined}
+          onDelete={() => undefined}
+          onImport={() => undefined}
+          onMoveDown={() => undefined}
+          onMoveUp={() => undefined}
+          onRename={() => undefined}
+          onSelect={() => undefined}
+          onToggle={() => undefined}
+          selectedNodeId={null}
+        />
+      </ul>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /打开节点 Beta 的更多操作/ }));
+
+    expect(screen.getByRole("menuitem", { name: "上移" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "下移" })).not.toBeInTheDocument();
   });
 });

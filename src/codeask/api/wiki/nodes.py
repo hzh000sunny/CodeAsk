@@ -6,11 +6,13 @@ from codeask.api.wiki.deps import SessionDep, load_node, load_space
 from codeask.api.wiki.schemas import (
     WikiNodeCreate,
     WikiNodeDetailRead,
+    WikiNodeMove,
     WikiNodePermissions,
     WikiNodeRead,
     WikiNodeUpdate,
 )
 from codeask.wiki.actor import WikiActor
+from codeask.wiki.tree.ordering import WikiTreeOrderingService
 from codeask.wiki.tree import WikiTreeService
 
 router = APIRouter()
@@ -74,6 +76,31 @@ async def update_node(
     await session.commit()
     await session.refresh(updated)
     return WikiNodeRead.model_validate(updated)
+
+
+@router.post("/nodes/{node_id}/move", response_model=WikiNodeRead)
+async def move_node(
+    node_id: int,
+    payload: WikiNodeMove,
+    request: Request,
+    session: SessionDep,
+) -> WikiNodeRead:
+    node = await load_node(node_id, session)
+    target_parent = (
+        await load_node(payload.target_parent_id, session)
+        if payload.target_parent_id is not None
+        else None
+    )
+    moved = await WikiTreeOrderingService().move_node(
+        session,
+        actor=_actor_from_request(request),
+        node=node,
+        target_parent=target_parent,
+        target_index=payload.target_index,
+    )
+    await session.commit()
+    await session.refresh(moved)
+    return WikiNodeRead.model_validate(moved)
 
 
 @router.delete("/nodes/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
