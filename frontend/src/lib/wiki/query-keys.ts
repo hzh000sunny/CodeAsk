@@ -5,6 +5,7 @@ export const wikiQueryKeys = {
   node: (nodeId: number | null) => [...wikiQueryKeys.all, "node", nodeId] as const,
   document: (nodeId: number | null) => [...wikiQueryKeys.all, "document", nodeId] as const,
   versions: (nodeId: number | null) => [...wikiQueryKeys.all, "versions", nodeId] as const,
+  sources: (spaceId: number | null) => [...wikiQueryKeys.all, "sources", spaceId] as const,
   reportProjections: (featureId: number | null) =>
     [...wikiQueryKeys.all, "report-projections", featureId] as const,
   report: (nodeId: number | null) => [...wikiQueryKeys.all, "report", nodeId] as const,

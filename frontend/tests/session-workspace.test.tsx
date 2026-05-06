@@ -455,6 +455,261 @@ describe("SessionWorkspace streaming interaction", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("promotes a session attachment into wiki and opens the promoted node", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/auth/me") {
+        return jsonResponse({
+          subject_id: "client_test",
+          display_name: "client_test",
+          role: "member",
+          authenticated: false,
+        });
+      }
+      if (path === "/api/sessions") {
+        return jsonResponse([
+          {
+            id: "sess_1",
+            title: "线上启动失败",
+            created_by_subject_id: "client_test",
+            status: "active",
+            pinned: false,
+            created_at: "2026-04-30T10:00:00",
+            updated_at: "2026-04-30T10:00:00",
+          },
+        ]);
+      }
+      if (path === "/api/features") {
+        return jsonResponse([feature]);
+      }
+      if (path === "/api/sessions/sess_1/turns") {
+        return jsonResponse([]);
+      }
+      if (path === "/api/sessions/sess_1/traces") {
+        return jsonResponse([]);
+      }
+      if (path === "/api/sessions/sess_1/attachments") {
+        return jsonResponse([
+          {
+            id: "att_1",
+            session_id: "sess_1",
+            kind: "log",
+            display_name: "db-node-a.log",
+            original_filename: "db-node-a.log",
+            aliases: [],
+            reference_names: [],
+            description: "数据库节点 A 原始日志",
+            file_path: "/tmp/db-node-a.log",
+            mime_type: "text/plain",
+            size_bytes: 64,
+            created_at: "2026-05-06T10:00:00",
+            updated_at: "2026-05-06T10:00:00",
+          },
+        ]);
+      }
+      if (path === "/api/wiki/tree?feature_id=7") {
+        return jsonResponse({
+          space: {
+            id: 70,
+            feature_id: 7,
+            scope: "current",
+            display_name: "支付结算",
+            slug: "payment-settlement",
+            status: "ready",
+            created_at: "2026-05-06T10:00:00",
+            updated_at: "2026-05-06T10:00:00",
+          },
+          nodes: [
+            {
+              id: -100007,
+              space_id: 70,
+              feature_id: 7,
+              parent_id: null,
+              type: "folder",
+              name: "支付结算",
+              path: "payment-settlement",
+              system_role: "feature_space_current",
+              sort_order: 0,
+              created_at: "2026-05-06T10:00:00",
+              updated_at: "2026-05-06T10:00:00",
+            },
+            {
+              id: 701,
+              space_id: 70,
+              feature_id: 7,
+              parent_id: -100007,
+              type: "folder",
+              name: "知识库",
+              path: "knowledge-base",
+              system_role: "knowledge_base",
+              sort_order: 100,
+              created_at: "2026-05-06T10:00:00",
+              updated_at: "2026-05-06T10:00:00",
+            },
+          ],
+        });
+      }
+      if (path === "/api/wiki/promotions/session-attachment" && init?.method === "POST") {
+        return jsonResponse(
+          {
+            node: {
+              id: 702,
+              space_id: 70,
+              feature_id: 7,
+              parent_id: 701,
+              type: "document",
+              name: "db-node-a",
+              path: "knowledge-base/db-node-a",
+              system_role: null,
+              sort_order: 0,
+              created_at: "2026-05-06T10:00:00",
+              updated_at: "2026-05-06T10:00:00",
+            },
+            document_id: 1702,
+            source_id: 52,
+          },
+          201,
+        );
+      }
+      if (path === "/api/wiki/tree") {
+        return jsonResponse({
+          space: null,
+          nodes: [
+            {
+              id: -1,
+              space_id: 0,
+              feature_id: null,
+              parent_id: null,
+              type: "folder",
+              name: "当前特性",
+              path: "当前特性",
+              system_role: "feature_group_current",
+              sort_order: 0,
+              created_at: "2026-05-06T10:00:00",
+              updated_at: "2026-05-06T10:00:00",
+            },
+            {
+              id: -100007,
+              space_id: 70,
+              feature_id: 7,
+              parent_id: -1,
+              type: "folder",
+              name: "支付结算",
+              path: "当前特性/payment-settlement",
+              system_role: "feature_space_current",
+              sort_order: 0,
+              created_at: "2026-05-06T10:00:00",
+              updated_at: "2026-05-06T10:00:00",
+            },
+            {
+              id: 701,
+              space_id: 70,
+              feature_id: 7,
+              parent_id: -100007,
+              type: "folder",
+              name: "知识库",
+              path: "knowledge-base",
+              system_role: "knowledge_base",
+              sort_order: 100,
+              created_at: "2026-05-06T10:00:00",
+              updated_at: "2026-05-06T10:00:00",
+            },
+            {
+              id: 702,
+              space_id: 70,
+              feature_id: 7,
+              parent_id: 701,
+              type: "document",
+              name: "db-node-a",
+              path: "knowledge-base/db-node-a",
+              system_role: null,
+              sort_order: 0,
+              created_at: "2026-05-06T10:00:00",
+              updated_at: "2026-05-06T10:00:00",
+            },
+          ],
+        });
+      }
+      if (path === "/api/wiki/spaces/by-feature/7") {
+        return jsonResponse({
+          id: 70,
+          feature_id: 7,
+          scope: "current",
+          display_name: "支付结算",
+          slug: "payment-settlement",
+          status: "ready",
+          created_at: "2026-05-06T10:00:00",
+          updated_at: "2026-05-06T10:00:00",
+        });
+      }
+      if (path === "/api/wiki/reports/projections?feature_id=7") {
+        return jsonResponse({ items: [] });
+      }
+      if (path === "/api/wiki/documents/702") {
+        return jsonResponse({
+          document_id: 1702,
+          node_id: 702,
+          title: "db-node-a",
+          current_version_id: 2702,
+          current_body_markdown: "ERROR payment timeout",
+          draft_body_markdown: null,
+          index_status: "ready",
+          broken_refs_json: { links: [], assets: [] },
+          resolved_refs_json: [],
+          provenance_json: {
+            source: "session_promotion",
+            session_id: "sess_1",
+            attachment_id: "att_1",
+          },
+          permissions: { read: true, write: true, admin: false },
+        });
+      }
+      if (path === "/api/wiki/documents/702/versions") {
+        return jsonResponse({
+          versions: [
+            {
+              id: 2702,
+              document_id: 1702,
+              version_no: 1,
+              body_markdown: "ERROR payment timeout",
+              created_by_subject_id: "client_test",
+              created_at: "2026-05-06T10:00:00",
+              updated_at: "2026-05-06T10:00:00",
+            },
+          ],
+        });
+      }
+      if (path === "/api/me/llm-configs") {
+        return jsonResponse([]);
+      }
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    window.history.replaceState(null, "", "/#/sessions");
+    render(<App />);
+
+    const panel = await screen.findByRole("region", { name: "会话数据" });
+    fireEvent.click(
+      await within(panel).findByRole("button", { name: "晋级为 Wiki db-node-a.log" }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "晋级为 Wiki" });
+    expect(within(dialog).getByDisplayValue("支付结算")).toBeInTheDocument();
+    expect(await within(dialog).findByDisplayValue("知识库")).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue("db-node-a")).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认晋级" }));
+
+    const success = await screen.findByRole("dialog", { name: "已写入 Wiki" });
+    fireEvent.click(within(success).getByRole("button", { name: "打开 Wiki" }));
+
+    await screen.findByRole("complementary", { name: "Wiki 目录树" });
+    expect(window.location.hash).toContain("/wiki");
+    expect(window.location.hash).toContain("feature=7");
+    expect(window.location.hash).toContain("node=702");
+  });
+
   it("loads persisted session turns and runtime traces when rendering a saved session", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;

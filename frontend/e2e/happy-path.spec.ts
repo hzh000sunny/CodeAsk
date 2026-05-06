@@ -267,7 +267,7 @@ test("wiki import drawer keeps queue details visible across failure and unfinish
   await expect(page.getByRole("note").getByText("first upload failed")).toBeVisible();
   await expect(page.getByText("Runbook-B.md")).toBeVisible();
 
-  await page.getByRole("button", { name: "关闭" }).click();
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.getByText("导入尚未完成")).toBeVisible();
   await page.getByRole("button", { name: "继续后台" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);

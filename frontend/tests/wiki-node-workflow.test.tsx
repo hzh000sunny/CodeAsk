@@ -237,7 +237,9 @@ describe("Wiki node workflow", () => {
     expect(within(deleteDialog).getByText("知识库 / Runbook Updated")).toBeInTheDocument();
     fireEvent.click(within(deleteDialog).getByRole("button", { name: "确认删除" }));
 
-    expect(await screen.findByText("Wiki 节点已删除")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Wiki 节点已删除", { selector: ".wiki-floating-toast" }),
+    ).toBeInTheDocument();
     await waitFor(() => {
       expect(
         within(treePane).queryByRole("button", { name: "Runbook Updated" }),
@@ -600,8 +602,13 @@ describe("Wiki node workflow", () => {
     const deleteDialog = await screen.findByRole("dialog");
     fireEvent.click(within(deleteDialog).getByRole("button", { name: "确认删除" }));
 
-    expect(await screen.findByText("Wiki 节点已删除")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(
+      await screen.findByText("Wiki 节点已删除", { selector: ".wiki-floating-toast" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "删除 Wiki 节点" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "Wiki 节点已删除，可恢复" }),
+    ).toBeInTheDocument();
 
     const releaseTreeRefresh = refreshGate.release;
     if (releaseTreeRefresh) {

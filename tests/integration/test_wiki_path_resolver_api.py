@@ -72,3 +72,59 @@ async def test_wiki_path_resolver_matches_roots_and_named_nodes_within_feature(
     assert document_body["items"][0]["node_id"] == runbook_document["id"]
     assert document_body["items"][0]["name"] == "回调 Runbook"
 
+
+@pytest.mark.asyncio
+async def test_wiki_path_resolver_understands_colloquial_feature_and_directory_phrases(
+    client: AsyncClient,
+) -> None:
+    response = await client.post(
+        "/api/features",
+        json={"name": "支付结算", "slug": "payment-settlement"},
+        headers={"X-Subject-Id": "owner@test"},
+    )
+    assert response.status_code == 201, response.text
+    feature_id = response.json()["id"]
+
+    response = await client.get(f"/api/wiki/tree?feature_id={feature_id}")
+    assert response.status_code == 200, response.text
+    tree = response.json()
+    space_id = tree["space"]["id"]
+    knowledge_root = next(node for node in tree["nodes"] if node["system_role"] == "knowledge_base")
+
+    response = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": space_id,
+            "parent_id": knowledge_root["id"],
+            "type": "folder",
+            "name": "支付回调",
+        },
+        headers={"X-Subject-Id": "owner@test"},
+    )
+    assert response.status_code == 201, response.text
+    callback_folder = response.json()
+
+    response = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": space_id,
+            "parent_id": callback_folder["id"],
+            "type": "document",
+            "name": "启动 Runbook",
+        },
+        headers={"X-Subject-Id": "owner@test"},
+    )
+    assert response.status_code == 201, response.text
+    runbook_document = response.json()
+
+    resolve_document = await client.get(
+        "/api/wiki/resolve-path",
+        params={
+            "q": "支付结算这个特性的知识库目录下，支付回调里面的启动 runbook",
+            "feature_id": feature_id,
+        },
+    )
+    assert resolve_document.status_code == 200, resolve_document.text
+    body = resolve_document.json()
+    assert body["items"][0]["node_id"] == runbook_document["id"]
+    assert body["items"][0]["name"] == "启动 Runbook"

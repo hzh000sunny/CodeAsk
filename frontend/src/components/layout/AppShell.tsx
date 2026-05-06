@@ -122,6 +122,15 @@ export function AppShell() {
                 setReportTarget(target);
                 showView("features");
               }}
+              onOpenWiki={({ featureId, nodeId }) => {
+                setReportTarget(null);
+                navigateWiki({
+                  featureId,
+                  nodeId,
+                  mode: "view",
+                  drawer: null,
+                });
+              }}
             />
           ) : null}
           {routeState.view === "features" ? (

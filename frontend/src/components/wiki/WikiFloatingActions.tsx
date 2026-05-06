@@ -4,6 +4,7 @@ import {
   Info,
   Link2,
   MoreHorizontal,
+  Orbit,
   Upload,
 } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -18,6 +19,7 @@ export function WikiFloatingActions({
   onOpenDetail,
   onOpenHistory,
   onOpenImport,
+  onOpenSources,
 }: {
   canEdit: boolean;
   onCopyLink: () => void;
@@ -25,6 +27,7 @@ export function WikiFloatingActions({
   onOpenDetail: () => void;
   onOpenHistory: () => void;
   onOpenImport: () => void;
+  onOpenSources: () => void;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [morePosition, setMorePosition] = useState({ left: 0, top: 0 });
@@ -114,6 +117,17 @@ export function WikiFloatingActions({
       {moreOpen
         ? createPortal(
             <div className="row-menu wiki-floating-menu" ref={moreMenuRef} role="menu" style={morePosition}>
+              <button
+                onClick={() => {
+                  setMoreOpen(false);
+                  onOpenSources();
+                }}
+                role="menuitem"
+                type="button"
+              >
+                <Orbit aria-hidden="true" size={15} />
+                来源治理
+              </button>
               <button
                 onClick={() => {
                   setMoreOpen(false);

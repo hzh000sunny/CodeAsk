@@ -14,6 +14,7 @@ import { WikiTreeNode } from "./WikiTreeNode";
 
 export function WikiTreePane({
   canManageFeature,
+  canRestoreArchivedSpaces = false,
   collapsed,
   expandedIds,
   onCreateDocument,
@@ -24,7 +25,9 @@ export function WikiTreePane({
   onMoveDownNode,
   onMoveNodeRequest,
   onMoveUpNode,
+  onReindexNode,
   onRenameNode,
+  onRestoreArchivedSpace,
   onResizeFromCollapseButton,
   onSelectSearchHit,
   onSelectNode,
@@ -38,6 +41,7 @@ export function WikiTreePane({
   setSearch,
 }: {
   canManageFeature: boolean;
+  canRestoreArchivedSpaces?: boolean;
   collapsed: boolean;
   expandedIds: Set<number>;
   onCreateDocument: (node?: WikiTreeNodeRecord | null) => void;
@@ -51,7 +55,9 @@ export function WikiTreePane({
     payload: WikiMoveNodePayload,
   ) => void;
   onMoveUpNode: (node: WikiTreeNodeRecord) => void;
+  onReindexNode?: (node: WikiTreeNodeRecord) => void;
   onRenameNode: (node: WikiTreeNodeRecord) => void;
+  onRestoreArchivedSpace?: (node: WikiTreeNodeRecord) => void;
   onResizeFromCollapseButton: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   onSelectSearchHit: (hit: WikiSearchHitRead) => void;
   onSelectNode: (node: WikiTreeNodeRecord) => void;
@@ -158,6 +164,7 @@ export function WikiTreePane({
                 {visibleRoots.map((node) => (
                   <WikiTreeNode
                     canManage={canManageFeature}
+                    canRestoreArchivedSpace={canRestoreArchivedSpaces}
                     depth={0}
                     expandedIds={expandedIds}
                     key={node.id}
@@ -173,7 +180,9 @@ export function WikiTreePane({
                     onMoveDown={onMoveDownNode}
                     onMoveTarget={treeDrag.dropTarget}
                     onMoveUp={onMoveUpNode}
+                    onReindex={onReindexNode}
                     onRename={onRenameNode}
+                    onRestoreArchivedSpace={onRestoreArchivedSpace}
                     onSelect={onSelectNode}
                     onToggle={onToggleNode}
                     selectedNodeId={selectedNodeId}

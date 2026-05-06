@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Activity,
+  ArrowUpRight,
   CheckCircle2,
   Clock3,
   FileText,
@@ -27,6 +28,7 @@ interface InvestigationPanelProps {
   isStreaming: boolean;
   onDescribeAttachment: (attachment: AttachmentResponse) => void;
   onDeleteAttachment: (attachment: AttachmentResponse) => void;
+  onPromoteAttachment: (attachment: AttachmentResponse) => void;
   onRenameAttachment: (attachment: AttachmentResponse) => void;
 }
 
@@ -37,6 +39,7 @@ export function InvestigationPanel({
   isStreaming,
   onDescribeAttachment,
   onDeleteAttachment,
+  onPromoteAttachment,
   onRenameAttachment,
   stages,
 }: InvestigationPanelProps) {
@@ -230,6 +233,15 @@ export function InvestigationPanel({
                   ) : null}
                 </div>
                 <div className="row-actions">
+                  <Button
+                    aria-label={`晋级为 Wiki ${attachment.display_name}`}
+                    className="icon-only"
+                    icon={<ArrowUpRight size={15} />}
+                    onClick={() => onPromoteAttachment(attachment)}
+                    title={`晋级为 Wiki ${attachment.display_name}`}
+                    type="button"
+                    variant="quiet"
+                  />
                   <Button
                     aria-label={`编辑用途说明 ${attachment.display_name}`}
                     className="icon-only"

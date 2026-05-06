@@ -9,6 +9,7 @@ import { WikiTreeDropIndicator } from "./WikiTreeDropIndicator";
 
 export function WikiTreeNode({
   canManage,
+  canRestoreArchivedSpace = false,
   depth,
   expandedIds,
   node,
@@ -23,13 +24,16 @@ export function WikiTreeNode({
   onMoveDown,
   onMoveTarget,
   onMoveUp,
+  onReindex,
   onRename,
+  onRestoreArchivedSpace,
   onSelect,
   onToggle,
   selectedNodeId,
   treeRoots,
 }: {
   canManage: boolean;
+  canRestoreArchivedSpace?: boolean;
   depth: number;
   expandedIds: Set<number>;
   node: WikiTreeNodeRecord;
@@ -52,7 +56,9 @@ export function WikiTreeNode({
   onMoveDown?: (node: WikiTreeNodeRecord) => void;
   onMoveTarget?: { nodeId: number; position: "before" | "inside" | "after" } | null;
   onMoveUp?: (node: WikiTreeNodeRecord) => void;
+  onReindex?: (node: WikiTreeNodeRecord) => void;
   onRename: (node: WikiTreeNodeRecord) => void;
+  onRestoreArchivedSpace?: (node: WikiTreeNodeRecord) => void;
   onSelect: (node: WikiTreeNodeRecord) => void;
   onToggle: (nodeId: number) => void;
   selectedNodeId: number | null;
@@ -130,6 +136,7 @@ export function WikiTreeNode({
         </button>
         <WikiNodeMenu
           canManage={canManage}
+          canRestoreArchivedSpace={canRestoreArchivedSpace}
           canMoveDown={moveFlags.canMoveDown}
           canMoveUp={moveFlags.canMoveUp}
           node={node}
@@ -139,7 +146,9 @@ export function WikiTreeNode({
           onImport={onImport}
           onMoveDown={onMoveDown}
           onMoveUp={onMoveUp}
+          onReindex={onReindex}
           onRename={onRename}
+          onRestoreArchivedSpace={onRestoreArchivedSpace}
         />
       </div>
       {canExpand && expanded ? (
@@ -162,11 +171,14 @@ export function WikiTreeNode({
               onMoveDown={onMoveDown}
               onMoveTarget={onMoveTarget}
               onMoveUp={onMoveUp}
+              onReindex={onReindex}
               onRename={onRename}
+              onRestoreArchivedSpace={onRestoreArchivedSpace}
               onSelect={onSelect}
               onToggle={onToggle}
               selectedNodeId={selectedNodeId}
               treeRoots={treeRoots ?? [node]}
+              canRestoreArchivedSpace={canRestoreArchivedSpace}
             />
           ))}
         </ul>

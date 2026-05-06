@@ -38,6 +38,7 @@ import { useSessionHistoryRestore } from "./useSessionHistoryRestore";
 import { useSessionMessageStream } from "./useSessionMessageStream";
 import { useSessionNotices } from "./useSessionNotices";
 import { useSessionReport } from "./useSessionReport";
+import { useSessionWikiPromotion } from "./useSessionWikiPromotion";
 
 interface ReportTarget {
   featureId: number;
@@ -46,12 +47,13 @@ interface ReportTarget {
 
 interface SessionWorkspaceProps {
   onOpenReport?: (target: ReportTarget) => void;
+  onOpenWiki?: (target: { featureId: number; nodeId: number }) => void;
 }
 
 const EMPTY_SESSION_TURNS: SessionTurnResponse[] = [];
 const EMPTY_SESSION_TRACES: AgentTraceResponse[] = [];
 
-export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
+export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceProps) {
   const queryClient = useQueryClient();
   const appliedHistoryKeyRef = useRef<string | null>(null);
   const messagesSessionIdRef = useRef<string | null>(null);
@@ -287,6 +289,12 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
     setStages,
     showActionNotice,
   });
+  const wikiPromotion = useSessionWikiPromotion({
+    detectedFeatureIds,
+    features,
+    onOpenWiki,
+    showActionNotice,
+  });
 
   function rememberSession(session: SessionResponse) {
     setLocalSessions((current) => [
@@ -411,6 +419,7 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
         isStreaming={isStreaming}
         onDescribeAttachment={describeAttachment}
         onDeleteAttachment={deleteAttachment}
+        onPromoteAttachment={wikiPromotion.openDialog}
         onRenameAttachment={renameAttachment}
         stages={stages}
       />
@@ -424,6 +433,7 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
         isBulkDeleting={bulkDeleteMutation.isPending}
         isDeleting={deleteMutation.isPending}
         isGeneratingReport={reportMutation.isPending}
+        isPromotingAttachment={wikiPromotion.promoteMutation.isPending}
         onBulkDeleteCancel={() => {
           if (!bulkDeleteMutation.isPending) {
             setConfirmBulkDelete(false);
@@ -440,6 +450,12 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
             deleteMutation.mutate(deleteCandidate.id);
           }
         }}
+        onPromotionCancel={wikiPromotion.closeDialog}
+        onPromotionConfirm={() => void wikiPromotion.promoteMutation.mutateAsync()}
+        onPromotionDocumentNameChange={wikiPromotion.setDocumentName}
+        onPromotionFeatureChange={wikiPromotion.setFeatureId}
+        onPromotionOpenWiki={wikiPromotion.openPromotedWiki}
+        onPromotionParentChange={wikiPromotion.setParentId}
         onOpenGeneratedReport={() => {
           setReportDialog(null);
           if (generatedReport?.feature_id) {
@@ -462,6 +478,16 @@ export function SessionWorkspace({ onOpenReport }: SessionWorkspaceProps) {
         reportError={reportError}
         reportFeatureId={reportFeatureId}
         reportTitle={reportTitle}
+        promotionAttachment={wikiPromotion.attachment}
+        promotionCanSubmit={wikiPromotion.canSubmit}
+        promotionDocumentName={wikiPromotion.documentName}
+        promotionError={wikiPromotion.errorMessage}
+        promotionFeatureId={wikiPromotion.featureId}
+        promotionFolderOptions={wikiPromotion.folderOptions}
+        promotionParentId={wikiPromotion.parentId}
+        promotionResult={wikiPromotion.result}
+        promotionTargetKind={wikiPromotion.targetKind}
+        promotionTreeLoading={wikiPromotion.treeLoading}
       />
     </section>
   );

@@ -52,6 +52,8 @@ def _empty_extra_context() -> dict[str, Any]:
 @dataclass(frozen=True)
 class FeatureDigest:
     feature_id: int
+    feature_name: str | None = None
+    feature_slug: str | None = None
     summary_text: str | None = None
     navigation_index: str | None = None
     feature_skill: str | None = None
@@ -134,6 +136,10 @@ def _l2_feature_context(ctx: PromptContext) -> str:
 
     for digest in ctx.feature_digests:
         lines.append(f"feature_id={digest.feature_id}")
+        if digest.feature_name:
+            lines.append(f"feature_name: {digest.feature_name}")
+        if digest.feature_slug:
+            lines.append(f"feature_slug: {digest.feature_slug}")
         if digest.summary_text:
             lines.append(f"summary: {digest.summary_text}")
         if digest.navigation_index:

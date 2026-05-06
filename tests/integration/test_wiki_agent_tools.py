@@ -213,3 +213,65 @@ async def test_wiki_agent_tools_search_across_multiple_features(
     items = search_docs.data["items"]
     assert isinstance(items, list)
     assert {item["feature_id"] for item in items} == {first_feature_id, second_feature_id}
+
+
+@pytest.mark.asyncio
+async def test_wiki_agent_tools_search_falls_back_to_selected_feature_alias_for_natural_language_query(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    response = await client.post(
+        "/api/features",
+        json={"name": "小米", "slug": "xiaomi-health"},
+        headers={"X-Subject-Id": "owner@test"},
+    )
+    assert response.status_code == 201, response.text
+    feature_id = response.json()["id"]
+
+    response = await client.get(f"/api/wiki/tree?feature_id={feature_id}")
+    assert response.status_code == 200, response.text
+    tree = response.json()
+    knowledge_root = next(node for node in tree["nodes"] if node["system_role"] == "knowledge_base")
+
+    response = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": tree["space"]["id"],
+            "parent_id": knowledge_root["id"],
+            "type": "document",
+            "name": "小米病历",
+        },
+        headers={"X-Subject-Id": "owner@test"},
+    )
+    assert response.status_code == 201, response.text
+    node_id = response.json()["id"]
+
+    response = await client.post(
+        f"/api/wiki/documents/{node_id}/publish",
+        json={
+            "body_markdown": (
+                "# 小米病历\n\n"
+                "## 基本情况\n\n"
+                "姓名：小米。\n\n"
+                "## 近况\n\n"
+                "近期主要问题集中在胰腺炎、胆囊炎和胆道支架术后恢复。"
+            ),
+        },
+        headers={"X-Subject-Id": "owner@test"},
+    )
+    assert response.status_code == 200, response.text
+
+    registry = app.state.tool_registry
+    ctx = _tool_ctx(feature_id)
+
+    result = await registry.call(
+        "search_wiki",
+        {"query": "告诉我小米病情的变化趋势"},
+        ctx,
+    )
+    assert result.ok is True
+    items = result.data["items"]
+    assert isinstance(items, list)
+    assert items
+    assert items[0]["title"] == "小米病历"
+    assert items[0]["feature_id"] == feature_id

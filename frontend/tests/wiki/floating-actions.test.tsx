@@ -10,6 +10,7 @@ describe("WikiFloatingActions", () => {
     const onOpenDetail = vi.fn();
     const onOpenHistory = vi.fn();
     const onOpenImport = vi.fn();
+    const onOpenSources = vi.fn();
 
     render(
       <WikiFloatingActions
@@ -19,6 +20,7 @@ describe("WikiFloatingActions", () => {
         onOpenDetail={onOpenDetail}
         onOpenHistory={onOpenHistory}
         onOpenImport={onOpenImport}
+        onOpenSources={onOpenSources}
       />,
     );
 
@@ -28,11 +30,16 @@ describe("WikiFloatingActions", () => {
     expect(screen.getByRole("button", { name: "更多" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "历史版本" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "导入" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "来源治理" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "更多" }));
 
     fireEvent.click(screen.getByRole("menuitem", { name: "历史版本" }));
     expect(onOpenHistory).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "更多" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "来源治理" }));
+    expect(onOpenSources).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "更多" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "导入" }));

@@ -8,13 +8,20 @@ import type {
   WikiImportPreflightRead,
   WikiImportSessionItemsRead,
   WikiImportSessionRead,
+  WikiMaintenanceReindexRead,
   WikiMoveNodePayload,
-  WikiReportDetailRead,
-  WikiReportProjectionListRead,
   WikiNodeDetailRead,
   WikiNodeRead,
-  WikiSpaceRead,
+  WikiReportDetailRead,
+  WikiReportProjectionListRead,
+  WikiPromotionRead,
+  WikiSessionAttachmentPromotionPayload,
+  WikiSourceCreatePayload,
+  WikiSourceListRead,
+  WikiSourceRead,
+  WikiSourceUpdatePayload,
   WikiSearchResultsRead,
+  WikiSpaceRead,
   WikiTreeRead,
   WikiUpdateNodePayload,
 } from "../../types/wiki";
@@ -23,6 +30,30 @@ import { getSubjectId } from "../identity";
 
 export function getWikiSpaceByFeature(featureId: number) {
   return apiRequest<WikiSpaceRead>(`/api/wiki/spaces/by-feature/${featureId}`);
+}
+
+export function listWikiSources(spaceId: number) {
+  return apiRequest<WikiSourceListRead>(`/api/wiki/sources?space_id=${spaceId}`);
+}
+
+export function createWikiSource(payload: WikiSourceCreatePayload) {
+  return apiRequest<WikiSourceRead>("/api/wiki/sources", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function updateWikiSource(sourceId: number, payload: WikiSourceUpdatePayload) {
+  return apiRequest<WikiSourceRead>(`/api/wiki/sources/${sourceId}`, {
+    method: "PUT",
+    body: payload,
+  });
+}
+
+export function syncWikiSource(sourceId: number) {
+  return apiRequest<WikiSourceRead>(`/api/wiki/sources/${sourceId}/sync`, {
+    method: "POST",
+  });
 }
 
 export function getWikiTree(featureId?: number | null) {
@@ -87,6 +118,38 @@ export async function moveWikiNodeWithLegacyFallback(
 export function deleteWikiNode(nodeId: number) {
   return apiRequest<void>(`/api/wiki/nodes/${nodeId}`, {
     method: "DELETE",
+  });
+}
+
+export function restoreWikiNode(nodeId: number) {
+  return apiRequest<WikiNodeRead>(`/api/wiki/nodes/${nodeId}/restore`, {
+    method: "POST",
+  });
+}
+
+export function restoreWikiSpace(spaceId: number) {
+  return apiRequest<WikiSpaceRead>(`/api/wiki/spaces/${spaceId}/restore`, {
+    method: "POST",
+  });
+}
+
+export function reindexWikiNode(nodeId: number) {
+  return apiRequest<WikiMaintenanceReindexRead>(`/api/wiki/maintenance/nodes/${nodeId}/reindex`, {
+    method: "POST",
+  });
+}
+
+export function promoteSessionAttachmentToWiki(payload: WikiSessionAttachmentPromotionPayload) {
+  return apiRequest<WikiPromotionRead>("/api/wiki/promotions/session-attachment", {
+    method: "POST",
+    body: {
+      session_id: payload.sessionId,
+      attachment_id: payload.attachmentId,
+      space_id: payload.spaceId,
+      parent_id: payload.parentId ?? null,
+      target_kind: payload.targetKind,
+      name: payload.name ?? null,
+    },
   });
 }
 

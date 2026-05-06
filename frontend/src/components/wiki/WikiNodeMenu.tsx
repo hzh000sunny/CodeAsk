@@ -8,6 +8,8 @@ import {
   FolderUp,
   MoreHorizontal,
   Pencil,
+  RefreshCw,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
 
@@ -15,11 +17,14 @@ import type { WikiTreeNodeRecord } from "../../lib/wiki/tree";
 import {
   canCreateChildrenInWikiNode,
   canDeleteWikiNode,
+  canReindexWikiNode,
   canRenameWikiNode,
+  canRestoreArchivedWikiSpace,
 } from "../../lib/wiki/system-node-actions";
 
 export function WikiNodeMenu({
   canManage,
+  canRestoreArchivedSpace,
   canMoveDown,
   canMoveUp,
   node,
@@ -29,9 +34,12 @@ export function WikiNodeMenu({
   onImport,
   onMoveDown,
   onMoveUp,
+  onReindex,
   onRename,
+  onRestoreArchivedSpace,
 }: {
   canManage: boolean;
+  canRestoreArchivedSpace?: boolean;
   canMoveDown?: boolean;
   canMoveUp?: boolean;
   node: WikiTreeNodeRecord;
@@ -41,11 +49,18 @@ export function WikiNodeMenu({
   onImport: (node: WikiTreeNodeRecord) => void;
   onMoveDown?: (node: WikiTreeNodeRecord) => void;
   onMoveUp?: (node: WikiTreeNodeRecord) => void;
+  onReindex?: (node: WikiTreeNodeRecord) => void;
   onRename: (node: WikiTreeNodeRecord) => void;
+  onRestoreArchivedSpace?: (node: WikiTreeNodeRecord) => void;
 }) {
   const allowCreateChildren = canCreateChildrenInWikiNode(node);
   const allowRename = canRenameWikiNode(node);
   const allowDelete = canDeleteWikiNode(node);
+  const allowReindex = canReindexWikiNode(node) && onReindex != null;
+  const allowRestoreArchivedSpace =
+    Boolean(canRestoreArchivedSpace) &&
+    canRestoreArchivedWikiSpace(node) &&
+    onRestoreArchivedSpace != null;
   const allowMoveUp = Boolean(canMoveUp && onMoveUp);
   const allowMoveDown = Boolean(canMoveDown && onMoveDown);
   const [open, setOpen] = useState(false);
@@ -95,7 +110,13 @@ export function WikiNodeMenu({
 
   if (
     !canManage ||
-    (!allowCreateChildren && !allowRename && !allowDelete && !allowMoveUp && !allowMoveDown)
+    (!allowCreateChildren &&
+      !allowRename &&
+      !allowDelete &&
+      !allowMoveUp &&
+      !allowMoveDown &&
+      !allowReindex &&
+      !allowRestoreArchivedSpace)
   ) {
     return null;
   }
@@ -164,6 +185,32 @@ export function WikiNodeMenu({
             新建 Wiki
           </button>
         </>
+      ) : null}
+      {allowRestoreArchivedSpace ? (
+        <button
+          onClick={() => {
+            setOpen(false);
+            onRestoreArchivedSpace?.(node);
+          }}
+          role="menuitem"
+          type="button"
+        >
+          <RotateCcw aria-hidden="true" size={15} />
+          恢复特性
+        </button>
+      ) : null}
+      {allowReindex ? (
+        <button
+          onClick={() => {
+            setOpen(false);
+            onReindex?.(node);
+          }}
+          role="menuitem"
+          type="button"
+        >
+          <RefreshCw aria-hidden="true" size={15} />
+          重新索引
+        </button>
       ) : null}
       {allowRename || allowDelete ? (
         <>

@@ -191,6 +191,63 @@ export interface WikiImportSessionItemsRead {
   items: WikiImportSessionItemRead[];
 }
 
+export type WikiSourceKind = "manual_upload" | "directory_import" | "session_promotion";
+export type WikiSourceStatus = "active" | "failed" | "archived";
+
+export interface WikiSourceRead {
+  id: number;
+  space_id: number;
+  kind: WikiSourceKind;
+  display_name: string;
+  uri: string | null;
+  metadata_json: Record<string, unknown> | null;
+  status: WikiSourceStatus;
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WikiSourceListRead {
+  items: WikiSourceRead[];
+}
+
+export interface WikiSourceCreatePayload {
+  space_id: number;
+  kind: WikiSourceKind;
+  display_name: string;
+  uri?: string | null;
+  metadata_json?: Record<string, unknown> | null;
+}
+
+export interface WikiSourceUpdatePayload {
+  display_name?: string | null;
+  uri?: string | null;
+  metadata_json?: Record<string, unknown> | null;
+  status?: WikiSourceStatus | null;
+}
+
+export interface WikiMaintenanceReindexRead {
+  root_node_id: number;
+  reindexed_documents: number;
+}
+
+export type WikiPromotionTargetKind = "document" | "asset";
+
+export interface WikiSessionAttachmentPromotionPayload {
+  sessionId: string;
+  attachmentId: string;
+  spaceId: number;
+  parentId?: number | null;
+  targetKind: WikiPromotionTargetKind;
+  name?: string | null;
+}
+
+export interface WikiPromotionRead {
+  node: WikiNodeRead;
+  document_id: number | null;
+  source_id: number | null;
+}
+
 export interface WikiReportProjectionRead {
   node_id: number;
   report_id: number;

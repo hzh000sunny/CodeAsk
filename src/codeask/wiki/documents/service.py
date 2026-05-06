@@ -385,7 +385,17 @@ class WikiDocumentService:
                 await session.execute(select(WikiSource).where(WikiSource.id == source_id))
             ).scalar_one_or_none()
             if source is not None:
-                summary["source_display_name"] = source.display_name
+                source_display_name = source.display_name
+                if (
+                    source.kind == "directory_import"
+                    and source_display_name.startswith("导入会话 ")
+                ):
+                    derived_name = self._derive_import_source_display_name(
+                        summary.get("source_path")
+                    )
+                    if derived_name:
+                        source_display_name = derived_name
+                summary["source_display_name"] = source_display_name
                 summary["source_uri"] = source.uri
                 summary["source_status"] = source.status
                 summary["source_last_synced_at"] = source.last_synced_at
@@ -404,6 +414,18 @@ class WikiDocumentService:
         if source_name == "session_promotion":
             return "会话晋级"
         return source_name
+
+    def _derive_import_source_display_name(self, source_path: object) -> str | None:
+        if not isinstance(source_path, str) or not source_path.strip():
+            return None
+        normalized = source_path.strip()
+        first_segment = normalized.split("/", 1)[0].strip()
+        if first_segment:
+            return first_segment
+        leaf = normalized.rsplit("/", 1)[-1].strip()
+        if "." in leaf:
+            leaf = leaf.rsplit(".", 1)[0]
+        return leaf or None
 
     def _require_write(self, actor: WikiActor, feature: Feature) -> None:
         if not can_write_feature(actor, feature):

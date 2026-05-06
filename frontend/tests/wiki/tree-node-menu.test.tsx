@@ -49,6 +49,7 @@ describe("WikiTreeNode menu", () => {
           onCreateFolder={() => undefined}
           onDelete={() => undefined}
           onImport={() => undefined}
+          onReindex={() => undefined}
           onRename={() => undefined}
           onSelect={() => undefined}
           onToggle={() => undefined}
@@ -86,6 +87,7 @@ describe("WikiTreeNode menu", () => {
           onCreateFolder={() => undefined}
           onDelete={() => undefined}
           onImport={() => undefined}
+          onReindex={() => undefined}
           onRename={() => undefined}
           onSelect={() => undefined}
           onToggle={() => undefined}
@@ -125,6 +127,7 @@ describe("WikiTreeNode menu", () => {
           onCreateFolder={() => undefined}
           onDelete={() => undefined}
           onImport={() => undefined}
+          onReindex={() => undefined}
           onRename={() => undefined}
           onSelect={() => undefined}
           onToggle={() => undefined}
@@ -154,6 +157,7 @@ describe("WikiTreeNode menu", () => {
           onCreateFolder={() => undefined}
           onDelete={() => undefined}
           onImport={() => undefined}
+          onReindex={() => undefined}
           onRename={() => undefined}
           onSelect={() => undefined}
           onToggle={() => undefined}
@@ -167,6 +171,7 @@ describe("WikiTreeNode menu", () => {
     expect(screen.getByRole("menuitem", { name: "新建目录" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "新建 Wiki" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "导入 Wiki" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "重新索引" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "重命名" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "删除" })).toBeInTheDocument();
   });
@@ -188,6 +193,7 @@ describe("WikiTreeNode menu", () => {
           onCreateFolder={() => undefined}
           onDelete={() => undefined}
           onImport={() => undefined}
+          onReindex={() => undefined}
           onRename={() => undefined}
           onSelect={() => undefined}
           onToggle={() => undefined}
@@ -201,8 +207,78 @@ describe("WikiTreeNode menu", () => {
     expect(screen.getByRole("menuitem", { name: "新建目录" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "新建 Wiki" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "导入 Wiki" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "重新索引" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "重命名" })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "删除" })).toBeInTheDocument();
+  });
+
+  it("shows restore action for archived feature roots", () => {
+    render(
+      <ul>
+        <WikiTreeNode
+          canManage
+          canRestoreArchivedSpace
+          depth={0}
+          expandedIds={new Set()}
+          node={createNode({
+            id: -100008,
+            feature_id: 8,
+            name: "历史特性",
+            path: "历史特性/history-feature",
+            system_role: "feature_space_history",
+            children: [],
+          })}
+          onCreateDocument={() => undefined}
+          onCreateFolder={() => undefined}
+          onDelete={() => undefined}
+          onImport={() => undefined}
+          onReindex={() => undefined}
+          onRename={() => undefined}
+          onRestoreArchivedSpace={() => undefined}
+          onSelect={() => undefined}
+          onToggle={() => undefined}
+          selectedNodeId={null}
+        />
+      </ul>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /打开节点 历史特性 的更多操作/ }));
+
+    expect(screen.getByRole("menuitem", { name: "恢复特性" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "重新索引" })).not.toBeInTheDocument();
+  });
+
+  it("does not show reindex for current feature roots", () => {
+    render(
+      <ul>
+        <WikiTreeNode
+          canManage
+          depth={0}
+          expandedIds={new Set()}
+          node={createNode({
+            id: -100007,
+            feature_id: 7,
+            name: "支付结算",
+            path: "当前特性/payment-settlement",
+            system_role: "feature_space_current",
+            children: [],
+          })}
+          onCreateDocument={() => undefined}
+          onCreateFolder={() => undefined}
+          onDelete={() => undefined}
+          onImport={() => undefined}
+          onReindex={() => undefined}
+          onRename={() => undefined}
+          onSelect={() => undefined}
+          onToggle={() => undefined}
+          selectedNodeId={null}
+        />
+      </ul>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /打开节点 支付结算 的更多操作/ }));
+
+    expect(screen.queryByRole("menuitem", { name: "重新索引" })).not.toBeInTheDocument();
   });
 
   it("shows clear actions for report lifecycle groups", () => {

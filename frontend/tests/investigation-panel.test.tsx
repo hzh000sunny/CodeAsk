@@ -24,6 +24,7 @@ describe("InvestigationPanel runtime previews", () => {
         isStreaming={false}
         onDeleteAttachment={() => undefined}
         onDescribeAttachment={() => undefined}
+        onPromoteAttachment={() => undefined}
         onRenameAttachment={() => undefined}
         stages={[]}
       />,
@@ -59,6 +60,7 @@ describe("InvestigationPanel runtime previews", () => {
         isStreaming={false}
         onDeleteAttachment={() => undefined}
         onDescribeAttachment={() => undefined}
+        onPromoteAttachment={() => undefined}
         onRenameAttachment={() => undefined}
         stages={[]}
       />,

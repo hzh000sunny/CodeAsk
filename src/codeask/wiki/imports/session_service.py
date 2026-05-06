@@ -19,6 +19,7 @@ from codeask.db.models import (
     WikiImportSession,
     WikiImportSessionItem,
     WikiNode,
+    WikiSource,
     WikiSpace,
 )
 from codeask.wiki.actor import WikiActor
@@ -67,24 +68,6 @@ class WikiImportSessionService:
         )
         session.add(import_session)
         await session.flush()
-        source = await WikiSourceService().create_source(
-            session,
-            actor=actor,
-            space_id=space.id,
-            kind="directory_import",
-            display_name=f"导入会话 {import_session.id}",
-            uri=None,
-            metadata_json={
-                "import_session_id": import_session.id,
-                "requested_by_subject_id": actor.subject_id,
-                "mode": mode,
-            },
-        )
-        import_session.metadata_json = {
-            **(import_session.metadata_json or {}),
-            "source_id": source.id,
-        }
-        await session.flush()
         return self._serialize_session(import_session)
 
     async def get_session(
@@ -120,6 +103,11 @@ class WikiImportSessionService:
         base_path = (import_session.metadata_json or {}).get("base_path")
         if base_path is not None and not isinstance(base_path, str):
             base_path = None
+        root_label = self._derive_root_label(items)
+        import_session.metadata_json = {
+            **(import_session.metadata_json or {}),
+            "root_label": root_label,
+        }
 
         for index, raw_item in enumerate(items):
             relative_path = self._preflight._normalize_relative_path(
@@ -700,6 +688,15 @@ class WikiImportSessionService:
         nodes_by_path = await self._load_existing_nodes(session, space_id=import_session.space_id)
         document_items: list[tuple[WikiImportSessionItem, WikiNode, Path]] = []
         space = await self._load_space(session, space_id=import_session.space_id)
+        if not any(item.status == "uploaded" for item in items):
+            return
+        source = await self._ensure_import_source(
+            session,
+            actor=actor,
+            import_session=import_session,
+            items=items,
+        )
+        source_id = int(source.id)
 
         for item in items:
             if item.status != "uploaded":
@@ -736,7 +733,6 @@ class WikiImportSessionService:
                 target_path=item.target_node_path,
             )
             if item.item_kind == "asset":
-                source_id = (import_session.metadata_json or {}).get("source_id")
                 node = await self._create_asset_from_staged(
                     session,
                     settings_data_dir=settings_data_dir,
@@ -746,7 +742,7 @@ class WikiImportSessionService:
                     target_path=item.target_node_path,
                     staged_path=staged_path,
                     import_session_id=import_session.id,
-                    source_id=source_id if isinstance(source_id, int) else None,
+                    source_id=source_id,
                 )
                 nodes_by_path[node.path] = node
                 metadata["result_node_id"] = node.id
@@ -765,7 +761,6 @@ class WikiImportSessionService:
             document = (
                 await session.execute(select(WikiDocument).where(WikiDocument.node_id == node.id))
             ).scalar_one()
-            source_id = (import_session.metadata_json or {}).get("source_id")
             document.provenance_json = {
                 "source": "directory_import",
                 "source_id": source_id,
@@ -787,6 +782,66 @@ class WikiImportSessionService:
             item.metadata_json = metadata
         await session.flush()
 
+    async def _ensure_import_source(
+        self,
+        session: AsyncSession,
+        *,
+        actor: WikiActor,
+        import_session: WikiImportSession,
+        items: list[WikiImportSessionItem],
+    ) -> WikiSource:
+        metadata = dict(import_session.metadata_json or {})
+        existing_source_id = metadata.get("source_id")
+        if isinstance(existing_source_id, int):
+            existing = await session.get(WikiSource, existing_source_id)
+            if existing is not None:
+                return existing
+
+        root_label = self._derive_root_label_from_session(import_session, items)
+        display_name = root_label or self._fallback_import_source_name(import_session, items)
+        source_metadata = {
+            "import_session_id": import_session.id,
+            "requested_by_subject_id": actor.subject_id,
+            "mode": import_session.mode,
+            "base_path": metadata.get("base_path"),
+            "root_label": root_label,
+        }
+
+        reusable = await self._find_reusable_import_source(
+            session,
+            space_id=import_session.space_id,
+            base_path=metadata.get("base_path") if isinstance(metadata.get("base_path"), str) else None,
+            root_label=root_label,
+            mode=import_session.mode,
+        )
+        if reusable is not None:
+            reusable.display_name = display_name
+            reusable.metadata_json = {**(reusable.metadata_json or {}), **source_metadata}
+            import_session.metadata_json = {
+                **metadata,
+                "source_id": int(reusable.id),
+                "root_label": root_label,
+            }
+            await session.flush()
+            return reusable
+
+        source = await WikiSourceService().create_source(
+            session,
+            actor=actor,
+            space_id=import_session.space_id,
+            kind="directory_import",
+            display_name=display_name,
+            uri=None,
+            metadata_json=source_metadata,
+        )
+        import_session.metadata_json = {
+            **metadata,
+            "source_id": int(source.id),
+            "root_label": root_label,
+        }
+        await session.flush()
+        return source
+
     async def _load_existing_nodes(
         self,
         session: AsyncSession,
@@ -802,6 +857,38 @@ class WikiImportSessionService:
             )
         ).scalars().all()
         return {row.path: row for row in rows}
+
+    async def _find_reusable_import_source(
+        self,
+        session: AsyncSession,
+        *,
+        space_id: int,
+        base_path: str | None,
+        root_label: str | None,
+        mode: str,
+    ) -> WikiSource | None:
+        if not root_label:
+            return None
+        sources = (
+            await session.execute(
+                select(WikiSource)
+                .where(
+                    WikiSource.space_id == space_id,
+                    WikiSource.kind == "directory_import",
+                )
+                .order_by(WikiSource.id.asc())
+            )
+        ).scalars().all()
+        for source in sources:
+            metadata = source.metadata_json if isinstance(source.metadata_json, dict) else {}
+            if metadata.get("root_label") != root_label:
+                continue
+            if metadata.get("mode") != mode:
+                continue
+            if metadata.get("base_path") != base_path:
+                continue
+            return source
+        return None
 
     async def _materialize_or_mark_failed(
         self,
@@ -934,6 +1021,55 @@ class WikiImportSessionService:
         )
         await session.flush()
         return node
+
+    def _derive_root_label(self, raw_items: list[dict[str, object]]) -> str | None:
+        top_segments: set[str] = set()
+        for raw_item in raw_items:
+            if not raw_item.get("included"):
+                continue
+            relative_path = self._preflight._normalize_relative_path(
+                str(raw_item.get("relative_path") or "")
+            )
+            parts = PurePosixPath(relative_path).parts
+            if len(parts) >= 2:
+                top_segments.add(parts[0])
+        if len(top_segments) == 1:
+            return next(iter(top_segments))
+        return None
+
+    def _derive_root_label_from_session(
+        self,
+        import_session: WikiImportSession,
+        items: list[WikiImportSessionItem],
+    ) -> str | None:
+        metadata = import_session.metadata_json if isinstance(import_session.metadata_json, dict) else {}
+        root_label = metadata.get("root_label")
+        if isinstance(root_label, str) and root_label.strip():
+            return root_label.strip()
+
+        top_segments: set[str] = set()
+        for item in items:
+            if item.status != "uploaded":
+                continue
+            parts = PurePosixPath(item.source_path).parts
+            if len(parts) >= 2:
+                top_segments.add(parts[0])
+        if len(top_segments) == 1:
+            return next(iter(top_segments))
+        return None
+
+    def _fallback_import_source_name(
+        self,
+        import_session: WikiImportSession,
+        items: list[WikiImportSessionItem],
+    ) -> str:
+        uploaded_items = [item for item in items if item.status == "uploaded"]
+        if len(uploaded_items) == 1:
+            single = uploaded_items[0]
+            if single.item_kind == "document":
+                return Path(single.source_path).stem or "Markdown 导入"
+            return Path(single.source_path).name or "资源导入"
+        return "批量导入"
 
     async def _soft_delete_conflicting_path(
         self,

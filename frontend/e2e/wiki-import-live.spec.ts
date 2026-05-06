@@ -73,15 +73,17 @@ test("wiki import shows a real conflict queue and can overwrite to finish", asyn
   await expect(page.getByText("冲突 1")).toBeVisible();
   await expect(page.getByText("已上传 1")).toBeVisible();
   await expect(dialog.getByText("ops-conflict/Guide.md", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("knowledge-base/guide", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("知识库 / guide", { exact: true })).toBeVisible();
   await expect(dialog.getByText("ops-conflict/images/logo.png", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("knowledge-base/images/logo.png", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "已忽略 1 个文件" })).toBeVisible();
+  await expect(dialog.getByText("知识库 / images / logo.png", { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/wiki node path conflict:/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "已忽略 1" })).toBeVisible();
   await expect(page.getByText("ops-conflict/raw/trace.log")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "已忽略 1 个文件" }).click();
+  await page.getByRole("button", { name: "已忽略 1" }).click();
   await expect(page.getByText("ops-conflict/raw/trace.log")).toBeVisible();
-  await expect(page.getByText("wiki node path conflict: knowledge-base/guide")).toBeVisible();
+  await page.getByRole("button", { name: "冲突 1" }).click();
+  await expect(page.getByRole("button", { name: "覆盖", exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "覆盖", exact: true }).click();
 

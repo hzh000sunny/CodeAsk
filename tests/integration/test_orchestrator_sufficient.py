@@ -298,6 +298,22 @@ async def test_knowledge_retrieval_uses_scope_selected_feature_ids(
     assert search_calls == [[2]]
 
 
+@pytest.mark.asyncio
+async def test_orchestrator_injects_pre_retrieval_hits_into_following_stage_prompts(
+    orchestrator,
+) -> None:  # type: ignore[no-untyped-def]
+    agent, _factory, mock = orchestrator
+
+    _events = [event async for event in agent.run("sess_1", "turn_1", "为什么订单偶发 500")]
+
+    assert len(mock.calls) >= 2
+    sufficiency_call_text = _call_text(mock.calls[1])
+    assert "L4_PRE_RETRIEVAL" in sufficiency_call_text
+    assert "hits: none" not in sufficiency_call_text
+    assert "OrderService timeout" in sufficiency_call_text
+    assert "OrderService timeout doc" in sufficiency_call_text
+
+
 def _call_text(call: dict[str, object]) -> str:
     messages = call["messages"]
     assert isinstance(messages, list)

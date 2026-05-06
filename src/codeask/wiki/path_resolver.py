@@ -8,15 +8,31 @@ import re
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from codeask.db.models import WikiNode, WikiSpace
+from codeask.db.models import Feature, WikiNode, WikiSpace
 from codeask.wiki.tokenizer import tokenize
 
 _DELIMITER_RE = re.compile(r"[\\/：:\-]+")
+_PUNCTUATION_RE = re.compile(r"[，,。；;（）()【】\[\]]+")
 _SPACE_RE = re.compile(r"\s+")
 _ROOT_ALIASES: dict[str, tuple[str, ...]] = {
     "knowledge_base": ("知识库", "wiki", "wiki知识库"),
     "reports": ("问题报告", "问题定位报告", "报告"),
 }
+_COLLOQUIAL_FILLERS: tuple[str, ...] = (
+    "这个特性的",
+    "当前特性的",
+    "该特性的",
+    "这个特性",
+    "当前特性",
+    "该特性",
+    "知识库目录下",
+    "问题报告目录下",
+    "目录下面",
+    "目录下",
+    "里面的",
+    "里面",
+    "里的",
+)
 
 
 @dataclass(slots=True)
@@ -57,6 +73,10 @@ class WikiPathResolver:
         if space is None:
             return []
 
+        feature = (
+            await session.execute(select(Feature).where(Feature.id == feature_id))
+        ).scalar_one_or_none()
+
         nodes = (
             await session.execute(
                 select(WikiNode)
@@ -68,7 +88,8 @@ class WikiPathResolver:
             )
         ).scalars().all()
 
-        prepared = _PreparedQuery.from_description(query)
+        feature_aliases = _feature_aliases(feature, space)
+        prepared = _PreparedQuery.from_description(query, feature_aliases=feature_aliases)
         hits: list[WikiPathResolveHit] = []
         for node in nodes:
             match = _score_node(prepared, node)
@@ -102,8 +123,13 @@ class _PreparedQuery:
     root_queries: dict[str, str]
 
     @classmethod
-    def from_description(cls, description: str) -> "_PreparedQuery":
-        normalized = description.strip()
+    def from_description(
+        cls,
+        description: str,
+        *,
+        feature_aliases: tuple[str, ...] = (),
+    ) -> "_PreparedQuery":
+        normalized = _normalize_description(description, feature_aliases=feature_aliases)
         compact = _compact(normalized)
         tokens = set(tokenize(normalized).split())
         variants: list[str] = []
@@ -204,3 +230,33 @@ def _score_node(prepared: _PreparedQuery, node: WikiNode) -> _MatchScore | None:
 
 def _compact(value: str) -> str:
     return _SPACE_RE.sub("", value).strip().lower()
+
+
+def _feature_aliases(feature: Feature | None, space: WikiSpace) -> tuple[str, ...]:
+    aliases: list[str] = []
+    for candidate in (
+        feature.name if feature is not None else None,
+        feature.slug if feature is not None else None,
+        space.display_name,
+        space.slug,
+    ):
+        if candidate is None:
+            continue
+        cleaned = candidate.strip()
+        if cleaned and cleaned not in aliases:
+            aliases.append(cleaned)
+    return tuple(aliases)
+
+
+def _normalize_description(
+    description: str,
+    *,
+    feature_aliases: tuple[str, ...] = (),
+) -> str:
+    normalized = description.strip()
+    for alias in sorted(feature_aliases, key=len, reverse=True):
+        normalized = normalized.replace(alias, " ")
+    for filler in _COLLOQUIAL_FILLERS:
+        normalized = normalized.replace(filler, " ")
+    normalized = _PUNCTUATION_RE.sub(" ", normalized)
+    return _SPACE_RE.sub(" ", normalized).strip()

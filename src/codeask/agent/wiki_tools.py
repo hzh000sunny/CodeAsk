@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from codeask.agent.tool_models import ToolContext, ToolResult
-from codeask.db.models import WikiDocument, WikiNode, WikiReportRef, WikiSpace
+from codeask.db.models import Feature, WikiDocument, WikiNode, WikiReportRef, WikiSpace
 from codeask.wiki.actor import WikiActor
 from codeask.wiki.documents.service import WikiDocumentService
 from codeask.wiki.path_resolver import WikiPathResolver
@@ -112,7 +112,6 @@ class AgentWikiToolService:
         selected_feature_ids = _ordered_unique_feature_ids(feature_ids)
         current_feature_id = selected_feature_ids[0] if selected_feature_ids else None
         async with self._factory() as session:
-            hits = []
             if not selected_feature_ids:
                 hits = await self._native_search.search(
                     session,
@@ -122,16 +121,28 @@ class AgentWikiToolService:
                     limit=top_k,
                 )
             else:
-                for feature_id in selected_feature_ids:
-                    hits.extend(
-                        await self._native_search.search(
+                hits = await self._search_selected_features(
+                    session,
+                    query=query,
+                    feature_ids=selected_feature_ids,
+                    current_feature_id=current_feature_id,
+                    limit=top_k,
+                )
+                if not hits:
+                    fallback_queries = await self._feature_fallback_queries(
+                        session,
+                        feature_ids=selected_feature_ids,
+                    )
+                    for fallback_query in fallback_queries:
+                        hits = await self._search_selected_features(
                             session,
-                            query,
-                            feature_id=feature_id,
+                            query=fallback_query,
+                            feature_ids=selected_feature_ids,
                             current_feature_id=current_feature_id,
                             limit=top_k,
                         )
-                    )
+                        if hits:
+                            break
 
         deduped_hits = list(_dedupe_hits(hits))
         deduped_hits.sort(key=lambda item: item.score, reverse=True)
@@ -153,6 +164,55 @@ class AgentWikiToolService:
                 payload["report_id"] = hit.report_id
             items.append(payload)
         return items
+
+    async def _search_selected_features(
+        self,
+        session: AsyncSession,
+        *,
+        query: str,
+        feature_ids: list[int],
+        current_feature_id: int | None,
+        limit: int,
+    ) -> list[object]:
+        hits: list[object] = []
+        for feature_id in feature_ids:
+            hits.extend(
+                await self._native_search.search(
+                    session,
+                    query,
+                    feature_id=feature_id,
+                    current_feature_id=current_feature_id,
+                    limit=limit,
+                )
+            )
+        return hits
+
+    async def _feature_fallback_queries(
+        self,
+        session: AsyncSession,
+        *,
+        feature_ids: list[int],
+    ) -> list[str]:
+        rows = (
+            await session.execute(
+                select(Feature.id, Feature.name, WikiSpace.display_name)
+                .join(
+                    WikiSpace,
+                    (WikiSpace.feature_id == Feature.id) & (WikiSpace.scope == "current"),
+                    isouter=True,
+                )
+                .where(Feature.id.in_(feature_ids))
+            )
+        ).all()
+        variants: list[str] = []
+        for _feature_id, feature_name, space_display_name in rows:
+            for value in (feature_name, space_display_name):
+                if not isinstance(value, str):
+                    continue
+                normalized = value.strip()
+                if normalized and normalized not in variants:
+                    variants.append(normalized)
+        return variants
 
     async def search_wiki(self, args: dict[str, object], ctx: ToolContext) -> ToolResult:
         query = str(args["query"])

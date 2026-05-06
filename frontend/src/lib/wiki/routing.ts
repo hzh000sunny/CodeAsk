@@ -1,6 +1,6 @@
 export type AppViewId = "sessions" | "features" | "wiki" | "settings" | "login";
 export type WikiMode = "view" | "edit";
-export type WikiDrawer = "detail" | "history" | "import" | null;
+export type WikiDrawer = "detail" | "history" | "import" | "sources" | null;
 
 export interface WikiRouteState {
   featureId: number | null;
@@ -101,7 +101,7 @@ function readInt(raw: string | null): number | null {
 }
 
 function readDrawer(raw: string | null): WikiDrawer {
-  if (raw === "detail" || raw === "history" || raw === "import") {
+  if (raw === "detail" || raw === "history" || raw === "import" || raw === "sources") {
     return raw;
   }
   return null;

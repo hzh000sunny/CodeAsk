@@ -42,7 +42,14 @@ async def seeded_trace(tmp_path: Path):  # type: ignore[no-untyped-def]
 def _prompt_context() -> PromptContext:
     return PromptContext(
         user_question="订单超时怎么处理？",
-        feature_digests=[FeatureDigest(feature_id=1, summary_text="订单域")],
+        feature_digests=[
+            FeatureDigest(
+                feature_id=1,
+                feature_name="订单域",
+                feature_slug="orders",
+                summary_text="订单域",
+            )
+        ],
     )
 
 
@@ -105,3 +112,44 @@ async def test_low_confidence_goes_to_ask_user(seeded_trace) -> None:  # type: i
 
     assert result.next_state == AgentState.AskUser
     assert [event.type for event in result.events] == ["scope_detection", "ask_user"]
+
+
+@pytest.mark.asyncio
+async def test_exact_feature_name_match_short_circuits_scope_detection(
+    seeded_trace,
+) -> None:  # type: ignore[no-untyped-def]
+    _factory, trace_logger = seeded_trace
+    client = MockLLMClient([])
+    ctx = StageContext(
+        session_id="sess_1",
+        turn_id="turn_1",
+        prompt_context=PromptContext(
+            user_question="告诉我小米病情的变化趋势",
+            feature_digests=[
+                FeatureDigest(
+                    feature_id=3,
+                    feature_name="小米",
+                    feature_slug="xiaomi",
+                    summary_text="小米病历和治疗记录",
+                ),
+                FeatureDigest(
+                    feature_id=4,
+                    feature_name="支付结算",
+                    feature_slug="payment-settlement",
+                    summary_text="支付业务知识库",
+                ),
+            ],
+        ),
+        llm_client=client,
+        tool_registry=ToolRegistry.bootstrap(),
+        trace_logger=trace_logger,
+    )
+
+    result = await scope_detection.run(ctx)
+
+    assert result.next_state == AgentState.KnowledgeRetrieval
+    assert result.metadata_updates["selected_feature_ids"] == [3]
+    assert result.events[0].type == "scope_detection"
+    assert result.events[0].data["confidence"] == "high"
+    assert result.events[0].data["reason"] == "matched feature alias from user question"
+    assert client.calls == []

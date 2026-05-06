@@ -212,3 +212,41 @@ async def test_document_detail_returns_provenance_summary(client: AsyncClient, a
     assert summary["source_uri"] == "file:///srv/wiki/payment"
     assert summary["source_path"] == "runbooks/payment.md"
     assert summary["import_session_id"] == 301
+
+
+@pytest.mark.asyncio
+async def test_document_detail_derives_legacy_import_source_display_name(client: AsyncClient, app) -> None:  # type: ignore[no-untyped-def]
+    node_id = await _create_document_node(client, slug="wiki-doc-provenance-legacy")
+
+    async with app.state.session_factory() as session:
+        node = await session.get(WikiNode, node_id)
+        assert node is not None
+        document = (
+            await session.execute(select(WikiDocument).where(WikiDocument.node_id == node_id))
+        ).scalar_one()
+        source = WikiSource(
+            space_id=node.space_id,
+            kind="directory_import",
+            display_name="导入会话 13",
+            uri=None,
+            metadata_json={"import_session_id": 13, "mode": "directory"},
+            status="active",
+        )
+        session.add(source)
+        await session.flush()
+        document.provenance_json = {
+            "source": "directory_import",
+            "source_id": source.id,
+            "source_path": "小米病历/小米病历.md",
+            "import_session_id": 13,
+        }
+        await session.commit()
+
+    response = await client.get(
+        f"/api/wiki/documents/{node_id}",
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+
+    assert response.status_code == 200, response.text
+    summary = response.json()["provenance_summary"]
+    assert summary["source_display_name"] == "小米病历"

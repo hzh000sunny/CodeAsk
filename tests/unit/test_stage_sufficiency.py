@@ -7,7 +7,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
-from codeask.agent.prompts import KnowledgeHit, PromptContext
+from codeask.agent.prompts import KnowledgeHit, PromptContext, RepoBinding
 from codeask.agent.stages import Evidence, StageContext, sufficiency_judgement
 from codeask.agent.state import AgentState
 from codeask.agent.trace import AgentTraceLogger
@@ -39,7 +39,13 @@ async def seeded_trace(tmp_path: Path):  # type: ignore[no-untyped-def]
     await engine.dispose()
 
 
-def _ctx(trace_logger: AgentTraceLogger, verdict: str, *, force: bool = False) -> StageContext:
+def _ctx(
+    trace_logger: AgentTraceLogger,
+    verdict: str,
+    *,
+    force: bool = False,
+    with_repo_binding: bool = False,
+) -> StageContext:
     client = MockLLMClient(
         [
             text_message(
@@ -59,6 +65,11 @@ def _ctx(trace_logger: AgentTraceLogger, verdict: str, *, force: bool = False) -
         prompt_context=PromptContext(
             user_question="订单超时怎么处理？",
             pre_retrieval_hits=[KnowledgeHit(source="doc", title="订单文档", summary="部分说明")],
+            repo_bindings=(
+                [RepoBinding(repo_id="repo_1", commit_sha="abc123", paths=["src/orders"])]
+                if with_repo_binding
+                else []
+            ),
         ),
         llm_client=client,
         trace_logger=trace_logger,
@@ -72,7 +83,9 @@ def _ctx(trace_logger: AgentTraceLogger, verdict: str, *, force: bool = False) -
 @pytest.mark.asyncio
 async def test_insufficient_goes_to_code_investigation(seeded_trace) -> None:  # type: ignore[no-untyped-def]
     factory, trace_logger = seeded_trace
-    result = await sufficiency_judgement.run(_ctx(trace_logger, "insufficient"))
+    result = await sufficiency_judgement.run(
+        _ctx(trace_logger, "insufficient", with_repo_binding=True)
+    )
 
     assert result.next_state == AgentState.CodeInvestigation
     assert [event.type for event in result.events] == ["sufficiency_judgement"]
@@ -97,3 +110,50 @@ async def test_force_code_investigation_overrides_enough(seeded_trace) -> None: 
     _, trace_logger = seeded_trace
     result = await sufficiency_judgement.run(_ctx(trace_logger, "enough", force=True))
     assert result.next_state == AgentState.CodeInvestigation
+
+
+def test_parse_decision_falls_back_to_enough_for_plain_text_sufficiency_summary() -> None:
+    raw = """
+当前信息充分性判断
+
+已获取到小米的病历信息，可以从现有记录中初步识别病情变化趋势。
+当前信息足以支持回答。
+""".strip()
+
+    parsed = sufficiency_judgement._parse_decision(raw)
+
+    assert parsed["verdict"] == "enough"
+    assert parsed["reason"] == "inferred enough from plain-text sufficiency response"
+
+
+def test_parse_decision_falls_back_to_partial_for_plain_text_partial_summary() -> None:
+    raw = """
+## 充分性判断
+
+判断结果：⚠️ 部分充分
+
+可以基于现有证据给出有限的趋势分析，但无法完整回答病情变化趋势。
+""".strip()
+
+    parsed = sufficiency_judgement._parse_decision(raw)
+
+    assert parsed["verdict"] == "partial"
+    assert parsed["reason"] == "inferred partial from plain-text sufficiency response"
+
+
+@pytest.mark.asyncio
+async def test_partial_without_repo_bindings_goes_to_answer_finalization(
+    seeded_trace,
+) -> None:  # type: ignore[no-untyped-def]
+    _, trace_logger = seeded_trace
+    result = await sufficiency_judgement.run(_ctx(trace_logger, "partial"))
+    assert result.next_state == AgentState.AnswerFinalization
+
+
+@pytest.mark.asyncio
+async def test_insufficient_without_repo_bindings_but_with_evidence_goes_to_answer_finalization(
+    seeded_trace,
+) -> None:  # type: ignore[no-untyped-def]
+    _, trace_logger = seeded_trace
+    result = await sufficiency_judgement.run(_ctx(trace_logger, "insufficient"))
+    assert result.next_state == AgentState.AnswerFinalization

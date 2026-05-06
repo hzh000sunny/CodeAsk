@@ -6,6 +6,10 @@ import {
   WikiNodeInputDialog,
 } from "./WikiDialogs";
 import { WikiImportDialog } from "./WikiImportDialog";
+import { WikiMaintenanceActions } from "./WikiMaintenanceActions";
+import { WikiNodeRestoreDialog } from "./WikiNodeRestoreDialog";
+import { WikiSpaceRestoreDialog } from "./WikiSpaceRestoreDialog";
+import { WikiSourcesDrawer } from "./WikiSourcesDrawer";
 import { WikiVersionDrawer } from "./WikiVersionDrawer";
 import type { WikiTreeNodeRecord } from "../../lib/wiki/tree";
 import { isClearOnlyWikiNode } from "../../lib/wiki/system-node-actions";
@@ -16,6 +20,9 @@ import type {
   WikiImportSessionItemsRead,
   WikiImportSessionRead,
   WikiImportSelectionItem,
+  WikiSourceCreatePayload,
+  WikiSourceRead,
+  WikiSourceUpdatePayload,
 } from "../../types/wiki";
 
 type WikiNodeDialogState =
@@ -63,8 +70,20 @@ export function WikiWorkbenchDialogs({
   path,
   publishPending,
   renameNodePending,
+  restoreNodeCandidate,
+  restoreNodePending,
+  restoreSpaceCandidate,
+  restoreSpacePending,
+  sourceOpen,
+  sourceRecentSyncedId,
+  sources,
+  sourcesLoading,
+  sourceSubmitting,
+  sourceSyncPendingId,
   versions,
   updatedAt,
+  reindexCandidate,
+  reindexPending,
   createNodePending,
   resolveNodePath,
   onCloseDetail,
@@ -79,6 +98,14 @@ export function WikiWorkbenchDialogs({
   onConfirmLeaveWithDraft,
   onDeleteNodeCancel,
   onDismissMessageDialog,
+  onCloseSources,
+  onCreateSource,
+  onCloseRestoreNode,
+  onCloseRestoreSpace,
+  onCloseReindex,
+  onConfirmReindex,
+  onConfirmRestoreNode,
+  onConfirmRestoreSpace,
   onImportCancel,
   onImportFilesSelected,
   onImportResolveItem,
@@ -87,6 +114,8 @@ export function WikiWorkbenchDialogs({
   onImportNodeCancel,
   onNodeDialogSubmit,
   onRollbackVersion,
+  onSyncSource,
+  onUpdateSource,
 }: {
   compareLoading: boolean;
   currentVersionId: number | null;
@@ -112,6 +141,18 @@ export function WikiWorkbenchDialogs({
   path: string | null;
   publishPending: boolean;
   renameNodePending: boolean;
+  restoreNodeCandidate: WikiTreeNodeRecord | null;
+  restoreNodePending: boolean;
+  restoreSpaceCandidate: WikiTreeNodeRecord | null;
+  restoreSpacePending: boolean;
+  sourceOpen: boolean;
+  sourceRecentSyncedId: number | null;
+  sources: WikiSourceRead[];
+  sourcesLoading: boolean;
+  sourceSubmitting: boolean;
+  sourceSyncPendingId: number | null;
+  reindexCandidate: WikiTreeNodeRecord | null;
+  reindexPending: boolean;
   updatedAt: string | null;
   versions: WikiDocumentVersionRead[];
   resolveNodePath: (node: WikiTreeNodeRecord | null | undefined) => string | null;
@@ -127,6 +168,14 @@ export function WikiWorkbenchDialogs({
   onConfirmLeaveWithDraft: () => void;
   onDeleteNodeCancel: () => void;
   onDismissMessageDialog: () => void;
+  onCloseSources: () => void;
+  onCloseRestoreNode: () => void;
+  onCloseRestoreSpace: () => void;
+  onCloseReindex: () => void;
+  onConfirmReindex: () => void;
+  onConfirmRestoreNode: () => void;
+  onConfirmRestoreSpace: () => void;
+  onCreateSource: (payload: Omit<WikiSourceCreatePayload, "space_id">) => Promise<void>;
   onImportCancel: () => void;
   onImportFilesSelected: (payload: {
     files: File[];
@@ -139,6 +188,8 @@ export function WikiWorkbenchDialogs({
   onImportNodeCancel: () => void;
   onNodeDialogSubmit: (value: string) => void;
   onRollbackVersion: (versionId: number) => void;
+  onSyncSource: (sourceId: number) => void;
+  onUpdateSource: (sourceId: number, payload: WikiSourceUpdatePayload) => Promise<void>;
 }) {
   return (
     <>
@@ -177,6 +228,44 @@ export function WikiWorkbenchDialogs({
         session={importSession}
         sessionItems={importSessionItems}
       />
+      <WikiSourcesDrawer
+        onClose={onCloseSources}
+        onCreate={onCreateSource}
+        onSync={onSyncSource}
+        onUpdate={onUpdateSource}
+        open={sourceOpen}
+        recentSyncedSourceId={sourceRecentSyncedId}
+        sources={sources}
+        sourcesLoading={sourcesLoading}
+        submitting={sourceSubmitting}
+        syncPendingSourceId={sourceSyncPendingId}
+      />
+      {restoreNodeCandidate ? (
+        <WikiNodeRestoreDialog
+          isRestoring={restoreNodePending}
+          nodeName={restoreNodeCandidate.name}
+          onClose={onCloseRestoreNode}
+          onRestore={onConfirmRestoreNode}
+          path={resolveNodePath(restoreNodeCandidate) ?? restoreNodeCandidate.name}
+        />
+      ) : null}
+      {restoreSpaceCandidate ? (
+        <WikiSpaceRestoreDialog
+          featureName={restoreSpaceCandidate.name}
+          isRestoring={restoreSpacePending}
+          onCancel={onCloseRestoreSpace}
+          onConfirm={onConfirmRestoreSpace}
+        />
+      ) : null}
+      {reindexCandidate ? (
+        <WikiMaintenanceActions
+          isRunning={reindexPending}
+          nodeName={reindexCandidate.name}
+          onCancel={onCloseReindex}
+          onConfirm={onConfirmReindex}
+          path={resolveNodePath(reindexCandidate) ?? reindexCandidate.name}
+        />
+      ) : null}
       {nodeDialog?.kind === "create_document" ? (
         <WikiNodeInputDialog
           confirmLabel="创建 Wiki"

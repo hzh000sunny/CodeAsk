@@ -9,9 +9,19 @@ const CLEARABLE_SYSTEM_ROLES = new Set([
   "report_group",
 ]);
 
+const REINDEX_BLOCKED_SYSTEM_ROLES = new Set([
+  "feature_group_current",
+  "feature_group_history",
+  "feature_space_current",
+  "feature_space_history",
+  "report_group",
+]);
+
 export function canCreateChildrenInWikiNode(node: WikiTreeNodeRecord) {
   return (
     node.type === "folder" &&
+    node.system_role !== "feature_group_current" &&
+    node.system_role !== "feature_group_history" &&
     node.system_role !== "reports" &&
     node.system_role !== "report_group"
   );
@@ -30,6 +40,17 @@ export function canDeleteWikiNode(node: WikiTreeNodeRecord) {
     (node.system_role == null && (node.type === "folder" || node.type === "document")) ||
     isClearOnlyWikiNode(node)
   );
+}
+
+export function canReindexWikiNode(node: WikiTreeNodeRecord) {
+  return (
+    (node.type === "folder" || node.type === "document") &&
+    !REINDEX_BLOCKED_SYSTEM_ROLES.has(node.system_role ?? "")
+  );
+}
+
+export function canRestoreArchivedWikiSpace(node: WikiTreeNodeRecord) {
+  return node.system_role === "feature_space_history";
 }
 
 export function buildWikiSystemClearPlan(

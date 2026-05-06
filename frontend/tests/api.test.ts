@@ -5,6 +5,7 @@ import {
   apiRequest,
   listSessionTraces,
   listSessionTurns,
+  promoteSessionAttachmentToWiki,
   uploadSessionAttachment,
 } from "../src/lib/api";
 import { getSubjectId } from "../src/lib/identity";
@@ -78,6 +79,59 @@ describe("frontend api client", () => {
     expect(init.method).toBe("POST");
     expect(init.body).toBeInstanceOf(FormData);
     expect(new Headers(init.headers).get("X-Subject-Id")).toBe(getSubjectId());
+  });
+
+  it("posts session attachment promotion payload to the wiki promotion endpoint", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            node: {
+              id: 701,
+              space_id: 70,
+              feature_id: 7,
+              parent_id: 700,
+              type: "document",
+              name: "数据库节点 A 日志",
+              path: "knowledge-base/db-node-a-log",
+              system_role: null,
+              sort_order: 0,
+              created_at: "2026-05-06T10:00:00",
+              updated_at: "2026-05-06T10:00:00",
+            },
+            document_id: 1701,
+            source_id: 33,
+          }),
+          {
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await promoteSessionAttachmentToWiki({
+      sessionId: "sess_1",
+      attachmentId: "att_1",
+      spaceId: 70,
+      parentId: 700,
+      targetKind: "document",
+      name: "数据库节点 A 日志",
+    });
+
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(path).toBe("/api/wiki/promotions/session-attachment");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({
+      session_id: "sess_1",
+      attachment_id: "att_1",
+      space_id: 70,
+      parent_id: 700,
+      target_kind: "document",
+      name: "数据库节点 A 日志",
+    });
   });
 
   it("posts bootstrap admin username and password when logging in", async () => {

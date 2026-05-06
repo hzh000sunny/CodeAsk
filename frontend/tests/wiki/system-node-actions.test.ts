@@ -3,6 +3,7 @@ import {
   buildWikiSystemClearPlan,
   canCreateChildrenInWikiNode,
   canDeleteWikiNode,
+  canReindexWikiNode,
   reportStatusGroup,
 } from "../../src/lib/wiki/system-node-actions";
 import type { ReportRead } from "../../src/types/api";
@@ -70,6 +71,50 @@ describe("system wiki node actions", () => {
         ])[0],
       ),
     ).toBe(false);
+  });
+
+  it("blocks reindex for synthetic feature and report grouping nodes", () => {
+    const tree = buildWikiTree([
+      node({
+        id: -100007,
+        name: "支付结算",
+        path: "当前特性/payment",
+        system_role: "feature_space_current",
+      }),
+      node({
+        id: -100008,
+        name: "历史支付",
+        path: "历史特性/payment-history",
+        system_role: "feature_space_history",
+      }),
+      node({
+        id: -1001,
+        name: "草稿",
+        path: "reports/草稿",
+        system_role: "report_group",
+      }),
+      node({
+        id: 11,
+        name: "知识库",
+        path: "knowledge-base",
+        system_role: "knowledge_base",
+      }),
+    ]);
+
+    const currentFeatureRoot = tree.find((item) => item.system_role === "feature_space_current");
+    const historyFeatureRoot = tree.find((item) => item.system_role === "feature_space_history");
+    const reportGroup = tree.find((item) => item.system_role === "report_group");
+    const knowledgeRoot = tree.find((item) => item.system_role === "knowledge_base");
+
+    expect(currentFeatureRoot).toBeTruthy();
+    expect(historyFeatureRoot).toBeTruthy();
+    expect(reportGroup).toBeTruthy();
+    expect(knowledgeRoot).toBeTruthy();
+
+    expect(canReindexWikiNode(currentFeatureRoot!)).toBe(false);
+    expect(canReindexWikiNode(historyFeatureRoot!)).toBe(false);
+    expect(canReindexWikiNode(reportGroup!)).toBe(false);
+    expect(canReindexWikiNode(knowledgeRoot!)).toBe(true);
   });
 
   it("builds a clear plan for the knowledge base root by deleting only its children", () => {

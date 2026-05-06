@@ -10,7 +10,13 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from codeask.agent.prompts import AnalysisPolicy, FeatureDigest, PromptContext, RepoBinding
+from codeask.agent.prompts import (
+    AnalysisPolicy,
+    FeatureDigest,
+    KnowledgeHit,
+    PromptContext,
+    RepoBinding,
+)
 from codeask.agent.sse import AgentEvent
 from codeask.agent.stages import (
     Evidence,
@@ -228,6 +234,8 @@ class AgentOrchestrator:
             feature_digests=[
                 FeatureDigest(
                     feature_id=feature.id,
+                    feature_name=feature.name,
+                    feature_slug=feature.slug,
                     summary_text=feature.summary_text or feature.description,
                     navigation_index=(
                         str(feature.navigation_index_json)
@@ -281,12 +289,17 @@ class AgentOrchestrator:
         return StageResult(next_state=AgentState.InputAnalysis)
 
     def _merge(self, ctx: StageContext, result: StageResult) -> StageContext:
+        pre_retrieval_hits = _merge_pre_retrieval_hits(
+            ctx.prompt_context.pre_retrieval_hits,
+            result.evidence_added,
+        )
         prompt_context = replace(
             ctx.prompt_context,
             turn_history=[
                 *ctx.prompt_context.turn_history,
                 *result.messages_appended,
             ],
+            pre_retrieval_hits=pre_retrieval_hits,
         )
         metadata = {**ctx.metadata, **result.metadata_updates}
         return replace(
@@ -346,6 +359,39 @@ def _attachment_summaries(rows: list[SessionAttachment]) -> list[dict[str, Any]]
         }
         for row in rows
     ]
+
+
+def _merge_pre_retrieval_hits(
+    existing: list[KnowledgeHit],
+    evidence_added: list[Evidence],
+) -> list[KnowledgeHit]:
+    merged = list(existing)
+    seen = {(hit.source, hit.title, hit.summary) for hit in merged}
+    for item in evidence_added:
+        hit = _knowledge_hit_from_evidence(item)
+        if hit is None:
+            continue
+        key = (hit.source, hit.title, hit.summary)
+        if key in seen:
+            continue
+        merged.append(hit)
+        seen.add(key)
+    return merged
+
+
+def _knowledge_hit_from_evidence(item: Evidence) -> KnowledgeHit | None:
+    source = "report" if item.type == "report" else "doc"
+    raw_title = item.data.get("title")
+    title = str(raw_title).strip() if raw_title is not None else ""
+    summary = item.summary.strip()
+    if not title and not summary:
+        return None
+    return KnowledgeHit(
+        source=source,
+        title=title or summary,
+        summary=summary or title,
+        report_high_priority=(source == "report"),
+    )
 
 
 def _serialize_evidence(evidence: list[Evidence]) -> dict[str, Any]:

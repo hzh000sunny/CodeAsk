@@ -93,6 +93,17 @@ export function findNodeById(
   return null;
 }
 
+export function collectWikiNodeChainIds(
+  roots: WikiTreeNodeRecord[],
+  nodeId: number | null,
+): number[] {
+  if (nodeId == null) {
+    return [];
+  }
+  const chain = findNodeChain(roots, nodeId);
+  return chain ? chain.map((node) => node.id) : [];
+}
+
 export function buildWikiNodeDisplayPath(
   roots: WikiTreeNodeRecord[],
   nodeId: number | null,

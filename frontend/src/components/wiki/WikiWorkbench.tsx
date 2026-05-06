@@ -24,6 +24,7 @@ import {
 import { findFeatureRootNode, findSystemRoleNode } from "../../lib/wiki/tree-selectors";
 import {
   buildWikiNodeDisplayPath,
+  collectWikiNodeChainIds,
   findFirstReadableDocument,
   findNodeById,
   formatWikiStoredPath,
@@ -37,9 +38,12 @@ import { WikiWorkspacePane } from "./WikiWorkspacePane";
 import { useWikiDocument } from "./hooks/useWikiDocument";
 import { useWikiDraftAutosave } from "./hooks/useWikiDraftAutosave";
 import { useWikiImportSessionFlow } from "./hooks/useWikiImportSessionFlow";
+import { useWikiMaintenance } from "./hooks/useWikiMaintenance";
 import { useWikiNodeOrdering } from "./hooks/useWikiNodeOrdering";
+import { useWikiRestoreActions } from "./hooks/useWikiRestoreActions";
 import { useWikiReport, useWikiReportProjections } from "./hooks/useWikiReport";
 import { useWikiSearch } from "./hooks/useWikiSearch";
+import { useWikiSources } from "./hooks/useWikiSources";
 import { useWikiTree } from "./hooks/useWikiTree";
 import { useWikiTreeLayout } from "./hooks/useWikiTreeLayout";
 
@@ -78,6 +82,10 @@ export function WikiWorkbench({
   const [nodeDialog, setNodeDialog] = useState<WikiNodeDialogState>(null);
   const [nodeDialogError, setNodeDialogError] = useState("");
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+  const [deletedNodeRestoreCandidate, setDeletedNodeRestoreCandidate] =
+    useState<WikiTreeNodeRecord | null>(null);
+  const [spaceRestoreCandidate, setSpaceRestoreCandidate] = useState<WikiTreeNodeRecord | null>(null);
+  const [reindexCandidate, setReindexCandidate] = useState<WikiTreeNodeRecord | null>(null);
   const previousDocumentIdRef = useRef<number | null>(null);
   const previousModeRef = useRef<WikiRouteState["mode"]>(routeState.mode);
 
@@ -160,6 +168,7 @@ export function WikiWorkbench({
     [activeFeatureTree],
   );
   const canManageFeature = Boolean(activeFeatureId != null && authQuery.data);
+  const canRestoreArchivedSpaces = authQuery.data?.role === "admin";
   const activeSpace = activeSpaceQuery.data ?? treeQuery.space ?? null;
   const drawer = routeState.drawer;
   const nodeOrdering = useWikiNodeOrdering({
@@ -167,6 +176,23 @@ export function WikiWorkbench({
     onSuccess: setSaveToast,
     queryClient,
     tree,
+  });
+  const sourcesFlow = useWikiSources({
+    enabled: drawer === "sources",
+    onError: setMessageDialog,
+    onSuccess: setSaveToast,
+    queryClient,
+    spaceId: activeSpace?.id ?? null,
+  });
+  const restoreActions = useWikiRestoreActions({
+    onError: setMessageDialog,
+    onSuccess: setSaveToast,
+    queryClient,
+  });
+  const maintenanceActions = useWikiMaintenance({
+    onError: setMessageDialog,
+    onSuccess: setSaveToast,
+    queryClient,
   });
 
   async function invalidateActiveFeatureTree(featureId: number) {
@@ -258,6 +284,11 @@ export function WikiWorkbench({
   useEffect(() => {
     const nextExpanded = new Set<number>();
     nextExpanded.add(-1);
+    if (routeState.nodeId != null) {
+      for (const nodeId of collectWikiNodeChainIds(tree, routeState.nodeId)) {
+        nextExpanded.add(nodeId);
+      }
+    }
     if (activeFeatureRoot) {
       nextExpanded.add(activeFeatureRoot.id);
     }
@@ -552,6 +583,9 @@ export function WikiWorkbench({
 
       setNodeDialog(null);
       setSaveToast(clearOnly ? "目录内容已清空" : "Wiki 节点已删除");
+      if (!clearOnly) {
+        setDeletedNodeRestoreCandidate(deletingNode);
+      }
 
       const clearsWholeFeature =
         clearOnly &&
@@ -591,6 +625,58 @@ export function WikiWorkbench({
     }
   }
 
+  async function handleRestoreDeletedNode() {
+    if (!deletedNodeRestoreCandidate) {
+      return;
+    }
+    const restoringNode = deletedNodeRestoreCandidate;
+    try {
+      await restoreActions.restoreNodeMutation.mutateAsync(restoringNode.id);
+      setDeletedNodeRestoreCandidate(null);
+      onRouteChange({
+        featureId: restoringNode.feature_id ?? activeFeatureId,
+        nodeId: restoringNode.id,
+        heading: null,
+        mode: "view",
+        drawer: null,
+      });
+    } catch {
+      // error state is handled inside the hook
+    }
+  }
+
+  async function handleRestoreArchivedSpace() {
+    if (!spaceRestoreCandidate) {
+      return;
+    }
+    const restoringSpace = spaceRestoreCandidate;
+    try {
+      await restoreActions.restoreSpaceMutation.mutateAsync(restoringSpace.space_id);
+      setSpaceRestoreCandidate(null);
+      onRouteChange({
+        featureId: restoringSpace.feature_id ?? activeFeatureId,
+        nodeId: restoringSpace.id,
+        heading: null,
+        mode: "view",
+        drawer: null,
+      });
+    } catch {
+      // error state is handled inside the hook
+    }
+  }
+
+  async function handleReindexNode() {
+    if (!reindexCandidate) {
+      return;
+    }
+    try {
+      await maintenanceActions.reindexMutation.mutateAsync(reindexCandidate.id);
+      setReindexCandidate(null);
+    } catch {
+      // error state is handled inside the hook
+    }
+  }
+
   return (
     <section
       className="workspace wiki-workspace"
@@ -599,6 +685,7 @@ export function WikiWorkbench({
     >
       <WikiTreePane
         canManageFeature={canManageFeature}
+        canRestoreArchivedSpaces={canRestoreArchivedSpaces}
         collapsed={treeCollapsed}
         expandedIds={expandedIds}
         onCreateDocument={(parent) => openCreateDocumentDialog(parent)}
@@ -609,7 +696,9 @@ export function WikiWorkbench({
         onMoveDownNode={nodeOrdering.moveDown}
         onMoveNodeRequest={nodeOrdering.moveNode}
         onMoveUpNode={nodeOrdering.moveUp}
+        onReindexNode={(node) => setReindexCandidate(node)}
         onRenameNode={openRenameDialog}
+        onRestoreArchivedSpace={(node) => setSpaceRestoreCandidate(node)}
         onResizeFromCollapseButton={(event) =>
           startTreeResize(event, {
             onClick: () => setTreeCollapsed((value) => !value),
@@ -707,6 +796,7 @@ export function WikiWorkbench({
         }}
         onOpenHistory={() => onRouteChange({ drawer: "history" })}
         onOpenImport={() => importFlow.openImportDialog(knowledgeRoot)}
+        onOpenSources={() => onRouteChange({ drawer: "sources" })}
         onRequestCancelEdit={() => {
           const publishedBody = documentQuery.data?.current_body_markdown ?? "";
           const hasDraftChanges =
@@ -752,6 +842,16 @@ export function WikiWorkbench({
         messageDialog={messageDialog}
         nodeDialog={nodeDialog}
         nodeDialogError={nodeDialogError}
+        onCloseSources={() => onRouteChange({ drawer: null })}
+        onCloseRestoreNode={() => setDeletedNodeRestoreCandidate(null)}
+        onCloseRestoreSpace={() => setSpaceRestoreCandidate(null)}
+        onCloseReindex={() => setReindexCandidate(null)}
+        onConfirmReindex={handleReindexNode}
+        onConfirmRestoreNode={handleRestoreDeletedNode}
+        onConfirmRestoreSpace={handleRestoreArchivedSpace}
+        onCreateSource={async (payload) => {
+          await sourcesFlow.createMutation.mutateAsync(payload);
+        }}
         onCloseDetail={() => onRouteChange({ drawer: null })}
         onCloseHistory={() => onRouteChange({ drawer: null })}
         onCloseImport={importFlow.closeImportDialog}
@@ -780,10 +880,32 @@ export function WikiWorkbench({
         onImportNodeCancel={() => setNodeDialog(null)}
         onNodeDialogSubmit={handleNodeDialogSubmit}
         onRollbackVersion={(versionId) => rollbackMutation.mutate(versionId)}
+        onSyncSource={(sourceId) => sourcesFlow.syncMutation.mutate(sourceId)}
+        onUpdateSource={async (sourceId, payload) => {
+          await sourcesFlow.updateMutation.mutateAsync({ payload, sourceId });
+        }}
         path={selectedNodeDisplayPath}
         publishPending={publishMutation.isPending}
         renameNodePending={renameNodeMutation.isPending}
+        restoreNodeCandidate={deletedNodeRestoreCandidate}
+        restoreNodePending={restoreActions.restoreNodeMutation.isPending}
+        restoreSpaceCandidate={spaceRestoreCandidate}
+        restoreSpacePending={restoreActions.restoreSpaceMutation.isPending}
         resolveNodePath={resolveNodePath}
+        reindexCandidate={reindexCandidate}
+        reindexPending={maintenanceActions.reindexMutation.isPending}
+        sourceOpen={drawer === "sources"}
+        sourceRecentSyncedId={
+          sourcesFlow.syncMutation.isSuccess ? sourcesFlow.syncMutation.data?.id ?? null : null
+        }
+        sources={sourcesFlow.sources}
+        sourcesLoading={sourcesFlow.sourcesQuery.isLoading}
+        sourceSubmitting={
+          sourcesFlow.createMutation.isPending || sourcesFlow.updateMutation.isPending
+        }
+        sourceSyncPendingId={
+          sourcesFlow.syncMutation.isPending ? sourcesFlow.syncMutation.variables ?? null : null
+        }
         updatedAt={selectedNode?.updated_at ?? null}
         versions={versionsQuery.data?.versions ?? []}
       />

@@ -3,7 +3,7 @@
 | 字段 | 值 |
 |---|---|
 | 版本 | v1.0.1 |
-| 状态 | In Progress |
+| 状态 | Completed |
 | 主题 | LLM Wiki 专项 |
 | 基线版本 | `../v1.0/` |
 | 目标 | 补齐 v1.0 已后置的完整 LLM Wiki 能力 |
@@ -23,6 +23,7 @@ v1.0.1 是一个聚焦版本，专门用于建设 CodeAsk 的独立 LLM Wiki 工
 | `prd/llm-wiki.md` | LLM Wiki 产品契约：定位、范围、权限、生命周期、Agent 接入和验收标准 |
 | `design/llm-wiki-workbench.md` | 独立 Wiki 工作台 SDD：前后端模块边界、目标目录结构、数据模型、API 和测试策略 |
 | `plans/llm-wiki-workbench.md` | v1.0.1 LLM Wiki 分阶段实施计划，明确目录结构和落地顺序 |
+| `plans/closure-checklist.md` | v1.0.1 版本关闭清单：明确哪些必须在本版本收口，哪些正式后移 |
 | `specs/llm-wiki-brainstorm.md` | 头脑风暴记录和决策快照；正式实现以 PRD / SDD / Plan 为准 |
 
 ## 当前实现进度
@@ -30,13 +31,13 @@ v1.0.1 是一个聚焦版本，专门用于建设 CodeAsk 的独立 LLM Wiki 工
 截至 2026-05-06，v1.0.1 后端已经具备以下原生能力：
 
 - Wiki space、目录树和节点 CRUD。
-- owner / admin 写权限和系统目录保护。
+- v1.0.1 当前版本的 Wiki 写权限覆写：普通文档/目录写操作默认对所有用户开放，同时保留系统目录保护，以及未来 `owner / admin` 或管理员治理动作的权限通道。
 - Markdown 正式内容读取、草稿、发布、版本、diff、回滚。
 - Markdown 相对 `.md` 链接和图片引用解析，返回 resolved refs 和 broken refs。
 - 原生 Wiki asset 上传与内容读取：
   - `POST /api/wiki/assets`
   - `GET /api/wiki/assets/{node_id}/content`
-- 目录导入 preflight：
+- 目录导入内部 preflight 能力：
   - `POST /api/wiki/imports/preflight`
   - 支持 `multipart files[]`
   - 以上传文件名承载相对路径
@@ -63,7 +64,7 @@ v1.0.1 是一个聚焦版本，专门用于建设 CodeAsk 的独立 LLM Wiki 工
 - 阅读态已实现左树右正文、纯正文阅读容器、详情抽屉、历史版本抽屉。
 - 阅读态已支持复制当前 Wiki 链接。
 - 编辑态已实现源码/预览双栏、进入编辑态默认收起目录树、自动草稿、发布、diff、回滚。
-- 导入抽屉已接通 preflight、job、apply 的前后端联调。
+- 导入抽屉已切到“导入会话 + 文件队列”模型，内部复用 preflight / materialize 能力，但用户不再感知独立 preflight 阶段。
 - Wiki Markdown 代码块已支持复制。
 - 已落地报告投影视图：
   - `问题定位报告` 根目录下按 `草稿 / 已验证 / 未通过` 展开
@@ -85,13 +86,29 @@ v1.0.1 是一个聚焦版本，专门用于建设 CodeAsk 的独立 LLM Wiki 工
   - 特性页知识库树默认只展开 `知识库` 根目录，下层目录可展开 / 收起
   - 特性页知识库右侧预览只保留 Markdown 正文，不显示文档名头部和特性级报告计数
   - 导入抽屉首屏已收口为紧凑双入口卡片；上方入口不再平分整屏高度，空队列占位会填满剩余空间
+- 已落地 Wiki 收尾治理入口：
+  - 来源治理抽屉：列表、创建、编辑、手动同步、同步结果反馈
+  - 软删除节点恢复、历史特性恢复、手动重新索引入口
+  - 会话附件晋级为正式 Wiki 文档或资源，并支持从会话直接跳转到目标 Wiki 节点
+- 已补齐一轮浏览器级收尾回归：
+  - `frontend/e2e/wiki-tail.spec.ts` 覆盖来源治理、恢复/重新索引和会话附件晋级的浏览器工作流
+  - `frontend/e2e/wiki-tail-live.spec.ts` 覆盖真实前后端服务下的来源治理、节点恢复/重新索引和会话附件晋级
+  - `frontend/e2e/wiki-import-live.spec.ts` 覆盖真实前后端服务下的目录导入成功与冲突覆盖链路
 
-当前仍未完成的重点能力：
+v1.0.1 已经完成收口。下列事项明确后移到后续版本，不再计入本版本：
 
-- 来源注册表、手动同步、会话附件晋级、软删除恢复、历史特性恢复的完整前端管理 UI。
-- Wiki 来源治理的进一步收口，包括更清晰的 provenance 展示、来源详情查看和批量修复入口。
-- Agent 侧更强的 Wiki 范围解析与证据治理，例如更复杂的口语化目录解析、跨目录组合提示和更细粒度的报告锚点。
-- 更系统的真实浏览器回归覆盖，尤其是目录树拖拽排序、恢复通道和来源治理相关操作。
+- 来源治理的更深 provenance 展示和长期治理细节继续增强。
+- 更大范围的版本级人工 blocker sweep 和发布流程沉淀继续完善。
+
+不再纳入 v1.0.1 的事项：
+
+- 恢复 `owner / admin / member` 的真实写权限隔离
+- 接入 AuthProvider 或企业级统一登录
+- PDF / DOCX 等非 Markdown 文档格式导入
+- 企业级外部来源连接器和跨空间治理策略
+- LLM agent 的进一步优化，包括更强的范围理解、复杂口语化推理和更深的运行时策略调整
+
+版本关闭标准见 [plans/closure-checklist.md](./plans/closure-checklist.md)。
 
 ## 当前已确认的前端路线
 

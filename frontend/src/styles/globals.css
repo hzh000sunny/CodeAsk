@@ -1045,6 +1045,38 @@ textarea:focus-visible {
   width: min(480px, 100%);
 }
 
+.wiki-promotion-summary {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+  border: 1px solid #d8e6ff;
+  border-radius: 8px;
+  background: #f7faff;
+  padding: 12px 14px;
+}
+
+.wiki-promotion-summary strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.wiki-promotion-summary span {
+  color: #526075;
+  font-size: 12px;
+}
+
+.wiki-promotion-target {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wiki-promotion-target .badge {
+  gap: 6px;
+  background: #fbfcfe;
+}
+
 .login-page {
   display: grid;
   min-height: calc(100vh - 56px);
@@ -3082,6 +3114,139 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.wiki-sources-body {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 16px 18px 18px;
+}
+
+.wiki-sources-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wiki-sources-summary {
+  display: grid;
+  gap: 3px;
+}
+
+.wiki-sources-summary strong {
+  color: #111827;
+  font-size: 14px;
+}
+
+.wiki-sources-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.wiki-source-form,
+.wiki-source-empty,
+.wiki-source-row {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 14px;
+}
+
+.wiki-source-form-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wiki-source-form-header strong,
+.wiki-source-empty strong {
+  color: #111827;
+  font-size: 14px;
+}
+
+.wiki-source-form-header p,
+.wiki-source-empty p,
+.wiki-source-row p,
+.wiki-source-sync-copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.wiki-source-form-grid,
+.wiki-source-list {
+  display: grid;
+  gap: 12px;
+}
+
+.wiki-source-select {
+  appearance: none;
+}
+
+.wiki-source-form .textarea {
+  min-height: 108px;
+}
+
+.wiki-source-form-actions {
+  justify-content: flex-end;
+}
+
+.wiki-source-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.wiki-source-row-main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wiki-source-row-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wiki-source-row-main strong {
+  color: #111827;
+  font-size: 14px;
+}
+
+.wiki-source-sync-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.wiki-source-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475467;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.wiki-source-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .wiki-detail-grid {

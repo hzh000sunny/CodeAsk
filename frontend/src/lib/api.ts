@@ -6,3 +6,4 @@ export * from "./api-repos";
 export * from "./api-sessions";
 export * from "./api-skills";
 export * from "./api-wiki";
+export { promoteSessionAttachmentToWiki } from "./wiki/api";

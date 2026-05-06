@@ -153,6 +153,8 @@
   - `frontend/e2e/route-refresh-live.spec.ts`
   - `frontend/e2e/wiki-import.spec.ts`
   - `frontend/e2e/wiki-import-live.spec.ts`
+  - `frontend/e2e/wiki-tail.spec.ts`
+  - `frontend/e2e/wiki-tail-live.spec.ts`
 - 后续补充项
   - `frontend/tests/wiki-node-permissions.test.tsx`（在权限重新引入时补）
 
@@ -204,6 +206,8 @@
 - 当前导入抽屉首屏已按工作台视觉重新收口：不再保留说明横幅，上方双入口采用固定紧凑卡片，空队列占位会主动填满剩余区域。
 - 一级导航离开 Wiki 时的导入拦截已经补上自动化覆盖；`frontend/e2e/wiki-import.spec.ts` 已补齐目录导入、忽略折叠、冲突后续继续、失败批量重试和导入完成自动打开首篇文档的浏览器级证据链。
 - 当前还新增了一条真实服务链路：`frontend/e2e/wiki-import-live.spec.ts` 会启动隔离的 `4173 + 8010` 前后端服务，覆盖真实后端目录导入成功链路，以及真实冲突后覆盖完成链路。
+- 当前还补上了一组收尾治理工作流：`frontend/e2e/wiki-tail.spec.ts` 覆盖来源治理、节点恢复/重新索引和会话附件晋级三条浏览器链路。
+- 当前还补上了一组真实服务收尾链路：`frontend/e2e/wiki-tail-live.spec.ts` 会在真实前后端服务下覆盖来源治理、节点恢复/重新索引和会话附件晋级三条链路。
 - 会话运行事件里的 Wiki 范围链接当前已兼容多特性 payload：若单条默认范围或命中节点自带 `feature_id`，前端会按条目自身特性生成跳转链接，而不是错误复用顶层特性。
 
 ## 8. 通过口径
@@ -216,3 +220,12 @@
 4. Wiki 相关后端集成测试通过
 5. 真实浏览器联调按测试矩阵全部走通
 6. 不再存在“入口缺失、按钮禁用无解释、页面有树但点不开、接口有能力但前端不可达”的基础缺陷
+
+## 9. 版本关闭说明
+
+本清单定义的是“功能验收通过”口径，不等同于“版本已经正式关闭”。
+
+本清单当前已经作为 `v1.0.1` 的功能验收通过记录保留。
+
+版本关闭状态以
+[closure-checklist.md](./closure-checklist.md) 的最终结论为准；当前该结论已经切换为 `Completed`。

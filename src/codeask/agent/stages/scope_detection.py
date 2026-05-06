@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, cast
 
 from codeask.agent.prompts import assemble_messages
@@ -10,10 +11,33 @@ from codeask.agent.stages import StageContext, StageResult
 from codeask.agent.state import AgentState
 from codeask.agent.tools import ToolRegistry
 
+_NON_WORD_RE = re.compile(r"[\s_\-]+")
+
 
 async def run(ctx: StageContext) -> StageResult:
     if ctx.llm_client is None:
         raise RuntimeError("scope_detection stage requires an llm_client")
+
+    preselected = _match_feature_aliases(ctx)
+    if preselected is not None:
+        events = [AgentEvent(type="scope_detection", data=preselected)]
+        if ctx.trace_logger is not None:
+            await ctx.trace_logger.log_scope_decision(
+                ctx.session_id,
+                ctx.turn_id,
+                {
+                    "question": ctx.prompt_context.user_question,
+                    "candidate_feature_ids": [
+                        digest.feature_id for digest in ctx.prompt_context.feature_digests
+                    ],
+                },
+                preselected,
+            )
+        return StageResult(
+            next_state=AgentState.KnowledgeRetrieval,
+            events=events,
+            metadata_updates={"selected_feature_ids": preselected["feature_ids"]},
+        )
 
     registry = ctx.tool_registry or ToolRegistry.bootstrap(
         ctx.wiki_search_service,
@@ -110,7 +134,7 @@ def _normalize_decision(value: object) -> dict[str, Any]:
 
 def _ask_user_payload(ctx: StageContext, decision: dict[str, Any]) -> dict[str, Any]:
     options = [
-        f"{digest.feature_id}: {digest.summary_text or digest.navigation_index or '未命名功能'}"
+        f"{digest.feature_id}: {digest.feature_name or digest.feature_slug or digest.summary_text or digest.navigation_index or '未命名功能'}"
         for digest in ctx.prompt_context.feature_digests
     ]
     return {
@@ -119,3 +143,37 @@ def _ask_user_payload(ctx: StageContext, decision: dict[str, Any]) -> dict[str, 
         "options": options,
         "reason": decision.get("reason", ""),
     }
+
+
+def _match_feature_aliases(ctx: StageContext) -> dict[str, Any] | None:
+    question = ctx.prompt_context.user_question.strip()
+    if not question:
+        return None
+
+    compact_question = _compact_text(question)
+    matched_ids: list[int] = []
+    matched_aliases: list[str] = []
+    for digest in ctx.prompt_context.feature_digests:
+        aliases = [alias for alias in (digest.feature_name, digest.feature_slug) if alias]
+        for alias in aliases:
+            compact_alias = _compact_text(alias)
+            if compact_alias and compact_alias in compact_question:
+                matched_ids.append(digest.feature_id)
+                matched_aliases.append(alias)
+                break
+
+    unique_ids = list(dict.fromkeys(matched_ids))
+    if len(unique_ids) != 1:
+        return None
+
+    matched_phrase = matched_aliases[0] if matched_aliases else str(unique_ids[0])
+    return {
+        "feature_ids": unique_ids,
+        "confidence": "high",
+        "reason": "matched feature alias from user question",
+        "matched_phrase": matched_phrase,
+    }
+
+
+def _compact_text(value: str) -> str:
+    return _NON_WORD_RE.sub("", value).strip().lower()

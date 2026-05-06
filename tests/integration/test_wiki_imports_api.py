@@ -419,6 +419,14 @@ async def test_import_session_scan_registers_uploadable_and_ignored_items(
     assert ignored["status"] == "ignored"
     assert ignored["item_kind"] == "ignored"
 
+    sources_response = await client.get(
+        "/api/wiki/sources",
+        params={"space_id": space_id},
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert sources_response.status_code == 200, sources_response.text
+    assert sources_response.json()["items"] == []
+
 
 @pytest.mark.asyncio
 async def test_import_session_upload_auto_materializes_markdown_document(
@@ -492,6 +500,7 @@ async def test_import_session_upload_auto_materializes_markdown_document(
     assert isinstance(source_id, int)
     assert source is not None
     assert source.kind == "directory_import"
+    assert source.display_name == "ops"
 
 
 @pytest.mark.asyncio

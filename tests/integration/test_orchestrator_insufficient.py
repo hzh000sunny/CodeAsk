@@ -11,7 +11,7 @@ from codeask.agent.tools import ToolRegistry, ToolResult
 from codeask.agent.trace import AgentTraceLogger
 from codeask.crypto import Crypto
 from codeask.db import Base, create_engine, session_factory
-from codeask.db.models import AgentTrace, Feature, Session, SessionTurn
+from codeask.db.models import AgentTrace, Feature, Repo, Session, SessionRepoBinding, SessionTurn
 from codeask.llm.gateway import ClientFactory, LLMGateway
 from codeask.llm.repo import LLMConfigInput, LLMConfigRepo
 from codeask.llm.types import LLMEvent
@@ -86,11 +86,30 @@ async def _build_agent(tmp_path: Path, scripts: list[list[LLMEvent]]):  # type: 
             )
         )
         session.add(
+            Repo(
+                id="repo_1",
+                name="orders",
+                source="git",
+                url="https://example.com/orders.git",
+                local_path=None,
+                bare_path=str(tmp_path / "repos" / "orders.git"),
+                status="ready",
+            )
+        )
+        session.add(
             Session(
                 id="sess_1",
                 title="t",
                 created_by_subject_id="alice@dev-1",
                 status="active",
+            )
+        )
+        session.add(
+            SessionRepoBinding(
+                session_id="sess_1",
+                repo_id="repo_1",
+                commit_sha="abc1234",
+                worktree_path=str(tmp_path / "worktrees" / "orders"),
             )
         )
         session.add(

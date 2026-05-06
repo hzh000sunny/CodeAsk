@@ -26,6 +26,8 @@ def test_assemble_messages_contains_l0_to_l6_layers() -> None:
         feature_digests=[
             FeatureDigest(
                 feature_id=1,
+                feature_name="订单域",
+                feature_slug="orders",
                 summary_text="订单域负责提交和支付",
                 navigation_index="docs/order.md#timeout",
             )
@@ -69,6 +71,8 @@ def test_assemble_messages_contains_l0_to_l6_layers() -> None:
     assert "L0_GLOBAL_RULES" in system_text
     assert "L1_STAGE" in system_text
     assert "L2_FEATURE_CONTEXT" in system_text
+    assert "feature_name: 订单域" in system_text
+    assert "feature_slug: orders" in system_text
     assert "订单域负责提交和支付" in system_text
     assert "L2_ANALYSIS_POLICIES" in system_text
     assert "[global][all][10] 全局证据规则: 回答必须引用证据" in system_text

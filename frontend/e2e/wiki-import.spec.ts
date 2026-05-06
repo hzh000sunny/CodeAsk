@@ -77,12 +77,12 @@ test("wiki directory import keeps ignored files folded and strips the local root
     page.getByText("已忽略 1 个非 Wiki 文件，仅保留 Markdown 和被 Markdown 引用的静态资源。"),
   ).toBeVisible();
   await expect(page.getByText("ops/Guide.md")).toBeVisible();
-  await expect(page.getByText("knowledge-base/guide")).toBeVisible();
+  await expect(page.getByText("知识库 / guide")).toBeVisible();
   await expect(page.getByText("ops/images/logo.png", { exact: true })).toBeVisible();
-  await expect(page.getByText("knowledge-base/images/logo.png")).toBeVisible();
-  await expect(page.getByRole("button", { name: "已忽略 1 个文件" })).toBeVisible();
+  await expect(page.getByText("知识库 / images / logo.png")).toBeVisible();
+  await expect(page.getByRole("button", { name: "已忽略 1" })).toBeVisible();
   await expect(page.getByText("ops/raw/trace.log")).toHaveCount(0);
-  await page.getByRole("button", { name: "已忽略 1 个文件" }).click();
+  await page.getByRole("button", { name: "已忽略 1" }).click();
   await expect(page.getByText("ops/raw/trace.log")).toBeVisible();
 });
 

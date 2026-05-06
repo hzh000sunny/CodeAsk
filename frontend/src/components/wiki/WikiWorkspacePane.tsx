@@ -22,6 +22,7 @@ export function WikiWorkspacePane({
   onOpenFeaturePage,
   onOpenHistory,
   onOpenImport,
+  onOpenSources,
   onRequestCancelEdit,
   onSave,
   onToggleTree,
@@ -51,6 +52,7 @@ export function WikiWorkspacePane({
   onOpenFeaturePage: () => void;
   onOpenHistory: () => void;
   onOpenImport: () => void;
+  onOpenSources: () => void;
   onRequestCancelEdit: () => void;
   onSave: () => void;
   onToggleTree: () => void;
@@ -89,6 +91,7 @@ export function WikiWorkspacePane({
               onOpenDetail={onOpenDetail}
               onOpenHistory={onOpenHistory}
               onOpenImport={onOpenImport}
+              onOpenSources={onOpenSources}
             />
           </div>
           <WikiReader
