@@ -273,6 +273,29 @@ delete_session
 
 ### 6.4 工具结果规范
 
+工具应有稳定契约，不能只是函数集合。建议每个工具至少定义：
+
+```text
+name
+description
+input_schema
+read_only
+concurrency_safe
+requires_confirmation
+requires_user_interaction
+max_result_size_chars
+result_renderer
+error_mapper
+```
+
+其中：
+
+- `read_only` 用于区分默认可调用的安全读取能力和写操作。
+- `concurrency_safe` 用于后续把连续只读工具批量并发执行。
+- `requires_confirmation` 用于报告生成、Wiki 写入、删除等需要用户确认的动作。
+- `requires_user_interaction` 用于 `ask_user` 这类模型主动澄清工具。
+- `max_result_size_chars` 用于强制工具结果预算，避免上下文膨胀。
+
 工具结果至少应包含：
 
 ```text
@@ -282,11 +305,31 @@ summary
 evidence_refs
 version_info（代码工具需要）
 warnings
+truncated
+raw_result_ref
 error_type（失败时）
 suggested_user_question（需要澄清时）
 ```
 
-这样模型可以稳定地把工具结果转成自然语言，而不是直接暴露底层异常。
+这样模型可以稳定地把工具结果转成自然语言，而不是直接暴露底层异常。进入模型上下文的应是摘要和证据引用；完整原始结果应进入审计存储，并通过 `raw_result_ref` 按需展开。
+
+### 6.5 工具错误类型
+
+建议统一错误类型：
+
+```text
+invalid_input
+not_found
+out_of_scope
+permission_denied
+needs_clarification
+version_unknown
+too_large
+transient_error
+internal_error
+```
+
+工具错误应作为结构化 tool result 回到模型。模型决定是追问用户、换查询方式，还是给出当前有限结论。
 
 ## 7. 会话行为
 
@@ -379,6 +422,17 @@ needs_clarification
 done
 error
 ```
+
+事件最小粒度：
+
+| 事件 | 含义 |
+|---|---|
+| `retrieval_context` | 本轮轻量召回的候选特性、Wiki 和报告 |
+| `tool_call` | 模型实际发起的工具调用，包含参数摘要和调用原因 |
+| `tool_result` | 工具返回摘要、截断状态、警告和错误类型 |
+| `evidence` | 最终回答引用的 Wiki、报告、附件或代码证据 |
+| `assistant_action` | 模型建议的下一步动作，例如建议生成报告或继续补充日志 |
+| `needs_clarification` | 模型需要用户补充的信息或选择 |
 
 旧事件可以为了兼容暂时保留，但默认 UI 不再把它们渲染成固定阶段：
 
@@ -531,3 +585,15 @@ v1.0.2 不把以下事项作为必须完成项：
 - 明确前端旧事件兼容和新行动轨迹事件的关系。
 - 明确审计记录不等于后端验证推理正确，只记录模型看到什么、用了什么。
 - 明确 v1.0.2 非目标，避免把检索增强、权限、UI 大改和复杂 agent 框架都塞进本版本。
+
+## 16. Claude Code 参考后的补充
+
+结合 `specs/claude-code-reference-notes.md` 的学习结论，v1.0.2 进一步明确：
+
+- CodeAsk 要建设的是研发知识 agent harness，不是后端规则流水线。
+- Agent loop 应保持稳定，能力通过工具注册、工具 schema、工具结果和边界校验扩展。
+- 工具契约必须显式表达只读、并发安全、用户确认、用户交互和结果预算。
+- 只读工具后续可以并发执行；写操作和需要确认的动作必须串行并由用户确认。
+- 知识和分析策略应按需加载，不能把所有 Wiki、报告和策略全文塞进 system prompt。
+- 进入模型上下文的是压缩后的候选信息和工具摘要；完整结果进入审计存储。
+- Todo / Task 类能力可以作为复杂调查时的辅助状态，但不能重新变成固定后端流程。

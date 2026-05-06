@@ -23,6 +23,7 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 | 文件 | 说明 |
 |---|---|
 | `specs/agent-chat-runtime.md` | v1.0.2 Agent Chat Runtime 头脑风暴收敛后的设计快照 |
+| `specs/claude-code-reference-notes.md` | Claude Code 源码和学习资料的参考分析，提炼适合 CodeAsk 的 harness 设计借鉴点 |
 
 后续进入实施规划后，应继续补齐：
 
@@ -47,9 +48,9 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 ## 推荐阅读顺序
 
 1. `specs/agent-chat-runtime.md`
-2. `../v1.0.1/README.md`
-3. `../v1.0/design/agent-runtime.md`
-4. `../v1.0/design/llm-gateway.md`
-5. `../v1.0/design/wiki-search.md`
-6. `../v1.0/design/frontend-workbench.md`
-
+2. `specs/claude-code-reference-notes.md`
+3. `../v1.0.1/README.md`
+4. `../v1.0/design/agent-runtime.md`
+5. `../v1.0/design/llm-gateway.md`
+6. `../v1.0/design/wiki-search.md`
+7. `../v1.0/design/frontend-workbench.md`
