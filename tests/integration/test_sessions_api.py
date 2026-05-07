@@ -11,7 +11,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from codeask.db.models import AgentTrace, Report, SessionRepoBinding, SessionTurn
-from tests.mocks.mock_llm import MockLLMClient, text_message, tool_call_message
+from tests.mocks.mock_llm import MockLLMClient, text_message
 
 
 @pytest.mark.asyncio
@@ -55,19 +55,7 @@ async def test_session_message_sse_and_attachment(
     session_id = created.json()["id"]
     assert created.json()["created_by_subject_id"] == "alice@dev-1"
 
-    mock = MockLLMClient(
-        [
-            tool_call_message(
-                "tc_scope",
-                "select_feature",
-                {"feature_ids": [feature_id], "confidence": "high", "reason": "order"},
-            ),
-            text_message(
-                '{"verdict":"enough","reason":"docs cover it","next":"answer_finalization"}'
-            ),
-            text_message("结论：订单 500 可以先检查上下文。"),
-        ]
-    )
+    mock = MockLLMClient([text_message("结论：订单 500 可以先检查上下文。")])
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     message = await client.post(
@@ -77,8 +65,10 @@ async def test_session_message_sse_and_attachment(
     )
     assert message.status_code == 200, message.text
     body = message.text
-    assert "event: scope_detection" in body
+    assert "event: retrieval_context" in body
+    assert "event: text_delta" in body
     assert "event: done" in body
+    assert "event: scope_detection" not in body
 
     attachment = await client.post(
         f"/api/sessions/{session_id}/attachments",
@@ -231,7 +221,7 @@ async def test_session_traces_can_be_listed_for_the_session_owner(
 
 
 @pytest.mark.asyncio
-async def test_session_message_persists_repo_binding_and_runs_code_tool(
+async def test_session_message_persists_repo_binding_and_streams_answer(
     app: FastAPI,
     client: AsyncClient,
     tmp_path: Path,
@@ -283,29 +273,7 @@ async def test_session_message_persists_repo_binding_and_runs_code_tool(
     session_id = created.json()["id"]
 
     mock = MockLLMClient(
-        [
-            tool_call_message(
-                "tc_scope",
-                "select_feature",
-                {"feature_ids": [feature_id], "confidence": "high", "reason": "code tools"},
-            ),
-            text_message(
-                '{"verdict":"insufficient","reason":"need code evidence",'
-                '"next":"code_investigation"}'
-            ),
-            tool_call_message(
-                "tc_grep",
-                "grep_code",
-                {
-                    "repo_id": repo_id,
-                    "commit_sha": commit,
-                    "query": "payment timeout",
-                    "path_glob": None,
-                },
-            ),
-            text_message("代码证据显示 payment timeout 在 app.py。"),
-            text_message("结论：payment timeout 在 app.py 的 handle_payment 中处理。"),
-        ]
+        [text_message("结论：payment timeout 可以先查看 app.py 的 handle_payment。")]
     )
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
@@ -321,8 +289,8 @@ async def test_session_message_persists_repo_binding_and_runs_code_tool(
     )
     assert message.status_code == 200, message.text
     body = message.text
-    assert "event: tool_call" in body
-    assert "event: tool_result" in body
+    assert "event: retrieval_context" in body
+    assert "event: text_delta" in body
     assert "TOOL_NOT_CONFIGURED" not in body
     assert "payment timeout" in body
 
@@ -809,7 +777,9 @@ async def test_legacy_session_report_backfills_metadata_before_verification(
                             {
                                 "id": "ev_code_legacy",
                                 "type": "code",
-                                "summary": "ReportService can derive metadata from session evidence",
+                                "summary": (
+                                    "ReportService can derive metadata from session evidence"
+                                ),
                                 "data": {
                                     "result": {
                                         "data": {

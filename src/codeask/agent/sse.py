@@ -10,6 +10,9 @@ EventName = Literal[
     "text_delta",
     "tool_call",
     "tool_result",
+    "retrieval_context",
+    "assistant_action",
+    "needs_clarification",
     "evidence",
     "wiki_scope_resolution",
     "scope_detection",
@@ -27,5 +30,8 @@ class AgentEvent(BaseModel):
 
 class SSEMultiplexer:
     def format(self, event: AgentEvent) -> bytes:
-        payload = json.dumps(event.data, ensure_ascii=False, separators=(",", ":"))
+        data = event.data
+        if isinstance(data, BaseModel):
+            data = data.model_dump(mode="json")
+        payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
         return f"event: {event.type}\ndata: {payload}\n\n".encode()

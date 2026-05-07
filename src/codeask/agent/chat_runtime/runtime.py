@@ -19,7 +19,8 @@ from codeask.agent.chat_runtime.retrieval import LightweightRetrievalService
 from codeask.agent.chat_runtime.tool_contracts import ToolContext, ToolResult, ToolSpec
 from codeask.agent.chat_runtime.tool_executor import ToolExecutor
 from codeask.agent.chat_runtime.tool_registry import ToolRegistry
-from codeask.llm.types import LLMEvent, LLMMessage, TextBlock, ToolDef, ToolResultBlock
+from codeask.llm.gateway import LLMGateway
+from codeask.llm.types import LLMEvent, LLMMessage, LLMRequest, TextBlock, ToolDef, ToolResultBlock
 
 
 class StreamingLLM(Protocol):
@@ -30,6 +31,35 @@ class StreamingLLM(Protocol):
         max_tokens: int,
         temperature: float,
     ) -> AsyncIterator[LLMEvent]: ...
+
+
+class GatewayStreamingLLM:
+    """Adapts LLMGateway to the chat runtime's streaming protocol."""
+
+    def __init__(self, gateway: LLMGateway, *, subject_id: str | None = None) -> None:
+        self._gateway = gateway
+        self._subject_id = subject_id
+
+    def with_subject(self, subject_id: str | None) -> GatewayStreamingLLM:
+        return GatewayStreamingLLM(self._gateway, subject_id=subject_id)
+
+    def stream(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDef],
+        max_tokens: int,
+        temperature: float,
+    ) -> AsyncIterator[LLMEvent]:
+        metadata = {"subject_id": self._subject_id} if self._subject_id else {}
+        return self._gateway.stream(
+            LLMRequest(
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                metadata=metadata,
+            )
+        )
 
 
 class _FakeToolInput(BaseModel):
@@ -86,7 +116,14 @@ class ChatRuntime:
         session_id: str,
         turn_id: str,
         user_message: str,
+        *,
+        subject_id: str | None = None,
     ) -> AsyncIterator[ChatRuntimeEvent]:
+        llm = (
+            self._llm.with_subject(subject_id)
+            if hasattr(self._llm, "with_subject")
+            else self._llm
+        )
         retrieval_context = await self._retrieval.retrieve(
             user_message=user_message,
             session_summary=None,
@@ -112,7 +149,7 @@ class ChatRuntime:
 
         for _round in range(self._max_tool_rounds + 1):
             tool_calls: list[dict[str, Any]] = []
-            async for event in self._llm.stream(
+            async for event in llm.stream(
                 messages=messages,
                 tools=tool_defs,
                 max_tokens=self._max_tokens,

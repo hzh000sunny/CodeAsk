@@ -30,3 +30,9 @@ def test_tool_result_event_contains_audit_ready_fields() -> None:
     assert payload["type"] == "tool_result"
     assert payload["data"]["tool_name"] == "search_wiki"
     assert payload["data"]["evidence_refs"][0]["type"] == "wiki"
+
+
+def test_plain_dict_event_data_is_not_coerced_to_retrieval_context() -> None:
+    event = ChatRuntimeEvent(type="done", data={"turn_id": "turn_1"})
+
+    assert event.model_dump()["data"] == {"turn_id": "turn_1"}

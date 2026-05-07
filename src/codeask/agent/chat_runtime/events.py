@@ -98,4 +98,4 @@ RuntimeEventData = (
 
 class ChatRuntimeEvent(BaseModel):
     type: RuntimeEventType
-    data: RuntimeEventData = Field(default_factory=_empty_dict)
+    data: Any = Field(default_factory=_empty_dict)

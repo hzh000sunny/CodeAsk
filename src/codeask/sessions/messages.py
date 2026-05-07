@@ -6,12 +6,21 @@ from collections.abc import AsyncIterator
 from secrets import token_hex
 
 from fastapi import HTTPException, Request, status
+from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from codeask.agent.sse import SSEMultiplexer
 from codeask.api.schemas.session import MessageCreate
 from codeask.code_index.worktree import InvalidRefError, WorktreeError
 from codeask.db.models import Repo, SessionFeature, SessionRepoBinding, SessionTurn
+
+
+def _event_data_dict(data: object) -> dict[str, object]:
+    if isinstance(data, BaseModel):
+        return data.model_dump(mode="json")
+    if isinstance(data, dict):
+        return data
+    return {}
 
 
 async def create_user_turn_and_bindings(
@@ -104,18 +113,19 @@ async def stream_agent_response(
     *,
     force_code_investigation: bool,
 ) -> AsyncIterator[bytes]:
-    orchestrator = request.app.state.agent_orchestrator
+    runtime = request.app.state.chat_runtime
     multiplexer = SSEMultiplexer()
     assistant_chunks: list[str] = []
     completed = False
-    async for event in orchestrator.run(
+    async for event in runtime.run(
         session_id,
         turn_id,
         content,
-        force_code_investigation=force_code_investigation,
+        subject_id=request.state.subject_id,
     ):
         if event.type == "text_delta":
-            delta = event.data.get("delta") or event.data.get("text")
+            data = _event_data_dict(event.data)
+            delta = data.get("delta") or data.get("text")
             if isinstance(delta, str):
                 assistant_chunks.append(delta)
         if event.type == "done":
@@ -125,6 +135,25 @@ async def stream_agent_response(
         assistant_content = "".join(assistant_chunks).strip()
         if assistant_content:
             await persist_agent_turn(request, session_id, assistant_content)
+
+
+async def stream_legacy_orchestrator_response(
+    request: Request,
+    session_id: str,
+    turn_id: str,
+    content: str,
+    *,
+    force_code_investigation: bool,
+) -> AsyncIterator[bytes]:
+    orchestrator = request.app.state.agent_orchestrator
+    multiplexer = SSEMultiplexer()
+    async for event in orchestrator.run(
+        session_id,
+        turn_id,
+        content,
+        force_code_investigation=force_code_investigation,
+    ):
+        yield multiplexer.format(event)
 
 
 async def persist_agent_turn(request: Request, session_id: str, content: str) -> None:
