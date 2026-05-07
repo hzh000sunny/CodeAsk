@@ -28,14 +28,17 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 | `specs/agent-runtime-source-lessons.md` | 定向源码深挖后，提炼出的 CodeAsk runtime/tool/context/UI 落地约束 |
 | `specs/agent-capability-roadmap.md` | v1.0.2 之后的 Agent 能力演进路线，明确与 Claude Code 的借鉴边界 |
 | `plans/agent-chat-runtime.md` | v1.0.2 Agent Chat Runtime 实施计划 |
-
-实施过程中仍需补齐：
-
-| 文件 | 说明 |
-|---|---|
 | `prd/agent-chat.md` | v1.0.2 Agent 会话产品契约 |
 | `design/agent-chat-runtime.md` | v1.0.2 Agent Chat Runtime 系统设计 |
 | `plans/acceptance-checklist.md` | v1.0.2 验收清单 |
+
+## 当前实施状态
+
+- 已完成默认会话入口迁移：`/api/sessions/{session_id}/messages` 默认走 `ChatRuntime`。
+- 已完成前端右侧面板迁移：固定“调查进度”替换为 `Agent 行动轨迹`。
+- 已保留 v1.0 `AgentOrchestrator` 作为 legacy 兼容，旧 sufficient / insufficient 集成测试继续通过。
+- 已完成运行时事件、工具契约、工具执行器、上下文组装、轻量召回和第一批工具模块的单元测试。
+- 待后续继续：把真实 Wiki / 报告 / 代码服务完整注册进生产 `ChatToolRegistry`，并补充真实 LLM 端到端手动验收。
 
 ## 已确认方向
 
@@ -51,13 +54,16 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 ## 推荐阅读顺序
 
 1. `specs/agent-chat-runtime.md`
-2. `specs/claude-code-reference-notes.md`
-3. `specs/agent-tools-from-claude-code.md`
-4. `specs/agent-runtime-source-lessons.md`
-5. `specs/agent-capability-roadmap.md`
-6. `plans/agent-chat-runtime.md`
-7. `../v1.0.1/README.md`
-8. `../v1.0/design/agent-runtime.md`
-9. `../v1.0/design/llm-gateway.md`
-10. `../v1.0/design/wiki-search.md`
-11. `../v1.0/design/frontend-workbench.md`
+2. `prd/agent-chat.md`
+3. `design/agent-chat-runtime.md`
+4. `plans/agent-chat-runtime.md`
+5. `plans/acceptance-checklist.md`
+6. `specs/claude-code-reference-notes.md`
+7. `specs/agent-tools-from-claude-code.md`
+8. `specs/agent-runtime-source-lessons.md`
+9. `specs/agent-capability-roadmap.md`
+10. `../v1.0.1/README.md`
+11. `../v1.0/design/agent-runtime.md`
+12. `../v1.0/design/llm-gateway.md`
+13. `../v1.0/design/wiki-search.md`
+14. `../v1.0/design/frontend-workbench.md`

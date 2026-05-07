@@ -4,6 +4,8 @@
 >
 > 产品契约见同版本 `prd/codeask.md`。当 SDD 与 PRD 冲突时，以 PRD 为准。
 
+> v1.0.2 起，默认会话迁移到统一 Tool-Calling Chat Runtime；本文件中的固定状态机是 v1.0 历史设计。新默认行为见 `../../v1.0.2/prd/agent-chat.md` 和 `../../v1.0.2/design/agent-chat-runtime.md`。
+
 ## 1. 目标
 
 Agent 运行时负责把一次用户请求组织成可审计的调查过程。它不是简单地把上下文拼给模型，而是通过状态机约束模型先查什么、后查什么、什么时候问用户、什么时候结束。
