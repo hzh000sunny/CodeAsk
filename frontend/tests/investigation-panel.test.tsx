@@ -26,13 +26,12 @@ describe("InvestigationPanel runtime previews", () => {
         onDescribeAttachment={() => undefined}
         onPromoteAttachment={() => undefined}
         onRenameAttachment={() => undefined}
-        stages={[]}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Wiki 范围/ }));
 
-    const dialog = screen.getByRole("dialog", { name: "运行事件详情" });
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByText("默认范围")).toBeInTheDocument();
     expect(
@@ -62,13 +61,12 @@ describe("InvestigationPanel runtime previews", () => {
         onDescribeAttachment={() => undefined}
         onPromoteAttachment={() => undefined}
         onRenameAttachment={() => undefined}
-        stages={[]}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /证据：回调 Runbook/ }));
 
-    const dialog = screen.getByRole("dialog", { name: "运行事件详情" });
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
     expect(dialog).toBeInTheDocument();
     expect(
       within(dialog).getByRole("link", { name: "知识库/回调 Runbook" }),
@@ -76,6 +74,8 @@ describe("InvestigationPanel runtime previews", () => {
       "href",
       "#/wiki?feature=7&node=15&heading=%E5%9B%9E%E8%B0%83+Runbook+%3E+%E6%8E%92%E6%9F%A5%E6%AD%A5%E9%AA%A4",
     );
-    expect(within(dialog).getByText(/命中小节：回调 Runbook > 排查步骤/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/命中小节：回调 Runbook > 排查步骤/),
+    ).toBeInTheDocument();
   });
 });

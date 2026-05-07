@@ -23,7 +23,7 @@ function streamResponse(text: string) {
       start(controller) {
         controller.enqueue(
           encoder.encode(
-            `event: stage_transition\ndata: {"stage":"knowledge_retrieval","label":"知识检索"}\n\n`,
+            'event: retrieval_context\ndata: {"feature_candidates":[],"wiki_hits":[],"report_hits":[]}\n\n',
           ),
         );
         controller.enqueue(
@@ -47,9 +47,9 @@ function transparencyStreamResponse() {
   const encoder = new TextEncoder();
   const chunks = [
     'event: scope_detection\ndata: {"feature_ids":[7,9],"confidence":0.82,"reason":"日志命中支付特性"}\n\n',
-    'event: sufficiency_judgement\ndata: {"verdict":"insufficient","reason":"缺少启动参数","next":"code_investigation"}\n\n',
-    'event: tool_call\ndata: {"id":"call_1","name":"search_documents","arguments":{"q":"启动失败"}}\n\n',
-    'event: tool_result\ndata: {"id":"call_1","result":{"ok":true,"hits":2}}\n\n',
+    'event: assistant_action\ndata: {"action":"评估证据","summary":"缺少启动参数，需要继续补充上下文"}\n\n',
+    'event: tool_call\ndata: {"tool_call_id":"call_1","tool_name":"search_wiki","arguments_summary":{"query":"启动失败"}}\n\n',
+    'event: tool_result\ndata: {"tool_call_id":"call_1","tool_name":"search_wiki","ok":true,"summary":"命中 2 条 Wiki","evidence_refs":[{"type":"wiki","title":"启动手册","path":"知识库/启动手册"}]}\n\n',
     'event: evidence\ndata: {"item":{"id":"ev_1","source":"wiki","title":"启动手册","locator":"docs/start.md"}}\n\n',
     'event: ask_user\ndata: {"ask_id":"ask_1","question":"请补充完整启动日志","options":["上传日志"],"reason":"当前证据不足"}\n\n',
     'event: done\ndata: {"turn_id":"turn_transparency"}\n\n',
@@ -900,7 +900,7 @@ describe("SessionWorkspace streaming interaction", () => {
     expect(screen.getByText("日志命中支付特性")).toBeInTheDocument();
     expect(screen.getByText("Wiki 范围：知识库、问题定位报告")).toBeInTheDocument();
     expect(screen.getByText(/需要代码证据/)).toBeInTheDocument();
-    expect(screen.getByText("工具结果：call_1")).toBeInTheDocument();
+    expect(screen.getByText("工具结果完成")).toBeInTheDocument();
     expect(
       screen.getByText(/2 code matches for '启动失败'/),
     ).toBeInTheDocument();
@@ -915,8 +915,8 @@ describe("SessionWorkspace streaming interaction", () => {
     expect(container.querySelector(".message-meta")).not.toBeInTheDocument();
     expect(
       container.querySelector(".progress-stage-scroll"),
-    ).toBeInTheDocument();
-    expect(container.querySelector(".insight-scroll")).toBeInTheDocument();
+    ).not.toBeInTheDocument();
+    expect(container.querySelector(".action-trace-scroll")).toBeInTheDocument();
 
     const copyMessageButton = screen.getByRole("button", {
       name: "复制 CodeAsk 消息",
@@ -934,15 +934,15 @@ describe("SessionWorkspace streaming interaction", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("已复制消息")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /工具结果：call_1/ }));
-    const eventDialog = screen.getByRole("dialog", { name: "运行事件详情" });
+    fireEvent.click(screen.getByRole("button", { name: /工具结果完成/ }));
+    const eventDialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
     expect(eventDialog).toBeInTheDocument();
     expect(
       within(eventDialog).getByText(/2 code matches for '启动失败'/),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /证据：支付接入说明/ }));
-    const evidenceDialog = screen.getByRole("dialog", { name: "运行事件详情" });
+    const evidenceDialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
     expect(
       within(evidenceDialog).getByRole("link", { name: "知识库/支付接入说明" }),
     ).toHaveAttribute(
@@ -1065,7 +1065,7 @@ describe("SessionWorkspace streaming interaction", () => {
       await screen.findByText("服务启动失败，日志显示配置缺失"),
     ).toBeInTheDocument();
     expect(await screen.findByText("检查配置缺失。")).toBeInTheDocument();
-    expect(screen.getByText("知识检索")).toBeInTheDocument();
+    expect(screen.getByText("上下文已准备")).toBeInTheDocument();
 
     await waitFor(() => {
       const [, init] = fetchMock.mock.calls.find(([path]) =>
@@ -1123,9 +1123,10 @@ describe("SessionWorkspace streaming interaction", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     expect(await screen.findByText("日志命中支付特性")).toBeInTheDocument();
-    expect(screen.getByText("insufficient")).toBeInTheDocument();
-    expect(screen.getByText(/search_documents/)).toBeInTheDocument();
-    expect(screen.getByText(/启动手册/)).toBeInTheDocument();
+    expect(screen.getByText("评估证据")).toBeInTheDocument();
+    expect(screen.getByText("准备使用 Wiki 搜索")).toBeInTheDocument();
+    expect(screen.getByText("Wiki 搜索完成")).toBeInTheDocument();
+    expect(screen.getByText("证据：启动手册")).toBeInTheDocument();
     expect(screen.getByText("请补充完整启动日志")).toBeInTheDocument();
     expect(
       await screen.findByText("需要补充：请补充完整启动日志"),

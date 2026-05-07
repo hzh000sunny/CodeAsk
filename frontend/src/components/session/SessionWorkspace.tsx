@@ -421,7 +421,6 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
         onDeleteAttachment={deleteAttachment}
         onPromoteAttachment={wikiPromotion.openDialog}
         onRenameAttachment={renameAttachment}
-        stages={stages}
       />
       <SessionWorkspaceDialogs
         bulkSelectedCount={bulkSelectedIds.length}

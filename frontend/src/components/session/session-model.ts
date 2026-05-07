@@ -1,4 +1,5 @@
 import type { AgentEvent } from "../../types/sse";
+import { actionTraceFromAgentEvent } from "./action-trace/action-trace-model";
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -140,6 +141,11 @@ export function textDeltaFromEvent(event: AgentEvent) {
 export function runtimeInsightFromEvent(
   event: AgentEvent,
 ): RuntimeInsight | null {
+  const actionTrace = actionTraceFromAgentEvent(event);
+  if (actionTrace) {
+    return actionTrace;
+  }
+
   if (event.type === "scope_detection") {
     const featureIds = Array.isArray(event.data.feature_ids)
       ? event.data.feature_ids.join(", ")
@@ -267,7 +273,7 @@ export function runtimeInsightFromEvent(
 }
 
 export function askUserMessageFromEvent(event: AgentEvent) {
-  if (event.type !== "ask_user") {
+  if (event.type !== "ask_user" && event.type !== "needs_clarification") {
     return "";
   }
   const question = stringData(event, "question");

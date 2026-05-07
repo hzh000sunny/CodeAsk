@@ -163,7 +163,7 @@ describe("CodeAsk AppShell information architecture", () => {
       screen.getByRole("region", { name: "会话消息" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("region", { name: "调查进度" }),
+      screen.getByRole("region", { name: "Agent 行动轨迹" }),
     ).toBeInTheDocument();
   });
 
