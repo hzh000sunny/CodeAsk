@@ -25,14 +25,15 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 | `specs/agent-chat-runtime.md` | v1.0.2 Agent Chat Runtime 头脑风暴收敛后的设计快照 |
 | `specs/claude-code-reference-notes.md` | Claude Code 源码和学习资料的参考分析，提炼适合 CodeAsk 的 harness 设计借鉴点 |
 | `specs/agent-tools-from-claude-code.md` | Claude Code 工具源码模式到 CodeAsk Agent 工具体系的翻译设计 |
+| `specs/agent-runtime-source-lessons.md` | 定向源码深挖后，提炼出的 CodeAsk runtime/tool/context/UI 落地约束 |
+| `plans/agent-chat-runtime.md` | v1.0.2 Agent Chat Runtime 实施计划 |
 
-后续进入实施规划后，应继续补齐：
+实施过程中仍需补齐：
 
 | 文件 | 说明 |
 |---|---|
 | `prd/agent-chat.md` | v1.0.2 Agent 会话产品契约 |
 | `design/agent-chat-runtime.md` | v1.0.2 Agent Chat Runtime 系统设计 |
-| `plans/agent-chat-runtime.md` | v1.0.2 实施计划 |
 | `plans/acceptance-checklist.md` | v1.0.2 验收清单 |
 
 ## 已确认方向
@@ -51,8 +52,10 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 1. `specs/agent-chat-runtime.md`
 2. `specs/claude-code-reference-notes.md`
 3. `specs/agent-tools-from-claude-code.md`
-4. `../v1.0.1/README.md`
-5. `../v1.0/design/agent-runtime.md`
-6. `../v1.0/design/llm-gateway.md`
-7. `../v1.0/design/wiki-search.md`
-8. `../v1.0/design/frontend-workbench.md`
+4. `specs/agent-runtime-source-lessons.md`
+5. `plans/agent-chat-runtime.md`
+6. `../v1.0.1/README.md`
+7. `../v1.0/design/agent-runtime.md`
+8. `../v1.0/design/llm-gateway.md`
+9. `../v1.0/design/wiki-search.md`
+10. `../v1.0/design/frontend-workbench.md`
