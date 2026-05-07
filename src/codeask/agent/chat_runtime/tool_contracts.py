@@ -77,31 +77,6 @@ class ToolResult(BaseModel):
     suggested_user_question: str | None = None
 
     @classmethod
-    def ok(
-        cls,
-        *,
-        tool: str,
-        summary: str,
-        items: list[dict[str, Any]] | None = None,
-        evidence_refs: list[EvidenceRef] | None = None,
-        warnings: list[str] | None = None,
-        truncated: bool = False,
-        raw_result_ref: str | None = None,
-        version_info: dict[str, Any] | None = None,
-    ) -> ToolResult:
-        return cls(
-            ok=True,
-            tool=tool,
-            summary=summary,
-            items=items or [],
-            evidence_refs=evidence_refs or [],
-            warnings=warnings or [],
-            truncated=truncated,
-            raw_result_ref=raw_result_ref,
-            version_info=version_info,
-        )
-
-    @classmethod
     def error(
         cls,
         *,
@@ -120,5 +95,32 @@ class ToolResult(BaseModel):
             suggested_user_question=suggested_user_question,
         )
 
+
+def _tool_result_ok(
+    cls: type[ToolResult],
+    *,
+    tool: str,
+    summary: str,
+    items: list[dict[str, Any]] | None = None,
+    evidence_refs: list[EvidenceRef] | None = None,
+    warnings: list[str] | None = None,
+    truncated: bool = False,
+    raw_result_ref: str | None = None,
+    version_info: dict[str, Any] | None = None,
+) -> ToolResult:
+    return cls(
+        ok=True,
+        tool=tool,
+        summary=summary,
+        items=items or [],
+        evidence_refs=evidence_refs or [],
+        warnings=warnings or [],
+        truncated=truncated,
+        raw_result_ref=raw_result_ref,
+        version_info=version_info,
+    )
+
+
+ToolResult.ok = classmethod(_tool_result_ok)  # type: ignore[attr-defined, method-assign]
 
 ToolHandler = Callable[[BaseModel, ToolContext], Awaitable[ToolResult]]
