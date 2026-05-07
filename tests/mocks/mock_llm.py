@@ -42,6 +42,60 @@ class MockLLMClient:
             yield event
 
 
+class ScriptedLLM:
+    """Replay high-level chat runtime script steps."""
+
+    def __init__(self, steps: list[dict[str, Any]]) -> None:
+        if not steps:
+            raise ValueError("ScriptedLLM requires at least one step")
+        self._steps = list(steps)
+        self._cursor = 0
+        self.calls: list[dict[str, Any]] = []
+
+    async def stream(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDef],
+        max_tokens: int,
+        temperature: float,
+    ) -> AsyncIterator[LLMEvent]:
+        self.calls.append(
+            {
+                "messages": [message.model_dump() for message in messages],
+                "tools": [tool.model_dump() for tool in tools],
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+            }
+        )
+        if self._cursor >= len(self._steps):
+            raise AssertionError(f"ScriptedLLM exhausted at call #{self._cursor + 1}")
+        step = self._steps[self._cursor]
+        self._cursor += 1
+        step_type = step["type"]
+        if step_type == "assistant_text":
+            yield LLMEvent(type="message_start", data={})
+            yield LLMEvent(type="text_delta", data={"delta": str(step["content"])})
+            yield LLMEvent(type="message_stop", data={"stop_reason": "end_turn"})
+            return
+        if step_type == "tool_call":
+            yield LLMEvent(type="message_start", data={})
+            yield LLMEvent(
+                type="tool_call_start",
+                data={"id": str(step["id"]), "name": str(step["name"])},
+            )
+            yield LLMEvent(
+                type="tool_call_done",
+                data={
+                    "id": str(step["id"]),
+                    "name": str(step["name"]),
+                    "arguments": step["input"],
+                },
+            )
+            yield LLMEvent(type="message_stop", data={"stop_reason": "tool_call"})
+            return
+        raise AssertionError(f"unknown ScriptedLLM step type {step_type!r}")
+
+
 def text_message(text: str) -> list[LLMEvent]:
     return [
         LLMEvent(type="message_start", data={}),
