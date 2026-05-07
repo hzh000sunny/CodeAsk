@@ -27,9 +27,9 @@ test("keeps the current top-level page after browser reload", async ({ page }) =
   await expect(page).toHaveURL(/#\/features$/);
 
   await page.goto("/#/wiki");
-  await expect(page.getByText("当前特性")).toBeVisible();
+  await expect(page.getByRole("button", { name: "当前特性" })).toBeVisible();
   await page.reload();
-  await expect(page.getByText("当前特性")).toBeVisible();
+  await expect(page.getByRole("button", { name: "当前特性" })).toBeVisible();
   await expect(page).toHaveURL(/#\/wiki\?feature=7$/);
 
   await page.goto("/#/settings");

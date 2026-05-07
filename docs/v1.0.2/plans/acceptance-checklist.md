@@ -1,6 +1,6 @@
 # v1.0.2 Agent Chat Runtime 验收清单
 
-> 状态：Draft
+> 状态：Completed
 > 版本：v1.0.2
 > 范围：默认 Agent 会话运行时、RAG 候选上下文、工具调用、行动轨迹、连续会话、上下文预算、旧 v1.0 orchestrator 兼容
 > 项目级验收规则：见 `../../DEVELOPMENT_ACCEPTANCE.md`
@@ -301,7 +301,7 @@ v1.0.2 收口前必须满足：
   - 上下文依赖。
 - [x] 预期为模型直答优先，允许少量 Wiki / 代码工具决策偏差，上限 10%。
 - [x] 评测不允许在运行时代码中加入关键词拦截或强制禁止工具调用。
-- [x] 使用管理员账号和真实 GLM-5.1 配置，在同一个会话 `sess_edf3fda647d77a83` 完成 30 题实测：30 个 user turn、30 个 agent turn、Wiki/代码工具触发偏差 0、错误 0；题库后续已扩展到 32 题。
+- [x] 使用管理员账号和真实 GLM-5.1 配置，在同一个会话 `sess_edf3fda647d77a83` 完成 30 题实测：30 个 user turn、30 个 agent turn、Wiki/代码工具触发偏差 0、错误 0；当前完整题库已扩展为 11 类 32 题。
 - [x] 需要补充上下文依赖型基础题，例如“你刚刚提到哪个是不可变的”“把上一轮总结成一句话”。
 - [x] 需要覆盖特性上下文中的插入式技术问答：会话围绕 AnythingLLM / RAG 展开时，用户中途问 `lancedb 和 sqlitedb 有什么区别`，模型应保持当前主题语境并优先直接回答；允许少量工具决策偏差，但不应频繁触发代码检索，也不应要求用户显式指定仓库。
 
@@ -323,9 +323,11 @@ E2E 端到端测试是每个开发验收阶段的基本要求。本阶段验收�
 - [x] 2026-05-07 删除 OpenAI 协议直连实现后，使用真实 GLM-5.1 / OpenAI 协议配置执行 `frontend/e2e/agent-feature-scoped-code-live.spec.ts` 和 `frontend/e2e/agent-long-context-live.spec.ts`，结果 `3 passed (2.4m)`。
 - [x] 2026-05-07 修复显式仓库名匹配：`claude code` 可匹配已注册的 `claude-code` 仓库，避免模型因一次仓库关键词 0 命中就泛化回答；真实 GLM-5.1 / OpenAI 协议执行 `frontend/e2e/admin-agent-source-live.spec.ts`，结果 `1 passed (1.4m)`。
 - [x] 2026-05-07 补齐模型可见仓库候选：`retrieval_context` 会向模型注入全局 ready 仓库轻量列表，模型可基于 repo id / name / source / linked feature ids 自行判断显式仓库范围；工具层仓库名归一匹配仅作为容错，不作为业务特判。
-- [x] 保留基础问答 live E2E 测试通道：`frontend/e2e/basic-model-qa-live.spec.ts`，用于显式开启真实 LLM、管理员登录、同一会话 30 题问答、工具触发偏差率统计和会话历史持久化校验。
+- [x] 保留基础问答 live E2E 测试通道：`frontend/e2e/basic-model-qa-live.spec.ts`，用于显式开启真实 LLM、管理员登录、同一会话代表性题集问答、工具触发偏差率统计和会话历史持久化校验；完整 32 题题库保留在 `evals/basic_qa/cases/seed_001.jsonl`。
 - [x] 保留连续会话 live E2E 测试通道：`frontend/e2e/agent-conversation-continuity-live.spec.ts`，用于显式开启真实 LLM、管理员登录、源码仓库注册、同一会话二轮追问、刷新后继续追问的全链路验证。
 - [x] 新增特性上下文技术插问 live E2E 测试通道：`frontend/e2e/agent-contextual-technical-qa-live.spec.ts`，用于显式开启真实 LLM、管理员登录、创建 AnythingLLM 特性并关联仓库、按真实会话问题顺序验证 RAG 主题问答、`lancedb 和 sqlitedb 有什么区别` 插入式直接回答、回到 RAG 语境追问以及最后明确源码确认。
+- [x] live Agent E2E 在共享同一套 LLM 配置、仓库状态和 `.tmp/playwright-e2e` 数据目录时默认串行执行；`frontend/playwright.config.ts` 会在任一 `CODEASK_RUN_LIVE_*` 开关启用时强制 `workers = 1`。
+- [x] 2026-05-08 已执行整套 live Agent E2E：`7 passed (12.0m)`，覆盖基础问答、连续会话、特性上下文技术插问、Feature-Scoped Code Access、长上下文和管理员源码链路。
 
 源码工具 live E2E 显式运行方式：
 

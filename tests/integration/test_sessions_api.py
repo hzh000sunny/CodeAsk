@@ -18,7 +18,12 @@ from codeask.db.models import (
     SessionRepoBinding,
     SessionTurn,
 )
-from codeask.sessions.messages import persist_agent_turn, rollback_session_turn
+from codeask.sessions.messages import (
+    persist_agent_turn,
+    persist_runtime_audit_payload,
+    persist_runtime_event_trace,
+    rollback_session_turn,
+)
 from tests.mocks.mock_llm import MockLLMClient, text_message
 
 
@@ -380,6 +385,83 @@ async def test_interrupted_turn_cannot_persist_late_agent_response(
             )
         ).scalars().all()
     assert turns == []
+
+
+@pytest.mark.asyncio
+async def test_interrupted_turn_cannot_persist_late_tool_results(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "中断后禁止迟到工具结果"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    async with app.state.session_factory() as db:
+        db.add(
+            SessionTurn(
+                id="turn_late_tool_abort",
+                session_id=session_id,
+                turn_index=0,
+                role="user",
+                content="停止前已经开始查代码",
+                evidence=None,
+            )
+        )
+        await db.flush()
+        db.add(
+            AgentTrace(
+                id="tr_late_tool_call",
+                session_id=session_id,
+                turn_id="turn_late_tool_abort",
+                stage="chat_runtime",
+                event_type="tool_call",
+                payload={
+                    "tool_call_id": "call_late",
+                    "tool_name": "search_code",
+                    "arguments_summary": {"query": "better-sqlite3"},
+                },
+            )
+        )
+        await db.commit()
+
+    await rollback_session_turn(app.state.session_factory, session_id, "turn_late_tool_abort")
+    request = SimpleNamespace(app=SimpleNamespace(state=app.state))
+    await persist_runtime_event_trace(
+        request,
+        session_id,
+        "turn_late_tool_abort",
+        "tool_result",
+        {
+            "tool_call_id": "call_late",
+            "tool_name": "search_code",
+            "ok": True,
+            "summary": "迟到工具结果不应进入历史",
+        },
+    )
+    await persist_runtime_audit_payload(
+        request,
+        session_id,
+        "turn_late_tool_abort",
+        "tool_result",
+        SimpleNamespace(
+            audit_raw_result={
+                "tool_call_id": "call_late",
+                "raw_result_ref": "raw_tool_result:late",
+            }
+        ),
+    )
+
+    async with app.state.session_factory() as db:
+        traces = (
+            await db.execute(
+                select(AgentTrace).where(AgentTrace.session_id == session_id)
+            )
+        ).scalars().all()
+    assert traces == []
 
 
 @pytest.mark.asyncio

@@ -14,7 +14,7 @@
 
 ## 当前实施状态
 
-截至 2026-05-07：
+截至 2026-05-08：
 
 - 任务 1-8 已完成：`chat_runtime` 基础模型、上下文、prompt、轻量召回、工具注册、工具执行器和第一批工具模块已落地并有单元测试。
 - 任务 9 已完成：默认会话发送接口已切换到 `ChatRuntime`，旧 `AgentOrchestrator` 保留为 legacy 兼容。
@@ -22,7 +22,8 @@
 - 任务 11 已完成：PRD、系统设计、验收清单和 v1.0 历史设计标注已补齐，已完成回归验证。
 - 追加修复已完成：生产默认 `ChatToolRegistry` 接入只读代码工具，runtime 工具调用事件持久化为 `agent_traces`，达到工具轮次上限时改为关闭工具并生成最终回答。
 - 已用前端真实 LLM 会话验证 `references/claude-code/claude-code` 和 `references/anything-llm` 两个源码仓库。
-- 已新增基础问答评测库 `evals/basic_qa/cases/seed_001.jsonl`，覆盖 10 类 30 个通用模型能力问题。该评测只统计模型是否主动触发 Wiki/代码工具，允许不超过 10% 的少量偏差，不在运行时代码中加入关键字拦截或强制禁止工具。
+- 已新增基础问答评测库 `evals/basic_qa/cases/seed_001.jsonl`，当前覆盖 11 类 32 个通用模型能力问题。该评测只统计模型是否主动触发 Wiki/代码工具，允许不超过 10% 的少量偏差，不在运行时代码中加入关键字拦截或强制禁止工具。
+- 已将 `frontend/e2e/basic-model-qa-live.spec.ts` 收敛为“每类取 1 题”的代表性 live 子集；完整 32 题题库继续保留在 `evals/basic_qa/cases/seed_001.jsonl`，用于离线评测和周期性回归。
 - 已用管理员账号和真实 GLM-5.1 配置，在同一个会话 `sess_edf3fda647d77a83` 完成 30 题实测：工具触发偏差 0、错误 0。
 - 已将 AnythingLLM 的 RAG 上传资料处理链路和 Claude Code 的长上下文压缩机制纳入 v1.0.2 设计，形成 `specs/rag-context-budget-lessons.md`。
 - 已修复单个工具结果预算：超大 `ToolResult` 进入模型前会真实裁剪，避免再次出现 input length 超限。
@@ -31,6 +32,8 @@
 - 已完成真实浏览器 + GLM-5.1 连续会话验收：会话 `sess_096f8685b5997d38` 覆盖第一轮代码工具查询、第二轮追问是否查询代码、刷新后第三轮继续追问。
 - 已补齐结构化 RAG 上下文注入：`retrieval_context` 每轮包含 `feature_catalog` 活跃特性目录和 `feature_knowledge_index` 特性知识索引，避免模型在没有直接命中特性名称时只能盲目搜索代码。
 - 已明确后续外部 RAG 服务替换边界：外部服务应实现 `RetrievalService.retrieve(...)` 等价输出，保持 `feature_catalog`、`feature_knowledge_index`、`feature_candidates`、`wiki_hits`、`report_hits`、`attachment_candidates`、`repo_candidates` 结构稳定。
+- 已稳定 live Agent E2E 串行执行策略：当任一 `CODEASK_RUN_LIVE_*` 环境变量开启时，Playwright 自动强制 `workers = 1`，避免共享 LLM 配置、仓库状态和 `.tmp/playwright-e2e` 目录导致并行污染。
+- 已在 2026-05-08 使用真实 GLM-5.1 / OpenAI 协议配置执行整套 live Agent E2E：`7 passed (12.0m)`。
 
 > 注意：本文保留原始 checklist 作为实施过程记录，已完成任务不逐条改写，以免丢失 TDD 执行轨迹。
 
@@ -1239,7 +1242,7 @@ git commit -m "docs: document v1.0.2 agent runtime"
 
 ## 任务 12: 会话级 Auto Compact 与 Conversation Summary
 
-> 状态：已完成第一轮实现与自动化验证。剩余可选增强：详情字段复制入口、独立 abort API、partial tool result 的 aborted 审计状态。
+> 状态：已完成第一轮实现与自动化验证。剩余可选增强：独立 abort API、partial tool result 的 aborted 审计状态。
 > 定位：这是 `compaction.py` 第一版之后的第二层上下文能力，不能和已完成的旧工具结果 micro-compact 混淆。第一版解决“单轮 active context 被累计工具结果打爆”；本任务解决“长会话长期运行后仍能保持语义连续”。
 
 **目标：** 参考 Claude Code 的 auto compact 机制，为 CodeAsk 增加持久化 `conversation_summary`、历史 auto-compact、summary + recent turns 的 active context builder、失败熔断和 live E2E 验收。
@@ -1658,7 +1661,7 @@ docs/v1.0.2/specs/agent-runtime-source-lessons.md
 - [x] retrieval context 卡片详情展示候选来源和截断状态。
 - [x] 错误卡片详情展示 provider、error_code、message、retryable 等结构化字段。
 - [x] 详情展示不能用长 JSON 直接撑开面板；当前使用悬浮弹窗和结构化字段行展示。
-- [ ] 长字段需要复制入口，复制成功在入口旁轻量提示。
+- [x] 长字段支持复制入口，复制成功在入口旁轻量提示。
 
 ### 14.3 生成中断与本轮回滚
 

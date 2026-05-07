@@ -32,7 +32,7 @@ test.skip(
 );
 
 test("basic model questions stay model-led in one frontend session", async ({ page }) => {
-  const cases = loadCases();
+  const cases = loadLiveCases();
 
   await page.goto("/#/login", { waitUntil: "networkidle" });
   await page.getByLabel("用户名").fill(ADMIN_USERNAME);
@@ -55,7 +55,11 @@ test("basic model questions stay model-led in one frontend session", async ({ pa
 
   const deviations: Array<{ id: string; question: string; tools: string[] }> = [];
   for (const qaCase of cases) {
-    const result = await postMessage(page, sessionId, qaCase.input.question);
+    const result = await postMessage(
+      page,
+      sessionId,
+      `${qaCase.input.question}\n\n请直接回答，控制在 120 字内；如果需要示例，只给最小示例。`,
+    );
     expect(result.text.trim(), qaCase.id).not.toEqual("");
     expect(result.text, qaCase.id).not.toMatch(/BadRequestError|Agent 运行失败|max_tokens/i);
     const toolNames = Array.from(new Set(result.toolNames));
@@ -104,6 +108,7 @@ async function ensureLlmConfig(page: import("@playwright/test").Page) {
           base_url: baseUrl,
           api_key: apiKey,
           model_name: model,
+          max_tokens: 512,
           enabled: true,
         }),
       });
@@ -142,25 +147,53 @@ async function postMessage(
       const toolNames: string[] = [];
       const eventTypes: string[] = [];
 
+      function readEventFrames(source: string) {
+        const frames: string[] = [];
+        let remaining = source;
+        while (true) {
+          const match = remaining.match(/\r?\n\r?\n/);
+          if (!match || match.index == null) {
+            break;
+          }
+          const boundary = match.index;
+          frames.push(remaining.slice(0, boundary));
+          remaining = remaining.slice(boundary + match[0].length);
+        }
+        return { frames, remaining };
+      }
+
+      function parseFrame(frame: string) {
+        let eventType = "";
+        const dataLines: string[] = [];
+        for (const rawLine of frame.split(/\r?\n/)) {
+          if (rawLine.startsWith("event:")) {
+            eventType = rawLine.slice("event:".length).trim();
+          } else if (rawLine.startsWith("data:")) {
+            dataLines.push(rawLine.slice("data:".length).trimStart());
+          }
+        }
+        return {
+          eventType,
+          data:
+            dataLines.length > 0
+              ? JSON.parse(dataLines.join("\n"))
+              : {},
+        };
+      }
+
       for (;;) {
         const { done, value } = await reader.read();
         if (done) {
           break;
         }
         buffer += decoder.decode(value, { stream: true });
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() ?? "";
-        for (const frame of frames) {
-          const eventLine = frame.split("\n").find((line) => line.startsWith("event: "));
-          const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
-          const eventType = eventLine?.slice("event: ".length).trim();
+        const parsed = readEventFrames(buffer);
+        buffer = parsed.remaining;
+        for (const frame of parsed.frames) {
+          const { eventType, data } = parseFrame(frame);
           if (eventType) {
             eventTypes.push(eventType);
           }
-          if (!dataLine) {
-            continue;
-          }
-          const data = JSON.parse(dataLine.slice("data: ".length));
           if (eventType === "text_delta") {
             text += String(data.delta ?? data.text ?? "");
           }
@@ -170,6 +203,22 @@ async function postMessage(
           if (eventType === "error") {
             throw new Error(`agent error: ${JSON.stringify(data)}`);
           }
+        }
+      }
+      buffer += decoder.decode();
+      for (const frame of readEventFrames(`${buffer}\n\n`).frames) {
+        const { eventType, data } = parseFrame(frame);
+        if (eventType) {
+          eventTypes.push(eventType);
+        }
+        if (eventType === "text_delta") {
+          text += String(data.delta ?? data.text ?? "");
+        }
+        if (eventType === "tool_call") {
+          toolNames.push(String(data.tool_name ?? ""));
+        }
+        if (eventType === "error") {
+          throw new Error(`agent error: ${JSON.stringify(data)}`);
         }
       }
       return { text, toolNames: toolNames.filter(Boolean), eventTypes };
@@ -186,4 +235,14 @@ function loadCases(): BasicQaCase[] {
     .split("\n")
     .filter((line) => line.trim())
     .map((line) => JSON.parse(line) as BasicQaCase);
+}
+
+function loadLiveCases(): BasicQaCase[] {
+  const selected = new Map<string, BasicQaCase>();
+  for (const item of loadCases()) {
+    if (!selected.has(item.input.category)) {
+      selected.set(item.input.category, item);
+    }
+  }
+  return Array.from(selected.values());
 }

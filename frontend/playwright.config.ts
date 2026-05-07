@@ -1,8 +1,18 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const liveAgentE2eEnabled = [
+  process.env.CODEASK_RUN_LIVE_AGENT_E2E,
+  process.env.CODEASK_RUN_LIVE_BASIC_QA_E2E,
+  process.env.CODEASK_RUN_LIVE_AGENT_CONTINUITY_E2E,
+  process.env.CODEASK_RUN_LIVE_CONTEXTUAL_TECH_QA_E2E,
+  process.env.CODEASK_RUN_LIVE_FEATURE_SCOPED_CODE_E2E,
+  process.env.CODEASK_RUN_LIVE_AGENT_LONG_CONTEXT_E2E,
+].some((value) => value === "1");
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
+  workers: liveAgentE2eEnabled ? 1 : undefined,
   expect: {
     timeout: 5_000,
   },

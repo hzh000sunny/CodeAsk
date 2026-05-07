@@ -1,6 +1,6 @@
 # v1.0.2 Agent Chat Runtime E2E 场景矩阵
 
-> 状态：Draft
+> 状态：Completed
 > 版本：v1.0.2
 > 范围：默认 Agent 会话、连续上下文、工具行动轨迹、Feature-Scoped Code Access、RAG / Wiki / 报告 / 附件、停止回滚、长上下文压缩
 
@@ -32,9 +32,10 @@
 - [x] abort 后迟到 assistant turn 和迟到 trace 不再写入历史。
 - [x] 工具结果进入模型前有预算裁剪。
 - [x] 上下文超限时有 reactive compact retry。
-- [x] 基础问答 30 题已有 live E2E 通道。
+- [x] 基础问答代表性题集已有 live E2E 通道；完整 11 类 32 题题库保留在 `evals/basic_qa/cases/seed_001.jsonl`。
 - [x] 源码工具和连续追问已有 live E2E 通道。
 - [x] 特性上下文中的插入式技术问答已有 live E2E 通道，覆盖会话围绕 AnythingLLM 展开时，中途询问 `lancedb 和 sqlitedb 有什么区别` 仍应优先直接回答。
+- [x] live Agent E2E 共享 LLM 配置、仓库状态和临时目录时默认串行执行；启用任一 `CODEASK_RUN_LIVE_*` 开关后 Playwright 自动强制 `workers = 1`。
 
 ### 1.2 部分完成，必须继续收敛
 

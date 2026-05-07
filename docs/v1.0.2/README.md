@@ -3,7 +3,7 @@
 | 字段 | 值 |
 |---|---|
 | 版本 | v1.0.2 |
-| 状态 | Draft |
+| 状态 | Completed |
 | 主题 | LLM Agent 会话运行时优化 |
 | 基线版本 | `../v1.0.1/` |
 | 目标 | 将默认 Agent 会话从固定调查流水线调整为正常聊天优先、RAG 增强、工具调用由模型决策的统一运行时 |
@@ -62,7 +62,10 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 - 已通过真实浏览器 + GLM-5.1 连续会话验收：会话 `sess_096f8685b5997d38` 第一轮调用 `list_code_repos` / `search_code` / `read_code_file`，第二轮能正确回答刚刚查询了代码，刷新后第三轮仍能复述上一轮内容。
 - 已新增特性上下文技术插问 live E2E 通道：`frontend/e2e/agent-contextual-technical-qa-live.spec.ts`。该用例默认跳过，显式设置 `CODEASK_RUN_LIVE_CONTEXTUAL_TECH_QA_E2E=1` 后验证会话围绕 AnythingLLM / RAG 展开时，中途询问 `lancedb 和 sqlitedb 有什么区别` 能保持当前主题语境并优先直接回答，允许少量工具决策偏差，但不应频繁触发代码检索或要求用户显式指定仓库。
 - 已将项目级验收规则从“E2E 基线”扩展为“开发验收阶段与证据基线”：后续不能用前端历史恢复替代模型上下文恢复，不能用行动轨迹展示替代模型可追问工具行动。
-- 已完成会话体验 Task 14 第一轮实现：行动轨迹同会话多轮保留并按 turn 分组，详情弹窗展示结构化诊断字段，生成中可停止并回滚本轮消息 / traces，输入框支持 `Enter` 发送、`Ctrl + Enter` / `Shift + Enter` 换行。
+- 已新增基础问答评测库 `evals/basic_qa/cases/seed_001.jsonl`，当前覆盖 11 类 32 个通用模型能力问题；`frontend/e2e/basic-model-qa-live.spec.ts` 使用“每类取 1 题”的代表性 live 子集，完整题库保留给离线评测和周期性回归。
+- 已完成会话体验 Task 14：行动轨迹同会话多轮保留并按 turn 分组，详情弹窗展示结构化诊断字段，长字段支持就地复制并给出轻量提示，生成中可停止并回滚本轮消息 / traces，输入框支持 `Enter` 发送、`Ctrl + Enter` / `Shift + Enter` 换行。
+- 已稳定 live Agent E2E 执行策略：当启用任一 `CODEASK_RUN_LIVE_*` 开关时，Playwright 自动强制 `workers = 1`，避免共享 LLM 配置、仓库状态和 `.tmp/playwright-e2e` 目录导致并行污染。
+- 已在 2026-05-08 完成完整 live Agent E2E 套件验收：`7 passed (12.0m)`，覆盖基础问答、连续会话、特性范围代码检索、长上下文、特性上下文技术插问和管理员源码链路。
 - 待后续继续：引入外部 RAG 服务、继续收敛 RAG 来源去重、上下文预算治理和会话级 auto compact。
 
 ## 已确认方向

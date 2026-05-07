@@ -1,6 +1,6 @@
 # v1.0.2 Agent Chat Runtime 系统设计
 
-> 状态：Draft
+> 状态：Completed
 > 版本：v1.0.2
 > 范围：后端 ChatRuntime、工具契约、SSE 事件、前端 Action Trace
 
@@ -311,6 +311,7 @@ frontend/src/components/session/action-trace/
 - `Agent 行动轨迹` 是会话级时间线，不是单轮进度条。同一会话发送新消息时不得清空历史轨迹；新事件应追加到当前 turn 分组。
 - 行动轨迹按 turn 分组，最近 turn 默认展开，历史 turn 可折叠。
 - 卡片默认简洁，点击后展示完整诊断信息，包括参数摘要、summary、warnings、evidence refs、repo/ref/commit/path/line、truncated、raw_result_ref、error_type 和 error message。
+- 长字段在详情中支持就地复制，复制成功或失败都在入口旁给出轻量反馈，不把提示挤到页面头部。
 - 详情内容使用抽屉、弹窗或固定高度滚动区域，不能用长 JSON 撑开右侧面板。
 - 输入框快捷键：`Enter` 发送，`Ctrl + Enter` 和 `Shift + Enter` 换行；中文输入 composition 期间不能误发送。
 
@@ -455,16 +456,19 @@ response reserve: 固定预留
 - `uv run pytest tests/integration/test_evals_runner_smoke.py tests/integration/test_basic_qa_baseline.py -q`
 - `corepack pnpm --dir frontend test:run`
 - `corepack pnpm --dir frontend build`
+- `corepack pnpm --dir frontend test:e2e`
 - 本次改动文件的 `uv run ruff check ...`
 - `git diff --check`
-- 真实 GLM-5.1 基础问答基线：管理员账号、同一个会话 `sess_edf3fda647d77a83`、30 个基础问题、30 个 agent 回答、工具触发偏差 0、错误 0。
+- 真实 GLM-5.1 基础问答基线：完整题库保留在 `evals/basic_qa/cases/seed_001.jsonl`，当前覆盖 11 类 32 题；管理员账号、同一个会话 `sess_edf3fda647d77a83` 已完成 30 题实测，工具触发偏差 0、错误 0。
 - 真实 GLM-5.1 参考仓库问答：`anything llm中，是怎么通过rag处理上传的资料的` 在修复工具结果预算后完成回答，无 input length 超限，测试会话 `sess_8d591f3142d5f1b4`。
 - 真实 GLM-5.1 连续会话：`sess_096f8685b5997d38` 第一轮查询 anything-llm 的 `processSingleFile`，调用 `list_code_repos`、`search_code`、`read_code_file`；第二轮追问“你刚刚的回答，有查询代码吗”能正确区分列仓库、搜索代码和读取源码；刷新后第三轮仍能复述上一轮内容。
 - 真实 GLM-5.1 Feature-Scoped Code Access：`frontend/e2e/agent-feature-scoped-code-live.spec.ts` 已在浏览器 E2E 中执行通过，覆盖管理员登录、创建特性、注册并关联 `references/claude-code/claude-code` 仓库、模型选择特性范围、代码工具结果 `scope_source=feature_scope`。
 - 浏览器手动 E2E：前端会话读取 `references/claude-code/claude-code`，搜索 `PermissionMode`，刷新后恢复消息和行动轨迹，删除后清空行动轨迹。
 - 浏览器手动 E2E：前端会话读取 `references/anything-llm`，搜索 `DataConnectorOption`，刷新后恢复消息和行动轨迹，删除后清空行动轨迹。
 - 已沉淀 live Playwright 通道：`frontend/e2e/admin-agent-source-live.spec.ts`。默认跳过；设置 `CODEASK_RUN_LIVE_AGENT_E2E=1` 后，可在真实 LLM 配置下验证管理员登录、源码仓库注册、前端会话、工具调用、刷新恢复。
-- 已沉淀基础问答 live Playwright 通道：`frontend/e2e/basic-model-qa-live.spec.ts`。默认跳过；设置 `CODEASK_RUN_LIVE_BASIC_QA_E2E=1` 后，可在真实 LLM 配置下验证 30 题基础问答是否保持模型直答优先，并统计 Wiki/代码工具触发偏差。
+- 已沉淀基础问答 live Playwright 通道：`frontend/e2e/basic-model-qa-live.spec.ts`。默认跳过；设置 `CODEASK_RUN_LIVE_BASIC_QA_E2E=1` 后，按“每类取 1 题”的代表性 live 子集验证模型直答优先，并统计 Wiki/代码工具触发偏差；完整 32 题题库继续保留在 `evals/basic_qa/cases/seed_001.jsonl`。
+- live Agent E2E 共享同一套 LLM 配置、仓库状态和 `.tmp/playwright-e2e` 数据目录时，Playwright 会强制 `workers = 1` 串行执行，避免并行污染导致空响应或上下文串扰。
+- 2026-05-08 已用真实 GLM-5.1 / OpenAI 协议配置跑完 live Agent E2E 套件：`7 passed (12.0m)`，覆盖基础问答、连续会话、特性上下文技术插问、Feature-Scoped Code Access、长上下文和管理员源码链路。
 - 已新增后端上下文预算回归：累计工具结果超过 active context 阈值时触发 micro-compact；供应商返回 input length / prompt too long / context length 错误时触发 reactive compact retry；低于阈值时不压缩。
 
 说明：全仓库 `ruff check src tests` 仍存在历史格式问题，未纳入本次 Agent runtime 修复范围。本次验证只对改动文件执行 ruff。

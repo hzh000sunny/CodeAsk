@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Brain, ChevronDown, X } from "lucide-react";
+import { Brain, ChevronDown, Copy, X } from "lucide-react";
 
 import { MarkdownRenderer } from "../../ui/MarkdownRenderer";
+import { copyTextToClipboard } from "../session-clipboard";
 import { ClarificationEvent } from "./ClarificationEvent";
 import { EvidenceEvent } from "./EvidenceEvent";
 import { RetrievalEvent } from "./RetrievalEvent";
@@ -206,10 +207,66 @@ function ActionTraceDetailRows({ event }: { event: ActionTraceEventModel }) {
       {rows.map((row) => (
         <div className="action-trace-detail-row" key={row.label}>
           <dt>{row.label}</dt>
-          <dd>{row.value}</dd>
+          <dd>
+            <ActionTraceDetailValue label={row.label} value={row.value} />
+          </dd>
         </div>
       ))}
     </dl>
+  );
+}
+
+function ActionTraceDetailValue({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  const [copyStatus, setCopyStatus] = useState("");
+  const canCopy = value.length >= 24 || value.includes("\n") || value.includes("/");
+
+  useEffect(() => {
+    if (!copyStatus) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setCopyStatus("");
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [copyStatus]);
+
+  async function copyValue() {
+    try {
+      await copyTextToClipboard(value);
+      setCopyStatus("已复制");
+    } catch {
+      setCopyStatus("复制失败");
+    }
+  }
+
+  return (
+    <span className="action-trace-detail-value">
+      <span>{value}</span>
+      {canCopy ? (
+        <span className="action-trace-detail-copy">
+          <button
+            aria-label={`复制 ${label}`}
+            className="action-trace-detail-copy-button"
+            onClick={() => void copyValue()}
+            title={`复制${label}`}
+            type="button"
+          >
+            <Copy aria-hidden="true" size={13} />
+          </button>
+          {copyStatus ? (
+            <span className="action-trace-detail-copy-toast" role="status">
+              {copyStatus}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -244,6 +301,7 @@ function detailRowsForEvent(event: ActionTraceEventModel) {
       stringValue(result.message),
   );
   addRow(rows, "错误类型", stringValue(data.error_type) ?? stringValue(result.error));
+  addRow(rows, "错误信息", stringValue(data.message) ?? stringValue(result.message));
   if (versionInfo) {
     addRow(rows, "范围来源", scopeSourceLabel(stringValue(versionInfo.scope_source)));
     addRow(rows, "特性", featureIdsLabel(versionInfo.feature_ids));
@@ -251,6 +309,17 @@ function detailRowsForEvent(event: ActionTraceEventModel) {
     addRow(rows, "版本", stringValue(versionInfo.ref));
     addRow(rows, "提交", stringValue(versionInfo.commit));
   }
+  addRow(rows, "提醒", warningsLabel(data.warnings, result.warnings));
+  addRow(
+    rows,
+    "结果已截断",
+    data.truncated === true || result.truncated === true ? "是" : null,
+  );
+  addRow(
+    rows,
+    "原始结果",
+    stringValue(data.raw_result_ref) ?? stringValue(result.raw_result_ref),
+  );
   addRow(
     rows,
     "结果规模",
@@ -316,4 +385,19 @@ function readableJson(value: Record<string, unknown>) {
   } catch {
     return String(value);
   }
+}
+
+function warningsLabel(...values: unknown[]) {
+  for (const value of values) {
+    if (!Array.isArray(value)) {
+      continue;
+    }
+    const warnings = value.filter(
+      (item): item is string => typeof item === "string" && item.length > 0,
+    );
+    if (warnings.length > 0) {
+      return warnings.join(" | ");
+    }
+  }
+  return null;
 }

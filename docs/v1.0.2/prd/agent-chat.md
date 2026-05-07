@@ -1,6 +1,6 @@
 # v1.0.2 Agent 会话产品契约
 
-> 状态：Draft
+> 状态：Completed
 > 版本：v1.0.2
 > 目标：让 CodeAsk 默认会话回归正常 Agent 聊天，并用 Wiki、报告、附件和代码工具增强研发问题分析能力。
 

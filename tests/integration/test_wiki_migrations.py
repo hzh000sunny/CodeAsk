@@ -124,5 +124,5 @@ async def test_feature_archive_migration_recovers_from_stale_sqlite_batch_table(
     await engine.dispose()
 
     assert "_alembic_tmp_features" not in tables
-    assert version == "0020"
+    assert version == "0021"
     assert feature_row == ("active", None, None)

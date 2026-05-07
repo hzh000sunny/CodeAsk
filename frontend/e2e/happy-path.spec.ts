@@ -57,7 +57,7 @@ test("source-list workbench happy path", async ({ page }) => {
       .first(),
   ).toBeVisible();
   await expect(
-    page.getByRole("region", { name: "调查进度" }).getByText("知识检索"),
+    page.getByRole("region", { name: "Agent 行动轨迹" }),
   ).toBeVisible();
   const sessionList = page.getByRole("region", { name: "会话列表" });
   await sessionList

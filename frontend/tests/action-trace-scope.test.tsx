@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { ActionTraceEvent } from "../src/components/session/action-trace/ActionTraceEvent";
 import {
@@ -68,5 +68,90 @@ describe("action trace code scope display", () => {
     expect(dialog).toHaveTextContent("HEAD");
     expect(dialog).toHaveTextContent("提交");
     expect(dialog).toHaveTextContent("683f7d2abcdef");
+  });
+
+  it("shows warning, truncation and raw result metadata in the action trace popover", () => {
+    const event: ActionTraceEventModel = {
+      id: "tool_result_call_2",
+      kind: "tool_result",
+      title: "代码搜索失败",
+      detail: "命中 0 个代码位置",
+      status: "error",
+      data: {
+        tool_call_id: "call_2",
+        tool_name: "search_code",
+        ok: false,
+        summary: "命中 0 个代码位置",
+        truncated: true,
+        raw_result_ref: "raw_tool_result:sess_1:turn_1:search_code:deadbeef",
+        warnings: ["0 命中不代表代码不存在，请先确认目录和命名。"],
+        error_type: "needs_clarification",
+        message: "当前关键词没有直接命中，请先确认代码目录。",
+        version_info: {
+          scope_source: "feature_scope",
+          feature_ids: [3],
+          repo_name: "anything-llm",
+          ref: "HEAD",
+          commit: "1234567890ab",
+        },
+      },
+      evidenceRefs: [],
+    };
+
+    render(<ActionTraceEvent event={event} />);
+    fireEvent.click(screen.getByRole("button", { name: "代码搜索失败 详情" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
+    expect(dialog).toHaveTextContent("提醒");
+    expect(dialog).toHaveTextContent("0 命中不代表代码不存在");
+    expect(dialog).toHaveTextContent("结果已截断");
+    expect(dialog).toHaveTextContent("原始结果");
+    expect(dialog).toHaveTextContent("raw_tool_result:sess_1:turn_1:search_code:deadbeef");
+    expect(dialog).toHaveTextContent("错误类型");
+    expect(dialog).toHaveTextContent("needs_clarification");
+    expect(dialog).toHaveTextContent("错误信息");
+    expect(dialog).toHaveTextContent("当前关键词没有直接命中");
+  });
+
+  it("copies long detail values from the action trace popover", async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const event: ActionTraceEventModel = {
+      id: "tool_result_call_copy",
+      kind: "tool_result",
+      title: "代码文件完成",
+      detail: "读取代码文件成功",
+      status: "success",
+      data: {
+        tool_call_id: "call_copy",
+        tool_name: "read_code_file",
+        ok: true,
+        summary: "读取代码文件成功",
+        path: "server/prisma/schema.prisma",
+        raw_result_ref: "raw_tool_result:sess_long:turn_long:read_code_file:abcdef1234567890",
+      },
+      evidenceRefs: [],
+    };
+
+    render(<ActionTraceEvent event={event} />);
+    fireEvent.click(screen.getByRole("button", { name: "代码文件完成 详情" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "复制 路径" }));
+      await Promise.resolve();
+    });
+
+    expect(writeText).toHaveBeenCalledWith("server/prisma/schema.prisma");
+    expect(screen.getByText("已复制")).toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1300);
+    });
+    expect(screen.queryByText("已复制")).not.toBeInTheDocument();
+    vi.useRealTimers();
   });
 });

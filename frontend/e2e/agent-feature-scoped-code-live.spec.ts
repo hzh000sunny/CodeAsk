@@ -128,6 +128,7 @@ async function ensureLlmConfig(page: import("@playwright/test").Page) {
           base_url: baseUrl,
           api_key: apiKey,
           model_name: model,
+          max_tokens: 512,
           enabled: true,
         }),
       });
@@ -251,22 +252,50 @@ async function postMessage(
       const toolNames: string[] = [];
       const scopeSources: string[] = [];
 
+      function readEventFrames(source: string) {
+        const frames: string[] = [];
+        let remaining = source;
+        while (true) {
+          const match = remaining.match(/\r?\n\r?\n/);
+          if (!match || match.index == null) {
+            break;
+          }
+          const boundary = match.index;
+          frames.push(remaining.slice(0, boundary));
+          remaining = remaining.slice(boundary + match[0].length);
+        }
+        return { frames, remaining };
+      }
+
+      function parseFrame(frame: string) {
+        let eventType = "";
+        const dataLines: string[] = [];
+        for (const rawLine of frame.split(/\r?\n/)) {
+          if (rawLine.startsWith("event:")) {
+            eventType = rawLine.slice("event:".length).trim();
+          } else if (rawLine.startsWith("data:")) {
+            dataLines.push(rawLine.slice("data:".length).trimStart());
+          }
+        }
+        return {
+          eventType,
+          data:
+            dataLines.length > 0
+              ? JSON.parse(dataLines.join("\n"))
+              : {},
+        };
+      }
+
       for (;;) {
         const { done, value } = await reader.read();
         if (done) {
           break;
         }
         buffer += decoder.decode(value, { stream: true });
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() ?? "";
-        for (const frame of frames) {
-          const eventLine = frame.split("\n").find((line) => line.startsWith("event: "));
-          const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
-          const eventType = eventLine?.slice("event: ".length).trim();
-          if (!dataLine) {
-            continue;
-          }
-          const data = JSON.parse(dataLine.slice("data: ".length));
+        const parsed = readEventFrames(buffer);
+        buffer = parsed.remaining;
+        for (const frame of parsed.frames) {
+          const { eventType, data } = parseFrame(frame);
           if (eventType === "text_delta") {
             text += String(data.delta ?? data.text ?? "");
           }
@@ -282,6 +311,25 @@ async function postMessage(
           if (eventType === "error") {
             throw new Error(`agent error: ${JSON.stringify(data)}`);
           }
+        }
+      }
+      buffer += decoder.decode();
+      for (const frame of readEventFrames(`${buffer}\n\n`).frames) {
+        const { eventType, data } = parseFrame(frame);
+        if (eventType === "text_delta") {
+          text += String(data.delta ?? data.text ?? "");
+        }
+        if (eventType === "tool_call") {
+          toolNames.push(String(data.tool_name ?? ""));
+        }
+        if (eventType === "tool_result") {
+          const scopeSource = String(data.version_info?.scope_source ?? "");
+          if (scopeSource) {
+            scopeSources.push(scopeSource);
+          }
+        }
+        if (eventType === "error") {
+          throw new Error(`agent error: ${JSON.stringify(data)}`);
         }
       }
       return {
