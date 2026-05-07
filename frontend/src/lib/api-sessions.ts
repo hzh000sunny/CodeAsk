@@ -39,6 +39,12 @@ export function deleteSession(sessionId: string) {
   });
 }
 
+export function abortSessionTurn(sessionId: string, turnId: string) {
+  return apiRequest<void>(`/api/sessions/${sessionId}/turns/${turnId}/abort`, {
+    method: "POST",
+  });
+}
+
 export function updateSession(
   sessionId: string,
   payload: Partial<{ title: string; pinned: boolean }>,

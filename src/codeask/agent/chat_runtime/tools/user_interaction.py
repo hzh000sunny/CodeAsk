@@ -51,6 +51,7 @@ def register_user_interaction_tools(registry: ToolRegistry) -> None:
             concurrency_safe=False,
             requires_confirmation=False,
             requires_user_interaction=True,
+            max_result_size_chars=4_000,
         ),
         ask_user,
     )

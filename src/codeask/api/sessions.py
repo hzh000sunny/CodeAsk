@@ -234,7 +234,7 @@ async def post_message(
     request: Request,
 ) -> StreamingResponse:
     await _load_session(request, session_id)
-    turn_id = f"turn_{token_hex(8)}"
+    turn_id = payload.client_turn_id or f"turn_{token_hex(8)}"
     await create_user_turn_and_bindings(request, session_id, turn_id, payload)
     return StreamingResponse(
         stream_agent_response(
@@ -245,7 +245,16 @@ async def post_message(
             force_code_investigation=payload.force_code_investigation,
         ),
         media_type="text/event-stream",
+        headers={"X-CodeAsk-Turn-Id": turn_id},
     )
+
+
+@router.post("/sessions/{session_id}/turns/{turn_id}/abort", status_code=status.HTTP_204_NO_CONTENT)
+async def abort_session_turn(session_id: str, turn_id: str, request: Request) -> None:
+    await _load_session(request, session_id)
+    from codeask.sessions.messages import rollback_session_turn
+
+    await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
 
 
 @router.post(

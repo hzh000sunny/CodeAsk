@@ -18,9 +18,10 @@ export function AdminLoginPage({ onSuccess }: AdminLoginPageProps) {
   const [error, setError] = useState("");
   const loginMutation = useMutation({
     mutationFn: adminLogin,
-    onSuccess: () => {
+    onSuccess: (me) => {
       setError("");
-      void queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      queryClient.setQueryData(["auth", "me"], me);
+      queryClient.removeQueries({ queryKey: ["user-llm-configs"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-llm-configs"] });
       onSuccess();
     },

@@ -1,4 +1,9 @@
-import { useEffect, type RefObject } from "react";
+import {
+  useEffect,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from "react";
 
 import type { AgentTraceResponse, SessionTurnResponse } from "../../types/api";
 import {
@@ -6,6 +11,7 @@ import {
   messagesFromSessionTurns,
   stagesFromSessionTraces,
 } from "./session-history";
+import { createInitialStages } from "./session-model";
 import type {
   ConversationMessage,
   RuntimeInsight,
@@ -42,7 +48,7 @@ export function useSessionHistoryRestore({
   sessionTracesUpdatedAt: number;
   sessionTurns: SessionTurnResponse[];
   sessionTurnsUpdatedAt: number;
-  setInsights: (value: RuntimeInsight[]) => void;
+  setInsights: Dispatch<SetStateAction<RuntimeInsight[]>>;
   setMessages: (value: ConversationMessage[] | ((current: ConversationMessage[]) => ConversationMessage[])) => void;
   setStages: (value: RuntimeStage[] | ((current: RuntimeStage[]) => RuntimeStage[])) => void;
   stages: RuntimeStage[];
@@ -52,6 +58,12 @@ export function useSessionHistoryRestore({
       if (!isStreaming) {
         setMessages((current) => (current.length === 0 ? current : []));
       }
+      setInsights((current) => (current.length === 0 ? current : []));
+      setStages((current) =>
+        current.some((stage) => stage.status !== "pending")
+          ? createInitialStages()
+          : current,
+      );
       appliedHistoryKeyRef.current = null;
       messagesSessionIdRef.current = null;
       return;

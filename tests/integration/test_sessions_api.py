@@ -4,13 +4,21 @@ import asyncio
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from codeask.db.models import AgentTrace, Report, SessionRepoBinding, SessionTurn
+from codeask.db.models import (
+    AgentTrace,
+    Report,
+    SessionConversationSummary,
+    SessionRepoBinding,
+    SessionTurn,
+)
+from codeask.sessions.messages import persist_agent_turn, rollback_session_turn
 from tests.mocks.mock_llm import MockLLMClient, text_message
 
 
@@ -60,10 +68,15 @@ async def test_session_message_sse_and_attachment(
 
     message = await client.post(
         f"/api/sessions/{session_id}/messages",
-        json={"content": "为什么订单偶发 500", "feature_ids": [feature_id]},
+        json={
+            "content": "为什么订单偶发 500",
+            "client_turn_id": "turn_client_contract",
+            "feature_ids": [feature_id],
+        },
         headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert message.status_code == 200, message.text
+    assert message.headers["X-CodeAsk-Turn-Id"] == "turn_client_contract"
     body = message.text
     assert "event: retrieval_context" in body
     assert "event: text_delta" in body
@@ -81,6 +94,75 @@ async def test_session_message_sse_and_attachment(
     assert uploaded["kind"] == "log"
     assert uploaded["display_name"] == "app.log"
     assert Path(uploaded["file_path"]).exists()
+
+
+@pytest.mark.asyncio
+async def test_session_message_injects_current_session_attachments_into_llm_context(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    config = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "default",
+            "protocol": "openai",
+            "base_url": None,
+            "api_key": "sk-secret",
+            "model_name": "gpt-test",
+            "max_tokens": 1024,
+            "temperature": 0.0,
+            "is_default": True,
+        },
+    )
+    assert config.status_code == 201, config.text
+    logout = await client.post("/api/auth/logout")
+    assert logout.status_code == 204
+
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "附件上下文"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    uploaded = await client.post(
+        f"/api/sessions/{session_id}/attachments",
+        files={"file": ("service.log", b"ERROR42 node-a failed", "text/plain")},
+        data={"kind": "log", "description": "数据库节点 A 日志"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    attachment_id = uploaded.json()["id"]
+    renamed = await client.patch(
+        f"/api/sessions/{session_id}/attachments/{attachment_id}",
+        json={"display_name": "db-node-a.log"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert renamed.status_code == 200, renamed.text
+
+    mock = MockLLMClient([text_message("我会先查看 db-node-a.log。")])
+    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+
+    message = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "请先看上传的日志"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert message.status_code == 200, message.text
+
+    first_call_text = "\n".join(
+        block["text"]
+        for message in mock.calls[0]["messages"]
+        for block in message["content"]
+        if block["type"] == "text"
+    )
+    assert "【会话附件候选】" in first_call_text
+    assert "db-node-a.log" in first_call_text
+    assert "service.log" in first_call_text
+    assert "数据库节点 A 日志" in first_call_text
 
 
 @pytest.mark.asyncio
@@ -136,6 +218,168 @@ async def test_session_turns_can_be_listed_for_the_session_owner(
     assert rows[0]["content"] == "为什么服务启动失败？"
     assert rows[1]["content"] == "先检查配置文件是否缺失。"
     assert rows[1]["evidence"] == {"items": [{"id": "ev_1", "source": "wiki"}]}
+
+
+@pytest.mark.asyncio
+async def test_rollback_session_turn_removes_interrupted_turn_and_traces(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "中断回滚"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    async with app.state.session_factory() as db:
+        db.add(
+            SessionTurn(
+                id="turn_interrupted",
+                session_id=session_id,
+                turn_index=0,
+                role="user",
+                content="需要中断的长任务",
+                evidence=None,
+            )
+        )
+        await db.flush()
+        db.add(
+            AgentTrace(
+                id="tr_interrupted",
+                session_id=session_id,
+                turn_id="turn_interrupted",
+                stage="chat_runtime",
+                event_type="retrieval_context",
+                payload={"feature_candidates": [], "wiki_hits": [], "report_hits": []},
+            )
+        )
+        await db.commit()
+
+    await rollback_session_turn(app.state.session_factory, session_id, "turn_interrupted")
+
+    async with app.state.session_factory() as db:
+        turns = (
+            await db.execute(
+                select(SessionTurn).where(SessionTurn.session_id == session_id)
+            )
+        ).scalars().all()
+        traces = (
+            await db.execute(
+                select(AgentTrace).where(AgentTrace.session_id == session_id)
+            )
+        ).scalars().all()
+    assert turns == []
+    assert traces == []
+
+
+@pytest.mark.asyncio
+async def test_abort_session_turn_endpoint_removes_interrupted_turn_and_traces(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "中断接口"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    async with app.state.session_factory() as db:
+        db.add(
+            SessionTurn(
+                id="turn_abort_api",
+                session_id=session_id,
+                turn_index=0,
+                role="user",
+                content="需要中断的长任务",
+                evidence=None,
+            )
+        )
+        await db.flush()
+        db.add(
+            AgentTrace(
+                id="tr_abort_api",
+                session_id=session_id,
+                turn_id="turn_abort_api",
+                stage="chat_runtime",
+                event_type="retrieval_context",
+                payload={"feature_candidates": [], "wiki_hits": [], "report_hits": []},
+            )
+        )
+        await db.commit()
+
+    forbidden = await client.post(
+        f"/api/sessions/{session_id}/turns/turn_abort_api/abort",
+        headers={"X-Subject-Id": "bob@dev-1"},
+    )
+    assert forbidden.status_code == 404
+
+    aborted = await client.post(
+        f"/api/sessions/{session_id}/turns/turn_abort_api/abort",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert aborted.status_code == 204, aborted.text
+
+    async with app.state.session_factory() as db:
+        turns = (
+            await db.execute(
+                select(SessionTurn).where(SessionTurn.session_id == session_id)
+            )
+        ).scalars().all()
+        traces = (
+            await db.execute(
+                select(AgentTrace).where(AgentTrace.session_id == session_id)
+            )
+        ).scalars().all()
+    assert turns == []
+    assert traces == []
+
+
+@pytest.mark.asyncio
+async def test_interrupted_turn_cannot_persist_late_agent_response(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "中断后禁止迟到回答"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    async with app.state.session_factory() as db:
+        db.add(
+            SessionTurn(
+                id="turn_late_abort",
+                session_id=session_id,
+                turn_index=0,
+                role="user",
+                content="换一种",
+                evidence=None,
+            )
+        )
+        await db.commit()
+
+    await rollback_session_turn(app.state.session_factory, session_id, "turn_late_abort")
+    request = SimpleNamespace(app=SimpleNamespace(state=app.state))
+    await persist_agent_turn(
+        request,
+        session_id,
+        "这是已经被中断的一轮迟到回答，不应进入历史上下文。",
+        parent_turn_id="turn_late_abort",
+    )
+
+    async with app.state.session_factory() as db:
+        turns = (
+            await db.execute(
+                select(SessionTurn).where(SessionTurn.session_id == session_id)
+            )
+        ).scalars().all()
+    assert turns == []
 
 
 @pytest.mark.asyncio
@@ -546,6 +790,91 @@ async def test_delete_session_removes_storage_dir_from_attachment_paths(
     )
     assert deleted.status_code == 204
     assert not storage_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_session_removes_turns_traces_and_attachments(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "带历史的会话"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    uploaded = await client.post(
+        f"/api/sessions/{session_id}/attachments",
+        files={"file": ("history.log", b"ERROR with history", "text/plain")},
+        data={"kind": "log"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    storage_dir = Path(uploaded.json()["file_path"]).parent
+    assert storage_dir.exists()
+
+    async with app.state.session_factory() as db:
+        db.add_all(
+            [
+                SessionTurn(
+                    id="turn_delete_user",
+                    session_id=session_id,
+                    turn_index=0,
+                    role="user",
+                    content="告诉我小米病情的变化趋势",
+                    evidence=None,
+                ),
+                SessionTurn(
+                    id="turn_delete_agent",
+                    session_id=session_id,
+                    turn_index=1,
+                    role="agent",
+                    content="趋势需要结合病历时间线判断。",
+                    evidence=None,
+                ),
+            ]
+        )
+        await db.flush()
+        db.add(
+            AgentTrace(
+                id="trace_delete_1",
+                session_id=session_id,
+                turn_id="turn_delete_agent",
+                stage="chat_runtime",
+                event_type="retrieval_context",
+                payload={"wiki_hits": [{"title": "小米病历"}]},
+            )
+        )
+        db.add(
+            SessionConversationSummary(
+                session_id=session_id,
+                summary="删除会话时也需要清理长期摘要。",
+                covered_turn_index=1,
+                covered_turn_count=2,
+                covered_trace_count=1,
+                consecutive_failures=0,
+            )
+        )
+        await db.commit()
+
+    deleted = await client.delete(
+        f"/api/sessions/{session_id}",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert deleted.status_code == 204, deleted.text
+    assert not storage_dir.exists()
+
+    turns = await client.get(
+        f"/api/sessions/{session_id}/turns",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert turns.status_code == 404
+
+    async with app.state.session_factory() as db:
+        summary = await db.get(SessionConversationSummary, session_id)
+    assert summary is None
 
 
 @pytest.mark.asyncio

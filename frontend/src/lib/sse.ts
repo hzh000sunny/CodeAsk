@@ -21,22 +21,26 @@ const AGENT_EVENT_NAMES = new Set<AgentEventName>([
 interface StreamSessionMessageInput {
   sessionId: string;
   content: string;
+  client_turn_id?: string;
   feature_ids?: number[];
   repo_bindings?: Array<{ repo_id: string; ref: string }>;
   force_code_investigation?: boolean;
   reply_to?: string | null;
   onEvent: (event: AgentEvent) => void;
+  onTurnId?: (turnId: string) => void;
   signal?: AbortSignal;
 }
 
 export async function streamSessionMessage({
   sessionId,
   content,
+  client_turn_id,
   feature_ids = [],
   repo_bindings = [],
   force_code_investigation = false,
   reply_to = null,
   onEvent,
+  onTurnId,
   signal,
 }: StreamSessionMessageInput) {
   const response = await fetch(`/api/sessions/${sessionId}/messages`, {
@@ -47,6 +51,7 @@ export async function streamSessionMessage({
     },
     body: JSON.stringify({
       content,
+      client_turn_id,
       feature_ids,
       repo_bindings,
       force_code_investigation,
@@ -61,6 +66,18 @@ export async function streamSessionMessage({
   if (!response.body) {
     throw new Error("SSE response did not include a readable body");
   }
+  const turnId = response.headers.get("X-CodeAsk-Turn-Id");
+  if (turnId) {
+    onTurnId?.(turnId);
+  }
+
+  const handleEvent = (event: AgentEvent) => {
+    const eventTurnId = event.data.turn_id;
+    if (typeof eventTurnId === "string" && eventTurnId.length > 0) {
+      onTurnId?.(eventTurnId);
+    }
+    onEvent(event);
+  };
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -72,11 +89,11 @@ export async function streamSessionMessage({
       break;
     }
     buffer += decoder.decode(value, { stream: true });
-    buffer = dispatchBufferedEvents(buffer, onEvent);
+    buffer = dispatchBufferedEvents(buffer, handleEvent);
   }
 
   buffer += decoder.decode();
-  dispatchBufferedEvents(`${buffer}\n\n`, onEvent);
+  dispatchBufferedEvents(`${buffer}\n\n`, handleEvent);
 }
 
 async function readError(response: Response) {

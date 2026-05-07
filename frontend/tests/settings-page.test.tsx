@@ -331,9 +331,6 @@ describe("SettingsPage LLM configuration", () => {
         if (path === "/api/sessions") {
           return jsonResponse([]);
         }
-        if (path === "/api/me/llm-configs") {
-          return jsonResponse([]);
-        }
         if (path === "/api/repos") {
           return jsonResponse({ repos: [] });
         }
@@ -379,6 +376,9 @@ describe("SettingsPage LLM configuration", () => {
     ).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "全局配置" }));
     expect(await screen.findByText("备用模型")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([path]) => path === "/api/me/llm-configs")).toBe(
+      false,
+    );
     expect(screen.queryByText(/RPM/)).not.toBeInTheDocument();
     expect(screen.queryByText(/剩余额度/)).not.toBeInTheDocument();
     expect(screen.queryByText("默认")).not.toBeInTheDocument();
@@ -473,9 +473,6 @@ describe("SettingsPage LLM configuration", () => {
         if (path === "/api/sessions") {
           return jsonResponse([]);
         }
-        if (path === "/api/me/llm-configs") {
-          return jsonResponse([]);
-        }
         if (path === "/api/admin/llm-configs") {
           return jsonResponse([]);
         }
@@ -524,6 +521,12 @@ describe("SettingsPage LLM configuration", () => {
 
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    expect(
+      await screen.findByRole("button", { name: "全局配置" }),
+    ).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([path]) => path === "/api/me/llm-configs")).toBe(
+      false,
+    );
 
     expect(
       await screen.findByRole("heading", { name: "仓库管理" }),

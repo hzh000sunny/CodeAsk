@@ -22,7 +22,7 @@ class EvidenceRef(BaseModel):
     node_id: int | None = None
     report_id: int | None = None
     attachment_id: str | None = None
-    repo_id: int | None = None
+    repo_id: str | None = None
     ref: str | None = None
     commit: str | None = None
     line: int | None = None
@@ -30,9 +30,13 @@ class EvidenceRef(BaseModel):
 
 
 class RetrievalContextEventData(BaseModel):
+    feature_catalog: list[dict[str, Any]] = Field(default_factory=_empty_list)
+    feature_knowledge_index: list[dict[str, Any]] = Field(default_factory=_empty_list)
     feature_candidates: list[dict[str, Any]] = Field(default_factory=_empty_list)
     wiki_hits: list[dict[str, Any]] = Field(default_factory=_empty_list)
     report_hits: list[dict[str, Any]] = Field(default_factory=_empty_list)
+    attachment_candidates: list[dict[str, Any]] = Field(default_factory=_empty_list)
+    repo_candidates: list[dict[str, Any]] = Field(default_factory=_empty_list)
 
 
 class ToolCallEventData(BaseModel):
@@ -51,6 +55,8 @@ class ToolResultEventData(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     truncated: bool = False
     raw_result_ref: str | None = None
+    audit_raw_result: dict[str, Any] | None = Field(default=None, exclude=True)
+    version_info: dict[str, Any] | None = None
     error_type: str | None = None
 
 

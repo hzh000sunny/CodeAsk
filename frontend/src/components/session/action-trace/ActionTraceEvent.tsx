@@ -181,6 +181,7 @@ function ActionTracePreview({
       ) : (
         <p>{event.detail}</p>
       )}
+      <ActionTraceDetailRows event={event} />
       {(event.evidenceRefs?.length ?? 0) > 0 ? (
         <ul className="action-trace-evidence-list">
           {event.evidenceRefs?.map((ref, index) => (
@@ -193,4 +194,126 @@ function ActionTracePreview({
       ) : null}
     </section>
   );
+}
+
+function ActionTraceDetailRows({ event }: { event: ActionTraceEventModel }) {
+  const rows = detailRowsForEvent(event);
+  if (rows.length === 0) {
+    return null;
+  }
+  return (
+    <dl className="action-trace-detail-grid">
+      {rows.map((row) => (
+        <div className="action-trace-detail-row" key={row.label}>
+          <dt>{row.label}</dt>
+          <dd>{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function detailRowsForEvent(event: ActionTraceEventModel) {
+  const data = event.data ?? {};
+  const result = recordValue(data.result) ?? {};
+  const resultData = recordValue(result.data) ?? {};
+  const versionInfo = recordValue(data.version_info) ?? recordValue(result.version_info);
+  const args =
+    recordValue(data.arguments_summary) ?? recordValue(data.arguments);
+  const rows: Array<{ label: string; value: string }> = [];
+  addRow(rows, "所属轮次", event.turnId);
+  addRow(rows, "发生时间", event.occurredAt);
+  addRow(rows, "工具名称", stringValue(data.tool_name) ?? stringValue(data.name));
+  addRow(rows, "调用编号", stringValue(data.tool_call_id) ?? stringValue(data.id));
+  addRow(rows, "调用参数", args ? readableJson(args) : null);
+  addRow(
+    rows,
+    "执行状态",
+    data.ok === true || result.ok === true
+      ? "成功"
+      : data.ok === false || result.ok === false
+        ? "失败"
+        : null,
+  );
+  addRow(
+    rows,
+    "结果摘要",
+    stringValue(data.summary) ??
+      stringValue(result.summary) ??
+      stringValue(resultData.summary) ??
+      stringValue(result.message),
+  );
+  addRow(rows, "错误类型", stringValue(data.error_type) ?? stringValue(result.error));
+  if (versionInfo) {
+    addRow(rows, "范围来源", scopeSourceLabel(stringValue(versionInfo.scope_source)));
+    addRow(rows, "特性", featureIdsLabel(versionInfo.feature_ids));
+    addRow(rows, "仓库", codeRepoLabel(versionInfo));
+    addRow(rows, "版本", stringValue(versionInfo.ref));
+    addRow(rows, "提交", stringValue(versionInfo.commit));
+  }
+  addRow(
+    rows,
+    "结果规模",
+    Array.isArray(resultData.hits) ? `${resultData.hits.length} 条命中` : null,
+  );
+  addRow(rows, "路径", stringValue(data.path) ?? stringValue(resultData.path));
+  return rows;
+}
+
+function addRow(
+  rows: Array<{ label: string; value: string }>,
+  label: string,
+  value: string | null | undefined,
+) {
+  if (value) {
+    rows.push({ label, value });
+  }
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function featureIdsLabel(value: unknown) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const ids = value.filter((item): item is number => Number.isInteger(item));
+  return ids.length > 0 ? ids.join(", ") : null;
+}
+
+function scopeSourceLabel(value: string | null) {
+  if (value === "feature_scope") {
+    return "特性范围";
+  }
+  if (value === "explicit_user_repo") {
+    return "用户显式仓库";
+  }
+  return value;
+}
+
+function codeRepoLabel(versionInfo: Record<string, unknown>) {
+  const repoName = stringValue(versionInfo.repo_name);
+  const repoId = stringValue(versionInfo.repo_id);
+  if (repoName && repoId) {
+    return `${repoName}(${repoId})`;
+  }
+  return repoName ?? repoId;
+}
+
+function readableJson(value: Record<string, unknown>) {
+  if (Object.keys(value).length === 0) {
+    return null;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }

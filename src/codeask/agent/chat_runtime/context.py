@@ -18,7 +18,9 @@ class SessionMessage(BaseModel):
 
 class ChatTurnContext(BaseModel):
     current_user_message: str
+    conversation_summary: str | None = None
     recent_history: list[SessionMessage] = Field(default_factory=list)
+    tool_action_summary: str | None = None
     retrieval_context: dict[str, Any] = Field(default_factory=_empty_dict)
     attachments: list[dict[str, Any]] = Field(default_factory=list)
     explicit_constraints: dict[str, Any] = Field(default_factory=_empty_dict)
@@ -36,11 +38,15 @@ class ContextAssembler:
         retrieval_context: dict[str, Any],
         attachments: list[dict[str, Any]],
         explicit_constraints: dict[str, Any],
+        conversation_summary: str | None = None,
+        tool_action_summary: str | None = None,
     ) -> ChatTurnContext:
         recent_history = history[-self._max_history_messages :]
         return ChatTurnContext(
             current_user_message=user_message,
+            conversation_summary=conversation_summary,
             recent_history=recent_history,
+            tool_action_summary=tool_action_summary,
             retrieval_context=retrieval_context,
             attachments=attachments,
             explicit_constraints=explicit_constraints,

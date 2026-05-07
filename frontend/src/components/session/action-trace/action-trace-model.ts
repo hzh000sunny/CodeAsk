@@ -16,7 +16,7 @@ export interface EvidenceRef {
   node_id?: number | null;
   report_id?: number | null;
   attachment_id?: string | null;
-  repo_id?: number | null;
+  repo_id?: string | number | null;
   ref?: string | null;
   commit?: string | null;
   line?: number | null;
@@ -29,6 +29,8 @@ export interface ActionTraceEvent {
   title: string;
   detail: string;
   detailMarkdown?: string;
+  turnId?: string;
+  occurredAt?: string;
   status?: "running" | "success" | "error" | "info";
   data?: Record<string, unknown>;
   evidenceRefs?: EvidenceRef[];
@@ -267,17 +269,23 @@ function toolCallDetail(data: Record<string, unknown>) {
 function toolResultDetail(data: Record<string, unknown>) {
   const result = recordValue(data.result);
   const resultData = recordValue(result.data);
+  const versionInfo = recordValue(data.version_info) ?? recordValue(result.version_info);
   const summary =
     stringValue(data.summary) ??
     stringValue(result.summary) ??
     stringValue(resultData.summary) ??
     stringValue(result.message);
   const hits = Array.isArray(resultData.hits) ? `${resultData.hits.length} 条命中` : null;
+  const featureIds = intArrayValue(versionInfo.feature_ids);
+  const repo = codeRepoLabel(versionInfo);
   const warnings = Array.isArray(data.warnings)
     ? data.warnings.filter((item): item is string => typeof item === "string")
     : [];
   const parts = [
     summary,
+    scopeSourceLabel(stringValue(versionInfo.scope_source)),
+    featureIds.length > 0 ? `特性 ${featureIds.join(", ")}` : null,
+    repo,
     hits,
     warnings.length > 0 ? `提醒 ${warnings.length} 条` : null,
     data.truncated === true ? "结果已截断" : null,
@@ -423,6 +431,31 @@ function stringValue(value: unknown) {
 
 function intValue(value: unknown) {
   return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function intArrayValue(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is number => Number.isInteger(item))
+    : [];
+}
+
+function scopeSourceLabel(value: string | null) {
+  if (value === "feature_scope") {
+    return "特性范围";
+  }
+  if (value === "explicit_user_repo") {
+    return "用户显式仓库";
+  }
+  return value;
+}
+
+function codeRepoLabel(versionInfo: Record<string, unknown>) {
+  const repoName = stringValue(versionInfo.repo_name);
+  const repoId = stringValue(versionInfo.repo_id);
+  if (repoName && repoId) {
+    return `${repoName}(${repoId})`;
+  }
+  return repoName ?? repoId;
 }
 
 function compactJson(value: unknown) {

@@ -170,7 +170,7 @@ LLM config UI:
   - "set default"
 - API create/update payloads do not send hidden runtime fields.
 - Backend defaults:
-  - `max_tokens = 200 * 1024`
+  - `max_tokens = 8192`
   - `temperature = 0.2`
 - RPM and quota are retained only as compatibility fields and are ignored by current runtime selection.
 - Provider failures are returned as call errors instead of being hidden behind quota/RPM scheduling.

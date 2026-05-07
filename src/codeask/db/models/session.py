@@ -89,6 +89,23 @@ class SessionTurn(Base, TimestampMixin):
     evidence: Mapped[Any | None] = mapped_column(JSON, nullable=True)
 
 
+class SessionConversationSummary(Base, TimestampMixin):
+    """Persistent compacted context for older turns in a session."""
+
+    __tablename__ = "session_conversation_summaries"
+
+    session_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    covered_turn_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    covered_turn_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    covered_trace_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class SessionAttachment(Base, TimestampMixin):
     """File attachment associated with a session."""
 

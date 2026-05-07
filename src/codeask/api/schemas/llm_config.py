@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from codeask.llm.types import ProviderProtocol
 
-DEFAULT_LLM_MAX_TOKENS = 200 * 1024
+DEFAULT_LLM_MAX_TOKENS = 8192
 DEFAULT_LLM_TEMPERATURE = 0.2
 
 

@@ -87,6 +87,12 @@ class RepoBindingIn(BaseModel):
 
 class MessageCreate(BaseModel):
     content: str = Field(..., min_length=1)
+    client_turn_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^turn_[A-Za-z0-9_-]+$",
+    )
     feature_ids: list[int] = Field(default_factory=_empty_feature_ids)
     repo_bindings: list[RepoBindingIn] = Field(default_factory=_empty_repo_bindings)
     force_code_investigation: bool = False

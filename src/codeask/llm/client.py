@@ -27,6 +27,12 @@ _ACompletion = Callable[..., Awaitable[object]]
 acompletion: _ACompletion = cast(_ACompletion, _raw_acompletion)
 
 
+def _with_provider_hint(provider: str, model_name: str) -> str:
+    if "/" in model_name:
+        return model_name
+    return f"{provider}/{model_name}"
+
+
 def _normalize_stop_reason(reason: str | None) -> StopReason:
     if reason is None:
         return "unknown"
@@ -261,16 +267,16 @@ class _BaseClient:
 class OpenAIClient(_BaseClient):
     _provider_name = "openai"
 
-
-class OpenAICompatibleClient(_BaseClient):
-    _provider_name = "openai_compatible"
-
     def _model(self) -> str:
-        return f"openai/{self._model_name}"
+        return _with_provider_hint("openai", self._model_name)
+
+
+class OpenAICompatibleClient(OpenAIClient):
+    _provider_name = "openai_compatible"
 
 
 class AnthropicClient(_BaseClient):
     _provider_name = "anthropic"
 
     def _model(self) -> str:
-        return f"anthropic/{self._model_name}"
+        return _with_provider_hint("anthropic", self._model_name)

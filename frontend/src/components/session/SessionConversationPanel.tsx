@@ -21,6 +21,7 @@ interface SessionConversationPanelProps {
   forceCodeInvestigation: boolean;
   isStreaming: boolean;
   messages: ConversationMessage[];
+  onCancelMessage: () => void;
   onCopySessionId: () => void;
   onDraftChange: (value: string) => void;
   onFeedback: (payload: {
@@ -50,6 +51,7 @@ export function SessionConversationPanel({
   forceCodeInvestigation,
   isStreaming,
   messages,
+  onCancelMessage,
   onCopySessionId,
   onDraftChange,
   onFeedback,
@@ -105,6 +107,7 @@ export function SessionConversationPanel({
         onDraftChange={onDraftChange}
         onForceCodeInvestigationChange={onForceCodeInvestigationChange}
         onOpenReportDialog={onOpenReportDialog}
+        onCancelMessage={onCancelMessage}
         onSendMessage={onSendMessage}
         onUploadFile={onUploadFile}
         reportPending={reportPending}

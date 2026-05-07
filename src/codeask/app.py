@@ -12,9 +12,13 @@ import structlog
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
 
-from codeask.agent.chat_runtime.retrieval import LightweightRetrievalService
+from codeask.agent.chat_runtime.retrieval import DatabaseRetrievalService
 from codeask.agent.chat_runtime.runtime import ChatRuntime, GatewayStreamingLLM
 from codeask.agent.chat_runtime.tool_registry import ToolRegistry as ChatToolRegistry
+from codeask.agent.chat_runtime.tools.attachments import register_attachment_tools
+from codeask.agent.chat_runtime.tools.live_code import register_live_code_tools
+from codeask.agent.chat_runtime.tools.reports import register_report_tools
+from codeask.agent.chat_runtime.tools.wiki import register_wiki_tools
 from codeask.agent.code_tools import AgentCodeSearchService
 from codeask.agent.orchestrator import AgentOrchestrator
 from codeask.agent.tools import ToolRegistry
@@ -96,10 +100,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             wiki_search_service=agent_wiki_search,
             code_search_service=agent_code_search,
         )
+        chat_tool_registry = ChatToolRegistry()
+        register_wiki_tools(
+            chat_tool_registry,
+            session_factory=factory,
+        )
+        register_report_tools(
+            chat_tool_registry,
+            session_factory=factory,
+        )
+        register_attachment_tools(
+            chat_tool_registry,
+            session_factory=factory,
+        )
+        register_live_code_tools(
+            chat_tool_registry,
+            session_factory=factory,
+            worktree_manager=worktree_manager,
+        )
         chat_runtime = ChatRuntime(
             llm=GatewayStreamingLLM(llm_gateway),
-            tool_registry=ChatToolRegistry(),
-            retrieval_service=LightweightRetrievalService(),
+            tool_registry=chat_tool_registry,
+            retrieval_service=DatabaseRetrievalService(factory),
         )
         cleanup_job = build_cleanup_job(worktree_manager, repo_root)
         scheduler.add_job(
@@ -135,6 +157,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.crypto = crypto
         app.state.llm_config_repo = llm_config_repo
         app.state.llm_gateway = llm_gateway
+        app.state.trace_logger = trace_logger
         app.state.tool_registry = tool_registry
         app.state.agent_orchestrator = agent_orchestrator
         app.state.chat_runtime = chat_runtime

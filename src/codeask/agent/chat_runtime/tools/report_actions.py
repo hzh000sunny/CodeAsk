@@ -38,6 +38,7 @@ def register_report_action_tools(registry: ToolRegistry) -> None:
             read_only=True,
             concurrency_safe=False,
             requires_confirmation=False,
+            max_result_size_chars=4_000,
         ),
         propose_report,
     )

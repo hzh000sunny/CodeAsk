@@ -1,7 +1,7 @@
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import { useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 
-import { createSession } from "../../lib/api";
+import { abortSessionTurn, createSession } from "../../lib/api";
 import { streamSessionMessage } from "../../lib/sse";
 import type { SessionResponse } from "../../types/api";
 import {
@@ -54,6 +54,50 @@ export function useSessionMessageStream({
   setStages: Dispatch<SetStateAction<RuntimeStage[]>>;
   showActionNotice: (message: string) => void;
 }) {
+  const activeStreamRef = useRef<{
+    abortController: AbortController;
+    assistantMessageId: string;
+    liveTurnId: string;
+    serverTurnId?: string;
+    sessionId: string;
+    userMessageId: string;
+  } | null>(null);
+
+  async function rollbackActiveStream() {
+    const active = activeStreamRef.current;
+    if (!active) {
+      return;
+    }
+    setMessages((current) =>
+      current.filter(
+        (message) =>
+          message.id !== active.userMessageId &&
+          message.id !== active.assistantMessageId,
+      ),
+    );
+    setInsights((current) =>
+      current.filter((insight) => insight.turnId !== active.liveTurnId),
+    );
+    setStages(createInitialStages());
+    if (active.serverTurnId) {
+      await abortSessionTurn(active.sessionId, active.serverTurnId);
+    }
+    void queryClient.invalidateQueries({
+      queryKey: sessionTurnsQueryKey(active.sessionId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: sessionTracesQueryKey(active.sessionId),
+    });
+  }
+
+  function cancelMessage() {
+    if (!activeStreamRef.current) {
+      return;
+    }
+    showActionNotice("已停止生成");
+    activeStreamRef.current.abortController.abort();
+  }
+
   async function sendMessage() {
     const content = draft.trim();
     if (!content || isStreaming) {
@@ -74,9 +118,19 @@ export function useSessionMessageStream({
 
     const userMessageId = `msg_user_${Date.now()}`;
     const assistantMessageId = `msg_assistant_${Date.now()}`;
+    const liveTurnId = `live_${assistantMessageId}`;
+    const clientTurnId = createClientTurnId();
+    const abortController = new AbortController();
+    activeStreamRef.current = {
+      abortController,
+      assistantMessageId,
+      liveTurnId,
+      serverTurnId: clientTurnId,
+      sessionId: target.id,
+      userMessageId,
+    };
     setDraft("");
     setStages(createInitialStages());
-    setInsights([]);
     setDetectedFeatureIds([]);
     setIsStreaming(true);
     messagesSessionIdRef.current = target.id;
@@ -95,12 +149,29 @@ export function useSessionMessageStream({
       await streamSessionMessage({
         sessionId: target.id,
         content,
+        client_turn_id: clientTurnId,
         force_code_investigation: forceCodeInvestigation,
+        signal: abortController.signal,
+        onTurnId: (turnId) => {
+          if (activeStreamRef.current?.liveTurnId === liveTurnId) {
+            activeStreamRef.current = {
+              ...activeStreamRef.current,
+              serverTurnId: turnId,
+            };
+          }
+        },
         onEvent: (event) => {
           setStages((current) => reduceStages(current, event));
           const insight = runtimeInsightFromEvent(event);
           if (insight) {
-            setInsights((current) => [...current, insight]);
+            setInsights((current) => [
+              ...current,
+              {
+                ...insight,
+                occurredAt: new Date().toISOString(),
+                turnId: liveTurnId,
+              },
+            ]);
           }
           if (event.type === "scope_detection") {
             const ids = featureIdsFromEvent(event.data);
@@ -137,6 +208,9 @@ export function useSessionMessageStream({
             );
           }
           if (event.type === "error") {
+            showActionNotice(
+              `Agent 运行失败：${String(event.data.message ?? "未知错误")}`,
+            );
             setMessages((current) =>
               current.map((message) =>
                 message.id === assistantMessageId
@@ -154,6 +228,15 @@ export function useSessionMessageStream({
               typeof event.data.turn_id === "string"
                 ? event.data.turn_id
                 : null;
+            if (turnId) {
+              setInsights((current) =>
+                current.map((insight) =>
+                  insight.turnId === liveTurnId
+                    ? { ...insight, turnId }
+                    : insight,
+                ),
+              );
+            }
             setMessages((current) =>
               current.map((message) =>
                 message.id === assistantMessageId
@@ -175,6 +258,15 @@ export function useSessionMessageStream({
         queryKey: sessionTracesQueryKey(target.id),
       });
     } catch (error) {
+      if (isAbortError(error)) {
+        try {
+          await rollbackActiveStream();
+          showActionNotice("已停止生成");
+        } catch (rollbackError) {
+          showActionNotice(`停止生成失败：${messageFromError(rollbackError)}`);
+        }
+        return;
+      }
       setMessages((current) =>
         current.map((message) =>
           message.id === assistantMessageId
@@ -182,6 +274,7 @@ export function useSessionMessageStream({
             : message,
         ),
       );
+      showActionNotice(`会话请求失败：${messageFromError(error)}`);
       setStages((current) =>
         current.map((stage) =>
           stage.status === "active" ? { ...stage, status: "error" } : stage,
@@ -189,8 +282,21 @@ export function useSessionMessageStream({
       );
     } finally {
       setIsStreaming(false);
+      activeStreamRef.current = null;
     }
   }
 
-  return { sendMessage };
+  return { cancelMessage, sendMessage };
+}
+
+function isAbortError(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function createClientTurnId() {
+  const suffix = Math.random().toString(36).slice(2, 10);
+  return `turn_client_${Date.now()}_${suffix}`;
 }

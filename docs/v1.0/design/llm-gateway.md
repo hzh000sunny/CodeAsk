@@ -13,6 +13,7 @@ LLM 网关隔离模型供应商差异，为 Agent 提供统一流式接口和工
 - 工具调用、流式 token、stop reason、usage 都归一化。
 - 供应商差异只存在于 `codeask.llm` 包内部。
 - 轨迹日志可以保留供应商原始事件，但业务逻辑不得依赖原始事件。
+- `protocol` 表示消息接口协议，不表示 LiteLLM 或任何第三方 SDK 的 provider 名称。OpenAI 协议配置中的 `base_url` 和 `model_name` 必须按用户配置原样保存，不要求用户填写 `openai/...` 这类实现层前缀。生产调用统一通过 LiteLLM；当 LiteLLM 需要 provider hint 时，由 `codeask.llm` 在内部调用参数中补齐，不改变数据库和页面配置值。历史兼容字段 `openai_compatible` 也遵循同一条规则。
 
 ## 2. 接口
 
@@ -164,11 +165,12 @@ Agent 只处理 CodeAsk 内部 `tool_call_id`。适配器负责把供应商 tool
 
 OpenAI 适配器负责：
 
-- 调用 Chat Completions 或 Responses API 的具体实现，实施阶段按 SDK 稳定性选择。
+- 通过 LiteLLM 调用 OpenAI 消息协议。
 - 把 CodeAsk `ToolDef` 转为 OpenAI tool schema。
-- 把 OpenAI streaming delta 转成 `LLMEvent`。
+- 把 LiteLLM streaming chunk 转成 `LLMEvent`。
 - 把 OpenAI tool calls 转成内部 `tool_call_*` 事件。
 - 把内部 `tool_result` 转成供应商要求的工具结果消息。
+- `model_name` 在配置中保持用户输入值；传给 LiteLLM 时如果没有 provider hint，内部转换为 `openai/{model_name}`。`base_url` 原样传给 LiteLLM。
 
 ### 6.2 Anthropic
 
@@ -188,6 +190,8 @@ OpenAI-compatible 适配器用于私有部署模型服务。它复用 OpenAI 适
 - 自定义认证头。
 - 关闭或降级部分不兼容能力。
 - 标记是否支持原生工具调用。
+
+`openai_compatible` 是历史兼容入口，不是当前 UI 暴露的独立协议。它和 `openai` 一样使用 OpenAI 消息协议，并通过 LiteLLM 发送；`model_name` 在配置中保持用户输入值，内部调用 LiteLLM 时按需补 `openai/` provider hint。
 
 如果私有模型不支持工具调用，实施阶段需要明确降级策略：要么拒绝作为 Agent 模型使用，要么由网关做 JSON tool-call 兼容解析。默认推荐拒绝，避免 Agent 行为不稳定。
 
@@ -213,7 +217,7 @@ LLM 配置存 SQLite：
 - base_url
 - api_key_encrypted
 - model_name
-- max_tokens（API 默认 `200 * 1024`；配置页不展示）
+- max_tokens（模型输出 token 上限，API 默认 `8192`；配置页不展示）
 - temperature（API 默认 `0.2`；配置页不展示）
 - enabled
 - is_default（历史兼容字段；新 workbench 不提供设为默认操作）
@@ -251,7 +255,7 @@ API Key 使用 Fernet 加密，master key 来自 `CODEASK_DATA_KEY`（与 `deplo
   "supports_tools": true,
   "supports_streaming": true,
   "supports_usage": true,
-  "max_context_tokens": 200000
+  "max_context_chars": 200000
 }
 ```
 

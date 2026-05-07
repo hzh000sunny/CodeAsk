@@ -5,9 +5,7 @@ export class ApiError extends Error {
   detail: unknown;
 
   constructor(status: number, detail: unknown) {
-    super(
-      typeof detail === "string" ? detail : `API request failed with ${status}`,
-    );
+    super(apiErrorMessage(status, detail));
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
@@ -56,4 +54,17 @@ async function readResponse(response: Response) {
     return response.json();
   }
   return response.text();
+}
+
+function apiErrorMessage(status: number, detail: unknown) {
+  if (typeof detail === "string") {
+    return detail.trim() || `API request failed with ${status}`;
+  }
+  if (typeof detail === "object" && detail !== null && "detail" in detail) {
+    const nested = (detail as { detail?: unknown }).detail;
+    if (typeof nested === "string" && nested.trim()) {
+      return nested;
+    }
+  }
+  return `API request failed with ${status}`;
 }

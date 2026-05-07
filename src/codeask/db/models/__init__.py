@@ -9,6 +9,16 @@ from codeask.db.models.feedback import Feedback
 from codeask.db.models.frontend_event import FrontendEvent
 from codeask.db.models.llm import LLMConfig
 from codeask.db.models.report import Report
+from codeask.db.models.session import (
+    Session,
+    SessionAttachment,
+    SessionConversationSummary,
+    SessionFeature,
+    SessionRepoBinding,
+    SessionTurn,
+)
+from codeask.db.models.skill import Skill
+from codeask.db.models.system_settings import SystemSetting
 from codeask.db.models.wiki import (
     WikiAsset,
     WikiDocument,
@@ -24,15 +34,6 @@ from codeask.db.models.wiki import (
     WikiSource,
     WikiSpace,
 )
-from codeask.db.models.session import (
-    Session,
-    SessionAttachment,
-    SessionFeature,
-    SessionRepoBinding,
-    SessionTurn,
-)
-from codeask.db.models.skill import Skill
-from codeask.db.models.system_settings import SystemSetting
 
 __all__ = [
     "AgentTrace",
@@ -62,6 +63,7 @@ __all__ = [
     "WikiSpace",
     "Session",
     "SessionAttachment",
+    "SessionConversationSummary",
     "SessionFeature",
     "SessionRepoBinding",
     "SessionTurn",

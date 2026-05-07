@@ -69,6 +69,7 @@ def register_policy_tools(
             read_only=True,
             concurrency_safe=True,
             requires_confirmation=False,
+            max_result_size_chars=10_000,
         ),
         load_analysis_policy,
     )

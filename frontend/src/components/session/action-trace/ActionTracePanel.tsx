@@ -11,7 +11,7 @@ interface ActionTracePanelProps {
 }
 
 export function ActionTracePanel({ events, isStreaming }: ActionTracePanelProps) {
-  const scrollRef = useRef<HTMLUListElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const latestEvent = events.at(-1);
@@ -35,18 +35,91 @@ export function ActionTracePanel({ events, isStreaming }: ActionTracePanelProps)
           <p>发送问题后，这里会展示模型实际使用的上下文和工具动作。</p>
         </div>
       ) : (
-        <ul className="action-trace-list action-trace-scroll" ref={scrollRef}>
-          {events.map((event) => (
-            <li
-              data-action-trace-id={event.id}
-              data-kind={event.kind}
-              key={event.id}
+        <div className="action-trace-list action-trace-scroll" ref={scrollRef}>
+          {groupActionTraceEvents(events).map((group, index, groups) => (
+            <details
+              className="action-trace-turn"
+              key={group.id}
+              open={index === groups.length - 1}
             >
-              <ActionTraceEvent event={event} />
-            </li>
+              <summary className="action-trace-turn-heading">
+                <span>{group.label}</span>
+                <small>{group.summary}</small>
+              </summary>
+              <ul className="action-trace-turn-list">
+                {group.events.map((event) => (
+                  <li
+                    data-action-trace-id={event.id}
+                    data-kind={event.kind}
+                    key={event.id}
+                  >
+                    <ActionTraceEvent event={event} />
+                  </li>
+                ))}
+              </ul>
+            </details>
           ))}
-        </ul>
+        </div>
       )}
     </section>
   );
+}
+
+function groupActionTraceEvents(events: ActionTraceEventModel[]) {
+  const groups: Array<{
+    id: string;
+    events: ActionTraceEventModel[];
+    label: string;
+    summary: string;
+  }> = [];
+  const groupIndexById = new Map<string, number>();
+
+  for (const event of events) {
+    const groupId = event.turnId ?? "unassigned";
+    let groupIndex = groupIndexById.get(groupId);
+    if (groupIndex === undefined) {
+      groupIndex = groups.length;
+      groupIndexById.set(groupId, groupIndex);
+      groups.push({
+        id: groupId,
+        events: [],
+        label: groupId.startsWith("live_") ? "本轮" : `第 ${groupIndex + 1} 轮`,
+        summary: "",
+      });
+    }
+    groups[groupIndex].events.push(event);
+  }
+
+  return groups.map((group) => {
+    const toolCount = group.events.filter((event) =>
+      ["tool_call", "tool_result"].includes(String(event.kind)),
+    ).length;
+    const errorCount = group.events.filter(
+      (event) => event.status === "error" || event.kind === "error",
+    ).length;
+    const evidenceCount = group.events.filter(
+      (event) =>
+        event.kind === "evidence" || (event.evidenceRefs?.length ?? 0) > 0,
+    ).length;
+    const warningCount = group.events.filter((event) => {
+      const warnings = event.data?.warnings;
+      return Array.isArray(warnings) && warnings.length > 0;
+    }).length;
+    const codeReadCount = group.events.filter(
+      (event) => event.data?.tool_name === "read_code_file",
+    ).length;
+    return {
+      ...group,
+      summary: [
+        `${group.events.length} 个动作`,
+        toolCount ? `${toolCount} 个工具事件` : null,
+        evidenceCount ? `${evidenceCount} 条证据` : null,
+        codeReadCount ? `${codeReadCount} 次代码读取` : null,
+        warningCount ? `${warningCount} 条提醒` : null,
+        errorCount ? `${errorCount} 个失败` : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    };
+  });
 }

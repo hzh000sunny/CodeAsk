@@ -22,7 +22,7 @@ async def test_create_llm_config_uses_runtime_defaults(client: AsyncClient) -> N
     assert created.status_code == 201, created.text
     body = created.json()
     assert body["protocol"] == "anthropic"
-    assert body["max_tokens"] == 200 * 1024
+    assert body["max_tokens"] == 8192
     assert body["temperature"] == 0.2
     assert body["is_default"] is False
     assert body["rpm_limit"] is None

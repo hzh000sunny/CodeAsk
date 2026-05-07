@@ -5,7 +5,7 @@ import pytest
 from evals.run import run_suite
 
 
-@pytest.mark.parametrize("suite", ["scope_detection", "sufficiency", "answer_quality"])
+@pytest.mark.parametrize("suite", ["scope_detection", "sufficiency", "answer_quality", "basic_qa"])
 def test_suite_runs_and_passes_stub(suite: str) -> None:
     report = run_suite(suite)
 

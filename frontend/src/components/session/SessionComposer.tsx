@@ -1,5 +1,5 @@
-import type { RefObject } from "react";
-import { FileText, FileUp, SendHorizontal } from "lucide-react";
+import { useState, type KeyboardEvent, type RefObject } from "react";
+import { FileText, FileUp, SendHorizontal, Square } from "lucide-react";
 
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
@@ -12,6 +12,7 @@ export function SessionComposer({
   isStreaming,
   onDraftChange,
   onForceCodeInvestigationChange,
+  onCancelMessage,
   onOpenReportDialog,
   onSendMessage,
   onUploadFile,
@@ -26,6 +27,7 @@ export function SessionComposer({
   isStreaming: boolean;
   onDraftChange: (value: string) => void;
   onForceCodeInvestigationChange: (checked: boolean) => void;
+  onCancelMessage: () => void;
   onOpenReportDialog: () => void;
   onSendMessage: () => void;
   onUploadFile: (file: File | undefined) => void;
@@ -33,11 +35,44 @@ export function SessionComposer({
   selected: boolean;
   uploadStatus: string;
 }) {
+  const [isComposing, setIsComposing] = useState(false);
+
+  function insertNewline(event: KeyboardEvent<HTMLTextAreaElement>) {
+    const target = event.currentTarget;
+    const start = target.selectionStart ?? draft.length;
+    const end = target.selectionEnd ?? draft.length;
+    const nextDraft = `${draft.slice(0, start)}\n${draft.slice(end)}`;
+    onDraftChange(nextDraft);
+    window.requestAnimationFrame(() => {
+      target.setSelectionRange(start + 1, start + 1);
+    });
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter") {
+      return;
+    }
+    if (isComposing || event.nativeEvent.isComposing) {
+      return;
+    }
+    event.preventDefault();
+    if (event.shiftKey || event.ctrlKey) {
+      insertNewline(event);
+      return;
+    }
+    if (draft.trim() && !isStreaming) {
+      onSendMessage();
+    }
+  }
+
   return (
     <div className="composer" role="region" aria-label="会话输入操作区">
       <Textarea
         aria-label="会话输入"
+        onCompositionEnd={() => setIsComposing(false)}
+        onCompositionStart={() => setIsComposing(true)}
         onChange={(event) => onDraftChange(event.target.value)}
+        onKeyDown={handleKeyDown}
         placeholder="描述你遇到的问题，或粘贴关键日志片段"
         value={draft}
       />
@@ -81,13 +116,13 @@ export function SessionComposer({
           生成报告
         </Button>
         <Button
-          disabled={!draft.trim() || isStreaming}
-          icon={<SendHorizontal size={16} />}
-          onClick={onSendMessage}
+          disabled={!isStreaming && !draft.trim()}
+          icon={isStreaming ? <Square size={15} /> : <SendHorizontal size={16} />}
+          onClick={isStreaming ? onCancelMessage : onSendMessage}
           type="button"
-          variant="primary"
+          variant={isStreaming ? "secondary" : "primary"}
         >
-          {isStreaming ? "发送中" : "发送"}
+          {isStreaming ? "停止" : "发送"}
         </Button>
       </div>
     </div>

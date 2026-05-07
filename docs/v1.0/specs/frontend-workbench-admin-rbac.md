@@ -88,7 +88,7 @@ Each config has:
 | `owner_subject_id` | required for user configs, null for global configs |
 | `enabled` | whether this config can be selected by the runtime |
 | `protocol` | message protocol adapter. Current workbench dropdown exposes `openai` and `anthropic` only |
-| `max_tokens` | backend default is `200 * 1024`; hidden from the workbench configuration UI |
+| `max_tokens` | backend default is `8192`; hidden from the workbench configuration UI |
 | `temperature` | backend default is `0.2`; hidden from the workbench configuration UI |
 | `is_default` | legacy compatibility field only; the new workbench does not expose a "set default" operation |
 | `rpm_limit` | retained for future scheduling, hidden from the current UI and ignored by current runtime selection |

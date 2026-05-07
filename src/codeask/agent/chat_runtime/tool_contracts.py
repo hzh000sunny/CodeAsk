@@ -20,6 +20,7 @@ class ToolErrorType(StrEnum):
     NOT_FOUND = "not_found"
     OUT_OF_SCOPE = "out_of_scope"
     PERMISSION_DENIED = "permission_denied"
+    NEEDS_FEATURE_SCOPE = "needs_feature_scope"
     NEEDS_CLARIFICATION = "needs_clarification"
     VERSION_UNKNOWN = "version_unknown"
     TOO_LARGE = "too_large"
@@ -71,6 +72,7 @@ class ToolResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     truncated: bool = False
     raw_result_ref: str | None = None
+    audit_raw_result: dict[str, Any] | None = Field(default=None, exclude=True)
     version_info: dict[str, Any] | None = None
     error_type: ToolErrorType | None = None
     message: str | None = None

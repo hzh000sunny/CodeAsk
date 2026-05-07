@@ -1,5 +1,8 @@
 import type { AgentEvent } from "../../types/sse";
-import { actionTraceFromAgentEvent } from "./action-trace/action-trace-model";
+import {
+  actionTraceFromAgentEvent,
+  type ActionTraceEvent,
+} from "./action-trace/action-trace-model";
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -18,13 +21,7 @@ export interface RuntimeStage {
   status: "pending" | "active" | "done" | "error";
 }
 
-export interface RuntimeInsight {
-  id: string;
-  kind: string;
-  title: string;
-  detail: string;
-  detailMarkdown?: string;
-}
+export interface RuntimeInsight extends ActionTraceEvent {}
 
 const STAGE_LABELS: Record<string, string> = {
   input_analysis: "输入分析",

@@ -1636,7 +1636,7 @@ textarea:focus-visible {
 
 .action-trace-list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   margin: 12px 0 0;
   padding: 0;
   list-style: none;
@@ -1646,6 +1646,48 @@ textarea:focus-visible {
   min-height: 0;
   overflow: auto;
   padding-right: 4px;
+}
+
+.action-trace-turn {
+  display: grid;
+  gap: 8px;
+}
+
+.action-trace-turn-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid #edf1f5;
+  cursor: pointer;
+  padding: 0 2px 6px;
+}
+
+.action-trace-turn-heading::-webkit-details-marker {
+  display: none;
+}
+
+.action-trace-turn-heading span {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.action-trace-turn-heading small {
+  min-width: 0;
+  overflow: hidden;
+  color: #667085;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-trace-turn-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .action-trace-card {
@@ -1812,6 +1854,39 @@ textarea:focus-visible {
 
 .action-trace-markdown .markdown-body {
   font-size: 13px;
+}
+
+.action-trace-detail-grid {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.action-trace-detail-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  border: 1px solid #edf1f5;
+  border-radius: 7px;
+  background: #fbfcfe;
+  padding: 7px 8px;
+}
+
+.action-trace-detail-row dt {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.action-trace-detail-row dd {
+  margin: 0;
+  color: #182230;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .action-trace-evidence-list {
@@ -2329,6 +2404,10 @@ textarea:focus-visible {
   padding: 0 12px;
   font-weight: 650;
   cursor: pointer;
+}
+
+.action-trace-turn-heading::-webkit-details-marker {
+  display: none;
 }
 
 .file-button:hover {

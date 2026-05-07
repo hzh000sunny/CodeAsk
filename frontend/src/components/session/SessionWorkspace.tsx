@@ -91,21 +91,28 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
       rememberSession(session);
     },
   });
+  function resetActiveSessionState() {
+    setSelectedId(null);
+    setMessages([]);
+    messagesSessionIdRef.current = null;
+    appliedHistoryKeyRef.current = null;
+    setInsights([]);
+    setStages(createInitialStages());
+    setDetectedFeatureIds([]);
+  }
+
   const deleteMutation = useMutation({
     mutationFn: (sessionId: string) => deleteSession(sessionId),
     onSuccess: (_unused, sessionId) => {
+      const activeSessionId = selected?.id ?? selectedId;
       setDeletedSessionIds((current) => [...new Set([...current, sessionId])]);
       setLocalSessions((current) =>
         current.filter((session) => session.id !== sessionId),
       );
       setDeleteCandidate(null);
       setDeleteError("");
-      if (selectedId === sessionId) {
-        setSelectedId(null);
-        setMessages([]);
-        messagesSessionIdRef.current = null;
-        setInsights([]);
-        setStages(createInitialStages());
+      if (activeSessionId === sessionId) {
+        resetActiveSessionState();
       }
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
     },
@@ -129,18 +136,15 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
   const bulkDeleteMutation = useMutation({
     mutationFn: bulkDeleteSessions,
     onSuccess: (payload) => {
+      const activeSessionId = selected?.id ?? selectedId;
       setDeletedSessionIds((current) => [
         ...new Set([...current, ...payload.deleted_ids]),
       ]);
       setLocalSessions((current) =>
         current.filter((session) => !payload.deleted_ids.includes(session.id)),
       );
-      if (selectedId && payload.deleted_ids.includes(selectedId)) {
-        setSelectedId(null);
-        setMessages([]);
-        messagesSessionIdRef.current = null;
-        setInsights([]);
-        setStages(createInitialStages());
+      if (activeSessionId && payload.deleted_ids.includes(activeSessionId)) {
+        resetActiveSessionState();
       }
       setBulkSelectedIds([]);
       setBulkMode(false);
@@ -272,7 +276,7 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
     selectedSessionId,
     showActionNotice,
   });
-  const { sendMessage } = useSessionMessageStream({
+  const { cancelMessage, sendMessage } = useSessionMessageStream({
     draft,
     forceCodeInvestigation,
     isStreaming,
@@ -399,6 +403,7 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
           }
         }}
         onOpenReportDialog={openReportDialog}
+        onCancelMessage={cancelMessage}
         onSendMessage={() => void sendMessage()}
         onUnsupportedAction={showActionNotice}
         onUploadFile={(file) => void uploadLog(file)}

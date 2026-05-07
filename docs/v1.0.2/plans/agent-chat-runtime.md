@@ -8,6 +8,8 @@
 
 **技术栈：** Python 3.11+, FastAPI, SQLAlchemy async, Pydantic, pytest, uv, React, TypeScript, Vite, SSE。
 
+**验收基线：** E2E 端到端测试是每个开发验收阶段的基本要求。涉及默认会话、Agent 工具、登录权限、刷新恢复或源码仓库检索的改动，必须在验收清单中记录对应浏览器 E2E 或 live E2E 通道、运行方式和执行结果。Agent runtime 改动还必须使用 spy LLM 断言实际发给模型的 `messages`，不能用前端历史展示或数据库 turns 替代模型上下文验收。项目级规则见 `../../DEVELOPMENT_ACCEPTANCE.md`。
+
 ---
 
 ## 当前实施状态
@@ -17,7 +19,18 @@
 - 任务 1-8 已完成：`chat_runtime` 基础模型、上下文、prompt、轻量召回、工具注册、工具执行器和第一批工具模块已落地并有单元测试。
 - 任务 9 已完成：默认会话发送接口已切换到 `ChatRuntime`，旧 `AgentOrchestrator` 保留为 legacy 兼容。
 - 任务 10 已完成：前端固定“调查进度”已替换为 `Agent 行动轨迹`，新增 `frontend/src/components/session/action-trace/` 组件模块。
-- 任务 11 进行中：PRD、系统设计、验收清单和 v1.0 历史设计标注已补齐；剩余工作是最终回归验证和提交。
+- 任务 11 已完成：PRD、系统设计、验收清单和 v1.0 历史设计标注已补齐，已完成回归验证。
+- 追加修复已完成：生产默认 `ChatToolRegistry` 接入只读代码工具，runtime 工具调用事件持久化为 `agent_traces`，达到工具轮次上限时改为关闭工具并生成最终回答。
+- 已用前端真实 LLM 会话验证 `references/claude-code/claude-code` 和 `references/anything-llm` 两个源码仓库。
+- 已新增基础问答评测库 `evals/basic_qa/cases/seed_001.jsonl`，覆盖 10 类 30 个通用模型能力问题。该评测只统计模型是否主动触发 Wiki/代码工具，允许不超过 10% 的少量偏差，不在运行时代码中加入关键字拦截或强制禁止工具。
+- 已用管理员账号和真实 GLM-5.1 配置，在同一个会话 `sess_edf3fda647d77a83` 完成 30 题实测：工具触发偏差 0、错误 0。
+- 已将 AnythingLLM 的 RAG 上传资料处理链路和 Claude Code 的长上下文压缩机制纳入 v1.0.2 设计，形成 `specs/rag-context-budget-lessons.md`。
+- 已修复单个工具结果预算：超大 `ToolResult` 进入模型前会真实裁剪，避免再次出现 input length 超限。
+- 已实现第一版 `compaction.py`：每轮调用模型前估算 active context，超过阈值才压缩旧工具结果；供应商返回 input length / prompt too long / context length 错误时，执行一次更严格的 reactive compact retry。
+- 已修复连续会话后端上下文装配缺陷：同一会话第二轮追问时，模型会看到上一轮 user / assistant / tool action summary。该修复已有 API + spy LLM 测试覆盖，并已新增 `frontend/e2e/agent-conversation-continuity-live.spec.ts` 作为连续追问 live E2E 通道。
+- 已完成真实浏览器 + GLM-5.1 连续会话验收：会话 `sess_096f8685b5997d38` 覆盖第一轮代码工具查询、第二轮追问是否查询代码、刷新后第三轮继续追问。
+- 已补齐结构化 RAG 上下文注入：`retrieval_context` 每轮包含 `feature_catalog` 活跃特性目录和 `feature_knowledge_index` 特性知识索引，避免模型在没有直接命中特性名称时只能盲目搜索代码。
+- 已明确后续外部 RAG 服务替换边界：外部服务应实现 `RetrievalService.retrieve(...)` 等价输出，保持 `feature_catalog`、`feature_knowledge_index`、`feature_candidates`、`wiki_hits`、`report_hits`、`attachment_candidates`、`repo_candidates` 结构稳定。
 
 > 注意：本文保留原始 checklist 作为实施过程记录，已完成任务不逐条改写，以免丢失 TDD 执行轨迹。
 
@@ -30,6 +43,7 @@
 ```text
 src/codeask/agent/chat_runtime/
 ├── __init__.py
+├── compaction.py
 ├── context.py
 ├── events.py
 ├── loop.py
@@ -44,12 +58,15 @@ src/codeask/agent/chat_runtime/
     ├── __init__.py
     ├── attachments.py
     ├── code.py
+    ├── live_code.py
     ├── policies.py
     ├── reports.py
     ├── report_actions.py
     ├── user_interaction.py
     └── wiki.py
 ```
+
+说明：`compaction.py` 已完成 v1.0.2 第一版，负责 active context 估算、Claude Code 风格阈值、旧工具结果 micro-compact 和上下文超限后的 reactive compact retry。完整会话级 `conversation_summary`、历史 auto-compact 和手动 compact UI 仍是后续优化目标。
 
 后端修改：
 
@@ -65,6 +82,7 @@ src/codeask/app.py
 ```text
 tests/unit/chat_runtime/
 ├── test_context_assembler.py
+├── test_compaction.py
 ├── test_events.py
 ├── test_prompt.py
 ├── test_retrieval.py
@@ -82,6 +100,28 @@ tests/unit/chat_runtime/
 
 tests/integration/test_agent_chat_runtime.py
 tests/integration/test_agent_chat_runtime_sse.py
+tests/integration/test_basic_qa_baseline.py
+```
+
+评测新增：
+
+```text
+evals/basic_qa/
+├── __init__.py
+├── cases/seed_001.jsonl
+└── score.py
+```
+
+Live E2E 新增：
+
+```text
+frontend/e2e/basic-model-qa-live.spec.ts
+```
+
+规格新增：
+
+```text
+docs/v1.0.2/specs/rag-context-budget-lessons.md
 ```
 
 前端新增：
@@ -848,12 +888,14 @@ read_code_file
 代码范围解析优先级：
 
 ```text
-explicit session constraints
-candidate feature repo default ref
-global repo default ref
-registered local repo current checkout
-needs_clarification
+confirmed session features
+explicit user repo
+model-selected candidate features from Feature RAG Pack
+union of selected feature linked repos
+needs_feature_scope
 ```
+
+代码工具不得直接从全局 ready 仓库池模糊检索源码。全局仓库池只用于管理员配置、特性关联和用户显式仓库解析；默认 Agent 代码检索必须由模型先选择相关特性，后端再校验这些特性关联仓库。用户明确要求通过某个仓库查询时，该仓库可作为本轮显式代码范围。
 
 所有代码工具必须：
 
@@ -1193,6 +1235,506 @@ cd frontend && npm run build
 ```bash
 git add docs tests src frontend
 git commit -m "docs: document v1.0.2 agent runtime"
+```
+
+## 任务 12: 会话级 Auto Compact 与 Conversation Summary
+
+> 状态：已完成第一轮实现与自动化验证。剩余可选增强：详情字段复制入口、独立 abort API、partial tool result 的 aborted 审计状态。
+> 定位：这是 `compaction.py` 第一版之后的第二层上下文能力，不能和已完成的旧工具结果 micro-compact 混淆。第一版解决“单轮 active context 被累计工具结果打爆”；本任务解决“长会话长期运行后仍能保持语义连续”。
+
+**目标：** 参考 Claude Code 的 auto compact 机制，为 CodeAsk 增加持久化 `conversation_summary`、历史 auto-compact、summary + recent turns 的 active context builder、失败熔断和 live E2E 验收。
+
+**非目标：**
+
+- 不实现 Claude Code 级别 prompt cache editing。
+- 不实现手动 compact UI，除非单独确认。
+- 不删除原始 turns、traces、attachments 或工具审计结果。
+- 不用关键词规则强行改变模型是否调用 Wiki / 代码工具。
+
+**后端建议文件：**
+
+```text
+src/codeask/agent/chat_runtime/
+├── compaction.py              # 扩展会话级阈值和 auto compact 判定
+├── summary.py                 # conversation_summary 生成 prompt 和解析
+├── active_context.py          # summary + recent turns + retrieval + current user message
+└── context.py                 # 接入 summary 后的上下文装配
+
+src/codeask/sessions/
+└── summaries.py               # summary 持久化读写服务
+
+src/codeask/db/models/
+└── session_summary.py         # 如果不复用现有表，新增 summary model
+```
+
+**测试建议文件：**
+
+```text
+tests/unit/chat_runtime/test_summary.py
+tests/unit/chat_runtime/test_active_context.py
+tests/integration/test_agent_chat_runtime_compaction.py
+frontend/e2e/agent-long-context-live.spec.ts
+```
+
+- [ ] **步骤 1：设计并落地 summary 数据模型**
+
+最低字段：
+
+```text
+session_id
+summary_text
+covered_turn_start_index
+covered_turn_end_index
+covered_trace_ids
+evidence_refs
+tool_action_facts
+unresolved_questions
+repo_version_context
+created_at
+updated_at
+status
+```
+
+验收：
+
+- summary 只表示 active context 的压缩投影，不替代原始 turns 和 traces。
+- 删除会话时 summary 一起删除。
+- 刷新页面后后端能重新加载 summary。
+- summary 能标识覆盖了哪些 turns / traces，避免重复摘要或漏摘要。
+
+- [ ] **步骤 2：设计 summary prompt**
+
+摘要必须保留：
+
+```text
+当前用户目标
+已确认事实
+已上传附件
+已检索 Wiki / 报告 / 代码
+是否实际读取源码文件
+工具失败和失败原因
+证据来源
+仓库 / 分支 / commit 状态
+未解决问题
+用户偏好和约束
+事实 / 推断 / 未确认信息的边界
+```
+
+验收：
+
+- 不能把 `search_code` 误写成 `read_code_file`。
+- 不能把 0 命中写成已找到证据。
+- 不能把默认 HEAD 写成用户已确认版本。
+- 用户追问“刚刚是否查过代码”时，summary 中必须有足够信息回答。
+
+- [ ] **步骤 3：实现 active context builder**
+
+每轮模型输入应由以下内容构成：
+
+```text
+system prompt
++ conversation_summary（如果存在）
++ recent turns（默认最近 N 条）
++ 上一轮 tool action summary
++ retrieval_context 候选证据
++ current user message
+```
+
+验收：
+
+- 当前 user message 只出现一次。
+- summary 和 recent turns 的覆盖范围不能重复到造成大量上下文浪费。
+- 前端历史恢复不能作为模型上下文恢复的替代验收；必须用 spy LLM 断言实际 messages。
+
+- [ ] **步骤 4：实现 auto compact 触发策略**
+
+参考 Claude Code：
+
+```text
+每轮调用模型前估算 active context
+if size >= auto_compact_threshold:
+    生成或更新 conversation_summary
+    使用 summary + recent turns 重建 active context
+if provider prompt-too-long:
+    reactive compact once
+```
+
+验收：
+
+- 低于阈值不触发 summary。
+- 超过阈值触发 summary。
+- summary 后 active context 必须小于阈值。
+- 如果 summary 生成失败，不应无限重试。
+
+- [ ] **步骤 5：实现失败熔断**
+
+参考 Claude Code 的 consecutive failures 思路：
+
+```text
+MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3
+```
+
+验收：
+
+- 连续 compact 失败 3 次后停止自动重试。
+- 停止重试时给出明确错误，不继续消耗 LLM 调用。
+- 后续新 turn 可以根据状态决定是否再次尝试，而不是在同一轮死循环。
+
+- [ ] **步骤 6：补充自动化测试**
+
+必须覆盖：
+
+```text
+长历史触发 summary
+低于阈值不触发 summary
+summary 后继续问答
+summary 后追问上一轮工具行为
+summary 后区分 list_code_repos / search_code / read_code_file
+summary 后刷新继续问答
+provider prompt-too-long 后 reactive compact
+compact 失败熔断
+删除会话清理 summary
+```
+
+- [ ] **步骤 7：补充 live E2E**
+
+使用真实前端、真实后端、管理员账号和真实 LLM，至少覆盖：
+
+```text
+基础问答
+仓库检索
+源码读取
+追问是否查代码
+刷新继续追问
+长上下文触发 compact
+compact 后继续回答
+```
+
+建议用 `references/anything-llm` 和 `references/claude-code/claude-code` 作为参考仓库。
+
+- [ ] **步骤 8：更新文档**
+
+需要同步更新：
+
+```text
+docs/v1.0.2/design/agent-chat-runtime.md
+docs/v1.0.2/specs/rag-context-budget-lessons.md
+docs/v1.0.2/plans/acceptance-checklist.md
+docs/v1.0.2/README.md
+docs/DEVELOPMENT_ACCEPTANCE.md（如新增项目级验收规则）
+```
+
+## 任务 13: 代码检索工具通用能力增强与反特判约束
+
+> 状态：进行中。代码检索工具的一部分通用能力已落地，后续所有工具优化必须同步遵守 `design/agent-chat-runtime.md` 的“工具优化安全边界”和 `plans/acceptance-checklist.md` 的“工具优化质量门禁”。
+> 定位：提升模型主导代码检索的可靠性，但禁止在工具层加入业务语义特判。工具只提供通用观察能力、输入校验和结果治理；“查什么、如何扩展同义词、何时下结论”仍由模型基于 prompt 和上下文决定。
+
+**背景问题：**
+
+用户询问：
+
+```text
+claude code里面有实现tui界面的电子宠物功能吗
+```
+
+第一次模型用 `pet / tamagotchi / virtual pet / TUI component` 等关键词搜索 0 命中后，过早回答“没有实现”。用户纠正后，模型改用 `buddy / companion` 才找到 `src/buddy/CompanionSprite.tsx` 等实现。
+
+这暴露的问题不是要回到后端固定流程，而是：
+
+```text
+模型仍然决策
++ 工具提供更好的通用观察能力
++ prompt 提供更严格的检索策略和证据门槛
++ 测试验证不能仅凭 0 命中下强否定结论
+```
+
+**工具层反特判原则：**
+
+工具层只允许提供通用、可组合、可解释的能力；不得根据用户自然语言、仓库名称、领域词或测试样例做业务语义映射。
+
+这条原则不只适用于代码检索。后续 Wiki、报告、附件、外部 RAG adapter、会话行动轨迹和上下文压缩相关优化，都必须遵守同一条边界：
+
+```text
+工具只做执行质量、边界校验、结果结构化、预算控制、错误可解释。
+工具不做业务判断。
+```
+
+允许提升工具质量，但不能把模型该做的推理写进工具层。工具优化要解决的是“模型拿不到足够可执行事实”“错误不可恢复”“结果太大打爆上下文”“行动轨迹不可审计”等工程问题，不是通过后端硬编码把某个自然语言问题映射成固定证据。
+
+允许：
+
+```text
+inspect_repo_tree(repo, path, depth, limit)
+list_code_paths(repo, path_query, limit)
+search_code(mode=literal|regex|any_terms|all_terms)
+read_code_file 的路径校验
+query 为空、过短、过宽泛时返回 invalid_input
+搜索结果按文件聚合、去重、预算裁剪
+返回“结果已截断，建议缩小 query/path”的通用提示
+```
+
+禁止：
+
+```text
+if "电子宠物" in question: search("buddy")
+if query in ["pet", "tamagotchi"]: also_search("companion")
+if repo_name == "claude-code": return src/buddy/CompanionSprite.tsx
+if "sqlite" in question: read("server/prisma/schema.prisma")
+if "RAG" in question: search("contextTexts")
+为了某个测试样例返回固定路径
+工具根据用户自然语言自动补业务同义词
+工具绕过模型自行决定下一步调查路线
+```
+
+每次工具优化必须同时给出两类验收：
+
+- 正向验收：证明工具的通用执行质量确实提升，例如返回可执行引用、错误类型更清晰、结果受预算控制、0 命中后有通用恢复提示。
+- 反向验收：证明工具没有为测试样例、业务词、仓库名、路径名加入 hardcode，例如不能把 `电子宠物`、`sqlite`、`RAG`、`AnythingLLM` 直接映射成固定搜索词或固定文件。
+
+- [ ] **步骤 1：新增生产目录树工具**
+
+建议工具：
+
+```text
+inspect_repo_tree(repo_id|repo_name, path="", depth=2, limit=200, ref?)
+```
+
+验收：
+
+- 能列出指定目录下的子目录和文件。
+- 输出受 `limit` 和预算控制。
+- 默认 HEAD 时保留版本不确定 warning。
+- 不根据用户问题做任何路径或关键词补全。
+- 对不存在路径返回 `not_found`，对文件路径请求目录树返回 `invalid_input` 或明确错误。
+
+- [ ] **步骤 2：新增路径 / 文件名搜索工具**
+
+建议工具：
+
+```text
+list_code_paths(repo_id|repo_name, path_query, path_prefix?, limit=100, ref?)
+```
+
+验收：
+
+- 只按路径 / 文件名做通用匹配。
+- 不做“中文业务词 -> 英文产品命名”的内置映射。
+- 支持大小写不敏感匹配。
+- 输出按路径去重并受预算控制。
+
+- [ ] **步骤 3：增强 `search_code` 搜索模式**
+
+建议增加：
+
+```text
+mode = literal | regex | any_terms | all_terms
+```
+
+验收：
+
+- `literal` 保持当前精确文本搜索语义。
+- `regex` 明确使用正则语义。
+- `any_terms` / `all_terms` 只基于用户或模型传入 terms 做通用组合，不自动补业务词。
+- `query="*"`、空 query、过短 query 返回结构化 `invalid_input`，不能返回 `internal_error`。
+- 宽泛命中时返回文件聚合摘要和截断提示，不能把大量 snippets 直接塞进模型上下文。
+
+- [ ] **步骤 4：补充 prompt 检索策略**
+
+prompt 可以指导模型如何使用工具，但不能把领域词映射写到工具里。
+
+需要加入：
+
+```text
+当用户询问某功能是否存在时：
+- 0 命中只代表当前关键词未找到，不能直接证明功能不存在。
+- 强否定结论需要更高证据门槛。
+- 如果尚未检查目录结构、路径名、命令入口、状态字段、UI 组件、feature flag 或同义命名，不要直接说没有实现。
+- 搜索用户原词后，应由模型自行选择英文同义词、产品化命名或入口名继续检索。
+- 找到候选文件后，应读取关键文件再给强结论。
+```
+
+- [ ] **步骤 5：建立负结论证据门槛**
+
+验收表达：
+
+```text
+弱否定：当前关键词未找到相关证据，不能排除使用其他命名实现。
+强否定：已检查目录结构、路径名、入口注册、状态字段、UI 组件和相关同义命名，未发现实现。
+```
+
+模型不能仅凭若干次 `search_code` 0 命中输出强否定结论。
+
+- [ ] **步骤 6：新增回归测试**
+
+测试用例：
+
+```text
+用户：claude code里面有实现tui界面的电子宠物功能吗
+仓库：references/claude-code/claude-code
+期望：
+- 不允许仅凭 pet / tamagotchi 0 命中直接回答没有；
+- 应能通过目录、路径或模型自行扩展命名发现 src/buddy/ 或 CompanionSprite.tsx；
+- 回答中说明实现命名是 buddy / companion；
+- 如果未找到，也必须表达为证据不足，而不是确定没有。
+```
+
+测试约束：
+
+- 测试不能依赖工具层 hardcode `电子宠物 -> buddy`。
+- 可以使用 spy tool 断言模型是否获得目录 / 路径搜索能力。
+- live E2E 可以使用真实 `references/claude-code/claude-code` 仓库验证。
+
+- [ ] **步骤 7：文档同步**
+
+需要同步更新：
+
+```text
+docs/v1.0.2/design/agent-chat-runtime.md
+docs/v1.0.2/plans/acceptance-checklist.md
+docs/v1.0.2/specs/agent-tools-from-claude-code.md
+docs/v1.0.2/specs/agent-runtime-source-lessons.md
+```
+
+## 任务 14: Agent 行动轨迹、生成中断与输入快捷键
+
+> 状态：未开始。
+> 定位：修正前端会话体验，使 `Agent 行动轨迹` 从“单轮进度”升级为“会话级行动时间线”，并补齐生成中断、回滚和输入快捷键。
+
+**背景问题：**
+
+当前发送新消息时，右侧 `Agent 行动轨迹` 会清空并从本轮事件重新开始。这符合旧“单轮调查进度”的实现习惯，但不符合 v1.0.2 的会话级 Agent 行动轨迹定位。
+
+目标行为：
+
+```text
+同一会话内：
+历史行动轨迹保留
++ 当前 turn 流式追加
++ 按 turn 分组
++ 最近 turn 默认展开，历史 turn 可折叠
+
+切换会话：
+加载目标会话自己的 traces
+
+删除会话：
+清空右侧行动轨迹
+```
+
+### 14.1 行动轨迹保留与分组
+
+- [x] 同一会话发送新消息时，不清空历史 `agent_traces`。
+- [x] 新 SSE 事件只追加到当前 turn 分组；流式过程中先进入本轮临时分组，收到 `done.turn_id` 后归档到真实 turn。
+- [x] 历史 turn 默认可折叠，最近 turn 默认展开。
+- [x] 每个 turn 分组显示摘要：
+  - 工具调用数量；
+  - 失败数量；
+  - 证据数量；
+  - 是否读取代码文件；
+  - 是否有 warnings。
+- [x] 页面刷新后从 `/api/sessions/{session_id}/traces` 恢复完整行动轨迹分组。
+- [x] 切换会话时不能残留上一个会话的行动轨迹。
+- [x] 删除会话后必须清空右侧行动轨迹。
+
+### 14.2 行动轨迹卡片详情
+
+当前卡片信息过少。卡片默认保持简洁，但点击展开后应展示完整诊断信息。
+
+- [x] 工具调用卡片详情展示：
+  - `tool_name`；
+  - `tool_call_id`；
+  - 参数摘要；
+  - 所属 turn；
+  - 调用时间。
+- [x] 工具结果卡片详情展示：
+  - 成功 / 失败；
+  - summary；
+  - warnings；
+  - evidence refs；
+  - repo / ref / commit / path / line；
+  - truncated；
+  - raw_result_ref；
+  - error_type；
+  - error message。
+- [x] retrieval context 卡片详情展示候选来源和截断状态。
+- [x] 错误卡片详情展示 provider、error_code、message、retryable 等结构化字段。
+- [x] 详情展示不能用长 JSON 直接撑开面板；当前使用悬浮弹窗和结构化字段行展示。
+- [ ] 长字段需要复制入口，复制成功在入口旁轻量提示。
+
+### 14.3 生成中断与本轮回滚
+
+需求：会话生成过程中，用户可以中断。中断后必须回滚到本次对话起点，而不是保留半条 user / assistant / trace。
+
+当前实现采用双保险回滚：
+
+- 前端发送消息前生成 `client_turn_id`，后端直接用该 id 创建本轮 user turn，并通过 `X-CodeAsk-Turn-Id` / SSE `turn_id` 回传。
+- 前端通过浏览器 `AbortController` 中断当前 SSE，并立即清理本轮本地 user message、partial assistant message 和临时行动轨迹。
+- 后端在 StreamingResponse 收到 `asyncio.CancelledError` 时回滚本轮 `SessionTurn` 和 `AgentTrace`。
+- 前端停止时额外调用 `POST /api/sessions/{session_id}/turns/{turn_id}/abort`，即使停止发生在 header 或第一条 SSE 返回前，也能基于预生成 `client_turn_id` 清理持久化数据。
+- 后端持久化 assistant turn 或 runtime trace 前，必须检查父 user turn 仍然存在；如果 abort 已经删除父 turn，迟到完成的回答和迟到 trace 都不得重新写入会话历史。
+
+已实现契约：
+
+```text
+POST /api/sessions/{session_id}/messages
+→ 请求体包含 client_turn_id
+→ 返回 X-CodeAsk-Turn-Id
+
+POST /api/sessions/{session_id}/turns/{turn_id}/abort
+→ 回滚该 turn 的持久化副作用
+```
+
+后续如需要跨设备、后台任务或多连接管理，再扩展为能取消后台运行任务的 abort API。
+
+回滚范围：
+
+```text
+删除本次 user turn
+删除本次 partial assistant turn
+删除本次 turn 产生的 agent_traces
+删除或标记本次未完成 tool result
+保留本次发送前历史 turns / traces / attachments
+```
+
+- [x] 前端生成中显示明确中断入口。
+- [x] 用户点击中断后，前端停止接收当前 SSE。
+- [x] 后端收到 SSE 取消后停止当前 LLM stream 和后续事件持久化。
+- [x] 前端停止时调用显式 abort API；停止发生在 SSE turn_id 返回前，也能基于 `client_turn_id` 回滚持久化 turn / traces。
+- [x] abort 已删除父 user turn 后，迟到完成的 assistant turn 不得再写入 `session_turns`。
+- [x] abort 已删除父 user turn 后，迟到 trace 不得再写入 `agent_traces`。
+- [ ] 如果工具已开始执行但未完成，应记录为 aborted 或不进入会话可见历史。
+- [x] 中断后会话列表、聊天消息、行动轨迹恢复到本轮发送前状态。
+- [x] 中断不能影响上一轮已完成消息和行动轨迹。
+- [x] 中断失败必须有明确错误提示。
+- [x] 增加集成测试覆盖本轮 user turn 和 traces 回滚。
+- [x] 增加前端测试覆盖生成中中断和 UI 状态恢复。
+
+### 14.4 输入框快捷键
+
+目标输入行为：
+
+```text
+Enter        发送
+Ctrl+Enter   换行
+Shift+Enter  换行
+```
+
+- [x] 单行输入时按 `Enter` 直接发送。
+- [x] 多行输入时按 `Enter` 仍直接发送。
+- [x] `Ctrl + Enter` 插入换行。
+- [x] `Shift + Enter` 插入换行。
+- [x] 空白输入不能发送。
+- [x] IME 中文输入 composition 期间按 Enter 不能误发送。
+- [x] 生成中若禁止并发发送，Enter 不触发第二个发送，并提供中断入口。
+- [x] 增加前端组件测试覆盖快捷键行为。
+
+### 14.5 文档与验收
+
+需要同步更新：
+
+```text
+docs/v1.0.2/plans/acceptance-checklist.md
+docs/v1.0.2/design/agent-chat-runtime.md
+docs/v1.0.2/prd/agent-chat.md
 ```
 
 ## 手动验收清单

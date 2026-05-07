@@ -154,6 +154,7 @@ internal_error
 | `list_session_attachments` | 只读会话 | 是 | 列出当前会话附件 |
 | `read_session_attachment` | 只读会话 | 是 | 读取附件摘要或截断内容 |
 | `search_code` | 只读代码 | 是 | 在已解析仓库范围内搜索代码 |
+| `list_code_paths` | 只读代码 | 是 | 按路径名列出文件和目录，用于通用代码导航 |
 | `read_code_file` | 只读代码 | 是 | 读取代码文件片段 |
 | `inspect_repo_tree` | 只读代码 | 是 | 查看仓库目录结构 |
 | `ask_user` | 用户交互 | 是 | 模型向用户澄清问题或请求选择 |
@@ -382,11 +383,14 @@ evidence_refs
 
 代码范围解析：
 
-1. 用户当前会话明确指定 repo/ref/commit。
-2. 候选特性关联仓库默认 ref。
-3. 全局仓库池默认仓库和默认 ref。
-4. 本地登记仓库当前 checkout。
-5. 仍无法确定时返回 `needs_clarification`。
+1. 用户在当前消息或会话历史中明确指定的仓库。
+2. 当前会话已显式绑定或历史中已确认的特性。
+3. 模型基于 Feature RAG Pack 选择的一个或多个候选特性。
+4. 这些特性关联仓库的并集。
+5. 如果候选特性为空且没有显式仓库，返回 `needs_feature_scope`。
+6. 如果 repo_id / repo_name 不属于候选特性的关联仓库，且用户没有明确指定该仓库，返回 `out_of_scope`。
+
+代码工具不能直接从全局 ready 仓库池模糊检索源码。全局仓库池只用于管理员配置、特性关联和用户显式仓库解析，不作为默认 Agent 代码检索范围。
 
 输出：
 
@@ -424,6 +428,38 @@ evidence_refs
 - 支持大小写不敏感搜索。
 - 大结果截断并提示可用 offset 继续。
 - 搜索不到不代表代码不存在，模型应结合上下文判断。
+
+### 5.6.1 `list_code_paths`
+
+用途：
+
+- 模型初始关键词不准确，`search_code` 可能 0 命中时，先按路径名查看文件和目录。
+- 在大仓库中先缩小目录范围，再读取具体文件或继续搜索。
+
+输入：
+
+```json
+{
+  "query": "buddy",
+  "repo_id": null,
+  "repo_name": null,
+  "feature_ids": [3],
+  "explicit_repo_scope": false,
+  "ref": null,
+  "root_path": ".",
+  "include_dirs": true,
+  "include_files": true,
+  "limit": 100
+}
+```
+
+边界：
+
+- 范围规则与 `search_code` 一致，只允许特性范围仓库或用户显式仓库范围。
+- 只做大小写不敏感的路径名匹配，不做自然语言语义映射。
+- 工具层不能把“电子宠物”自动改写成 `buddy`、`companion` 等业务同义词。
+- 默认过滤 `.git`、`node_modules`、构建产物和缓存目录。
+- 返回结果受 `limit` 和工具结果预算约束。
 
 ### 5.7 `read_code_file`
 
@@ -581,6 +617,28 @@ CodeAsk 工具执行应采用统一管线：
 ```
 
 工具执行器不应该直接替模型决定下一步。
+
+### 6.1 工具优化安全边界
+
+工具优化的目标是提升执行质量，而不是替模型完成业务推理。CodeAsk 的原则是：用户问题、会话历史、RAG 候选、工具能力和工具结果都进入模型上下文，由模型决定回答、追问、查 Wiki、读报告、读附件或查代码。
+
+工具层允许做：
+
+- schema 校验、权限校验、路径校验、版本边界校验和写操作确认。
+- 通用检索鲁棒性增强，例如大小写不敏感、分隔符归一、长 query 拆词 fallback、结果去重、分页和预算裁剪。
+- 结果结构化，补齐 `node_id`、`document_id`、`repo_id`、`path`、`line`、`commit`、`version_info`、`raw_result_ref` 等可执行引用。
+- 错误可解释化，把模糊异常拆成 `invalid_input`、`not_found`、`out_of_scope`、`needs_clarification`、`too_large`、`transient_error` 等模型可恢复类型。
+- 行动轨迹折叠和摘要，但展开后仍能追溯原始参数、结果、错误和审计引用。
+
+工具层禁止做：
+
+- 业务语义映射，例如 `电子宠物 -> buddy`、`sqlite -> schema.prisma`、`RAG -> contextTexts`、`AnythingLLM -> 某个固定 repo/path`。
+- 按题型强制禁止或强制触发工具调用，例如“基础问答永远不查工具”或“源码问题必须先查代码”。
+- 输出流程结论，例如“知识足够”“无需查代码”“应该读取某文件”。这些结论只能由模型在上下文中形成。
+- 为了让 UI 看起来干净而吞掉失败；失败可以折叠，但不能不可见。
+- 把预算压缩到只剩 summary，导致模型丢失继续推理所需的 evidence ref、错误类型、版本信息或恢复建议。
+
+因此，每个工具优化 PR / 阶段任务都要同时包含正向测试和反向测试：正向证明工具更稳定、更可执行；反向证明没有把业务词、测试样例、仓库名或路径名硬编码进工具。
 
 ## 7. 工具编排
 

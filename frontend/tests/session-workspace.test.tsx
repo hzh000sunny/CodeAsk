@@ -314,6 +314,100 @@ describe("SessionWorkspace streaming interaction", () => {
     );
   });
 
+  it("clears the action trace after deleting the only implicitly selected session", async () => {
+    let deleted = false;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/sessions/sess_1/turns") {
+          return jsonResponse([
+            {
+              id: "turn_1",
+              session_id: "sess_1",
+              turn_index: 0,
+              role: "agent",
+              content: "已读取小米病历。",
+              evidence: null,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+          ]);
+        }
+        if (path === "/api/sessions/sess_1/traces") {
+          return jsonResponse([
+            {
+              id: "trace_1",
+              session_id: "sess_1",
+              turn_id: "turn_1",
+              stage: "chat_runtime",
+              event_type: "tool_result",
+              payload: {
+                tool_name: "search_wiki",
+                ok: true,
+                summary: "命中小米病历",
+              },
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+          ]);
+        }
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse(
+            deleted
+              ? []
+              : [
+                  {
+                    id: "sess_1",
+                    title: "告诉我小米病情的变化趋势",
+                    created_by_subject_id: "client_test",
+                    status: "active",
+                    pinned: false,
+                    created_at: "2026-04-30T10:00:00",
+                    updated_at: "2026-04-30T10:00:00",
+                  },
+                ],
+          );
+        }
+        if (path === "/api/sessions/sess_1" && init?.method === "DELETE") {
+          deleted = true;
+          return new Response(null, { status: 204 });
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const sessionList = screen.getByRole("region", { name: "会话列表" });
+    expect(
+      await within(sessionList).findByText("告诉我小米病情的变化趋势"),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("命中小米病历")).toBeInTheDocument();
+
+    fireEvent.click(
+      within(sessionList).getByRole("button", {
+        name: "打开会话 告诉我小米病情的变化趋势 的更多操作",
+      }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+
+    await waitFor(() =>
+      expect(
+        within(sessionList).queryByText("告诉我小米病情的变化趋势"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText("命中小米病历")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("发送问题后，这里会展示模型实际使用的上下文和工具动作。"),
+    ).toBeInTheDocument();
+  });
+
   it("confirms report generation with a feature and links to the generated report", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -938,8 +1032,8 @@ describe("SessionWorkspace streaming interaction", () => {
     const eventDialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
     expect(eventDialog).toBeInTheDocument();
     expect(
-      within(eventDialog).getByText(/2 code matches for '启动失败'/),
-    ).toBeInTheDocument();
+      within(eventDialog).getAllByText(/2 code matches for '启动失败'/).length,
+    ).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: /证据：支付接入说明/ }));
     const evidenceDialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
@@ -992,7 +1086,7 @@ describe("SessionWorkspace streaming interaction", () => {
           ]);
         }
         if (path === "/api/sessions/sess_1" && init?.method === "DELETE") {
-          return jsonResponse({ detail: "Method Not Allowed" }, 405);
+          return new Response("", { status: 405 });
         }
         throw new Error(`unexpected request ${path}`);
       },
@@ -1013,7 +1107,9 @@ describe("SessionWorkspace streaming interaction", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
     fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("删除会话失败");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "删除会话失败：API request failed with 405",
+    );
     expect(within(sessionList).getByText("线上启动失败")).toBeInTheDocument();
   });
 
@@ -1078,6 +1174,344 @@ describe("SessionWorkspace streaming interaction", () => {
     });
   });
 
+  it("keeps previous action trace entries when sending a follow-up message", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/sessions/sess_1/turns") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/sessions/sess_1/traces") {
+          return jsonResponse([
+            {
+              id: "trace_previous",
+              session_id: "sess_1",
+              turn_id: "turn_previous",
+              stage: "chat_runtime",
+              event_type: "tool_result",
+              payload: {
+                tool_name: "search_wiki",
+                ok: true,
+                summary: "命中小米病历",
+              },
+              created_at: "2026-05-02T10:00:00",
+              updated_at: "2026-05-02T10:00:00",
+            },
+          ]);
+        }
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "小米病情会话",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-05-02T10:00:00",
+              updated_at: "2026-05-02T10:00:00",
+            },
+          ]);
+        }
+        if (
+          path === "/api/sessions/sess_1/messages" &&
+          init?.method === "POST"
+        ) {
+          const encoder = new TextEncoder();
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(
+                  encoder.encode(
+                    'event: tool_call\ndata: {"tool_call_id":"call_follow","tool_name":"search_code","arguments_summary":{"query":"buddy"}}\n\n',
+                  ),
+                );
+                controller.enqueue(
+                  encoder.encode(
+                    'event: done\ndata: {"turn_id":"turn_follow"}\n\n',
+                  ),
+                );
+                controller.close();
+              },
+            }),
+            {
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-CodeAsk-Turn-Id": "turn_interrupted",
+              },
+            },
+          );
+        }
+        if (
+          path === "/api/sessions/sess_1/turns/turn_interrupted/abort" &&
+          init?.method === "POST"
+        ) {
+          return new Response(null, { status: 204 });
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "小米病情会话",
+    );
+    expect(await screen.findByText("命中小米病历")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("会话输入"), {
+      target: { value: "再查一下相关代码" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("准备使用 代码搜索")).toBeInTheDocument();
+    expect(screen.getByText("命中小米病历")).toBeInTheDocument();
+  });
+
+  it("groups persisted action trace entries by conversation turn", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/sessions/sess_1/turns") {
+        return jsonResponse([]);
+      }
+      if (path === "/api/sessions/sess_1/traces") {
+        return jsonResponse([
+          {
+            id: "trace_turn_1",
+            session_id: "sess_1",
+            turn_id: "turn_1",
+            stage: "chat_runtime",
+            event_type: "retrieval_context",
+            payload: {
+              feature_candidates: [],
+              wiki_hits: [],
+              report_hits: [],
+            },
+            created_at: "2026-05-02T10:00:00",
+            updated_at: "2026-05-02T10:00:00",
+          },
+          {
+            id: "trace_turn_2",
+            session_id: "sess_1",
+            turn_id: "turn_2",
+            stage: "chat_runtime",
+            event_type: "tool_result",
+            payload: {
+              tool_name: "search_code",
+              ok: true,
+              summary: "命中 3 个代码位置",
+            },
+            created_at: "2026-05-02T10:01:00",
+            updated_at: "2026-05-02T10:01:00",
+          },
+        ]);
+      }
+      const attachmentResponse = emptyAttachmentListResponse(input, init);
+      if (attachmentResponse) {
+        return attachmentResponse;
+      }
+      if (path === "/api/sessions") {
+        return jsonResponse([
+          {
+            id: "sess_1",
+            title: "多轮追踪",
+            created_by_subject_id: "client_test",
+            status: "active",
+            pinned: false,
+            created_at: "2026-05-02T10:00:00",
+            updated_at: "2026-05-02T10:00:00",
+          },
+        ]);
+      }
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "多轮追踪",
+    );
+
+    expect(await screen.findByText("第 1 轮")).toBeInTheDocument();
+    expect(screen.getByText("第 2 轮")).toBeInTheDocument();
+    expect(screen.getByText("上下文已准备")).toBeInTheDocument();
+    expect(screen.getByText("代码搜索完成")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /代码搜索完成/ }));
+    const details = screen.getByRole("dialog", { name: "Agent 行动详情" });
+    expect(within(details).getByText("工具名称")).toBeInTheDocument();
+    expect(within(details).getByText("search_code")).toBeInTheDocument();
+    expect(within(details).getByText("所属轮次")).toBeInTheDocument();
+    expect(within(details).getByText("turn_2")).toBeInTheDocument();
+    expect(within(details).getByText("发生时间")).toBeInTheDocument();
+    expect(within(details).getByText("2026-05-02T10:01:00")).toBeInTheDocument();
+    expect(within(details).getByText("结果摘要")).toBeInTheDocument();
+    expect(within(details).getAllByText("命中 3 个代码位置").length).toBeGreaterThan(0);
+  });
+
+  it("sends with Enter and inserts newlines with Shift+Enter or Ctrl+Enter", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "快捷键测试",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-05-02T10:00:00",
+              updated_at: "2026-05-02T10:00:00",
+            },
+          ]);
+        }
+        if (
+          path === "/api/sessions/sess_1/messages" &&
+          init?.method === "POST"
+        ) {
+          return streamResponse("收到。");
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "快捷键测试",
+    );
+    const input = screen.getByLabelText("会话输入") as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: "第一行" } });
+    input.setSelectionRange(2, 2);
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    expect(input.value).toBe("第一\n行");
+
+    input.setSelectionRange(input.value.length, input.value.length);
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    expect(input.value).toBe("第一\n行\n");
+    expect(
+      fetchMock.mock.calls.some(
+        ([path, options]) =>
+          path === "/api/sessions/sess_1/messages" &&
+          (options as RequestInit | undefined)?.method === "POST",
+      ),
+    ).toBe(false);
+
+    fireEvent.change(input, { target: { value: "直接发送" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/sessions/sess_1/messages",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+  });
+
+  it("stops an active generation and rolls back the local turn", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "中断测试",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-05-02T10:00:00",
+              updated_at: "2026-05-02T10:00:00",
+            },
+          ]);
+        }
+        if (
+          path === "/api/sessions/sess_1/messages" &&
+          init?.method === "POST"
+        ) {
+          const payload = JSON.parse(String(init.body)) as {
+            client_turn_id?: string;
+          };
+          expect(payload.client_turn_id).toMatch(/^turn_client_/);
+          const encoder = new TextEncoder();
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(
+                  encoder.encode(
+                    'event: retrieval_context\ndata: {"feature_candidates":[],"wiki_hits":[],"report_hits":[]}\n\n',
+                  ),
+                );
+                controller.enqueue(
+                  encoder.encode('event: text_delta\ndata: {"text":"正在分析"}\n\n'),
+                );
+                init?.signal?.addEventListener("abort", () => {
+                  controller.error(new DOMException("Aborted", "AbortError"));
+                });
+              },
+            }),
+            { headers: { "Content-Type": "text/event-stream" } },
+          );
+        }
+        if (
+          /^\/api\/sessions\/sess_1\/turns\/turn_client_[^/]+\/abort$/.test(
+            path,
+          ) &&
+          init?.method === "POST"
+        ) {
+          return new Response(null, { status: 204 });
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "中断测试",
+    );
+    fireEvent.change(screen.getByLabelText("会话输入"), {
+      target: { value: "需要中断的长任务" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("正在分析")).toBeInTheDocument();
+    expect(screen.getByText("上下文已准备")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "停止" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("需要中断的长任务")).not.toBeInTheDocument();
+      expect(screen.queryByText("正在分析")).not.toBeInTheDocument();
+      expect(screen.queryByText("上下文已准备")).not.toBeInTheDocument();
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([path, options]) =>
+          /^\/api\/sessions\/sess_1\/turns\/turn_client_[^/]+\/abort$/.test(
+            String(path),
+          ) && (options as RequestInit | undefined)?.method === "POST",
+      ),
+    ).toBe(true);
+    expect(await screen.findByText("已停止生成")).toBeInTheDocument();
+  });
+
   it("renders runtime transparency events and ask-user prompts in the session workspace", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1130,6 +1564,57 @@ describe("SessionWorkspace streaming interaction", () => {
     expect(screen.getByText("请补充完整启动日志")).toBeInTheDocument();
     expect(
       await screen.findByText("需要补充：请补充完整启动日志"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a visible notice when the runtime stream emits an error", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "运行错误",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+          ]);
+        }
+        if (
+          path === "/api/sessions/sess_1/messages" &&
+          init?.method === "POST"
+        ) {
+          return new Response(
+            'event: error\ndata: {"message":"模型上下文超限"}\n\n',
+            { headers: { "Content-Type": "text/event-stream" } },
+          );
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "运行错误",
+    );
+    fireEvent.change(screen.getByLabelText("会话输入"), {
+      target: { value: "触发错误" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("模型上下文超限")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Agent 运行失败：模型上下文超限"),
     ).toBeInTheDocument();
   });
 

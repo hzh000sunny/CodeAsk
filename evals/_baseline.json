@@ -1,4 +1,5 @@
 {
   "scope_detection": {"avg_score": 1.0, "n_passed_ratio": 1.0},
-  "sufficiency": {"avg_score": 1.0, "n_passed_ratio": 1.0}
+  "sufficiency": {"avg_score": 1.0, "n_passed_ratio": 1.0},
+  "basic_qa": {"avg_score": 1.0, "n_passed_ratio": 1.0, "max_tool_trigger_rate": 0.1}
 }

@@ -13,7 +13,7 @@ def test_resolve_code_scope_prefers_user_constraints() -> None:
         global_repos=[{"repo_id": 1, "default_ref": "main"}],
     )
 
-    assert scope.repo_id == 7
+    assert scope.repo_id == "7"
     assert scope.ref == "release-1.2.3"
     assert scope.status == "explicit"
 

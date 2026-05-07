@@ -18,7 +18,7 @@ from typing import Any, Protocol
 from evals.types import Case, Score, SuiteReport
 
 _HERE = Path(__file__).resolve().parent
-_SUITES = ("scope_detection", "sufficiency", "answer_quality")
+_SUITES = ("scope_detection", "sufficiency", "answer_quality", "basic_qa")
 
 
 class ScoreFn(Protocol):
@@ -72,6 +72,13 @@ def _stub_agent_run(case: Case, suite: str) -> dict[str, Any]:
                 "must_bind_commit_for_code_evidence",
                 False,
             ),
+        }
+    if suite == "basic_qa":
+        return {
+            "answer_text": "[stub direct answer]",
+            "direct_answered": True,
+            "tool_triggered": False,
+            "triggered_tools": [],
         }
     raise ValueError(f"unknown suite: {suite}")
 

@@ -8,6 +8,8 @@ from codeask.db.models import AgentTrace
 
 
 def is_visible_trace(row: AgentTrace) -> bool:
+    if row.event_type == "tool_result_raw":
+        return False
     if row.event_type != "llm_event":
         return True
     payload = agent_trace_payload(row)

@@ -27,7 +27,7 @@ ScopeStatus = Literal[
 
 @dataclass(frozen=True)
 class CodeScope:
-    repo_id: int | None
+    repo_id: str | None
     repo_name: str | None
     ref: str | None
     commit: str | None
@@ -91,7 +91,7 @@ def resolve_code_scope(
     explicit_commit = explicit_constraints.get("commit")
     if explicit_repo is not None:
         return CodeScope(
-            repo_id=int(explicit_repo),
+            repo_id=str(explicit_repo),
             repo_name=str(explicit_constraints.get("repo_name"))
             if explicit_constraints.get("repo_name") is not None
             else None,
@@ -103,7 +103,7 @@ def resolve_code_scope(
     if candidate_feature_repos:
         repo = candidate_feature_repos[0]
         return CodeScope(
-            repo_id=int(repo["repo_id"]) if repo.get("repo_id") is not None else None,
+            repo_id=str(repo["repo_id"]) if repo.get("repo_id") is not None else None,
             repo_name=str(repo.get("name")) if repo.get("name") is not None else None,
             ref=str(repo.get("default_ref")) if repo.get("default_ref") is not None else None,
             commit=str(repo.get("commit")) if repo.get("commit") is not None else None,
@@ -113,7 +113,7 @@ def resolve_code_scope(
     if global_repos:
         repo = global_repos[0]
         return CodeScope(
-            repo_id=int(repo["repo_id"]) if repo.get("repo_id") is not None else None,
+            repo_id=str(repo["repo_id"]) if repo.get("repo_id") is not None else None,
             repo_name=str(repo.get("name")) if repo.get("name") is not None else None,
             ref=str(repo.get("default_ref")) if repo.get("default_ref") is not None else None,
             commit=str(repo.get("commit")) if repo.get("commit") is not None else None,
@@ -122,7 +122,7 @@ def resolve_code_scope(
 
     if current_checkout:
         return CodeScope(
-            repo_id=int(current_checkout["repo_id"])
+            repo_id=str(current_checkout["repo_id"])
             if current_checkout.get("repo_id") is not None
             else None,
             repo_name=str(current_checkout.get("name"))
@@ -269,6 +269,7 @@ def register_code_tools(
             read_only=True,
             concurrency_safe=True,
             requires_confirmation=False,
+            max_result_size_chars=6_000,
         ),
         inspect_repo_tree,
     )
@@ -280,6 +281,7 @@ def register_code_tools(
             read_only=True,
             concurrency_safe=True,
             requires_confirmation=False,
+            max_result_size_chars=12_000,
         ),
         search_code,
     )
@@ -291,6 +293,7 @@ def register_code_tools(
             read_only=True,
             concurrency_safe=True,
             requires_confirmation=False,
+            max_result_size_chars=16_000,
         ),
         read_code_file,
     )

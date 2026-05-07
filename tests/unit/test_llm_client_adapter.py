@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from codeask.llm.client import OpenAIClient
+from codeask.llm.client import AnthropicClient, OpenAIClient, OpenAICompatibleClient
 from codeask.llm.types import LLMMessage, TextBlock, ToolDef
 
 
@@ -44,7 +44,7 @@ async def test_text_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(mod, "acompletion", fake_acompletion)
 
-    client = OpenAIClient(api_key="x", model_name="gpt-4o")
+    client = AnthropicClient(api_key="x", model_name="claude-test")
     events = []
     async for event in client.stream(
         messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
@@ -78,7 +78,7 @@ async def test_tool_call_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(mod, "acompletion", fake_acompletion)
 
-    client = OpenAIClient(api_key="x", model_name="gpt-4o")
+    client = AnthropicClient(api_key="x", model_name="claude-test")
     events = []
     async for event in client.stream(
         messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
@@ -94,3 +94,127 @@ async def test_tool_call_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
     assert dones and dones[0].data["arguments"] == {"q": "x"}
     stop = [event for event in events if event.type == "message_stop"][0]
     assert stop.data["stop_reason"] == "tool_call"
+
+
+@pytest.mark.asyncio
+async def test_openai_protocol_uses_litellm_with_internal_provider_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="你好")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAIClient(
+        api_key="ark-test",
+        model_name="GLM-5.1",
+        base_url="https://ark.example.test/api/coding/v3",
+    )
+
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert captured["model"] == "openai/GLM-5.1"
+    assert captured["api_key"] == "ark-test"
+    assert captured["base_url"] == "https://ark.example.test/api/coding/v3"
+    assert [event.type for event in events] == [
+        "message_start",
+        "text_delta",
+        "message_stop",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_protocol_uses_litellm_with_internal_provider_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="local ok")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAICompatibleClient(
+        api_key="local-secret",
+        model_name="local-model",
+        base_url="http://llm.local/v1",
+    )
+
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert captured["model"] == "openai/local-model"
+    assert captured["api_key"] == "local-secret"
+    assert captured["base_url"] == "http://llm.local/v1"
+    assert [event.type for event in events] == [
+        "message_start",
+        "text_delta",
+        "message_stop",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_hint_preserves_explicit_litellm_model_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="ok")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAIClient(api_key="x", model_name="openai/gpt-4o")
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert captured["model"] == "openai/gpt-4o"
+    assert events[-1].type == "message_stop"

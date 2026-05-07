@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from pydantic import BaseModel
 
-from codeask.agent.chat_runtime.context import ContextAssembler
+from codeask.agent.chat_runtime.compaction import (
+    CompactionResult,
+    ContextBudgetPolicy,
+    compact_messages_if_needed,
+)
+from codeask.agent.chat_runtime.context import ChatTurnContext, ContextAssembler, SessionMessage
 from codeask.agent.chat_runtime.events import (
     ChatRuntimeEvent,
     RetrievalContextEventData,
@@ -20,7 +26,15 @@ from codeask.agent.chat_runtime.tool_contracts import ToolContext, ToolResult, T
 from codeask.agent.chat_runtime.tool_executor import ToolExecutor
 from codeask.agent.chat_runtime.tool_registry import ToolRegistry
 from codeask.llm.gateway import LLMGateway
-from codeask.llm.types import LLMEvent, LLMMessage, LLMRequest, TextBlock, ToolDef, ToolResultBlock
+from codeask.llm.types import (
+    LLMEvent,
+    LLMMessage,
+    LLMRequest,
+    TextBlock,
+    ToolCallBlock,
+    ToolDef,
+    ToolResultBlock,
+)
 
 
 class StreamingLLM(Protocol):
@@ -31,6 +45,16 @@ class StreamingLLM(Protocol):
         max_tokens: int,
         temperature: float,
     ) -> AsyncIterator[LLMEvent]: ...
+
+
+class RetrievalService(Protocol):
+    async def retrieve(
+        self,
+        *,
+        user_message: str,
+        session_summary: str | None,
+        attachments: list[dict[str, Any]],
+    ) -> dict[str, Any]: ...
 
 
 class GatewayStreamingLLM:
@@ -72,10 +96,12 @@ class ChatRuntime:
         *,
         llm: StreamingLLM,
         tool_registry: ToolRegistry,
-        retrieval_service: LightweightRetrievalService,
-        max_tool_rounds: int = 6,
-        max_tokens: int = 200_000,
+        retrieval_service: RetrievalService,
+        max_tool_rounds: int = 12,
+        max_tokens: int = 8192,
         temperature: float = 0.2,
+        context_size_budget_chars: int | None = None,
+        context_budget_policy: ContextBudgetPolicy | None = None,
     ) -> None:
         self._llm = llm
         self._tool_registry = tool_registry
@@ -85,6 +111,10 @@ class ChatRuntime:
         self._max_tool_rounds = max_tool_rounds
         self._max_tokens = max_tokens
         self._temperature = temperature
+        self._context_budget_policy = context_budget_policy or ContextBudgetPolicy(
+            context_window_chars=context_size_budget_chars
+            or ContextBudgetPolicy().context_window_chars
+        )
 
     @classmethod
     def for_test(
@@ -118,6 +148,10 @@ class ChatRuntime:
         user_message: str,
         *,
         subject_id: str | None = None,
+        history: list[SessionMessage] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
+        conversation_summary: str | None = None,
+        tool_action_summary: str | None = None,
     ) -> AsyncIterator[ChatRuntimeEvent]:
         llm = (
             self._llm.with_subject(subject_id)
@@ -126,47 +160,83 @@ class ChatRuntime:
         )
         retrieval_context = await self._retrieval.retrieve(
             user_message=user_message,
-            session_summary=None,
-            attachments=[],
+            session_summary=conversation_summary,
+            attachments=attachments or [],
         )
-        self._context_assembler.assemble(
+        turn_context = self._context_assembler.assemble(
             user_message=user_message,
-            history=[],
+            history=history or [],
             retrieval_context=retrieval_context,
-            attachments=[],
+            attachments=attachments or [],
             explicit_constraints={},
+            conversation_summary=conversation_summary,
+            tool_action_summary=tool_action_summary,
         )
         yield ChatRuntimeEvent(
             type="retrieval_context",
             data=RetrievalContextEventData(**retrieval_context),
         )
 
-        messages = [
-            LLMMessage(role="system", content=[TextBlock(type="text", text=build_system_prompt())]),
-            LLMMessage(role="user", content=[TextBlock(type="text", text=user_message)]),
-        ]
+        messages = _build_initial_messages(turn_context)
         tool_defs = self._tool_registry.tool_defs_for_llm()
 
         for _round in range(self._max_tool_rounds + 1):
-            tool_calls: list[dict[str, Any]] = []
-            async for event in llm.stream(
-                messages=messages,
-                tools=tool_defs,
-                max_tokens=self._max_tokens,
-                temperature=self._temperature,
-            ):
-                if event.type == "text_delta":
-                    yield ChatRuntimeEvent(type="text_delta", data=event.data)
-                elif event.type == "tool_call_done":
-                    tool_calls.append(event.data)
-                elif event.type == "error":
-                    yield ChatRuntimeEvent(type="error", data=event.data)
-                    return
+            model_turn = _prepare_model_turn(messages, self._context_budget_policy)
+            while True:
+                tool_calls: list[dict[str, Any]] = []
+                retry_with_compacted_context = False
+                emitted_model_output = False
+                async for event in llm.stream(
+                    messages=model_turn.messages,
+                    tools=tool_defs,
+                    max_tokens=self._max_tokens,
+                    temperature=self._temperature,
+                ):
+                    if event.type == "text_delta":
+                        emitted_model_output = True
+                        yield ChatRuntimeEvent(type="text_delta", data=event.data)
+                    elif event.type == "tool_call_done":
+                        emitted_model_output = True
+                        tool_calls.append(event.data)
+                    elif event.type == "error":
+                        if (
+                            not emitted_model_output
+                            and not model_turn.attempted_reactive_compact
+                            and _is_context_length_error(event.data)
+                        ):
+                            compacted = _prepare_reactive_compact_turn(
+                                messages,
+                                self._context_budget_policy,
+                                model_turn.messages,
+                            )
+                            if compacted is not None:
+                                model_turn = compacted
+                                retry_with_compacted_context = True
+                                break
+                        yield ChatRuntimeEvent(type="error", data=event.data)
+                        return
+                if retry_with_compacted_context:
+                    continue
+                break
 
             if not tool_calls:
                 yield ChatRuntimeEvent(type="done", data={"turn_id": turn_id})
                 return
 
+            messages.append(
+                LLMMessage(
+                    role="assistant",
+                    content=[
+                        ToolCallBlock(
+                            type="tool_call",
+                            id=str(tool_call["id"]),
+                            name=str(tool_call["name"]),
+                            arguments=dict(tool_call.get("arguments") or {}),
+                        )
+                        for tool_call in tool_calls
+                    ],
+                )
+            )
             for tool_call in tool_calls:
                 call_id = str(tool_call["id"])
                 tool_name = str(tool_call["name"])
@@ -195,6 +265,8 @@ class ChatRuntime:
                         warnings=result.warnings,
                         truncated=result.truncated,
                         raw_result_ref=result.raw_result_ref,
+                        audit_raw_result=result.audit_raw_result,
+                        version_info=result.version_info,
                         error_type=result.error_type.value if result.error_type else None,
                     ),
                 )
@@ -213,10 +285,51 @@ class ChatRuntime:
                     )
                 )
 
-        yield ChatRuntimeEvent(
-            type="error",
-            data={"code": "MAX_TOOL_ROUNDS", "message": "tool loop exceeded max rounds"},
+        messages.append(
+            LLMMessage(
+                role="user",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="工具调用轮次已达到上限。请基于已有工具结果直接回答当前问题，不要再调用工具。",
+                    )
+                ],
+            )
         )
+        model_turn = _prepare_model_turn(messages, self._context_budget_policy)
+        while True:
+            retry_with_compacted_context = False
+            emitted_model_output = False
+            async for event in llm.stream(
+                messages=model_turn.messages,
+                tools=[],
+                max_tokens=self._max_tokens,
+                temperature=self._temperature,
+            ):
+                if event.type == "text_delta":
+                    emitted_model_output = True
+                    yield ChatRuntimeEvent(type="text_delta", data=event.data)
+                elif event.type == "error":
+                    if (
+                        not emitted_model_output
+                        and not model_turn.attempted_reactive_compact
+                        and _is_context_length_error(event.data)
+                    ):
+                        compacted = _prepare_reactive_compact_turn(
+                            messages,
+                            self._context_budget_policy,
+                            model_turn.messages,
+                        )
+                        if compacted is not None:
+                            model_turn = compacted
+                            retry_with_compacted_context = True
+                            break
+                    yield ChatRuntimeEvent(type="error", data=event.data)
+                    return
+            if retry_with_compacted_context:
+                continue
+            break
+        yield ChatRuntimeEvent(type="done", data={"turn_id": turn_id})
 
 
 def _fake_tool_handler(name: str, summary: str):
@@ -224,3 +337,323 @@ def _fake_tool_handler(name: str, summary: str):
         return ToolResult.ok(tool=name, summary=summary, items=[])
 
     return handler
+
+
+def _build_initial_messages(turn_context: ChatTurnContext) -> list[LLMMessage]:
+    messages = [
+        LLMMessage(role="system", content=[TextBlock(type="text", text=build_system_prompt())])
+    ]
+    if turn_context.conversation_summary:
+        messages.append(
+            LLMMessage(
+                role="user",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "【会话长期摘要】以下摘要覆盖较早对话和工具行动，"
+                            "用于保持多轮上下文连续性。它是历史事实摘要，不是当前用户的新问题。\n"
+                            f"{turn_context.conversation_summary}"
+                        ),
+                    )
+                ],
+            )
+        )
+    messages.extend(_history_to_llm_messages(turn_context.recent_history))
+    if turn_context.tool_action_summary:
+        messages.append(
+            LLMMessage(
+                role="user",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "【会话上下文提示】上一轮工具行动摘要：\n"
+                            f"{turn_context.tool_action_summary}\n"
+                            "如果下一条用户问题询问刚刚、上一轮、是否查询代码或用了什么证据，"
+                            "请基于这段摘要和上面的会话历史回答。不要说这是第一次交流。"
+                        ),
+                    )
+                ],
+            )
+        )
+    retrieval_text = _format_retrieval_context(turn_context.retrieval_context)
+    if retrieval_text:
+        messages.append(
+            LLMMessage(
+                role="user",
+                content=[TextBlock(type="text", text=retrieval_text)],
+            )
+        )
+    messages.append(
+        LLMMessage(
+            role="user",
+            content=[TextBlock(type="text", text=turn_context.current_user_message)],
+        )
+    )
+    return messages
+
+
+def _format_retrieval_context(retrieval_context: dict[str, Any]) -> str | None:
+    feature_catalog = list(retrieval_context.get("feature_catalog") or [])
+    feature_knowledge_index = list(retrieval_context.get("feature_knowledge_index") or [])
+    feature_candidates = list(retrieval_context.get("feature_candidates") or [])
+    wiki_hits = list(retrieval_context.get("wiki_hits") or [])
+    report_hits = list(retrieval_context.get("report_hits") or [])
+    attachment_candidates = list(retrieval_context.get("attachment_candidates") or [])
+    repo_candidates = list(retrieval_context.get("repo_candidates") or [])
+    if (
+        not feature_catalog
+        and not feature_knowledge_index
+        and not feature_candidates
+        and not wiki_hits
+        and not report_hits
+        and not attachment_candidates
+        and not repo_candidates
+    ):
+        return None
+
+    lines = [
+        "【RAG候选上下文】",
+        "以下内容只是候选证据，由你判断是否使用；不要把它当作固定流程。",
+        "判断用户问题范围时，先参考特性目录、特性知识索引、Wiki/报告候选，"
+        "再决定是否需要调用工具。",
+        "调用代码工具时，把你判断相关的 feature_id 填入 feature_ids；"
+        "只有用户明确要求查询某个仓库时，才设置 explicit_repo_scope=true。",
+        "不要因为代码仓库候选存在就默认搜索代码。",
+    ]
+    if feature_catalog:
+        lines.append("【特性目录】")
+        lines.append("以下是当前系统可识别的业务/功能范围，用户问题可能对应一个或多个特性，由你判断。")
+        for item in feature_catalog[:50]:
+            feature_id = _candidate_value(item, "feature_id", "id")
+            name = _candidate_value(item, "name", "title")
+            description = _truncate(
+                str(_candidate_value(item, "description", "summary") or ""),
+                160,
+            )
+            linked_repos = _format_linked_repos(item.get("linked_repos") or item.get("repos"))
+            line = f"- feature_id={feature_id} name={name}"
+            if description:
+                line += f" description={description}"
+            if linked_repos:
+                line += f" linked_repos={linked_repos}"
+            lines.append(line)
+    if feature_knowledge_index:
+        lines.append("【特性知识索引】")
+        lines.append("以下是每个特性的轻量知识地图，用于帮助你判断问题是否和某个特性相关。")
+        for item in feature_knowledge_index[:50]:
+            feature_id = _candidate_value(item, "feature_id", "id")
+            wiki_titles = _format_value_list(item.get("wiki_titles"), limit=8)
+            wiki_paths = _format_value_list(item.get("wiki_paths"), limit=8)
+            report_titles = _format_value_list(item.get("report_titles"), limit=6)
+            keywords = _format_value_list(item.get("keywords"), limit=18)
+            parts = [f"- feature_id={feature_id}"]
+            if wiki_titles:
+                parts.append(f"wiki_titles={wiki_titles}")
+            if wiki_paths:
+                parts.append(f"wiki_paths={wiki_paths}")
+            if report_titles:
+                parts.append(f"report_titles={report_titles}")
+            if keywords:
+                parts.append(f"keywords={keywords}")
+            lines.append(" ".join(parts))
+    if feature_candidates:
+        lines.append("候选特性：")
+        for item in feature_candidates[:8]:
+            feature_id = _candidate_value(item, "feature_id", "id")
+            name = _candidate_value(item, "name", "title")
+            description = _truncate(
+                str(_candidate_value(item, "description", "summary") or ""),
+                180,
+            )
+            linked_repos = _format_linked_repos(item.get("linked_repos") or item.get("repos"))
+            line = f"- feature_id={feature_id} name={name}"
+            if description:
+                line += f" description={description}"
+            if linked_repos:
+                line += f" linked_repos={linked_repos}"
+            lines.append(line)
+    if repo_candidates:
+        lines.append("代码仓库候选：")
+        for item in repo_candidates[:8]:
+            repo_id = _candidate_value(item, "repo_id", "id")
+            name = _candidate_value(item, "name", "title")
+            source = _candidate_value(item, "source")
+            status = _candidate_value(item, "status")
+            linked_feature_ids = item.get("linked_feature_ids")
+            line = f"- repo_id={repo_id} name={name}"
+            if source:
+                line += f" source={source}"
+            if status:
+                line += f" status={status}"
+            if isinstance(linked_feature_ids, list) and linked_feature_ids:
+                feature_ids_text = ",".join(str(value) for value in linked_feature_ids[:8])
+                line += f" linked_feature_ids={feature_ids_text}"
+            lines.append(line)
+    if wiki_hits:
+        lines.append("Wiki 候选：")
+        for item in wiki_hits[:8]:
+            feature_id = _candidate_value(item, "feature_id", "feature")
+            node_id = _candidate_value(item, "node_id")
+            document_id = _candidate_value(item, "document_id")
+            title = _candidate_value(item, "title", "name")
+            path = _candidate_value(item, "path", "node_path")
+            heading_path = _candidate_value(item, "heading_path", "heading")
+            snippet = _truncate(str(_candidate_value(item, "snippet", "content") or ""), 260)
+            line = f"- feature_id={feature_id}"
+            if node_id:
+                line += f" node_id={node_id}"
+            if document_id:
+                line += f" document_id={document_id}"
+            line += f" title={title} path={path}"
+            if heading_path:
+                line += f" heading={heading_path}"
+            if snippet:
+                line += f" snippet={snippet}"
+            lines.append(line)
+    if report_hits:
+        lines.append("问题报告候选：")
+        for item in report_hits[:6]:
+            feature_id = _candidate_value(item, "feature_id", "feature")
+            title = _candidate_value(item, "title", "name")
+            status = _candidate_value(item, "status", "verification_status")
+            lines.append(f"- feature_id={feature_id} title={title} status={status}")
+    if attachment_candidates:
+        lines.append("【会话附件候选】")
+        for item in attachment_candidates[:6]:
+            attachment_id = _candidate_value(item, "attachment_id", "id")
+            display_name = _candidate_value(item, "display_name", "title")
+            original_filename = _candidate_value(item, "original_filename", "filename")
+            description = _truncate(
+                str(_candidate_value(item, "description", "summary") or ""),
+                180,
+            )
+            aliases = _format_aliases(item.get("aliases") or item.get("reference_names"))
+            line = f"- attachment_id={attachment_id} display_name={display_name}"
+            if original_filename:
+                line += f" original={original_filename}"
+            if description:
+                line += f" description={description}"
+            if aliases:
+                line += f" aliases={aliases}"
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def _candidate_value(item: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = item.get(key)
+        if value is not None:
+            return value
+    return ""
+
+
+def _format_linked_repos(repos: Any) -> str:
+    if not isinstance(repos, list):
+        return ""
+    formatted: list[str] = []
+    for repo in repos[:5]:
+        if not isinstance(repo, dict):
+            continue
+        repo_id = repo.get("repo_id") or repo.get("id") or ""
+        name = repo.get("name") or ""
+        formatted.append(f"{name}({repo_id})" if repo_id else str(name))
+    return "、".join(item for item in formatted if item)
+
+
+def _format_aliases(values: Any) -> str:
+    if not isinstance(values, list):
+        return ""
+    aliases = [str(item).strip() for item in values if str(item).strip()]
+    if not aliases:
+        return ""
+    return "、".join(aliases[:5])
+
+
+def _format_value_list(values: Any, *, limit: int) -> str:
+    if not isinstance(values, list):
+        return ""
+    formatted = [str(item).strip() for item in values if str(item).strip()]
+    if not formatted:
+        return ""
+    return "、".join(formatted[:limit])
+
+
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+@dataclass(frozen=True)
+class _ModelTurn:
+    messages: list[LLMMessage]
+    attempted_reactive_compact: bool = False
+
+
+def _prepare_model_turn(
+    messages: list[LLMMessage],
+    policy: ContextBudgetPolicy,
+) -> _ModelTurn:
+    return _ModelTurn(messages=compact_messages_if_needed(messages, policy).messages)
+
+
+def _prepare_reactive_compact_turn(
+    messages: list[LLMMessage],
+    policy: ContextBudgetPolicy,
+    previous_messages: list[LLMMessage],
+) -> _ModelTurn | None:
+    reactive_policy = replace(
+        policy,
+        context_window_chars=max(1, int(policy.context_window_chars * 0.75)),
+        keep_recent_tool_results=0,
+    )
+    compacted = compact_messages_if_needed(
+        messages,
+        reactive_policy,
+        force=True,
+    )
+    if not _compaction_made_progress(compacted, previous_messages):
+        return None
+    return _ModelTurn(messages=compacted.messages, attempted_reactive_compact=True)
+
+
+def _is_context_length_error(data: dict[str, Any]) -> bool:
+    message = str(data.get("message") or "").casefold()
+    error_code = str(data.get("error_code") or "").casefold()
+    haystack = f"{error_code}\n{message}"
+    return any(
+        marker in haystack
+        for marker in (
+            "input length",
+            "maximum length",
+            "context length",
+            "prompt too long",
+            "prompt_too_long",
+            "maximum context",
+        )
+    )
+
+
+def _compaction_made_progress(
+    compacted: CompactionResult,
+    previous_messages: list[LLMMessage],
+) -> bool:
+    return compacted.triggered and compacted.after_chars < sum(
+        len(message.model_dump_json()) for message in previous_messages
+    )
+
+
+def _history_to_llm_messages(history: list[SessionMessage]) -> list[LLMMessage]:
+    messages: list[LLMMessage] = []
+    for item in history:
+        if not item.content.strip():
+            continue
+        messages.append(
+            LLMMessage(
+                role=item.role,
+                content=[TextBlock(type="text", text=item.content)],
+            )
+        )
+    return messages

@@ -91,7 +91,12 @@ export function insightsFromSessionHistory(
     }
     const insight = runtimeInsightFromEvent(event);
     if (insight) {
-      insights.push({ ...insight, id: trace.id });
+      insights.push({
+        ...insight,
+        id: trace.id,
+        occurredAt: trace.created_at,
+        turnId: trace.turn_id,
+      });
     }
   }
   for (const turn of turns) {
@@ -122,11 +127,23 @@ function agentEventFromTrace(trace: AgentTraceResponse): AgentEvent | null {
       data: payload,
     };
   }
+  if (trace.event_type === "retrieval_context") {
+    return { type: "retrieval_context", data: payload };
+  }
   if (trace.event_type === "tool_call") {
     return { type: "tool_call", data: payload };
   }
   if (trace.event_type === "tool_result") {
     return { type: "tool_result", data: payload };
+  }
+  if (trace.event_type === "needs_clarification") {
+    return { type: "needs_clarification", data: payload };
+  }
+  if (trace.event_type === "assistant_action") {
+    return { type: "assistant_action", data: payload };
+  }
+  if (trace.event_type === "error") {
+    return { type: "error", data: payload };
   }
   if (trace.event_type !== "llm_event") {
     return null;
@@ -166,6 +183,8 @@ function evidenceInsightsFromTurn(turn: SessionTurnResponse): RuntimeInsight[] {
         id,
         kind: "evidence",
         title: `证据：${summary}`,
+        occurredAt: turn.created_at,
+        turnId: turn.id,
         detail: [stringValue(row.type), path ?? resultPath, headingPath]
           .filter(Boolean)
           .join(" · "),

@@ -19,6 +19,14 @@ async def ok_handler(args: SearchInput, ctx: ToolContext) -> ToolResult:
     return ToolResult.ok(tool="search_wiki", summary=f"query={args.query}", items=[])
 
 
+async def huge_handler(args: SearchInput, ctx: ToolContext) -> ToolResult:
+    return ToolResult.ok(
+        tool="search_code",
+        summary="huge result",
+        items=[{"path": "large.txt", "content": "x" * 5000}],
+    )
+
+
 @pytest.mark.asyncio
 async def test_executor_validates_schema_and_returns_structured_error() -> None:
     registry = ToolRegistry()
@@ -90,3 +98,37 @@ async def test_executor_blocks_unconfirmed_write_tools() -> None:
 
     assert result.ok is False
     assert result.error_type == ToolErrorType.PERMISSION_DENIED
+
+
+@pytest.mark.asyncio
+async def test_executor_truncates_oversized_tool_result_payload() -> None:
+    registry = ToolRegistry()
+    registry.register(
+        ToolSpec(
+            name="search_code",
+            description="搜索代码",
+            input_model=SearchInput,
+            read_only=True,
+            requires_confirmation=False,
+            max_result_size_chars=600,
+        ),
+        huge_handler,
+    )
+    executor = ToolExecutor(registry)
+
+    result = await executor.execute(
+        "search_code",
+        {"query": "anything llm rag"},
+        ToolContext(session_id="sess_1", turn_id="turn_1"),
+    )
+
+    serialized = result.model_dump_json()
+    assert len(serialized) <= 600
+    assert result.truncated is True
+    assert result.raw_result_ref is not None
+    assert result.raw_result_ref.startswith("raw_tool_result:sess_1:turn_1:search_code:")
+    assert result.audit_raw_result is not None
+    assert result.audit_raw_result["raw_result_ref"] == result.raw_result_ref
+    assert result.audit_raw_result["result"]["items"][0]["content"] == "x" * 5000
+    assert result.items
+    assert result.items[0]["content"].endswith("...[truncated]")
