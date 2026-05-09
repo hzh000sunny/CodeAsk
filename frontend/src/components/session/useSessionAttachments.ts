@@ -27,7 +27,7 @@ export function useSessionAttachments({
   rememberSession: (session: SessionResponse) => void;
   selected: SessionResponse | null;
   selectedSessionId: string;
-  showActionNotice: (message: string) => void;
+  showActionNotice: (message: string, tone?: "success" | "error") => void;
 }) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -56,7 +56,7 @@ export function useSessionAttachments({
       upsertAttachment(queryClient, attachment);
     },
     onError: (error) => {
-      showActionNotice(`重命名会话数据失败：${messageFromError(error)}`);
+      showActionNotice(`重命名会话数据失败：${messageFromError(error)}`, "error");
     },
   });
   const describeAttachmentMutation = useMutation({
@@ -74,7 +74,7 @@ export function useSessionAttachments({
       upsertAttachment(queryClient, attachment);
     },
     onError: (error) => {
-      showActionNotice(`更新用途说明失败：${messageFromError(error)}`);
+      showActionNotice(`更新用途说明失败：${messageFromError(error)}`, "error");
     },
   });
   const deleteAttachmentMutation = useMutation({
@@ -97,7 +97,7 @@ export function useSessionAttachments({
       );
     },
     onError: (error) => {
-      showActionNotice(`删除会话数据失败：${messageFromError(error)}`);
+      showActionNotice(`删除会话数据失败：${messageFromError(error)}`, "error");
     },
   });
 
@@ -109,6 +109,7 @@ export function useSessionAttachments({
     try {
       let target = selected;
       if (!target) {
+        await queryClient.cancelQueries({ queryKey: ["sessions"] });
         target = await createSession(
           file.name.trim().slice(0, 28) || "新的研发会话",
         );

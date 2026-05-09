@@ -9,7 +9,7 @@ import { messageFromError } from "./session-model";
 export function useSessionFeedback({
   showActionNotice,
 }: {
-  showActionNotice: (message: string) => void;
+  showActionNotice: (message: string, tone?: "success" | "error") => void;
 }) {
   const [feedbackByTurnId, setFeedbackByTurnId] = useState<
     Record<string, FeedbackVerdict>
@@ -51,7 +51,7 @@ export function useSessionFeedback({
     },
     onError: (error) => {
       setFeedbackPendingTurnId(null);
-      showActionNotice(`提交反馈失败：${messageFromError(error)}`);
+      showActionNotice(`提交反馈失败：${messageFromError(error)}`, "error");
     },
   });
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useAppFeedback } from "../feedback/AppFeedback";
 import type { SessionResponse } from "../../types/api";
 import { copyTextToClipboard } from "./session-clipboard";
 
@@ -11,18 +12,15 @@ export function useSessionNotices({
   selectedSessionId: string;
 }) {
   const copyToastTimeoutRef = useRef<number | null>(null);
-  const actionNoticeTimeoutRef = useRef<number | null>(null);
-  const [actionNotice, setActionNotice] = useState("");
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
+  const { showError, showSuccess } = useAppFeedback();
 
   useEffect(() => {
     setCopiedSessionId(null);
-    setActionNotice("");
     if (copyToastTimeoutRef.current) {
       window.clearTimeout(copyToastTimeoutRef.current);
       copyToastTimeoutRef.current = null;
     }
-    clearActionNoticeTimer();
   }, [selectedSessionId]);
 
   useEffect(() => {
@@ -30,25 +28,8 @@ export function useSessionNotices({
       if (copyToastTimeoutRef.current) {
         window.clearTimeout(copyToastTimeoutRef.current);
       }
-      clearActionNoticeTimer();
     };
   }, []);
-
-  function clearActionNoticeTimer() {
-    if (actionNoticeTimeoutRef.current) {
-      window.clearTimeout(actionNoticeTimeoutRef.current);
-      actionNoticeTimeoutRef.current = null;
-    }
-  }
-
-  function showActionNotice(message: string) {
-    clearActionNoticeTimer();
-    setActionNotice(message);
-    actionNoticeTimeoutRef.current = window.setTimeout(() => {
-      setActionNotice("");
-      actionNoticeTimeoutRef.current = null;
-    }, 2800);
-  }
 
   async function copySessionId() {
     if (!selected) {
@@ -70,9 +51,14 @@ export function useSessionNotices({
   }
 
   return {
-    actionNotice,
     copiedSessionId,
     copySessionId,
-    showActionNotice,
+    showActionNotice: (message: string, tone: "success" | "error" = "success") => {
+      if (tone === "error") {
+        showError(message);
+        return;
+      }
+      showSuccess(message);
+    },
   };
 }

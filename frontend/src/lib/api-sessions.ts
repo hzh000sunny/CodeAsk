@@ -5,13 +5,15 @@ import type {
   FeedbackVerdict,
   FrontendEventAck,
   ReportRead,
+  SessionReportPrepareStatus,
+  SessionReportPrepared,
   SessionResponse,
   SessionTurnResponse,
 } from "../types/api";
 import { apiRequest } from "./api-client";
 
-export function listSessions() {
-  return apiRequest<SessionResponse[]>("/api/sessions");
+export function listSessions(signal?: AbortSignal) {
+  return apiRequest<SessionResponse[]>("/api/sessions", { signal });
 }
 
 export function listSessionTurns(sessionId: string, signal?: AbortSignal) {
@@ -55,6 +57,12 @@ export function updateSession(
   });
 }
 
+export function generateSessionTitle(sessionId: string) {
+  return apiRequest<SessionResponse>(`/api/sessions/${sessionId}/title/generate`, {
+    method: "POST",
+  });
+}
+
 export function bulkDeleteSessions(sessionIds: string[]) {
   return apiRequest<{ deleted_ids: string[] }>("/api/sessions/bulk-delete", {
     method: "POST",
@@ -62,15 +70,46 @@ export function bulkDeleteSessions(sessionIds: string[]) {
   });
 }
 
+export function prepareSessionReport(
+  sessionId: string,
+  payload: { feature_id?: number | null },
+  options?: { requestId?: string },
+) {
+  return apiRequest<SessionReportPrepareStatus>(
+    `/api/sessions/${sessionId}/reports/prepare`,
+    {
+      method: "POST",
+      requestId: options?.requestId,
+      body: {
+        feature_id: payload.feature_id ?? null,
+      },
+    },
+  );
+}
+
+export function getSessionReportPrepareStatus(
+  sessionId: string,
+  requestId: string,
+) {
+  return apiRequest<SessionReportPrepareStatus>(
+    `/api/sessions/${sessionId}/reports/prepare/${requestId}`,
+  );
+}
+
 export function generateSessionReport(
   sessionId: string,
-  payload: { feature_id: number; title: string },
+  payload: {
+    feature_id?: number | null;
+    title: string;
+    body_markdown: string;
+  },
 ) {
   return apiRequest<ReportRead>(`/api/sessions/${sessionId}/reports`, {
     method: "POST",
     body: {
-      feature_id: payload.feature_id,
+      feature_id: payload.feature_id ?? null,
       title: payload.title,
+      body_markdown: payload.body_markdown,
     },
   });
 }

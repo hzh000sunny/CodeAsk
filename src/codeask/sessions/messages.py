@@ -24,6 +24,7 @@ from codeask.db.models import (
     SessionRepoBinding,
     SessionTurn,
 )
+from codeask.sessions.title_generation import maybe_generate_session_title
 
 
 def _event_data_dict(data: object) -> dict[str, object]:
@@ -184,6 +185,16 @@ async def stream_agent_response(
                 session_id,
                 assistant_content,
                 parent_turn_id=turn_id,
+            )
+            asyncio.create_task(
+                maybe_generate_session_title(
+                    request.app.state.session_factory,
+                    request.app.state.llm_gateway,
+                    session_id=session_id,
+                    subject_id=request.state.subject_id,
+                    user_content=content,
+                    assistant_content=assistant_content,
+                )
             )
 
 

@@ -6,6 +6,7 @@ import type {
   WikiSourceRead,
   WikiSourceUpdatePayload,
 } from "../../types/wiki";
+import { useAppFeedback } from "../feedback/AppFeedback";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
@@ -34,11 +35,11 @@ export function WikiSourceFormDialog({
     payload: Omit<WikiSourceCreatePayload, "space_id"> | WikiSourceUpdatePayload,
   ) => Promise<void>;
 }) {
+  const { showError } = useAppFeedback();
   const [displayName, setDisplayName] = useState("");
   const [kind, setKind] = useState<WikiSourceKind>("directory_import");
   const [uri, setUri] = useState("");
   const [metadataText, setMetadataText] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     const next = buildInitialState(source);
@@ -46,7 +47,6 @@ export function WikiSourceFormDialog({
     setKind(next.kind);
     setUri(next.uri);
     setMetadataText(next.metadataText);
-    setErrorMessage("");
   }, [source]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -57,17 +57,16 @@ export function WikiSourceFormDialog({
       try {
         const parsed = JSON.parse(metadataText) as unknown;
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          setErrorMessage("附加元数据必须是 JSON 对象");
+          showError("附加元数据必须是 JSON 对象", { title: "保存来源失败" });
           return;
         }
         metadataJson = parsed as Record<string, unknown>;
       } catch {
-        setErrorMessage("附加元数据不是合法的 JSON");
+        showError("附加元数据不是合法的 JSON", { title: "保存来源失败" });
         return;
       }
     }
 
-    setErrorMessage("");
     if (mode === "create") {
       await onSubmit({
         display_name: displayName.trim(),
@@ -135,11 +134,6 @@ export function WikiSourceFormDialog({
           />
         </label>
       </div>
-      {errorMessage ? (
-        <div className="inline-alert danger" role="alert">
-          {errorMessage}
-        </div>
-      ) : null}
       <div className="dialog-actions wiki-source-form-actions">
         <Button disabled={pending} onClick={onCancel} type="button" variant="secondary">
           取消

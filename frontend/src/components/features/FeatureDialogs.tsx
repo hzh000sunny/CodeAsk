@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 
+import { useForwardErrorToAppFeedback } from "../feedback/useForwardErrorToAppFeedback";
 import { Button } from "../ui/button";
 
 export function DeleteFeatureDialog({
@@ -15,6 +16,8 @@ export function DeleteFeatureDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  useForwardErrorToAppFeedback(errorMessage, { title: "删除特性失败" });
+
   return (
     <div className="dialog-backdrop">
       <section
@@ -32,11 +35,6 @@ export function DeleteFeatureDialog({
             确认删除“{featureName}
             ”？删除后该特性的设置、关联关系和知识资料将不再从特性列表进入。
           </p>
-          {errorMessage ? (
-            <div className="inline-alert danger in-dialog" role="alert">
-              {errorMessage}
-            </div>
-          ) : null}
           <div className="dialog-actions">
             <Button
               disabled={isDeleting}

@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogIn, LogOut, Settings, UserCircle, UserRound } from "lucide-react";
 
+import { useAppFeedback } from "../feedback/AppFeedback";
 import { getMe, logout } from "../../lib/api";
+import { resetSubjectScopedQueries } from "../../lib/auth-cache";
 import type { AuthMeResponse } from "../../types/api";
 import type { SectionId } from "./Sidebar";
 
@@ -14,8 +16,8 @@ interface TopBarProps {
 export function TopBar({ onLoginRequest, onNavigate }: TopBarProps) {
   const queryClient = useQueryClient();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [notice, setNotice] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const { showError, showSuccess } = useAppFeedback();
   const { data: me } = useQuery({
     queryKey: ["auth", "me"],
     queryFn: getMe,
@@ -23,9 +25,9 @@ export function TopBar({ onLoginRequest, onNavigate }: TopBarProps) {
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSuccess: () => {
-      setNotice("");
+      showSuccess("已退出登录");
+      resetSubjectScopedQueries(queryClient);
       void queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-      void queryClient.invalidateQueries({ queryKey: ["admin-llm-configs"] });
     },
   });
 
@@ -79,14 +81,12 @@ export function TopBar({ onLoginRequest, onNavigate }: TopBarProps) {
                   <strong>{displayName}</strong>
                   <span>管理员</span>
                 </div>
-                {notice ? (
-                  <div className="menu-notice" role="status">
-                    {notice}
-                  </div>
-                ) : null}
                 <button
                   className="menu-item"
-                  onClick={() => setNotice("暂不支持")}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    showError("暂不支持");
+                  }}
                   role="menuitem"
                   type="button"
                 >

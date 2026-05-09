@@ -41,6 +41,7 @@ export function AppShell() {
     featureId: number | null;
   } | null>(null);
   const wikiImportNavigationGuardRef = useRef<WikiImportNavigationGuard | null>(null);
+  const loginReturnViewRef = useRef<AppViewId>("sessions");
   const [pendingView, setPendingView] = useState<AppViewId | null>(null);
 
   useEffect(() => {
@@ -86,8 +87,26 @@ export function AppShell() {
     showView(section);
   }
 
+  function requestLogin() {
+    loginReturnViewRef.current =
+      routeState.view === "login" ? "sessions" : routeState.view;
+    showView("login");
+  }
+
   function navigateWiki(patch: Partial<AppRouteState["wiki"]>) {
     const nextState = mergeWikiRouteState(routeState, patch);
+    setRouteState(nextState);
+    writeRouteStateToLocation(nextState);
+  }
+
+  function navigateSession(sessionId: string | null) {
+    const nextState: AppRouteState = {
+      ...routeState,
+      view: "sessions",
+      sessions: {
+        sessionId,
+      },
+    };
     setRouteState(nextState);
     writeRouteStateToLocation(nextState);
   }
@@ -105,7 +124,7 @@ export function AppShell() {
   return (
     <div className="app-shell">
       <TopBar
-        onLoginRequest={() => showView("login")}
+        onLoginRequest={requestLogin}
         onNavigate={navigate}
       />
       <div className="app-body" data-primary-collapsed={primaryCollapsed}>
@@ -118,6 +137,8 @@ export function AppShell() {
         <main className="app-main">
           {routeState.view === "sessions" ? (
             <SessionWorkspace
+              routeSelectedSessionId={routeState.sessions.sessionId}
+              onSelectedSessionChange={navigateSession}
               onOpenReport={(target) => {
                 setReportTarget(target);
                 showView("features");
@@ -177,7 +198,7 @@ export function AppShell() {
           {routeState.view === "login" ? (
             <AdminLoginPage
               onSuccess={() => {
-                showView("settings");
+                showView(loginReturnViewRef.current);
               }}
             />
           ) : null}

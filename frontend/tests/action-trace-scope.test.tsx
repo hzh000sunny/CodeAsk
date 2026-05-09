@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ActionTraceEvent } from "../src/components/session/action-trace/ActionTraceEvent";
+import { ActionTracePanel } from "../src/components/session/action-trace/ActionTracePanel";
 import {
   actionTraceFromAgentEvent,
   type ActionTraceEvent as ActionTraceEventModel,
@@ -153,5 +154,72 @@ describe("action trace code scope display", () => {
     });
     expect(screen.queryByText("已复制")).not.toBeInTheDocument();
     vi.useRealTimers();
+  });
+
+  it("renders per-turn summary as stable metric chips including zero values", () => {
+    const events: ActionTraceEventModel[] = [
+      {
+        id: "event_1",
+        kind: "retrieval",
+        title: "已准备 2 条上下文",
+        detail: "1 个候选特性 · 1 条 Wiki",
+        status: "info",
+        turnId: "turn_1",
+        evidenceRefs: [],
+        data: {},
+      },
+      {
+        id: "event_2",
+        kind: "tool_call",
+        title: "准备使用 代码搜索",
+        detail: "query=buddy",
+        status: "running",
+        turnId: "turn_1",
+        evidenceRefs: [],
+        data: {
+          tool_name: "search_code",
+        },
+      },
+      {
+        id: "event_3",
+        kind: "tool_result",
+        title: "代码搜索完成",
+        detail: "命中 1 个代码位置",
+        status: "success",
+        turnId: "turn_1",
+        evidenceRefs: [{ path: "src/buddy/CompanionSprite.tsx" }],
+        data: {
+          tool_name: "search_code",
+        },
+      },
+      {
+        id: "event_4",
+        kind: "tool_result",
+        title: "代码文件完成",
+        detail: "读取代码文件成功",
+        status: "success",
+        turnId: "turn_1",
+        evidenceRefs: [],
+        data: {
+          tool_name: "read_code_file",
+        },
+      },
+    ];
+
+    render(<ActionTracePanel events={events} isStreaming={false} />);
+
+    expect(screen.getByText("第 1 轮")).toBeInTheDocument();
+    const summary = screen.getByLabelText("第 1 轮 摘要");
+    expect(summary).toHaveTextContent("4动作");
+    expect(summary).toHaveTextContent("3工具");
+    expect(summary).toHaveTextContent("1证据");
+    expect(summary).toHaveTextContent("1读码");
+    expect(summary).toHaveTextContent("0提醒");
+    expect(summary).toHaveTextContent("0失败");
+
+    const warningMetric = screen.getByText("提醒").closest(".action-trace-turn-metric");
+    const errorMetric = screen.getByText("失败").closest(".action-trace-turn-metric");
+    expect(warningMetric).toHaveAttribute("data-zero", "true");
+    expect(errorMetric).toHaveAttribute("data-zero", "true");
   });
 });

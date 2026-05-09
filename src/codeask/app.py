@@ -76,7 +76,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         factory = session_factory(engine)
         crypto = Crypto(settings.data_key)
         llm_config_repo = LLMConfigRepo(factory, crypto)
-        llm_gateway = LLMGateway(llm_config_repo, ClientFactory.default())
+        llm_gateway = LLMGateway(
+            llm_config_repo,
+            ClientFactory.default(),
+            timeout_seconds=settings.llm_timeout_seconds,
+        )
         agent_wiki_search = AgentWikiToolService(factory)
         trace_logger = AgentTraceLogger(factory)
         scheduler = cast(_Scheduler, BackgroundScheduler())

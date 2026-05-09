@@ -2,13 +2,14 @@ import { useState } from "react";
 import { UserRound } from "lucide-react";
 
 import { getNickname, getSubjectId, setNickname } from "../../lib/identity";
+import { useAppFeedback } from "../feedback/AppFeedback";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { LlmConfigManager } from "./llm/LlmConfigManager";
 
 export function UserSettings() {
   const [nickname, setNicknameValue] = useState(getNickname());
-  const [saved, setSaved] = useState(false);
+  const { showSuccess } = useAppFeedback();
 
   return (
     <div className="settings-stack">
@@ -27,7 +28,6 @@ export function UserSettings() {
             <Input
               id="user-nickname"
               onChange={(event) => {
-                setSaved(false);
                 setNicknameValue(event.target.value);
               }}
               placeholder="可选"
@@ -38,14 +38,13 @@ export function UserSettings() {
             <Button
               onClick={() => {
                 setNickname(nickname);
-                setSaved(true);
+                showSuccess("用户设置已保存");
               }}
               type="button"
               variant="primary"
             >
               保存用户设置
             </Button>
-            {saved ? <span className="action-status inline">已保存</span> : null}
           </div>
         </div>
       </section>

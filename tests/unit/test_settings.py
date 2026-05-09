@@ -27,6 +27,7 @@ def test_defaults_applied(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     assert settings.log_level == "INFO"
     assert settings.admin_username == "admin"
     assert settings.admin_password == "admin"
+    assert settings.llm_timeout_seconds == 600
     assert settings.data_dir == tmp_path
     assert settings.database_url == f"sqlite+aiosqlite:///{tmp_path / 'data.db'}"
 

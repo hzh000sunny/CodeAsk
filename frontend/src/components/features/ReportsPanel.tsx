@@ -17,6 +17,7 @@ import {
   updateReport,
   verifyReport,
 } from "../../lib/api";
+import { useAppFeedback } from "../feedback/AppFeedback";
 import { wikiQueryKeys } from "../../lib/wiki/query-keys";
 import type { ReportRead } from "../../types/api";
 import { Badge } from "../ui/badge";
@@ -25,11 +26,6 @@ import { Input } from "../ui/input";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { Textarea } from "../ui/textarea";
 import { messageFromError } from "./feature-utils";
-
-type ActionStatus = {
-  message: string;
-  tone: "success" | "danger";
-};
 
 export function ReportsPanel({
   featureId,
@@ -47,7 +43,7 @@ export function ReportsPanel({
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody] = useState("");
-  const [actionStatus, setActionStatus] = useState<ActionStatus | null>(null);
+  const { showError, showSuccess } = useAppFeedback();
   const { data: fetchedReports = [] } = useQuery({
     queryKey: reportsQueryKey,
     queryFn: () => listReports(featureId),
@@ -76,7 +72,6 @@ export function ReportsPanel({
     setSelectedLocalReportId(selectedReportId);
     setStatusFilter("all");
     setIsEditing(false);
-    setActionStatus(null);
   }, [selectedReportId]);
 
   const updateMutation = useMutation({
@@ -97,15 +92,12 @@ export function ReportsPanel({
       cacheReport(report);
       setSelectedLocalReportId(report.id);
       setIsEditing(false);
-      setActionStatus({ message: "报告已保存", tone: "success" });
+      showSuccess("报告已保存");
       void queryClient.invalidateQueries({ queryKey: reportsQueryKey });
       void invalidateWikiViews();
     },
     onError: (error) => {
-      setActionStatus({
-        message: `保存报告失败：${messageFromError(error)}`,
-        tone: "danger",
-      });
+      showError(`保存报告失败：${messageFromError(error)}`);
     },
   });
   const verifyMutation = useMutation({
@@ -113,15 +105,12 @@ export function ReportsPanel({
     onSuccess: (report) => {
       cacheReport(report);
       setSelectedLocalReportId(report.id);
-      setActionStatus({ message: "报告已验证通过", tone: "success" });
+      showSuccess("报告已验证通过");
       void queryClient.invalidateQueries({ queryKey: reportsQueryKey });
       void invalidateWikiViews();
     },
     onError: (error) => {
-      setActionStatus({
-        message: `验证报告失败：${messageFromError(error)}`,
-        tone: "danger",
-      });
+      showError(`验证报告失败：${messageFromError(error)}`);
     },
   });
   const rejectMutation = useMutation({
@@ -129,15 +118,12 @@ export function ReportsPanel({
     onSuccess: (report) => {
       cacheReport(report);
       setSelectedLocalReportId(report.id);
-      setActionStatus({ message: "报告已标记为未通过", tone: "success" });
+      showSuccess("报告已标记为未通过");
       void queryClient.invalidateQueries({ queryKey: reportsQueryKey });
       void invalidateWikiViews();
     },
     onError: (error) => {
-      setActionStatus({
-        message: `标记未通过失败：${messageFromError(error)}`,
-        tone: "danger",
-      });
+      showError(`标记未通过失败：${messageFromError(error)}`);
     },
   });
   const unverifyMutation = useMutation({
@@ -145,15 +131,12 @@ export function ReportsPanel({
     onSuccess: (report) => {
       cacheReport(report);
       setSelectedLocalReportId(report.id);
-      setActionStatus({ message: "报告已撤销验证", tone: "success" });
+      showSuccess("报告已撤销验证");
       void queryClient.invalidateQueries({ queryKey: reportsQueryKey });
       void invalidateWikiViews();
     },
     onError: (error) => {
-      setActionStatus({
-        message: `撤销验证失败：${messageFromError(error)}`,
-        tone: "danger",
-      });
+      showError(`撤销验证失败：${messageFromError(error)}`);
     },
   });
   const deleteMutation = useMutation({
@@ -162,15 +145,12 @@ export function ReportsPanel({
       removeReportFromCache(reportId);
       setSelectedLocalReportId(null);
       setIsEditing(false);
-      setActionStatus({ message: "报告已删除", tone: "success" });
+      showSuccess("报告已删除");
       void queryClient.invalidateQueries({ queryKey: reportsQueryKey });
       void invalidateWikiViews();
     },
     onError: (error) => {
-      setActionStatus({
-        message: `删除报告失败：${messageFromError(error)}`,
-        tone: "danger",
-      });
+      showError(`删除报告失败：${messageFromError(error)}`);
     },
   });
   const isActionPending =
@@ -212,7 +192,6 @@ export function ReportsPanel({
   function selectReport(report: ReportRead) {
     setSelectedLocalReportId(report.id);
     setIsEditing(false);
-    setActionStatus(null);
   }
 
   function openEditor() {
@@ -222,7 +201,6 @@ export function ReportsPanel({
     setEditTitle(selectedReport.title);
     setEditBody(selectedReport.body_markdown);
     setIsEditing(true);
-    setActionStatus(null);
   }
 
   function saveReport(event: FormEvent<HTMLFormElement>) {
@@ -269,7 +247,6 @@ export function ReportsPanel({
                 setStatusFilter(filter.id);
                 setSelectedLocalReportId(null);
                 setIsEditing(false);
-                setActionStatus(null);
               }}
               role="tab"
               type="button"
@@ -318,15 +295,6 @@ export function ReportsPanel({
             <Badge>{reportStatusLabel(selectedReport)}</Badge>
           ) : null}
         </div>
-        {actionStatus ? (
-          <p
-            aria-live="polite"
-            className="action-status inline report-action-status"
-            data-tone={actionStatus.tone}
-          >
-            {actionStatus.message}
-          </p>
-        ) : null}
         {selectedReport ? (
           <>
             <div aria-label="报告操作" className="report-detail-actions">

@@ -115,6 +115,141 @@ describe("SettingsPage LLM configuration", () => {
     expect(password).toHaveAttribute("type", "password");
   });
 
+  it("refreshes session data after admin login switches the current subject", async () => {
+    let authenticated = false;
+    let sessionListCalls = 0;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/auth/me") {
+          return jsonResponse(authenticated ? adminMe : memberMe);
+        }
+        if (path === "/api/auth/admin/login" && init?.method === "POST") {
+          authenticated = true;
+          return jsonResponse(adminMe);
+        }
+        if (path === "/api/sessions") {
+          sessionListCalls += 1;
+          return jsonResponse(
+            authenticated
+              ? [
+                  {
+                    id: "sess_admin",
+                    title: "管理员会话",
+                    created_by_subject_id: "admin",
+                    status: "active",
+                    pinned: false,
+                    created_at: "2026-04-30T10:00:00",
+                    updated_at: "2026-04-30T10:00:00",
+                  },
+                ]
+              : [
+                  {
+                    id: "sess_member",
+                    title: "普通用户会话",
+                    created_by_subject_id: "client_test",
+                    status: "active",
+                    pinned: false,
+                    created_at: "2026-04-30T10:00:00",
+                    updated_at: "2026-04-30T10:00:00",
+                  },
+                ],
+          );
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/admin/llm-configs") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/repos") {
+          return jsonResponse({ repos: [] });
+        }
+        if (path === "/api/skills") {
+          return jsonResponse([]);
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    expect(await screen.findAllByText("普通用户会话")).not.toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "未登录" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "登录" }));
+    fireEvent.change(screen.getByLabelText("密码"), {
+      target: { value: "admin" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    expect(await screen.findByRole("button", { name: "Admin" })).toBeInTheDocument();
+
+    expect(await screen.findAllByText("管理员会话")).not.toHaveLength(0);
+    expect(screen.queryAllByText("普通用户会话")).toHaveLength(0);
+    expect(sessionListCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("refreshes session data after admin logout switches back to the anonymous subject", async () => {
+    let authenticated = true;
+    let sessionListCalls = 0;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/auth/me") {
+          return jsonResponse(authenticated ? adminMe : memberMe);
+        }
+        if (path === "/api/auth/logout" && init?.method === "POST") {
+          authenticated = false;
+          return new Response(null, { status: 204 });
+        }
+        if (path === "/api/sessions") {
+          sessionListCalls += 1;
+          return jsonResponse(
+            authenticated
+              ? [
+                  {
+                    id: "sess_admin",
+                    title: "管理员会话",
+                    created_by_subject_id: "admin",
+                    status: "active",
+                    pinned: false,
+                    created_at: "2026-04-30T10:00:00",
+                    updated_at: "2026-04-30T10:00:00",
+                  },
+                ]
+              : [
+                  {
+                    id: "sess_member",
+                    title: "普通用户会话",
+                    created_by_subject_id: "client_test",
+                    status: "active",
+                    pinned: false,
+                    created_at: "2026-04-30T10:00:00",
+                    updated_at: "2026-04-30T10:00:00",
+                  },
+                ],
+          );
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    expect(await screen.findAllByText("管理员会话")).not.toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Admin" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "退出" }));
+
+    expect(await screen.findByRole("button", { name: "未登录" })).toBeInTheDocument();
+    expect(await screen.findAllByText("普通用户会话")).not.toHaveLength(0);
+    expect(screen.queryAllByText("管理员会话")).toHaveLength(0);
+    expect(sessionListCalls).toBeGreaterThanOrEqual(2);
+  });
+
   it("shows only user settings to ordinary members", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
@@ -313,7 +448,7 @@ describe("SettingsPage LLM configuration", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "保存 LLM 配置" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
       "保存 LLM 配置失败",
     );
     expect(

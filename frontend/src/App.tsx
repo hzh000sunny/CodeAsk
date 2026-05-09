@@ -1,3 +1,4 @@
+import { AppFeedbackProvider } from "./components/feedback/AppFeedback";
 import { QueryClientProvider } from "@tanstack/react-query";
 
 import { AppShell } from "./components/layout/AppShell";
@@ -7,7 +8,9 @@ import "./styles/globals.css";
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AppShell />
+      <AppFeedbackProvider>
+        <AppShell />
+      </AppFeedbackProvider>
     </QueryClientProvider>
   );
 }

@@ -169,6 +169,8 @@ class LegacyWikiSyncService:
                     title=title,
                     current_node_id=int(node.id),
                 )
+                node.space_id = space.id
+                node.parent_id = root.id
                 node.name = title
                 node.path = next_path
                 return
@@ -201,9 +203,10 @@ class LegacyWikiSyncService:
         if report_ref is None:
             return
         node = await session.get(WikiNode, report_ref.node_id)
-        await session.delete(report_ref)
         if node is not None:
             await session.delete(node)
+        else:
+            await session.delete(report_ref)
 
     async def _unique_report_ref_path(
         self,

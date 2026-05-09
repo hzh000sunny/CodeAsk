@@ -14,6 +14,7 @@ from sqlalchemy import select
 from codeask.db.models import (
     AgentTrace,
     Report,
+    Session,
     SessionConversationSummary,
     SessionRepoBinding,
     SessionTurn,
@@ -25,6 +26,30 @@ from codeask.sessions.messages import (
     rollback_session_turn,
 )
 from tests.mocks.mock_llm import MockLLMClient, text_message
+
+
+async def _session_title(app: FastAPI, session_id: str) -> tuple[str, str]:
+    async with app.state.session_factory() as db:
+        row = await db.get(Session, session_id)
+        assert row is not None
+        return row.title, row.title_source
+
+
+async def _wait_for_session_title(
+    app: FastAPI,
+    session_id: str,
+    expected_title: str,
+    *,
+    timeout_seconds: float = 1.0,
+) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    while asyncio.get_running_loop().time() < deadline:
+        title, _ = await _session_title(app, session_id)
+        if title == expected_title:
+            return
+        await asyncio.sleep(0.02)
+    title, source = await _session_title(app, session_id)
+    raise AssertionError(f"expected title {expected_title!r}, got {title!r} ({source})")
 
 
 @pytest.mark.asyncio
@@ -99,6 +124,213 @@ async def test_session_message_sse_and_attachment(
     assert uploaded["kind"] == "log"
     assert uploaded["display_name"] == "app.log"
     assert Path(uploaded["file_path"]).exists()
+
+
+@pytest.mark.asyncio
+async def test_default_session_title_is_generated_after_first_completed_exchange(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    config = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "default",
+            "protocol": "openai",
+            "base_url": None,
+            "api_key": "sk-secret",
+            "model_name": "gpt-test",
+            "max_tokens": 1024,
+            "temperature": 0.0,
+            "is_default": True,
+        },
+    )
+    assert config.status_code == 201, config.text
+    logout = await client.post("/api/auth/logout")
+    assert logout.status_code == 204
+
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "新的研发会话"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["title_source"] == "default"
+    session_id = created.json()["id"]
+
+    mock = MockLLMClient(
+        [
+            text_message("list 是可变序列，tuple 是不可变序列。"),
+            text_message("Python list 与 tuple 区别"),
+        ]
+    )
+    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+
+    message = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={
+            "content": "Python 中 list 和 tuple 的区别是什么？",
+            "client_turn_id": "turn_client_title_auto",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert message.status_code == 200, message.text
+    assert "event: done" in message.text
+
+    await _wait_for_session_title(app, session_id, "Python list 与 tuple 区别")
+    assert len(mock.calls) == 2
+    assert mock.calls[1]["tools"] == []
+    title_prompt = "\n".join(
+        block["text"]
+        for message in mock.calls[1]["messages"]
+        for block in message["content"]
+        if block["type"] == "text"
+    )
+    assert "只输出标题文本" in title_prompt
+    assert "Python 中 list 和 tuple 的区别是什么" in title_prompt
+
+    turns = await client.get(
+        f"/api/sessions/{session_id}/turns",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert turns.status_code == 200, turns.text
+    assert [turn["role"] for turn in turns.json()] == ["user", "agent"]
+    assert all("只输出标题文本" not in turn["content"] for turn in turns.json())
+
+
+@pytest.mark.asyncio
+async def test_manual_session_title_is_not_overwritten_by_auto_generation(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    config = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "default",
+            "protocol": "openai",
+            "base_url": None,
+            "api_key": "sk-secret",
+            "model_name": "gpt-test",
+            "max_tokens": 1024,
+            "temperature": 0.0,
+            "is_default": True,
+        },
+    )
+    assert config.status_code == 201, config.text
+    logout = await client.post("/api/auth/logout")
+    assert logout.status_code == 204
+
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "新的研发会话"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+    renamed = await client.patch(
+        f"/api/sessions/{session_id}",
+        json={"title": "我手动命名的会话"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["title_source"] == "manual"
+
+    mock = MockLLMClient([text_message("这里是正常回答。")])
+    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+
+    message = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={
+            "content": "写一个函数反转字符串",
+            "client_turn_id": "turn_client_title_manual",
+        },
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert message.status_code == 200, message.text
+    await asyncio.sleep(0.05)
+
+    title, source = await _session_title(app, session_id)
+    assert title == "我手动命名的会话"
+    assert source == "manual"
+    assert len(mock.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_explicit_session_title_generation_returns_updated_session(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    config = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "default",
+            "protocol": "openai",
+            "base_url": None,
+            "api_key": "sk-secret",
+            "model_name": "gpt-test",
+            "max_tokens": 1024,
+            "temperature": 0.0,
+            "is_default": True,
+        },
+    )
+    assert config.status_code == 201, config.text
+    logout = await client.post("/api/auth/logout")
+    assert logout.status_code == 204
+
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "新的研发会话"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    async with app.state.session_factory() as db:
+        db.add(
+            SessionTurn(
+                id="turn_title_user",
+                session_id=session_id,
+                turn_index=0,
+                role="user",
+                content="介绍一下 CodeAsk 能做什么",
+            )
+        )
+        db.add(
+            SessionTurn(
+                id="turn_title_agent",
+                session_id=session_id,
+                turn_index=1,
+                role="agent",
+                content="CodeAsk 可以结合 Wiki、问题报告和代码仓库辅助研发排障。",
+            )
+        )
+        await db.commit()
+
+    mock = MockLLMClient([text_message("CodeAsk 能力介绍")])
+    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+
+    generated = await client.post(
+        f"/api/sessions/{session_id}/title/generate",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+
+    assert generated.status_code == 200, generated.text
+    assert generated.json()["title"] == "CodeAsk 能力介绍"
+    assert generated.json()["title_source"] == "auto"
+    assert generated.json()["title_generated_at"] is not None
+    assert len(mock.calls) == 1
+    assert mock.calls[0]["tools"] == []
+    turns = await client.get(
+        f"/api/sessions/{session_id}/turns",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert turns.status_code == 200, turns.text
+    assert [turn["role"] for turn in turns.json()] == ["user", "agent"]
 
 
 @pytest.mark.asyncio
@@ -832,6 +1064,12 @@ async def test_delete_session_is_scoped_to_owner(client: AsyncClient) -> None:
     )
     assert deleted.status_code == 204
 
+    deleted_again = await client.delete(
+        f"/api/sessions/{session_id}",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert deleted_again.status_code == 204
+
     listed = await client.get(
         "/api/sessions",
         headers={"X-Subject-Id": "alice@dev-1"},
@@ -999,17 +1237,25 @@ async def test_update_pin_bulk_delete_and_generate_report_are_owner_scoped(
 
     empty_report = await client.post(
         f"/api/sessions/{session_id}/reports",
-        json={"feature_id": feature_id, "title": "支付启动失败定位报告"},
+        json={
+            "feature_id": feature_id,
+            "title": "支付启动失败定位报告",
+            "body_markdown": "# 草稿",
+        },
         headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert empty_report.status_code == 400
 
     null_feature = await client.post(
         f"/api/sessions/{session_id}/reports",
-        json={"feature_id": None, "title": "支付启动失败定位报告"},
+        json={
+            "feature_id": None,
+            "title": "支付启动失败定位报告",
+            "body_markdown": "# 草稿",
+        },
         headers={"X-Subject-Id": "alice@dev-1"},
     )
-    assert null_feature.status_code == 422
+    assert null_feature.status_code == 400
 
     async with app.state.session_factory() as db:
         db.add_all(
@@ -1036,7 +1282,11 @@ async def test_update_pin_bulk_delete_and_generate_report_are_owner_scoped(
 
     report = await client.post(
         f"/api/sessions/{session_id}/reports",
-        json={"feature_id": feature_id, "title": "支付启动失败定位报告"},
+        json={
+            "feature_id": feature_id,
+            "title": "支付启动失败定位报告",
+            "body_markdown": "# 支付启动失败定位报告",
+        },
         headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert report.status_code == 201, report.text
@@ -1138,7 +1388,11 @@ async def test_session_generated_report_with_code_evidence_can_be_verified(
 
     report = await client.post(
         f"/api/sessions/{session_id}/reports",
-        json={"feature_id": feature_id, "title": "LLM 调用链定位报告"},
+        json={
+            "feature_id": feature_id,
+            "title": "LLM 调用链定位报告",
+            "body_markdown": "# LLM 调用链定位报告",
+        },
         headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert report.status_code == 201, report.text

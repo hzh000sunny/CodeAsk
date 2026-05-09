@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
 
 import type { SessionResponse } from "../../types/api";
+import { useForwardErrorToAppFeedback } from "../feedback/useForwardErrorToAppFeedback";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { SessionListItem } from "./SessionListItem";
@@ -56,6 +57,8 @@ export function SessionListPanel({
   selectedSessionId: string | null;
   visibleSessions: SessionResponse[];
 }) {
+  useForwardErrorToAppFeedback(deleteError, { title: "删除会话失败" });
+
   return (
     <aside
       className="list-panel"
@@ -119,12 +122,6 @@ export function SessionListPanel({
               </div>
             </div>
           ) : null}
-          {deleteError ? (
-            <div className="inline-alert danger" role="alert">
-              {deleteError}
-            </div>
-          ) : null}
-
           <div className="list-scroll">
             {isLoading ? <p className="empty-note">正在加载会话</p> : null}
             {!isLoading && visibleSessions.length === 0 ? (

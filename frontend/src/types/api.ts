@@ -4,6 +4,8 @@ export interface SessionResponse {
   created_by_subject_id: string;
   status: string;
   pinned: boolean;
+  title_source: "default" | "auto" | "manual";
+  title_generated_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -84,6 +86,21 @@ export interface ReportRead {
   created_by_subject_id: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface SessionReportPrepared {
+  existing_report_id: number | null;
+  feature_id: number | null;
+  inferred_feature_ids: number[];
+  title: string;
+  body_markdown: string;
+}
+
+export interface SessionReportPrepareStatus {
+  request_id: string;
+  status: "running" | "succeeded" | "failed";
+  draft: SessionReportPrepared | null;
+  error: string | null;
 }
 
 export type FeedbackVerdict = "solved" | "partial" | "wrong";

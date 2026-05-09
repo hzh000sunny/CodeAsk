@@ -12,6 +12,9 @@ export interface WikiRouteState {
 
 export interface AppRouteState {
   view: AppViewId;
+  sessions: {
+    sessionId: string | null;
+  };
   wiki: WikiRouteState;
 }
 
@@ -25,6 +28,9 @@ export const defaultWikiRouteState: WikiRouteState = {
 
 export const defaultAppRouteState: AppRouteState = {
   view: "sessions",
+  sessions: {
+    sessionId: null,
+  },
   wiki: defaultWikiRouteState,
 };
 
@@ -38,6 +44,9 @@ export function readRouteStateFromLocation(): AppRouteState {
   const search = new URLSearchParams(queryString);
   return {
     view,
+    sessions: {
+      sessionId: readString(search.get("session")),
+    },
     wiki: {
       featureId: readInt(search.get("feature")),
       nodeId: readInt(search.get("node")),
@@ -53,6 +62,9 @@ export function writeRouteStateToLocation(state: AppRouteState) {
     return;
   }
   const params = new URLSearchParams();
+  if (state.view === "sessions" && state.sessions.sessionId) {
+    params.set("session", state.sessions.sessionId);
+  }
   if (state.view === "wiki") {
     if (state.wiki.featureId != null) {
       params.set("feature", String(state.wiki.featureId));

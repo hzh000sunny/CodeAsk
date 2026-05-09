@@ -4,6 +4,7 @@ import type { FeatureRead } from "../../types/api";
 import type { WikiPromotionTargetKind } from "../../types/wiki";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { useForwardErrorToAppFeedback } from "../feedback/useForwardErrorToAppFeedback";
 import { Input } from "../ui/input";
 
 export function SessionAttachmentPromotionDialog({
@@ -41,6 +42,8 @@ export function SessionAttachmentPromotionDialog({
   targetKind: WikiPromotionTargetKind;
   treeLoading: boolean;
 }) {
+  useForwardErrorToAppFeedback(errorMessage, { title: "写入 Wiki 失败" });
+
   return (
     <div className="dialog-backdrop">
       <section
@@ -113,11 +116,6 @@ export function SessionAttachmentPromotionDialog({
               {folderOptions.find((option) => option.value === parentId)?.label ?? "未选择目录"}
             </Badge>
           </div>
-          {errorMessage ? (
-            <div className="inline-alert danger in-dialog" role="alert">
-              {errorMessage}
-            </div>
-          ) : null}
           <div className="dialog-actions">
             <Button
               disabled={pending}

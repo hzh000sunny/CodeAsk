@@ -8,6 +8,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { App } from "../src/App";
+import { queryClient } from "../src/lib/query-client";
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -109,6 +110,186 @@ const feature = {
 };
 
 describe("SessionWorkspace streaming interaction", () => {
+  it("restores the selected session from the URL hash after reload", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/auth/me") {
+          return jsonResponse({
+            subject_id: "client_test",
+            display_name: "client_test",
+            role: "member",
+            authenticated: false,
+          });
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "第一个会话",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+            {
+              id: "sess_2",
+              title: "第二个会话",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T09:00:00",
+              updated_at: "2026-04-30T09:00:00",
+            },
+          ]);
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/#/sessions?session=sess_2");
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "第二个会话" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "第二个会话" }).closest(".list-row"),
+    ).toHaveAttribute("data-active", "true");
+  });
+
+  it("keeps the selected session when leaving and returning to the sessions page", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/auth/me") {
+          return jsonResponse({
+            subject_id: "client_test",
+            display_name: "client_test",
+            role: "member",
+            authenticated: false,
+          });
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "第一个会话",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+            {
+              id: "sess_2",
+              title: "第二个会话",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T09:00:00",
+              updated_at: "2026-04-30T09:00:00",
+            },
+          ]);
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/#/sessions");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "第一个会话" });
+    fireEvent.click(screen.getByRole("button", { name: "第二个会话" }));
+
+    expect(window.location.hash).toBe("#/sessions?session=sess_2");
+    expect(
+      await screen.findByRole("heading", { name: "第二个会话" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+    expect(await screen.findByPlaceholderText("搜索特性")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "会话" }));
+
+    expect(window.location.hash).toBe("#/sessions?session=sess_2");
+    expect(
+      await screen.findByRole("heading", { name: "第二个会话" }),
+    ).toBeInTheDocument();
+  });
+
+  it("drops locally remembered sessions when the server list no longer includes them", async () => {
+    let listCalls = 0;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/sessions" && (!init?.method || init.method === "GET")) {
+          listCalls += 1;
+          return jsonResponse([]);
+        }
+        if (path === "/api/sessions" && init?.method === "POST") {
+          return jsonResponse(
+            {
+              id: "sess_created",
+              title: "新的研发会话",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+            201,
+          );
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const sessionList = await screen.findByRole("region", { name: "会话列表" });
+    expect(await within(sessionList).findByText("暂无会话")).toBeInTheDocument();
+
+    fireEvent.click(
+      within(sessionList).getByRole("button", { name: "新建会话" }),
+    );
+
+    const createdTitle = await within(sessionList).findByText("新的研发会话");
+    expect(createdTitle).toBeInTheDocument();
+    expect(createdTitle).toHaveClass("item-title-text");
+
+    await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+
+    await waitFor(() =>
+      expect(
+        within(sessionList).queryByText("新的研发会话"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(listCalls).toBeGreaterThanOrEqual(2);
+    expect(within(sessionList).getByText("暂无会话")).toBeInTheDocument();
+  });
+
   it("deletes a session from the session list", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -446,6 +627,32 @@ describe("SessionWorkspace streaming interaction", () => {
           );
         }
         if (
+          path === "/api/sessions/sess_1/reports/prepare" &&
+          init?.method === "POST"
+        ) {
+          return jsonResponse({
+            request_id: "report_prepare_test",
+            status: "running",
+            draft: null,
+            error: null,
+          });
+        }
+        if (path === "/api/sessions/sess_1/reports/prepare/report_prepare_test") {
+          return jsonResponse({
+            request_id: "report_prepare_test",
+            status: "succeeded",
+            error: null,
+            draft: {
+              existing_report_id: null,
+              feature_id: 7,
+              inferred_feature_ids: [7],
+              title: "2026-05-08 支付启动失败",
+              body_markdown:
+                "# 问题背景\n\n支付服务启动失败。\n\n# 分析\n\n检查配置缺失。",
+            },
+          });
+        }
+        if (
           path === "/api/sessions/sess_1/reports" &&
           init?.method === "POST"
         ) {
@@ -453,8 +660,8 @@ describe("SessionWorkspace streaming interaction", () => {
             {
               id: 42,
               feature_id: 7,
-              title: "支付启动失败定位报告",
-              body_markdown: "# 支付启动失败定位报告",
+              title: "2026-05-08 支付启动失败",
+              body_markdown: "# 问题背景\n\n支付服务启动失败。\n\n# 分析\n\n检查配置缺失。",
               metadata_json: { source: "session", session_id: "sess_1" },
               status: "draft",
               verified: false,
@@ -475,9 +682,9 @@ describe("SessionWorkspace streaming interaction", () => {
             {
               id: 42,
               feature_id: 7,
-              title: "支付启动失败定位报告",
+              title: "2026-05-08 支付启动失败",
               body_markdown:
-                "# 支付启动失败定位报告\n\n- 检查配置缺失\n- 重启支付服务",
+                "# 问题背景\n\n支付服务启动失败。\n\n# 分析\n\n检查配置缺失。\n\n# 建议\n\n重启支付服务",
               metadata_json: { source: "session", session_id: "sess_1" },
               status: "draft",
               verified: false,
@@ -516,10 +723,21 @@ describe("SessionWorkspace streaming interaction", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "生成报告" }));
     expect(
-      screen.getByRole("dialog", { name: "生成问题定位报告" }),
+      await screen.findByRole("dialog", { name: "生成问题定位报告" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("绑定特性")).toHaveValue("7");
-    fireEvent.click(screen.getByRole("button", { name: "确认生成" }));
+    expect(screen.getByLabelText("报告标题")).toHaveValue(
+      "2026-05-08 支付启动失败",
+    );
+    const [, prepareInit] = fetchMock.mock.calls.find(
+      ([path, options]) =>
+        path === "/api/sessions/sess_1/reports/prepare" &&
+        (options as RequestInit | undefined)?.method === "POST",
+    ) as unknown as [string, RequestInit];
+    expect(JSON.parse(String(prepareInit.body))).toEqual({
+      feature_id: null,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存报告" }));
 
     await waitFor(() => {
       const [, init] = fetchMock.mock.calls.find(
@@ -529,7 +747,8 @@ describe("SessionWorkspace streaming interaction", () => {
       ) as unknown as [string, RequestInit];
       expect(JSON.parse(String(init.body))).toMatchObject({
         feature_id: 7,
-        title: "支付启动失败定位报告",
+        title: "2026-05-08 支付启动失败",
+        body_markdown: "# 问题背景\n\n支付服务启动失败。\n\n# 分析\n\n检查配置缺失。",
       });
     });
     expect(
@@ -541,12 +760,197 @@ describe("SessionWorkspace streaming interaction", () => {
       await screen.findByRole("tab", { name: "问题报告", selected: true }),
     ).toBeInTheDocument();
     expect(
-      await screen.findByRole("heading", { name: "支付启动失败定位报告" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("检查配置缺失")).toBeInTheDocument();
+      await screen.findAllByText("2026-05-08 支付启动失败"),
+    ).not.toHaveLength(0);
     expect(
-      screen.queryByText(/# 支付启动失败定位报告/),
-    ).not.toBeInTheDocument();
+      await screen.findByRole("button", { name: /2026-05-08 支付启动失败/ }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("问题背景")).toBeInTheDocument();
+    expect(await screen.findByText("分析")).toBeInTheDocument();
+  });
+
+  it("shows a preparing dialog immediately when report draft generation is pending", async () => {
+    let resolveStatus: (value: Response) => void = () => undefined;
+    const statusPromise = new Promise<Response>((resolve) => {
+      resolveStatus = resolve;
+    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "支付启动失败",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+          ]);
+        }
+        if (path === "/api/features") {
+          return jsonResponse([feature]);
+        }
+        if (
+          path === "/api/sessions/sess_1/messages" &&
+          init?.method === "POST"
+        ) {
+          return new Response(
+            [
+              'event: scope_detection\ndata: {"feature_ids":[7],"confidence":0.91,"reason":"命中支付特性"}',
+              'event: text_delta\ndata: {"text":"检查配置缺失。"}',
+              "event: done\ndata: {}",
+            ].join("\n\n"),
+            { headers: { "Content-Type": "text/event-stream" } },
+          );
+        }
+        if (
+          path === "/api/sessions/sess_1/reports/prepare" &&
+          init?.method === "POST"
+        ) {
+          return jsonResponse({
+            request_id: "report_prepare_test",
+            status: "running",
+            draft: null,
+            error: null,
+          });
+        }
+        if (path === "/api/sessions/sess_1/reports/prepare/report_prepare_test") {
+          return statusPromise;
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "支付启动失败",
+    );
+    fireEvent.change(screen.getByLabelText("会话输入"), {
+      target: { value: "支付服务启动失败" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    expect(await screen.findByText("检查配置缺失。")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "生成报告" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "正在准备报告" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "准备中" })).toBeDisabled();
+    const [, prepareInit] = fetchMock.mock.calls.find(
+      ([path, options]) =>
+        path === "/api/sessions/sess_1/reports/prepare" &&
+        (options as RequestInit | undefined)?.method === "POST",
+    ) as unknown as [string, RequestInit];
+    expect(
+      new Headers(prepareInit.headers).get("X-CodeAsk-Request-Id"),
+    ).toMatch(/^report_prepare_/);
+
+    resolveStatus(
+      jsonResponse({
+        request_id: "report_prepare_test",
+        status: "succeeded",
+        error: null,
+        draft: {
+          existing_report_id: null,
+          feature_id: 7,
+          inferred_feature_ids: [7],
+          title: "2026-05-08 支付启动失败",
+          body_markdown:
+            "# 问题背景\n\n支付服务启动失败。\n\n# 分析\n\n检查配置缺失。",
+        },
+      }),
+    );
+
+    expect(
+      await screen.findByRole("dialog", { name: "生成问题定位报告" }),
+    ).toBeInTheDocument();
+  });
+
+  it("recovers a prepared report when the long prepare request returns proxy 503", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "支付启动失败",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+          ]);
+        }
+        if (path === "/api/features") {
+          return jsonResponse([feature]);
+        }
+        if (
+          path === "/api/sessions/sess_1/messages" &&
+          init?.method === "POST"
+        ) {
+          return streamResponse("检查配置缺失。");
+        }
+        if (
+          path === "/api/sessions/sess_1/reports/prepare" &&
+          init?.method === "POST"
+        ) {
+          return new Response("", { status: 503 });
+        }
+        if (/^\/api\/sessions\/sess_1\/reports\/prepare\/report_prepare_/.test(path)) {
+          return jsonResponse({
+            request_id: path.split("/").at(-1),
+            status: "succeeded",
+            error: null,
+            draft: {
+              existing_report_id: null,
+              feature_id: 7,
+              inferred_feature_ids: [7],
+              title: "2026-05-08 支付启动失败",
+              body_markdown: "# 问题背景\n\n支付服务启动失败。",
+            },
+          });
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "支付启动失败",
+    );
+    fireEvent.change(screen.getByLabelText("会话输入"), {
+      target: { value: "支付服务启动失败" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    expect(await screen.findByText("检查配置缺失。")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "生成报告" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "生成问题定位报告" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("报告标题")).toHaveValue(
+      "2026-05-08 支付启动失败",
+    );
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("promotes a session attachment into wiki and opens the promoted node", async () => {
@@ -1107,10 +1511,74 @@ describe("SessionWorkspace streaming interaction", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
     fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
       "删除会话失败：API request failed with 405",
     );
     expect(within(sessionList).getByText("线上启动失败")).toBeInTheDocument();
+  });
+
+  it("shows a centered error dialog when preparing a session report fails", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "支付启动失败",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+          ]);
+        }
+        if (/^\/api\/sessions\/[^/]+\/turns$/.test(path)) {
+          return jsonResponse([]);
+        }
+        if (/^\/api\/sessions\/[^/]+\/traces$/.test(path)) {
+          return jsonResponse([]);
+        }
+        if (path === "/api/features") {
+          return jsonResponse([feature]);
+        }
+        if (
+          path === "/api/sessions/sess_1/messages" &&
+          init?.method === "POST"
+        ) {
+          return streamResponse("检查配置缺失。");
+        }
+        if (
+          path === "/api/sessions/sess_1/reports/prepare" &&
+          init?.method === "POST"
+        ) {
+          return new Response("", { status: 405 });
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "支付启动失败",
+    );
+    fireEvent.change(screen.getByLabelText("会话输入"), {
+      target: { value: "支付服务启动失败" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    expect(await screen.findByText("检查配置缺失。")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "生成报告" }));
+
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      "生成报告失败：API request failed with 405",
+    );
   });
 
   it("sends the selected session message and renders streamed progress", async () => {
@@ -1613,9 +2081,9 @@ describe("SessionWorkspace streaming interaction", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     expect(await screen.findByText("模型上下文超限")).toBeInTheDocument();
-    expect(
-      await screen.findByText("Agent 运行失败：模型上下文超限"),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      "Agent 运行失败：模型上下文超限",
+    );
   });
 
   it("submits feedback and telemetry from the session workspace", async () => {

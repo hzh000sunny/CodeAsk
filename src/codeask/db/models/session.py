@@ -1,9 +1,20 @@
 """Session and related binding tables."""
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from codeask.db.base import Base, TimestampMixin
@@ -15,6 +26,10 @@ class Session(Base, TimestampMixin):
     __tablename__ = "sessions"
     __table_args__ = (
         CheckConstraint("status IN ('active', 'archived')", name="ck_sessions_status"),
+        CheckConstraint(
+            "title_source IN ('default', 'auto', 'manual')",
+            name="ck_sessions_title_source",
+        ),
         Index("ix_sessions_subject", "created_by_subject_id"),
     )
 
@@ -23,6 +38,11 @@ class Session(Base, TimestampMixin):
     created_by_subject_id: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    title_source: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    title_generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
 
 class SessionFeature(Base):

@@ -43,8 +43,20 @@ export function ActionTracePanel({ events, isStreaming }: ActionTracePanelProps)
               open={index === groups.length - 1}
             >
               <summary className="action-trace-turn-heading">
-                <span>{group.label}</span>
-                <small>{group.summary}</small>
+                <span className="action-trace-turn-label">{group.label}</span>
+                <small className="action-trace-turn-summary" aria-label={`${group.label} 摘要`}>
+                  {group.summaryItems.map((item) => (
+                    <span
+                      className="action-trace-turn-metric"
+                      data-tone={item.tone}
+                      data-zero={item.value === 0 ? "true" : "false"}
+                      key={item.id}
+                    >
+                      <strong>{item.value}</strong>
+                      <span>{item.label}</span>
+                    </span>
+                  ))}
+                </small>
               </summary>
               <ul className="action-trace-turn-list">
                 {group.events.map((event) => (
@@ -70,7 +82,12 @@ function groupActionTraceEvents(events: ActionTraceEventModel[]) {
     id: string;
     events: ActionTraceEventModel[];
     label: string;
-    summary: string;
+    summaryItems: Array<{
+      id: string;
+      label: string;
+      value: number;
+      tone: "neutral" | "activity" | "evidence" | "warning" | "error";
+    }>;
   }> = [];
   const groupIndexById = new Map<string, number>();
 
@@ -84,7 +101,7 @@ function groupActionTraceEvents(events: ActionTraceEventModel[]) {
         id: groupId,
         events: [],
         label: groupId.startsWith("live_") ? "本轮" : `第 ${groupIndex + 1} 轮`,
-        summary: "",
+        summaryItems: [],
       });
     }
     groups[groupIndex].events.push(event);
@@ -110,16 +127,44 @@ function groupActionTraceEvents(events: ActionTraceEventModel[]) {
     ).length;
     return {
       ...group,
-      summary: [
-        `${group.events.length} 个动作`,
-        toolCount ? `${toolCount} 个工具事件` : null,
-        evidenceCount ? `${evidenceCount} 条证据` : null,
-        codeReadCount ? `${codeReadCount} 次代码读取` : null,
-        warningCount ? `${warningCount} 条提醒` : null,
-        errorCount ? `${errorCount} 个失败` : null,
-      ]
-        .filter(Boolean)
-        .join(" · "),
+      summaryItems: [
+        {
+          id: "actions",
+          label: "动作",
+          value: group.events.length,
+          tone: "activity",
+        },
+        {
+          id: "tools",
+          label: "工具",
+          value: toolCount,
+          tone: "neutral",
+        },
+        {
+          id: "evidence",
+          label: "证据",
+          value: evidenceCount,
+          tone: "evidence",
+        },
+        {
+          id: "code",
+          label: "读码",
+          value: codeReadCount,
+          tone: "neutral",
+        },
+        {
+          id: "warnings",
+          label: "提醒",
+          value: warningCount,
+          tone: "warning",
+        },
+        {
+          id: "errors",
+          label: "失败",
+          value: errorCount,
+          tone: "error",
+        },
+      ],
     };
   });
 }

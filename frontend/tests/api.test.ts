@@ -5,6 +5,7 @@ import {
   apiRequest,
   listSessionTraces,
   listSessionTurns,
+  prepareSessionReport,
   promoteSessionAttachmentToWiki,
   uploadSessionAttachment,
 } from "../src/lib/api";
@@ -193,6 +194,68 @@ describe("frontend api client", () => {
     expect(path).toBe("/api/sessions/sess_1/traces");
     expect(init.method).toBeUndefined();
     expect(new Headers(init.headers).get("X-Subject-Id")).toBe(getSubjectId());
+  });
+
+  it("prepares a session report draft before saving", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            existing_report_id: 12,
+            feature_id: 7,
+            inferred_feature_ids: [7, 9],
+            title: "2026-05-08 支付服务启动失败",
+            body_markdown: "# 问题背景",
+          }),
+          {
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await prepareSessionReport("sess_1", { feature_id: 7 });
+
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(path).toBe("/api/sessions/sess_1/reports/prepare");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ feature_id: 7 });
+  });
+
+  it("forwards an explicit request id when preparing a session report draft", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            existing_report_id: null,
+            feature_id: 7,
+            inferred_feature_ids: [7],
+            title: "2026-05-08 支付服务启动失败",
+            body_markdown: "# 问题背景",
+          }),
+          {
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await prepareSessionReport(
+      "sess_1",
+      { feature_id: 7 },
+      { requestId: "req_prepare_123" },
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(new Headers(init.headers).get("X-CodeAsk-Request-Id")).toBe(
+      "req_prepare_123",
+    );
   });
 });
 

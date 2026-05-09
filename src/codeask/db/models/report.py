@@ -16,6 +16,9 @@ class Report(Base, TimestampMixin):
     feature_id: Mapped[int | None] = mapped_column(
         ForeignKey("features.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True, index=True, unique=True
+    )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     body_markdown: Mapped[str] = mapped_column(Text, nullable=False)
     metadata_json: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)

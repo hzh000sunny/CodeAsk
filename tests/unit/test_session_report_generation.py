@@ -1,0 +1,74 @@
+"""Unit tests for session report generation helpers."""
+
+from datetime import date
+
+from codeask.sessions.report_generation import (
+    normalize_prepared_report_payload,
+    parse_prepared_report_payload,
+)
+
+
+def test_normalize_prepared_report_payload_applies_date_prefix_and_trims_description() -> None:
+    prepared = normalize_prepared_report_payload(
+        {"title_description": "  支付服务启动失败  ", "body_markdown": "# 内容"},
+        today=date(2026, 5, 8),
+    )
+
+    assert prepared.title == "2026-05-08 支付服务启动失败"
+    assert prepared.body_markdown == "# 内容"
+
+
+def test_normalize_prepared_report_payload_falls_back_when_title_description_missing() -> None:
+    prepared = normalize_prepared_report_payload(
+        {"title_description": "", "body_markdown": "  "},
+        today=date(2026, 5, 8),
+    )
+
+    assert prepared.title == "2026-05-08 未命名问题"
+    assert "待补充" in prepared.body_markdown
+
+
+def test_parse_prepared_report_payload_extracts_json_from_wrapped_model_text() -> None:
+    payload = parse_prepared_report_payload(
+        "下面是报告草稿：\n"
+        "```json\n"
+        '{"title_description":"支付服务启动失败",'
+        '"body_markdown":"# 问题背景\\n\\n服务启动失败。"}\n'
+        "```"
+    )
+
+    assert payload == {
+        "title_description": "支付服务启动失败",
+        "body_markdown": "# 问题背景\n\n服务启动失败。",
+    }
+
+
+def test_parse_prepared_report_payload_repairs_literal_newlines_inside_json_strings() -> None:
+    payload = parse_prepared_report_payload(
+        '```json\n'
+        '{\n'
+        '  "title_description": "AnythingLLM 文档摄入流程",\n'
+        '  "body_markdown": "# 背景\\n\\n下面是流程图：\\n\\n```\n'
+        "Collector -> Server\n"
+        '```\\n\\n结论。"\n'
+        '}\n'
+        '```'
+    )
+
+    assert payload["title_description"] == "AnythingLLM 文档摄入流程"
+    assert "Collector -> Server" in payload["body_markdown"]
+
+
+def test_parse_prepared_report_payload_tolerates_unescaped_quotes_in_body_markdown() -> None:
+    payload = parse_prepared_report_payload(
+        '```json\n'
+        '{\n'
+        '  "title_description": "CodeAsk 产品架构认知",\n'
+        '  "body_markdown": "# 背景\\n\\n'
+        '模型在正文中写了未转义的半角双引号，例如作为"筛选后参考"的定位一致。"\n'
+        '}\n'
+        '```'
+    )
+
+    assert payload["title_description"] == "CodeAsk 产品架构认知"
+    assert '作为"筛选后参考"的定位一致' in payload["body_markdown"]

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import case, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.db.models import Report, SessionTurn
@@ -34,6 +34,13 @@ def _as_list(value: object) -> list[object]:
     if isinstance(value, list):
         return cast(list[object], value)
     return []
+
+
+def _session_report_filter(session_id: str):
+    return or_(
+        Report.session_id == session_id,
+        Report.metadata_json["session_id"].as_string() == session_id,
+    )
 
 
 def _is_verifiable_evidence(item: object) -> bool:
@@ -108,6 +115,7 @@ class ReportService:
         session: AsyncSession,
         *,
         feature_id: int | None,
+        session_id: str | None = None,
         title: str,
         body_markdown: str,
         metadata: dict[str, Any],
@@ -115,6 +123,7 @@ class ReportService:
     ) -> int:
         report = Report(
             feature_id=feature_id,
+            session_id=session_id,
             title=title,
             body_markdown=body_markdown,
             metadata_json=metadata,
@@ -125,6 +134,85 @@ class ReportService:
         session.add(report)
         await session.flush()
         return int(report.id)
+
+    async def get_session_bound_report(
+        self,
+        session: AsyncSession,
+        *,
+        session_id: str,
+    ) -> Report | None:
+        return (
+            (
+                await session.execute(
+                    select(Report)
+                    .where(_session_report_filter(session_id))
+                    .order_by(
+                        case((Report.session_id == session_id, 1), else_=0).desc(),
+                        Report.id.desc(),
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+    async def list_session_report_duplicates(
+        self,
+        session: AsyncSession,
+        *,
+        session_id: str,
+        keep_report_id: int,
+    ) -> list[Report]:
+        return (
+            (
+                await session.execute(
+                    select(Report)
+                    .where(_session_report_filter(session_id), Report.id != keep_report_id)
+                    .order_by(Report.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    async def upsert_session_draft(
+        self,
+        session: AsyncSession,
+        *,
+        session_id: str,
+        feature_id: int | None,
+        title: str,
+        body_markdown: str,
+        metadata: dict[str, Any],
+        subject_id: str,
+    ) -> Report:
+        report = await self.get_session_bound_report(session, session_id=session_id)
+        if report is None:
+            report = Report(
+                session_id=session_id,
+                feature_id=feature_id,
+                title=title,
+                body_markdown=body_markdown,
+                metadata_json=metadata,
+                status="draft",
+                verified=False,
+                created_by_subject_id=subject_id,
+            )
+            session.add(report)
+            await session.flush()
+            return report
+
+        report.session_id = session_id
+        report.feature_id = feature_id
+        report.title = title
+        report.body_markdown = body_markdown
+        report.metadata_json = metadata
+        report.status = "draft"
+        report.verified = False
+        report.verified_by = None
+        report.verified_at = None
+        await session.flush()
+        return report
 
     async def update_draft(
         self,

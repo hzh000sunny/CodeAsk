@@ -14,6 +14,10 @@ export function sessionTracesQueryKey(sessionId: string) {
   return ["session-traces", sessionId] as const;
 }
 
+export function sessionListQueryKey(subjectScope: string) {
+  return ["sessions", subjectScope] as const;
+}
+
 export function upsertAttachment(
   queryClient: QueryClient,
   attachment: AttachmentResponse,
@@ -32,9 +36,16 @@ export function upsertAttachment(
   );
 }
 
-export function upsertSession(queryClient: QueryClient, session: SessionResponse) {
-  queryClient.setQueryData<SessionResponse[]>(["sessions"], (current = []) => {
-    const next = current.filter((item) => item.id !== session.id);
-    return [session, ...next];
-  });
+export function upsertSession(
+  queryClient: QueryClient,
+  session: SessionResponse,
+  subjectScope: string,
+) {
+  queryClient.setQueryData<SessionResponse[]>(
+    sessionListQueryKey(subjectScope),
+    (current = []) => {
+      const next = current.filter((item) => item.id !== session.id);
+      return [session, ...next];
+    },
+  );
 }

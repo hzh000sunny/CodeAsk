@@ -39,6 +39,46 @@ def _normalize_stop_reason(reason: str | None) -> StopReason:
     return _OPENAI_TO_INTERNAL_STOP.get(reason, "unknown")
 
 
+def _is_retryable_initial_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+    if isinstance(status_code, int):
+        if status_code in {408, 409, 425, 429, 500, 502, 503, 504}:
+            return True
+        if 400 <= status_code < 500:
+            return False
+
+    name = type(exc).__name__.lower()
+    message = str(exc).lower()
+    non_retryable_markers = (
+        "badrequest",
+        "authentication",
+        "permission",
+        "unauthorized",
+        "forbidden",
+        "invalid",
+        "input length",
+        "context length",
+        "maximum length",
+        "max_tokens",
+    )
+    if any(marker in name or marker in message for marker in non_retryable_markers):
+        return False
+
+    retryable_markers = (
+        "timeout",
+        "ratelimit",
+        "rate limit",
+        "connection",
+        "serviceunavailable",
+        "service unavailable",
+        "internalserver",
+        "internal server",
+        "temporarily unavailable",
+        "overloaded",
+    )
+    return any(marker in name or marker in message for marker in retryable_markers)
+
+
 def _messages_to_litellm(messages: list[LLMMessage]) -> list[dict[str, Any]]:
     converted: list[dict[str, Any]] = []
     for message in messages:
@@ -113,10 +153,17 @@ class LLMClient(Protocol):
 class _BaseClient:
     _provider_name: str = "openai"
 
-    def __init__(self, api_key: str, model_name: str, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model_name: str,
+        base_url: str | None = None,
+        timeout_seconds: int = 600,
+    ) -> None:
         self._api_key = api_key
         self._model_name = model_name
         self._base_url = base_url
+        self._timeout_seconds = timeout_seconds
 
     def _model(self) -> str:
         return self._model_name
@@ -140,6 +187,7 @@ class _BaseClient:
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,
+            "timeout": self._timeout_seconds,
             **self._extra_kwargs(),
         }
         if tools:
@@ -148,7 +196,10 @@ class _BaseClient:
         try:
             stream = cast(AsyncIterator[Any], await acompletion(**kwargs))
         except Exception as exc:
-            yield LLMEvent(type="error", data=self._error_payload(exc, retryable=False))
+            yield LLMEvent(
+                type="error",
+                data=self._error_payload(exc, retryable=_is_retryable_initial_error(exc)),
+            )
             return
 
         emitted_start = False

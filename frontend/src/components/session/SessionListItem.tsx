@@ -120,7 +120,7 @@ export function SessionListItem({
       >
         <span className="item-title">
           {session.pinned ? <Pin aria-hidden="true" size={13} /> : null}
-          {session.title}
+          <span className="item-title-text">{session.title}</span>
         </span>
         <span className="item-meta">
           {new Date(session.updated_at).toLocaleString()}

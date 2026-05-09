@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
 
 import type { FeatureRead } from "../../types/api";
+import { useForwardErrorToAppFeedback } from "../feedback/useForwardErrorToAppFeedback";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
@@ -47,6 +48,8 @@ export function FeatureListPanel({
   showCreate: boolean;
   visibleFeatures: FeatureRead[];
 }) {
+  useForwardErrorToAppFeedback(loadErrorMessage, { title: "加载特性失败" });
+
   return (
     <aside
       className="list-panel"
@@ -126,11 +129,6 @@ export function FeatureListPanel({
                   创建特性
                 </Button>
               </form>
-            ) : null}
-            {loadErrorMessage ? (
-              <div className="inline-alert danger" role="alert">
-                {loadErrorMessage}
-              </div>
             ) : null}
             {isLoading ? <p className="empty-note">正在加载特性</p> : null}
             {!isLoading && !loadErrorMessage && visibleFeatures.length === 0 ? (

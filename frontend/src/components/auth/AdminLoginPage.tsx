@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, LogIn, UserRound } from "lucide-react";
 
 import { adminLogin } from "../../lib/api";
+import { resetSubjectScopedQueries } from "../../lib/auth-cache";
+import { useAppFeedback } from "../feedback/AppFeedback";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 
@@ -12,21 +14,19 @@ interface AdminLoginPageProps {
 
 export function AdminLoginPage({ onSuccess }: AdminLoginPageProps) {
   const queryClient = useQueryClient();
+  const { showError } = useAppFeedback();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
   const loginMutation = useMutation({
     mutationFn: adminLogin,
     onSuccess: (me) => {
-      setError("");
       queryClient.setQueryData(["auth", "me"], me);
-      queryClient.removeQueries({ queryKey: ["user-llm-configs"] });
-      void queryClient.invalidateQueries({ queryKey: ["admin-llm-configs"] });
+      resetSubjectScopedQueries(queryClient);
       onSuccess();
     },
     onError: () => {
-      setError("登录失败，请检查用户名和密码");
+      showError("登录失败，请检查用户名和密码", { title: "登录失败" });
     },
   });
 
@@ -81,11 +81,6 @@ export function AdminLoginPage({ onSuccess }: AdminLoginPageProps) {
             </button>
           </span>
         </div>
-        {error ? (
-          <div className="inline-alert danger in-dialog" role="alert">
-            {error}
-          </div>
-        ) : null}
         <Button
           disabled={!username.trim() || !password || loginMutation.isPending}
           icon={<LogIn size={16} />}

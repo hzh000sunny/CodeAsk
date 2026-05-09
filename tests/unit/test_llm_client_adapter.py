@@ -179,11 +179,107 @@ async def test_openai_compatible_protocol_uses_litellm_with_internal_provider_hi
     assert captured["model"] == "openai/local-model"
     assert captured["api_key"] == "local-secret"
     assert captured["base_url"] == "http://llm.local/v1"
+    assert captured["timeout"] == 600
     assert [event.type for event in events] == [
         "message_start",
         "text_delta",
         "message_stop",
     ]
+
+
+@pytest.mark.asyncio
+async def test_client_allows_custom_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="ok")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAICompatibleClient(
+        api_key="local-secret",
+        model_name="local-model",
+        base_url="http://llm.local/v1",
+        timeout_seconds=900,
+    )
+
+    _ = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert captured["timeout"] == 900
+
+
+@pytest.mark.asyncio
+async def test_initial_litellm_transient_error_is_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ServiceUnavailableError(Exception):
+        status_code = 503
+
+    async def fake_acompletion(**_: object) -> object:
+        raise ServiceUnavailableError("upstream service unavailable")
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAICompatibleClient(api_key="x", model_name="m")
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert events[0].type == "error"
+    assert events[0].data["retryable"] is True
+
+
+@pytest.mark.asyncio
+async def test_initial_litellm_bad_request_error_is_not_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BadRequestError(Exception):
+        status_code = 400
+
+    async def fake_acompletion(**_: object) -> object:
+        raise BadRequestError("Input length exceeds the maximum length")
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAICompatibleClient(api_key="x", model_name="m")
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert events[0].type == "error"
+    assert events[0].data["retryable"] is False
 
 
 @pytest.mark.asyncio

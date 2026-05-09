@@ -3,7 +3,7 @@
 | 字段 | 值 |
 |---|---|
 | 版本 | v1.0.2 |
-| 状态 | Completed |
+| 状态 | Active |
 | 主题 | LLM Agent 会话运行时优化 |
 | 基线版本 | `../v1.0.1/` |
 | 目标 | 将默认 Agent 会话从固定调查流水线调整为正常聊天优先、RAG 增强、工具调用由模型决策的统一运行时 |
@@ -29,6 +29,7 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 | `specs/agent-capability-roadmap.md` | v1.0.2 之后的 Agent 能力演进路线，明确与 Claude Code 的借鉴边界 |
 | `specs/rag-context-budget-lessons.md` | AnythingLLM RAG 管线和 Claude Code 长上下文压缩对 v1.0.2 的落地约束 |
 | `plans/agent-chat-runtime.md` | v1.0.2 Agent Chat Runtime 实施计划 |
+| `plans/problem-report-generation.md` | 会话生成问题定位报告的专项实施计划，覆盖 AI 成文、会话唯一绑定和覆盖式再生成 |
 | `prd/agent-chat.md` | v1.0.2 Agent 会话产品契约 |
 | `design/agent-chat-runtime.md` | v1.0.2 Agent Chat Runtime 系统设计 |
 | `plans/acceptance-checklist.md` | v1.0.2 验收清单 |
@@ -64,9 +65,17 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 - 已将项目级验收规则从“E2E 基线”扩展为“开发验收阶段与证据基线”：后续不能用前端历史恢复替代模型上下文恢复，不能用行动轨迹展示替代模型可追问工具行动。
 - 已新增基础问答评测库 `evals/basic_qa/cases/seed_001.jsonl`，当前覆盖 11 类 32 个通用模型能力问题；`frontend/e2e/basic-model-qa-live.spec.ts` 使用“每类取 1 题”的代表性 live 子集，完整题库保留给离线评测和周期性回归。
 - 已完成会话体验 Task 14：行动轨迹同会话多轮保留并按 turn 分组，详情弹窗展示结构化诊断字段，长字段支持就地复制并给出轻量提示，生成中可停止并回滚本轮消息 / traces，输入框支持 `Enter` 发送、`Ctrl + Enter` / `Shift + Enter` 换行。
+- 已修复会话页路由恢复：当前选中会话会写入 `#/sessions?session={session_id}`，浏览器刷新或切换到其它一级页面再返回时仍恢复原会话，不再默认跳回列表第一项。
+- 已增加会话标题自动生成：未手动命名的新会话在第一轮完整问答后，会用独立 LLM 请求基于第一轮用户 / 助手内容生成标题；该请求不进入正常对话上下文、不写入 turns、不进入行动轨迹。用户手动重命名后标题来源变为 `manual`，后端不得自动覆盖。前端会在会话流结束后调用 `POST /api/sessions/{session_id}/title/generate`，拿到最新 `SessionResponse` 后直接合并进会话列表缓存，实现标题动态渲染；会话列表标题单行省略展示，并保留短时间补充刷新作为兜底。
+- 已将会话生成问题定位报告改为异步任务模式：`POST /reports/prepare` 立即返回 `request_id/status=running`，前端轮询 `GET /reports/prepare/{request_id}` 获取草稿，避免长时间 LLM 生成经过代理或 Vite dev server 返回阶段出现 503 后丢失结果。
+- 已修复会话报告重复生成的绑定规则：报告 prepare 阶段不再以前端本地 `detectedFeatureIds[0]` 或既有报告旧绑定作为默认事实，默认特性优先来自当前会话证据推断；用户在确认弹窗中显式选择并保存时才覆盖绑定。
+- 已修复会话唯一报告的历史兼容：保存会话报告时会识别 `reports.session_id` 和早期 `metadata_json.session_id` 形态的历史报告，清理同一会话重复草稿及旧 Wiki 报告引用，保证一个会话只保留一篇问题报告且只出现在一个特性下。
+- 已增加第一版全局 LLM 配置池负载均衡：用户个人 LLM 配置优先；没有个人配置时，从启用的全局配置中随机选择；单个全局配置最近 60 秒最多服务 3 个会话，同一会话 5 分钟内保持模型粘性，失败频繁的全局配置会临时剔除 10 分钟，初始失败会立即切换下一个可用全局配置，池满时返回 `当前资源繁忙，请稍后再试`。
 - 已稳定 live Agent E2E 执行策略：当启用任一 `CODEASK_RUN_LIVE_*` 开关时，Playwright 自动强制 `workers = 1`，避免共享 LLM 配置、仓库状态和 `.tmp/playwright-e2e` 目录导致并行污染。
 - 已在 2026-05-08 完成完整 live Agent E2E 套件验收：`7 passed (12.0m)`，覆盖基础问答、连续会话、特性范围代码检索、长上下文、特性上下文技术插问和管理员源码链路。
-- 待后续继续：引入外部 RAG 服务、继续收敛 RAG 来源去重、上下文预算治理和会话级 auto compact。
+- 已修复报告草稿解析容错：模型返回被 Markdown 代码块包裹、字符串中含裸换行或 `body_markdown` 内含未转义半角双引号的 JSON-like 输出时，后端仍能提取 `title_description` 和正文，避免报告标题落到 `YYYY-MM-DD 未命名问题`、正文保存成原始 JSON 代码块。
+- 当前 v1.0.2 未完成项：LLM 资源繁忙错误在会话 UI 中的明确失败提示、资源繁忙不得持久化成正常 AI 回答、LLM 网关配置选择 / 切换 / 冷却的 trace 或结构化日志可观测性。
+- 待后续版本继续：引入外部 RAG 服务、继续收敛 RAG 来源去重、上下文预算治理、生成式结构化摘要、真实 token 预算和 Claude Code 级别的 prompt cache editing。
 
 ## 已确认方向
 

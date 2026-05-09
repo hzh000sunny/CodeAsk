@@ -509,7 +509,7 @@ describe("FeatureWorkbench management actions", () => {
 
     await waitFor(
       () => {
-        expect(screen.getByRole("alert")).toHaveTextContent(
+        expect(screen.getByRole("alertdialog")).toHaveTextContent(
           "加载特性失败：backend unavailable",
         );
       },

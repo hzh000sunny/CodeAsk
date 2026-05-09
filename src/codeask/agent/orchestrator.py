@@ -57,6 +57,7 @@ class _GatewayStageClient:
     gateway: LLMGateway
     config_id: str | None = None
     subject_id: str | None = None
+    session_id: str | None = None
 
     def stream(
         self,
@@ -72,7 +73,14 @@ class _GatewayStageClient:
                 tools=tools,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                metadata={"subject_id": self.subject_id} if self.subject_id else {},
+                metadata={
+                    key: value
+                    for key, value in {
+                        "subject_id": self.subject_id,
+                        "session_id": self.session_id,
+                    }.items()
+                    if value
+                },
             )
         )
 
@@ -274,6 +282,7 @@ class AgentOrchestrator:
             llm_client=_GatewayStageClient(
                 self._gateway,
                 subject_id=session_row.created_by_subject_id,
+                session_id=session_id,
             ),
             tool_registry=self._tool_registry,
             trace_logger=self._trace,

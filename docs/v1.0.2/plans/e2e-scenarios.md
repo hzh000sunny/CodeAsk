@@ -36,6 +36,9 @@
 - [x] 源码工具和连续追问已有 live E2E 通道。
 - [x] 特性上下文中的插入式技术问答已有 live E2E 通道，覆盖会话围绕 AnythingLLM 展开时，中途询问 `lancedb 和 sqlitedb 有什么区别` 仍应优先直接回答。
 - [x] live Agent E2E 共享 LLM 配置、仓库状态和临时目录时默认串行执行；启用任一 `CODEASK_RUN_LIVE_*` 开关后 Playwright 自动强制 `workers = 1`。
+- [x] 会话页选中会话进入路由状态，刷新和跨一级页面返回后保持当前会话。
+- [x] 未手动命名会话的标题会在第一轮完整问答后由独立 LLM 请求生成；用户手动重命名后不再被自动覆盖；前端会在会话流结束后调用显式标题生成接口并动态合并返回的会话数据，同时多次刷新会话列表兜底。
+- [x] 会话报告重复生成 / 改绑特性已建立后端回归：当前会话证据优先于旧报告绑定，保存后旧特性不再残留重复草稿。
 
 ### 1.2 部分完成，必须继续收敛
 
@@ -535,7 +538,7 @@ frontend/e2e/wiki-tail.spec.ts
 
 ### E2E-019 路由刷新
 
-目标：验证刷新不回到会话首页。
+目标：验证刷新不回到会话首页，且会话页不丢失当前选中的会话。
 
 已有通道：
 
@@ -548,6 +551,8 @@ frontend/e2e/wiki-tail.spec.ts
 - `/settings` 刷新仍在设置页面。
 - `/features` 刷新仍在特性页面。
 - 会话页面刷新恢复当前会话、消息、行动轨迹。
+- 当前选中第二个会话时，URL 写入 `#/sessions?session={session_id}`，刷新后仍选中该会话。
+- 当前选中第二个会话，跳转到特性 / Wiki / 设置等一级页面后再回到会话页，仍选中该会话。
 
 ### E2E-020 全链路参考仓库学习
 
@@ -572,13 +577,30 @@ frontend/e2e/wiki-tail.spec.ts
 - 默认模糊路径不能绕过范围。
 - 行动轨迹能区分 `feature_scope` 和 `explicit_user_repo`。
 
+### E2E-021 会话问题报告重复生成与改绑
+
+目标：验证问题报告遵守“一会话一报告，一报告一特性”的约束。
+
+已有通道：
+
+- `tests/integration/test_session_report_generation.py`
+- `frontend/tests/session-workspace.test.tsx`
+
+验收：
+
+- 一个会话重复生成报告时，不创建第二篇报告，而是覆盖更新原报告。
+- prepare 阶段默认绑定特性以当前会话证据推断为准，不沿用上一次保存时用户误选的旧特性。
+- 用户在确认弹窗中显式选择其它特性并保存后，报告只绑定到新特性。
+- 同一会话的历史重复报告，包括早期只写入 `metadata_json.session_id` 的报告，保存时会被清理。
+- 旧特性的问题报告列表和 Wiki 报告引用不再显示该会话的历史草稿。
+
 ## 4. 执行优先级
 
-1. 补 E2E-005 到 E2E-009 的浏览器 / live LLM 验收。
+1. 继续补显式仓库范围 `explicit_user_repo` 的浏览器 / live LLM 验收。
 2. 优化行动轨迹中 `scope_source`、`feature_ids`、repo / ref / commit 的前端展示。
-3. 补停止回滚浏览器级 E2E。
-4. 做 RAG 来源去重和预算治理。
-5. 实现会话级 auto compact。
+3. 为报告重复生成 / 改绑特性补真实浏览器 E2E，覆盖旧特性列表消失、新特性列表出现。
+4. 继续做 RAG 来源去重和预算治理。
+5. 在第一版 `conversation_summary` 基础上继续推进真实 token accounting、生成式结构化摘要和手动 compact UI。
 
 ## 5. 最低回归命令
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, replace
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -47,6 +47,21 @@ class StreamingLLM(Protocol):
     ) -> AsyncIterator[LLMEvent]: ...
 
 
+@runtime_checkable
+class ContextualStreamingLLM(StreamingLLM, Protocol):
+    def with_context(
+        self,
+        *,
+        subject_id: str | None,
+        session_id: str | None,
+    ) -> StreamingLLM: ...
+
+
+@runtime_checkable
+class SubjectStreamingLLM(StreamingLLM, Protocol):
+    def with_subject(self, subject_id: str | None) -> StreamingLLM: ...
+
+
 class RetrievalService(Protocol):
     async def retrieve(
         self,
@@ -60,12 +75,35 @@ class RetrievalService(Protocol):
 class GatewayStreamingLLM:
     """Adapts LLMGateway to the chat runtime's streaming protocol."""
 
-    def __init__(self, gateway: LLMGateway, *, subject_id: str | None = None) -> None:
+    def __init__(
+        self,
+        gateway: LLMGateway,
+        *,
+        subject_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
         self._gateway = gateway
         self._subject_id = subject_id
+        self._session_id = session_id
 
     def with_subject(self, subject_id: str | None) -> GatewayStreamingLLM:
-        return GatewayStreamingLLM(self._gateway, subject_id=subject_id)
+        return GatewayStreamingLLM(
+            self._gateway,
+            subject_id=subject_id,
+            session_id=self._session_id,
+        )
+
+    def with_context(
+        self,
+        *,
+        subject_id: str | None,
+        session_id: str | None,
+    ) -> GatewayStreamingLLM:
+        return GatewayStreamingLLM(
+            self._gateway,
+            subject_id=subject_id,
+            session_id=session_id,
+        )
 
     def stream(
         self,
@@ -74,7 +112,11 @@ class GatewayStreamingLLM:
         max_tokens: int,
         temperature: float,
     ) -> AsyncIterator[LLMEvent]:
-        metadata = {"subject_id": self._subject_id} if self._subject_id else {}
+        metadata: dict[str, str] = {}
+        if self._subject_id:
+            metadata["subject_id"] = self._subject_id
+        if self._session_id:
+            metadata["session_id"] = self._session_id
         return self._gateway.stream(
             LLMRequest(
                 messages=messages,
@@ -153,11 +195,13 @@ class ChatRuntime:
         conversation_summary: str | None = None,
         tool_action_summary: str | None = None,
     ) -> AsyncIterator[ChatRuntimeEvent]:
-        llm = (
-            self._llm.with_subject(subject_id)
-            if hasattr(self._llm, "with_subject")
-            else self._llm
-        )
+        llm: StreamingLLM
+        if isinstance(self._llm, ContextualStreamingLLM):
+            llm = self._llm.with_context(subject_id=subject_id, session_id=session_id)
+        elif isinstance(self._llm, SubjectStreamingLLM):
+            llm = self._llm.with_subject(subject_id)
+        else:
+            llm = self._llm
         retrieval_context = await self._retrieval.retrieve(
             user_message=user_message,
             session_summary=conversation_summary,

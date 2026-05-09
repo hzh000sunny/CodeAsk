@@ -12,11 +12,12 @@ import {
 import {
   DeleteSessionDialog,
   ReportConfirmDialog,
+  ReportPreparingDialog,
   ReportReadinessDialog,
   ReportSuccessDialog,
 } from "./SessionDialogs";
 
-type ReportDialogState = "not-ready" | "confirm" | "success" | null;
+type ReportDialogState = "not-ready" | "preparing" | "confirm" | "success" | null;
 
 interface SessionWorkspaceDialogsProps {
   bulkSelectedCount: number;
@@ -57,6 +58,7 @@ interface SessionWorkspaceDialogsProps {
   promotionTreeLoading: boolean;
   reportDialog: ReportDialogState;
   reportError: string;
+  reportExistingReportId: number | null;
   reportFeatureId: string;
   reportTitle: string;
 }
@@ -100,6 +102,7 @@ export function SessionWorkspaceDialogs({
   promotionTreeLoading,
   reportDialog,
   reportError,
+  reportExistingReportId,
   reportFeatureId,
   reportTitle,
 }: SessionWorkspaceDialogsProps) {
@@ -146,9 +149,11 @@ export function SessionWorkspaceDialogs({
       {reportDialog === "not-ready" ? (
         <ReportReadinessDialog onClose={onReportClose} />
       ) : null}
+      {reportDialog === "preparing" ? <ReportPreparingDialog /> : null}
       {reportDialog === "confirm" ? (
         <ReportConfirmDialog
           errorMessage={reportError}
+          existingReportId={reportExistingReportId}
           featureId={reportFeatureId}
           features={features}
           isGenerating={isGeneratingReport}
@@ -164,6 +169,7 @@ export function SessionWorkspaceDialogs({
           onClose={onReportClose}
           onOpen={onOpenGeneratedReport}
           report={generatedReport}
+          updated={reportExistingReportId !== null}
         />
       ) : null}
       {promotionResult && promotionTargetKind ? (

@@ -7,6 +7,7 @@ import {
 
 import type { AgentTraceResponse, SessionTurnResponse } from "../../types/api";
 import {
+  featureIdsFromSessionTraces,
   insightsFromSessionHistory,
   messagesFromSessionTurns,
   stagesFromSessionTraces,
@@ -33,6 +34,7 @@ export function useSessionHistoryRestore({
   sessionTurnsUpdatedAt,
   setInsights,
   setMessages,
+  setDetectedFeatureIds,
   setStages,
   stages,
 }: {
@@ -50,6 +52,7 @@ export function useSessionHistoryRestore({
   sessionTurnsUpdatedAt: number;
   setInsights: Dispatch<SetStateAction<RuntimeInsight[]>>;
   setMessages: (value: ConversationMessage[] | ((current: ConversationMessage[]) => ConversationMessage[])) => void;
+  setDetectedFeatureIds: Dispatch<SetStateAction<number[]>>;
   setStages: (value: RuntimeStage[] | ((current: RuntimeStage[]) => RuntimeStage[])) => void;
   stages: RuntimeStage[];
 }) {
@@ -59,6 +62,7 @@ export function useSessionHistoryRestore({
         setMessages((current) => (current.length === 0 ? current : []));
       }
       setInsights((current) => (current.length === 0 ? current : []));
+      setDetectedFeatureIds((current) => (current.length === 0 ? current : []));
       setStages((current) =>
         current.some((stage) => stage.status !== "pending")
           ? createInitialStages()
@@ -90,6 +94,7 @@ export function useSessionHistoryRestore({
       setMessages(messagesFromSessionTurns(sessionTurns));
     }
     setInsights(insightsFromSessionHistory(sessionTurns, sessionTraces));
+    setDetectedFeatureIds(featureIdsFromSessionTraces(sessionTraces));
     setStages(stagesFromSessionTraces(sessionTraces));
     messagesSessionIdRef.current = selectedSessionId;
     appliedHistoryKeyRef.current = historyKey;
@@ -108,6 +113,7 @@ export function useSessionHistoryRestore({
     sessionTurnsUpdatedAt,
     setInsights,
     setMessages,
+    setDetectedFeatureIds,
     setStages,
     stages,
   ]);

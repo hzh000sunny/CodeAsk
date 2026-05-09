@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitBranch, Plus } from "lucide-react";
 
@@ -9,6 +9,7 @@ import {
   refreshRepo,
   updateRepo,
 } from "../../../lib/api";
+import { useAppFeedback } from "../../feedback/AppFeedback";
 import { Button } from "../../ui/button";
 import { messageFromApiError } from "../settings-utils";
 import type { RepoUpdatePayload } from "../settings-types";
@@ -17,45 +18,22 @@ import { RepoRow } from "./RepoRow";
 
 export function RepoManager() {
   const queryClient = useQueryClient();
-  const noticeTimeoutRef = useRef<number | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [notice, setNotice] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(null);
+  const { showError, showSuccess } = useAppFeedback();
   const { data: repos = [] } = useQuery({
     queryKey: ["repos"],
     queryFn: listRepos,
   });
 
-  useEffect(() => {
-    return () => {
-      if (noticeTimeoutRef.current) {
-        window.clearTimeout(noticeTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  function showNotice(tone: "success" | "danger", message: string) {
-    if (noticeTimeoutRef.current) {
-      window.clearTimeout(noticeTimeoutRef.current);
-    }
-    setNotice({ tone, message });
-    noticeTimeoutRef.current = window.setTimeout(() => {
-      setNotice(null);
-      noticeTimeoutRef.current = null;
-    }, 3200);
-  }
-
   const createMutation = useMutation({
     mutationFn: (payload: RepoUpdatePayload) => createRepo(payload),
     onSuccess: () => {
       setShowForm(false);
-      showNotice("success", "仓库已添加");
+      showSuccess("仓库已添加");
       void queryClient.invalidateQueries({ queryKey: ["repos"] });
     },
     onError: (error) => {
-      showNotice("danger", `添加仓库失败：${messageFromApiError(error)}`);
+      showError(`添加仓库失败：${messageFromApiError(error)}`);
     },
   });
   const updateMutation = useMutation({
@@ -67,31 +45,31 @@ export function RepoManager() {
       payload: RepoUpdatePayload;
     }) => updateRepo(repoId, payload),
     onSuccess: () => {
-      showNotice("success", "仓库已保存");
+      showSuccess("仓库已保存");
       void queryClient.invalidateQueries({ queryKey: ["repos"] });
     },
     onError: (error) => {
-      showNotice("danger", `保存仓库失败：${messageFromApiError(error)}`);
+      showError(`保存仓库失败：${messageFromApiError(error)}`);
     },
   });
   const deleteMutation = useMutation({
     mutationFn: deleteRepo,
     onSuccess: () => {
-      showNotice("success", "仓库已删除");
+      showSuccess("仓库已删除");
       void queryClient.invalidateQueries({ queryKey: ["repos"] });
     },
     onError: (error) => {
-      showNotice("danger", `删除仓库失败：${messageFromApiError(error)}`);
+      showError(`删除仓库失败：${messageFromApiError(error)}`);
     },
   });
   const refreshMutation = useMutation({
     mutationFn: refreshRepo,
     onSuccess: () => {
-      showNotice("success", "仓库同步已提交");
+      showSuccess("仓库同步已提交");
       void queryClient.invalidateQueries({ queryKey: ["repos"] });
     },
     onError: (error) => {
-      showNotice("danger", `同步仓库失败：${messageFromApiError(error)}`);
+      showError(`同步仓库失败：${messageFromApiError(error)}`);
     },
   });
 
@@ -112,15 +90,6 @@ export function RepoManager() {
           添加仓库
         </Button>
       </div>
-      {notice ? (
-        <div
-          className="settings-toast"
-          data-tone={notice.tone}
-          role={notice.tone === "danger" ? "alert" : "status"}
-        >
-          {notice.message}
-        </div>
-      ) : null}
       {showForm ? (
         <RepoCreateForm
           disabled={createMutation.isPending}

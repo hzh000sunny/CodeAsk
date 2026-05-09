@@ -64,7 +64,7 @@ export function useSessionWikiPromotion({
   detectedFeatureIds: number[];
   features: FeatureRead[];
   onOpenWiki?: (target: { featureId: number; nodeId: number }) => void;
-  showActionNotice: (message: string) => void;
+  showActionNotice: (message: string, tone?: "success" | "error") => void;
 }) {
   const queryClient = useQueryClient();
   const [attachment, setAttachment] = useState<AttachmentResponse | null>(null);

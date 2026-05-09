@@ -1,10 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   bulkDeleteSessions,
   createSession,
   deleteSession,
+  getMe,
   listFeatures,
   listSessions,
   listSessionTraces,
@@ -23,6 +24,7 @@ import { SessionListPanel } from "./SessionListPanel";
 import { SessionWorkspaceDialogs } from "./SessionWorkspaceDialogs";
 import {
   sessionTracesQueryKey,
+  sessionListQueryKey,
   sessionTurnsQueryKey,
   upsertSession,
 } from "./session-cache";
@@ -46,6 +48,8 @@ interface ReportTarget {
 }
 
 interface SessionWorkspaceProps {
+  routeSelectedSessionId?: string | null;
+  onSelectedSessionChange?: (sessionId: string | null) => void;
   onOpenReport?: (target: ReportTarget) => void;
   onOpenWiki?: (target: { featureId: number; nodeId: number }) => void;
 }
@@ -53,10 +57,16 @@ interface SessionWorkspaceProps {
 const EMPTY_SESSION_TURNS: SessionTurnResponse[] = [];
 const EMPTY_SESSION_TRACES: AgentTraceResponse[] = [];
 
-export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceProps) {
+export function SessionWorkspace({
+  routeSelectedSessionId = null,
+  onSelectedSessionChange,
+  onOpenReport,
+  onOpenWiki,
+}: SessionWorkspaceProps) {
   const queryClient = useQueryClient();
   const appliedHistoryKeyRef = useRef<string | null>(null);
   const messagesSessionIdRef = useRef<string | null>(null);
+  const previousSubjectQueryKeyRef = useRef<string | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [forceCodeInvestigation, setForceCodeInvestigation] = useState(false);
@@ -64,8 +74,7 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [insights, setInsights] = useState<RuntimeInsight[]>([]);
   const [stages, setStages] = useState(createInitialStages);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [localSessions, setLocalSessions] = useState<SessionResponse[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(routeSelectedSessionId);
   const [listCollapsed, setListCollapsed] = useState(false);
   const [deletedSessionIds, setDeletedSessionIds] = useState<string[]>([]);
   const [deleteCandidate, setDeleteCandidate] =
@@ -76,18 +85,29 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
   const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([]);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [detectedFeatureIds, setDetectedFeatureIds] = useState<number[]>([]);
+  const { data: me } = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: getMe,
+  });
+  const subjectQueryKey = me
+    ? `${me.authenticated ? "auth" : "anon"}:${me.subject_id}`
+    : "pending";
   const { data: sessions = [], isLoading } = useQuery({
-    queryKey: ["sessions"],
-    queryFn: listSessions,
+    queryKey: sessionListQueryKey(subjectQueryKey),
+    queryFn: ({ signal }) => listSessions(signal),
   });
   const { data: features = [] } = useQuery({
     queryKey: ["features"],
     queryFn: listFeatures,
   });
   const createMutation = useMutation({
-    mutationFn: () => createSession("新的研发会话"),
+    mutationFn: async () => {
+      await queryClient.cancelQueries({ queryKey: ["sessions"] });
+      return createSession("新的研发会话");
+    },
     onSuccess: (session) => {
       setSelectedId(session.id);
+      onSelectedSessionChange?.(session.id);
       rememberSession(session);
     },
   });
@@ -101,23 +121,66 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
     setDetectedFeatureIds([]);
   }
 
+  useEffect(() => {
+    setSelectedId(routeSelectedSessionId);
+  }, [routeSelectedSessionId]);
+
+  function selectSession(sessionId: string | null) {
+    setSelectedId(sessionId);
+    onSelectedSessionChange?.(sessionId);
+  }
+
+  useEffect(() => {
+    const previousSubjectQueryKey = previousSubjectQueryKeyRef.current;
+    previousSubjectQueryKeyRef.current = subjectQueryKey;
+    if (
+      previousSubjectQueryKey === null ||
+      previousSubjectQueryKey === subjectQueryKey
+    ) {
+      return;
+    }
+    if (previousSubjectQueryKey === "pending") {
+      const pendingSessions = queryClient.getQueryData<SessionResponse[]>(
+        sessionListQueryKey(previousSubjectQueryKey),
+      );
+      if (pendingSessions?.length) {
+        void queryClient.cancelQueries({
+          queryKey: sessionListQueryKey(subjectQueryKey),
+        });
+        queryClient.setQueryData(
+          sessionListQueryKey(subjectQueryKey),
+          pendingSessions,
+        );
+      }
+      return;
+    }
+    resetActiveSessionState();
+    setDeletedSessionIds([]);
+    setBulkSelectedIds([]);
+    setBulkMode(false);
+    setConfirmBulkDelete(false);
+    setDeleteCandidate(null);
+    setDeleteError("");
+    setMenuSessionId(null);
+  }, [subjectQueryKey]);
+
   const deleteMutation = useMutation({
     mutationFn: (sessionId: string) => deleteSession(sessionId),
     onSuccess: (_unused, sessionId) => {
       const activeSessionId = selected?.id ?? selectedId;
       setDeletedSessionIds((current) => [...new Set([...current, sessionId])]);
-      setLocalSessions((current) =>
-        current.filter((session) => session.id !== sessionId),
-      );
       setDeleteCandidate(null);
       setDeleteError("");
       if (activeSessionId === sessionId) {
         resetActiveSessionState();
+        onSelectedSessionChange?.(null);
       }
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
     },
     onError: (error) => {
-      setDeleteError(`删除会话失败：${messageFromError(error)}`);
+      const message = `删除会话失败：${messageFromError(error)}`;
+      setDeleteError(message);
+      showActionNotice(message, "error");
     },
   });
   const updateMutation = useMutation({
@@ -140,11 +203,9 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
       setDeletedSessionIds((current) => [
         ...new Set([...current, ...payload.deleted_ids]),
       ]);
-      setLocalSessions((current) =>
-        current.filter((session) => !payload.deleted_ids.includes(session.id)),
-      );
       if (activeSessionId && payload.deleted_ids.includes(activeSessionId)) {
         resetActiveSessionState();
+        onSelectedSessionChange?.(null);
       }
       setBulkSelectedIds([]);
       setBulkMode(false);
@@ -152,32 +213,24 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
     },
     onError: (error) => {
-      setDeleteError(`批量删除失败：${messageFromError(error)}`);
+      const message = `批量删除失败：${messageFromError(error)}`;
+      setDeleteError(message);
+      showActionNotice(message, "error");
     },
   });
-  const sessionRows = useMemo(() => {
-    const rows = new Map<string, SessionResponse>();
-    for (const session of localSessions) {
-      rows.set(session.id, session);
-    }
-    for (const session of sessions) {
-      rows.set(session.id, session);
-    }
-    return Array.from(rows.values());
-  }, [localSessions, sessions]);
   const visibleSessions = useMemo(() => {
-    return sessionRows.filter(
+    return sessions.filter(
       (session) =>
         !deletedSessionIds.includes(session.id) &&
         session.title.toLowerCase().includes(query.toLowerCase()),
     );
-  }, [deletedSessionIds, query, sessionRows]);
+  }, [deletedSessionIds, query, sessions]);
   const selected =
     visibleSessions.find((item) => item.id === selectedId) ??
     visibleSessions[0] ??
     null;
   const selectedSessionId = selected?.id ?? "";
-  const { actionNotice, copiedSessionId, copySessionId, showActionNotice } =
+  const { copiedSessionId, copySessionId, showActionNotice } =
     useSessionNotices({
       selected,
       selectedSessionId,
@@ -215,6 +268,7 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
     sessionTracesUpdatedAt,
     sessionTurns,
     sessionTurnsUpdatedAt,
+    setDetectedFeatureIds,
     setInsights,
     setMessages,
     setStages,
@@ -242,19 +296,18 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
 
   const {
     generatedReport,
+    isReportPending,
     openReportDialog,
+    preparedReport,
     reportDialog,
     reportError,
     reportFeatureId,
-    reportMutation,
     reportTitle,
     setReportDialog,
     setReportFeatureId,
     setReportTitle,
     submitReport,
   } = useSessionReport({
-    detectedFeatureIds,
-    features,
     hasCompletedQuestionAnswer,
     isStreaming,
     selected,
@@ -301,11 +354,7 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
   });
 
   function rememberSession(session: SessionResponse) {
-    setLocalSessions((current) => [
-      session,
-      ...current.filter((item) => item.id !== session.id),
-    ]);
-    upsertSession(queryClient, session);
+    upsertSession(queryClient, session, subjectQueryKey);
   }
 
   return (
@@ -348,8 +397,8 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
             });
           }
         }}
-        onSelect={setSelectedId}
-        onShare={() => showActionNotice("暂不支持")}
+        onSelect={selectSession}
+        onShare={() => showActionNotice("暂不支持", "error")}
         onToggleBulkMode={(sessionId) => {
           setBulkMode(true);
           setBulkSelectedIds([sessionId]);
@@ -376,7 +425,6 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
       />
 
       <SessionConversationPanel
-        actionNotice={actionNotice}
         copiedSessionId={copiedSessionId}
         createPending={createMutation.isPending}
         draft={draft}
@@ -405,9 +453,9 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
         onOpenReportDialog={openReportDialog}
         onCancelMessage={cancelMessage}
         onSendMessage={() => void sendMessage()}
-        onUnsupportedAction={showActionNotice}
+        onUnsupportedAction={(message) => showActionNotice(message, "error")}
         onUploadFile={(file) => void uploadLog(file)}
-        reportPending={reportMutation.isPending}
+        reportPending={isReportPending}
         selected={selected}
         selectedSessionId={selectedSessionId}
         uploadStatus={uploadStatus}
@@ -436,7 +484,7 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
         generatedReport={generatedReport}
         isBulkDeleting={bulkDeleteMutation.isPending}
         isDeleting={deleteMutation.isPending}
-        isGeneratingReport={reportMutation.isPending}
+        isGeneratingReport={isReportPending}
         isPromotingAttachment={wikiPromotion.promoteMutation.isPending}
         onBulkDeleteCancel={() => {
           if (!bulkDeleteMutation.isPending) {
@@ -470,7 +518,7 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
           }
         }}
         onReportCancel={() => {
-          if (!reportMutation.isPending) {
+          if (!isReportPending) {
             setReportDialog(null);
           }
         }}
@@ -480,6 +528,7 @@ export function SessionWorkspace({ onOpenReport, onOpenWiki }: SessionWorkspaceP
         onReportTitleChange={setReportTitle}
         reportDialog={reportDialog}
         reportError={reportError}
+        reportExistingReportId={preparedReport?.existing_report_id ?? null}
         reportFeatureId={reportFeatureId}
         reportTitle={reportTitle}
         promotionAttachment={wikiPromotion.attachment}

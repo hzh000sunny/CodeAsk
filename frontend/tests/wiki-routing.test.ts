@@ -28,6 +28,9 @@ describe("wiki routing heading anchors", () => {
 
     writeRouteStateToLocation({
       view: "wiki",
+      sessions: {
+        sessionId: null,
+      },
       wiki: {
         featureId: 7,
         nodeId: 25,
@@ -49,6 +52,9 @@ describe("wiki routing heading anchors", () => {
     const next = mergeWikiRouteState(
       {
         view: "wiki",
+        sessions: {
+          sessionId: null,
+        },
         wiki: {
           featureId: 7,
           nodeId: 25,

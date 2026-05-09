@@ -33,6 +33,18 @@ v1.0.2 收口前必须满足：
 - [x] 候选特性不强制绑定会话。
 - [x] 模型需要补充信息时，通过 `needs_clarification` / `ask_user` 事件表达。
 - [x] 报告生成仍需要用户确认，不能静默生成。
+- [x] 会话生成的问题定位报告不再表现为聊天记录整理，而是正式 Markdown 报告；后端 `prepare_session_report_draft(...)` 由模型按报告规则直接生成标题与正文，已由单元 / 集成测试覆盖。
+- [x] 生成报告时，系统必须把报告写作规则、会话关键上下文、行动轨迹摘要和已确认证据传给 AI，由 AI 自主成文；已由 `tests/unit/test_session_report_generation.py` 与 `tests/integration/test_session_report_generation.py` 覆盖。
+- [x] 报告标题默认不再复用会话标题，必须满足 `YYYY-MM-DD 问题描述`。
+- [x] 标题中的日期必须取生成报告当天。
+- [x] 标题中的“问题描述”默认由 AI 生成，但用户允许修改。
+- [x] 报告草稿解析必须能从模型返回的严格 JSON、Markdown fenced JSON、含裸换行的 JSON 字符串和固定 schema JSON-like 输出中恢复 `title_description` 与 `body_markdown`；不能因正文中的未转义半角双引号把标题保存为 `未命名问题`。
+- [x] 如果模型已经返回可恢复的 `body_markdown`，后端不得把原始 JSON 或 JSON 代码块保存成报告正文。
+- [x] 报告正文结构由 AI 自主组织，不固定章节名，但必须尽量覆盖背景、过程、分析、结论、建议、总结和参考资料等信息面。
+- [x] 证据不足时仍允许生成草稿，但正文必须明确未确认项和待补充项。
+- [x] 同一会话最多只绑定一篇报告；重复生成时更新原报告，不新增第二篇。
+- [x] 删除会话不会删除已生成报告。
+- [x] 生成报告弹窗会默认选中当前会话最相关的特性；只有无法判断时才要求用户手动选择。
 - [x] 连续追问时，后端模型上下文必须包含上一轮用户问题、助手回答和工具行动摘要，已由 API + spy LLM 测试覆盖。
 - [x] 用户追问上一轮是否查过代码时，模型上下文中必须提供可区分以下语义的工具行动摘要：
   - 是否调用代码相关工具；
@@ -168,6 +180,11 @@ v1.0.2 收口前必须满足：
 - [x] SSE 错误事件必须在前端以明确错误提示展示，不能静默失败；运行时 `error` 事件会写入错误气泡并显示顶部提示，已有前端组件测试覆盖。
 - [x] 删除会话失败时必须有错误提示；删除成功后必须清理右侧行动轨迹。
 - [x] 会话生成中必须支持用户主动中断。
+- [x] `POST /api/sessions/{session_id}/reports/prepare` 必须启动异步草稿任务并立即返回 `request_id/status=running`，不能长时间等待 LLM 响应。
+- [x] `GET /api/sessions/{session_id}/reports/prepare/{request_id}` 必须按会话隔离返回任务状态；成功时返回 AI 生成的标题草稿、正文草稿、建议特性和已存在的会话报告 id（如有），失败时返回明确错误。
+- [x] 前端生成报告必须先打开“正在准备报告”过程弹窗，再轮询任务状态；成功进入确认弹窗，失败走页面中央阻断式错误弹窗。
+- [x] 报告草稿异步任务必须有 request id 回传和状态恢复能力，避免长 POST 经过代理或公网 dev server 在返回阶段出现 503 后让用户丢失草稿。
+- [x] `POST /api/sessions/{session_id}/reports` 必须按“upsert 会话报告”语义工作：同一 session 首次创建，再次生成时更新原报告。
 - [x] 前端发送消息前必须生成 `client_turn_id` 并传给后端；停止发生在 SSE header 或事件返回前，也能使用该 id 调用显式 abort API。
 - [x] 中断后必须回滚到本次 user turn 发送前的状态：
   - 删除本次 user turn；
@@ -199,6 +216,17 @@ v1.0.2 收口前必须满足：
 - [x] 同一会话发送新消息时，`Agent 行动轨迹` 不得清空历史事件。
 - [x] `Agent 行动轨迹` 应按 turn 分组展示；当前运行中的 turn 追加流式事件，历史 turn 保留并可折叠。
 - [x] 切换会话时加载目标会话自己的行动轨迹；删除会话后清空右侧行动轨迹。
+- [x] 未手动命名的新会话在第一轮完整问答后，应通过独立 LLM 请求自动生成标题；该请求不进入 `session_turns`，不污染正常 Agent 上下文，不写入用户可见行动轨迹。
+- [x] 用户手动重命名后，`title_source` 必须变为 `manual`，自动标题生成不得覆盖用户标题。
+- [x] 标题自动生成失败不影响正常回答、消息持久化和会话继续使用。
+- [x] 后端必须提供 `POST /api/sessions/{session_id}/title/generate`，允许前端在第一轮完整问答落库后显式生成标题，并返回最新 `SessionResponse`。
+- [x] 显式标题生成接口必须只读取已持久化的第一轮 user / assistant turn；不能把标题 prompt 写入 turns、行动轨迹或正常 Agent 上下文。
+- [x] 前端收到显式标题生成接口返回后，必须直接合并进会话列表缓存，让标题动态渲染，而不是只能依赖用户刷新页面。
+- [x] 会话流结束后，前端必须立即刷新会话列表，并在标题独立生成可能稍晚完成的窗口内再次刷新，避免列表停留在 `新的研发会话`。
+- [x] 会话列表标题默认只显示一行，超出宽度用省略号展示。
+- [x] 生成报告确认弹窗打开时，若已能推断出主要特性，应默认选中该特性。
+- [x] 生成报告确认弹窗应展示 AI 生成的默认标题，用户可以修改“问题描述”部分后再保存。
+- [x] 如果该会话已经生成过报告，再次生成时 UI 文案应明确是“更新当前报告”，而不是暗示会新建第二篇。
 - [x] 行动轨迹卡片默认保持简洁，但点击或展开后必须显示更完整的信息：
   - 工具名；
   - 参数摘要；
@@ -328,6 +356,52 @@ E2E 端到端测试是每个开发验收阶段的基本要求。本阶段验收�
 - [x] 新增特性上下文技术插问 live E2E 测试通道：`frontend/e2e/agent-contextual-technical-qa-live.spec.ts`，用于显式开启真实 LLM、管理员登录、创建 AnythingLLM 特性并关联仓库、按真实会话问题顺序验证 RAG 主题问答、`lancedb 和 sqlitedb 有什么区别` 插入式直接回答、回到 RAG 语境追问以及最后明确源码确认。
 - [x] live Agent E2E 在共享同一套 LLM 配置、仓库状态和 `.tmp/playwright-e2e` 数据目录时默认串行执行；`frontend/playwright.config.ts` 会在任一 `CODEASK_RUN_LIVE_*` 开关启用时强制 `workers = 1`。
 - [x] 2026-05-08 已执行整套 live Agent E2E：`7 passed (12.0m)`，覆盖基础问答、连续会话、特性上下文技术插问、Feature-Scoped Code Access、长上下文和管理员源码链路。
+- [x] 会话页刷新和跨一级页面返回时保持当前选中会话：选中 session 写入 `#/sessions?session={session_id}`，已有 `tests/session-workspace.test.tsx` 覆盖刷新恢复和离开再返回恢复。
+- [x] 会话标题自动生成已有后端集成测试覆盖：默认标题会在第一轮完整问答后生成，标题生成 LLM 请求不写入 turns，用户手动标题不会被覆盖。
+- [x] 会话标题自动生成已有后端显式接口测试覆盖：`POST /api/sessions/{session_id}/title/generate` 会基于已持久化第一轮问答返回更新后的 `SessionResponse`。
+- [x] 会话标题自动生成已有前端刷新和动态合并测试覆盖：会话流结束后会立即刷新列表、调用显式标题生成接口，并把返回的 session 合并进可见列表缓存。
+- [x] 会话列表单行省略已有前端组件回归：标题文本使用独立 `.item-title-text`，由 CSS `text-overflow: ellipsis` 控制。
+- [x] 会话生成问题报告的重复生成 / 改绑路径已有后端集成测试覆盖：prepare 默认特性优先取当前会话证据推断，保存时按一会话一报告 upsert，历史 `metadata_json.session_id` 重复报告和旧 Wiki 报告引用会被清理。
+- [x] 报告草稿解析回归测试覆盖真实失败形态：`body_markdown` 中包含未转义半角双引号时，仍能提取 AI 生成的标题描述和 Markdown 正文。
+
+LLM 配置池与基础负载均衡验收：
+
+配置来源选择：
+
+- [x] 用户存在启用的个人 LLM 配置时，优先使用用户配置，不占用全局配置池槽位。
+- [x] 用户个人 LLM 配置失败时，不自动 fallback 到全局配置；错误直接返回，除非后续产品明确允许用户开启 fallback。
+- [x] 用户个人配置不参与全局会话限额、失败冷却和随机池选择。
+- [x] 请求显式指定 `config_id` 时，不参与全局池随机选择、会话限额、会话粘性和失败切换。
+- [x] 请求显式指定 `config_id` 且配置不可用时，按明确错误返回，不自动替换成其它配置。
+- [x] 用户没有个人配置时，从启用的全局 LLM 配置池中选择。
+
+会话统计和粘性：
+
+- [x] 单个全局配置最近 60 秒最多服务 3 个不同会话。
+- [x] 同一 `session_id` 在 60 秒窗口内多次调用同一全局配置，只计为 1 个会话，不按请求次数累计。
+- [x] 全局配置池全部满载或处于失败冷却时，返回 `当前资源繁忙，请稍后再试`。
+- [x] 同一会话 5 分钟内继续使用上次选中的全局配置，即使该配置随后被其他会话占满。
+- [x] 同一会话上次使用的全局配置被删除、禁用或进入失败冷却时，直接切换下一个可用配置。
+- [x] 同一会话前后间隔超过 5 分钟后，可以重新进入全局池选择。
+- [x] 会话内 LLM 调用必须传 `session_id`，否则无法参与会话粘性和按会话限额统计；当前 ChatRuntime、旧 Orchestrator 和报告生成链路均会传递 `session_id`。
+- [x] 非会话型 LLM 调用如果没有 `session_id`，不参与会话粘性和会话数统计；后续若要限制非会话任务，需要单独设计任务级限流。
+
+失败切换和冷却恢复：
+
+- [x] 非供应商健康类错误不得计入 LLM 配置失败冷却，例如上下文超限、max_tokens 非法、tool schema / 请求格式错误；这类错误直接返回给上层处理，不触发配置切换或剔除。
+- [x] 同一全局配置 5 分钟内出现 3 次最终失败后，临时剔除 10 分钟；冷却结束后自动回池。
+- [x] 冷却期间配置不会被 sticky 选择命中，也不会进入全局候选池。
+- [x] 冷却到期后失败记录清空，重新按健康配置参与随机池。
+- [x] 全局配置在一次请求的初始阶段失败且尚未输出内容时，立即排除该配置并切换下一个可用全局配置；已开始输出后不跨模型续流。
+- [x] 本次请求内所有可用全局配置都在初始阶段失败时，返回最后一次模型错误；如果没有任何候选配置可尝试，返回 `当前资源繁忙，请稍后再试`。
+- [x] 单次请求最多尝试 `max_retries + 1` 次模型调用，包含跨配置切换和同配置重试，避免一个请求扫完整个资源池造成放大流量。
+
+UI 与可观测性：
+
+- [ ] LLM 资源繁忙错误在会话 UI 中显示为明确失败提示，不允许静默失败或只在行动轨迹中出现。
+- [ ] 资源繁忙不应该持久化成一条看似正常的 AI 回答。
+- [ ] 后续应在 trace / log 中记录配置选择、切换、失败、冷却原因和尝试过的配置 id，便于排查资源池问题。
+- [x] 单元测试覆盖上述选择、限额、粘性、初始失败切换、失败冷却和关键边界行为：`uv run pytest tests/unit/test_llm_gateway.py -q`。
 
 源码工具 live E2E 显式运行方式：
 
@@ -381,6 +455,11 @@ corepack pnpm --dir frontend test:e2e e2e/agent-conversation-continuity-live.spe
 - [x] `corepack pnpm --dir frontend build`
 - [x] 本次改动文件的 `uv run ruff check ...`
 - [x] `git diff --check`
+- [x] `uv run pytest tests/integration/test_session_report_generation.py -q`
+- [x] `uv run pytest tests/unit/test_session_report_generation.py tests/integration/test_session_report_generation.py -q`
+- [x] `uv run ruff check src/codeask/sessions/report_generation.py tests/unit/test_session_report_generation.py`
+- [x] `corepack pnpm --dir frontend exec vitest run tests/session-workspace.test.tsx tests/app-shell.test.tsx tests/wiki-routing.test.ts`
+- [x] `corepack pnpm --dir frontend exec tsc --noEmit`
 
 后续修复连续会话缺陷后，至少需要重新执行：
 
@@ -419,6 +498,13 @@ git diff --check
 - [x] 为 `anything llm` RAG 问题的二轮追问补 live E2E 通道。
 - [x] 明确生产 Wiki / 报告 / 附件工具的接入范围：本版本已接入只读 `search/read/list` 能力；写入、编辑、删除仍走明确 UI 动作或后续确认型工具。
 - [x] `compaction.py` 第一版已作为本版本必须项实现；会话级 `conversation_summary` 和历史 auto-compact 已完成 extractive 基线，生成式结构化摘要、真实 token 预算和失败熔断仍是后续项。
+- [x] 修复会话页刷新 / 离开再返回后选中会话丢失的问题。
+- [x] 修复问题报告重复生成时默认绑定沿用旧错误特性的问题。
+- [x] 修复同一会话历史重复报告在旧特性问题报告列表中残留的问题。
+- [x] 修复 AI 已生成标题但报告保存为 `YYYY-MM-DD 未命名问题` 的解析容错问题。
+- [ ] LLM 资源繁忙错误在会话 UI 中显示为明确失败提示，不允许静默失败或只在行动轨迹中出现。
+- [ ] 资源繁忙不应该持久化成一条看似正常的 AI 回答。
+- [ ] LLM 网关应在 trace 或结构化日志中记录配置选择、切换、失败、冷却原因和尝试过的配置 id，便于排查资源池问题。
 
 ## 13. 非目标与后续项
 

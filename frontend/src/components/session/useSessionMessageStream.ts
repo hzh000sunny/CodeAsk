@@ -1,7 +1,11 @@
 import { useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 
-import { abortSessionTurn, createSession } from "../../lib/api";
+import {
+  abortSessionTurn,
+  createSession,
+  generateSessionTitle,
+} from "../../lib/api";
 import { streamSessionMessage } from "../../lib/sse";
 import type { SessionResponse } from "../../types/api";
 import {
@@ -52,7 +56,7 @@ export function useSessionMessageStream({
   setMessages: Dispatch<SetStateAction<ConversationMessage[]>>;
   setSelectedId: Dispatch<SetStateAction<string | null>>;
   setStages: Dispatch<SetStateAction<RuntimeStage[]>>;
-  showActionNotice: (message: string) => void;
+  showActionNotice: (message: string, tone?: "success" | "error") => void;
 }) {
   const activeStreamRef = useRef<{
     abortController: AbortController;
@@ -107,11 +111,12 @@ export function useSessionMessageStream({
     let target = selected;
     if (!target) {
       try {
-        target = await createSession(content.slice(0, 28) || "新的研发会话");
+        await queryClient.cancelQueries({ queryKey: ["sessions"] });
+        target = await createSession("新的研发会话");
         setSelectedId(target.id);
         rememberSession(target);
       } catch (error) {
-        showActionNotice(`创建默认会话失败：${messageFromError(error)}`);
+        showActionNotice(`创建默认会话失败：${messageFromError(error)}`, "error");
         return;
       }
     }
@@ -210,6 +215,7 @@ export function useSessionMessageStream({
           if (event.type === "error") {
             showActionNotice(
               `Agent 运行失败：${String(event.data.message ?? "未知错误")}`,
+              "error",
             );
             setMessages((current) =>
               current.map((message) =>
@@ -257,13 +263,17 @@ export function useSessionMessageStream({
       void queryClient.invalidateQueries({
         queryKey: sessionTracesQueryKey(target.id),
       });
+      refreshSessionListAfterTitleGeneration(queryClient, {
+        sessionId: target.id,
+        rememberSession,
+      });
     } catch (error) {
       if (isAbortError(error)) {
         try {
           await rollbackActiveStream();
           showActionNotice("已停止生成");
         } catch (rollbackError) {
-          showActionNotice(`停止生成失败：${messageFromError(rollbackError)}`);
+          showActionNotice(`停止生成失败：${messageFromError(rollbackError)}`, "error");
         }
         return;
       }
@@ -274,7 +284,7 @@ export function useSessionMessageStream({
             : message,
         ),
       );
-      showActionNotice(`会话请求失败：${messageFromError(error)}`);
+      showActionNotice(`会话请求失败：${messageFromError(error)}`, "error");
       setStages((current) =>
         current.map((stage) =>
           stage.status === "active" ? { ...stage, status: "error" } : stage,
@@ -287,6 +297,30 @@ export function useSessionMessageStream({
   }
 
   return { cancelMessage, sendMessage };
+}
+
+export function refreshSessionListAfterTitleGeneration(
+  queryClient: QueryClient,
+  options: {
+    sessionId?: string;
+    rememberSession?: (session: SessionResponse) => void;
+    generateSessionTitle?: (sessionId: string) => Promise<SessionResponse>;
+  } = {},
+) {
+  void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+  if (options.sessionId && options.rememberSession) {
+    const requestTitle = options.generateSessionTitle ?? generateSessionTitle;
+    void requestTitle(options.sessionId)
+      .then((session) => {
+        options.rememberSession?.(session);
+      })
+      .catch(() => undefined);
+  }
+  for (const delayMs of [1_500, 5_000, 12_000]) {
+    window.setTimeout(() => {
+      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    }, delayMs);
+  }
 }
 
 function isAbortError(error: unknown) {

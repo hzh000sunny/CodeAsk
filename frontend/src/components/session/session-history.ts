@@ -30,6 +30,26 @@ export function featureIdsFromEvent(data: Record<string, unknown>) {
   );
 }
 
+export function featureIdsFromSessionTraces(traces: AgentTraceResponse[]) {
+  const result: number[] = [];
+  const seen = new Set<number>();
+  for (const trace of traces) {
+    const event = agentEventFromTrace(trace);
+    if (!event) {
+      continue;
+    }
+    const ids = featureIdsFromTraceValue(event.data);
+    for (const id of ids) {
+      if (seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+      result.push(id);
+    }
+  }
+  return result;
+}
+
 export function messagesFromSessionTurns(
   turns: SessionTurnResponse[],
 ): ConversationMessage[] {
@@ -155,6 +175,38 @@ function agentEventFromTrace(trace: AgentTraceResponse): AgentEvent | null {
     return { type: "error", data: recordValue(payload.data) };
   }
   return null;
+}
+
+function featureIdsFromTraceValue(value: unknown): number[] {
+  const result: number[] = [];
+  function visit(candidate: unknown) {
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) {
+        visit(item);
+      }
+      return;
+    }
+    if (!candidate || typeof candidate !== "object") {
+      return;
+    }
+    for (const [key, child] of Object.entries(candidate)) {
+      if (key === "feature_ids" && Array.isArray(child)) {
+        for (const item of child) {
+          if (typeof item === "number" && Number.isInteger(item)) {
+            result.push(item);
+          }
+        }
+        continue;
+      }
+      if (key === "feature_id" && typeof child === "number" && Number.isInteger(child)) {
+        result.push(child);
+        continue;
+      }
+      visit(child);
+    }
+  }
+  visit(value);
+  return result;
 }
 
 function evidenceInsightsFromTurn(turn: SessionTurnResponse): RuntimeInsight[] {

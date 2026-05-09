@@ -45,6 +45,11 @@ class Settings(BaseSettings):
         description="Lifetime of the signed admin session cookie.",
     )
     auth_cookie_name: str = "codeask_admin_session"
+    llm_timeout_seconds: int = Field(
+        default=600,
+        ge=30,
+        description="Timeout applied to each outbound LLM request in seconds.",
+    )
 
     @model_validator(mode="after")
     def _derive_database_url(self) -> Self:

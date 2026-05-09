@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, FilePenLine, FolderPlus, Save } from "lucide-react";
 
+import { useForwardErrorToAppFeedback } from "../feedback/useForwardErrorToAppFeedback";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 
@@ -33,6 +34,7 @@ export function WikiNodeInputDialog({
 
   const nameLabel =
     modeLabel === "folder" ? "目录名称" : modeLabel === "document" ? "Wiki 标题" : "新名称";
+  useForwardErrorToAppFeedback(errorMessage, { title: "保存 Wiki 节点失败" });
 
   return (
     <div className="dialog-backdrop">
@@ -68,11 +70,6 @@ export function WikiNodeInputDialog({
               />
             </label>
           </div>
-          {errorMessage ? (
-            <div className="inline-alert danger in-dialog" role="alert">
-              {errorMessage}
-            </div>
-          ) : null}
           <div className="dialog-actions">
             <Button disabled={isSubmitting} onClick={onCancel} type="button" variant="secondary">
               取消
@@ -110,6 +107,10 @@ export function WikiNodeDeleteDialog({
   onConfirm: () => void;
   path: string;
 }) {
+  useForwardErrorToAppFeedback(errorMessage, {
+    title: clearOnly ? "清空目录失败" : "删除 Wiki 节点失败",
+  });
+
   return (
     <div className="dialog-backdrop">
       <section
@@ -132,11 +133,6 @@ export function WikiNodeDeleteDialog({
             <strong>当前路径</strong>
             <span>{path}</span>
           </div>
-          {errorMessage ? (
-            <div className="inline-alert danger in-dialog" role="alert">
-              {errorMessage}
-            </div>
-          ) : null}
           <div className="dialog-actions">
             <Button disabled={isDeleting} onClick={onCancel} type="button" variant="secondary">
               取消

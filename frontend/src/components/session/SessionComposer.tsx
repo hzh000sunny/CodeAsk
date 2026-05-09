@@ -113,7 +113,7 @@ export function SessionComposer({
           type="button"
           variant="secondary"
         >
-          生成报告
+          {reportPending ? "准备中" : "生成报告"}
         </Button>
         <Button
           disabled={!isStreaming && !draft.trim()}

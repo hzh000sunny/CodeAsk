@@ -11,7 +11,6 @@ import { copyTextToClipboard } from "./session-clipboard";
 import type { ConversationMessage } from "./session-model";
 
 interface SessionConversationPanelProps {
-  actionNotice: string;
   copiedSessionId: string | null;
   createPending: boolean;
   draft: string;
@@ -41,7 +40,6 @@ interface SessionConversationPanelProps {
 }
 
 export function SessionConversationPanel({
-  actionNotice,
   copiedSessionId,
   createPending,
   draft,
@@ -76,11 +74,6 @@ export function SessionConversationPanel({
         onCopySessionId={onCopySessionId}
         selected={selected}
       />
-      {actionNotice ? (
-        <div className="action-banner" role="status">
-          {actionNotice}
-        </div>
-      ) : null}
 
       <MessageStream
         feedbackByTurnId={feedbackByTurnId}

@@ -21,7 +21,7 @@ def _empty_attachment_names() -> list[str]:
 
 
 class SessionCreate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=256)
+    title: str = Field(default="新的研发会话", min_length=1, max_length=256)
 
 
 class SessionResponse(BaseModel):
@@ -32,6 +32,8 @@ class SessionResponse(BaseModel):
     created_by_subject_id: str
     status: str
     pinned: bool
+    title_source: Literal["default", "auto", "manual"]
+    title_generated_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -76,8 +78,28 @@ class SessionBulkDeleteResponse(BaseModel):
 
 
 class SessionReportCreate(BaseModel):
-    feature_id: int
+    feature_id: int | None = None
     title: str = Field(..., min_length=1, max_length=500)
+    body_markdown: str = Field(..., min_length=1)
+
+
+class SessionReportPrepareRequest(BaseModel):
+    feature_id: int | None = None
+
+
+class SessionReportPrepared(BaseModel):
+    existing_report_id: int | None = None
+    feature_id: int | None = None
+    inferred_feature_ids: list[int] = Field(default_factory=_empty_feature_ids)
+    title: str = Field(..., min_length=1, max_length=500)
+    body_markdown: str = Field(..., min_length=1)
+
+
+class SessionReportPrepareStatus(BaseModel):
+    request_id: str
+    status: Literal["running", "succeeded", "failed"]
+    draft: SessionReportPrepared | None = None
+    error: str | None = None
 
 
 class RepoBindingIn(BaseModel):
