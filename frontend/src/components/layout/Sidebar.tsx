@@ -2,6 +2,7 @@ import {
   BookOpenText,
   ChevronLeft,
   ChevronRight,
+  Github,
   MessageSquareText,
   Settings,
   Sparkles,
@@ -53,6 +54,19 @@ export function Sidebar({
             </button>
           );
         })}
+      </nav>
+      <nav aria-label="外部链接" className="source-nav-external">
+        <a
+          aria-label="打开 CodeAsk GitHub 项目"
+          className="source-nav-item source-nav-link"
+          href="https://github.com/hzh000sunny/CodeAsk"
+          rel="noreferrer"
+          target="_blank"
+          title="打开 CodeAsk GitHub 项目"
+        >
+          <Github aria-hidden="true" size={18} strokeWidth={1.9} />
+          {!collapsed ? <span>GitHub</span> : null}
+        </a>
       </nav>
       <button
         aria-label={collapsed ? "展开主导航" : "收起主导航"}

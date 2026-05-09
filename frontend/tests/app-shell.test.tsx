@@ -114,6 +114,16 @@ describe("CodeAsk AppShell information architecture", () => {
       within(navigation).getByRole("button", { name: "Wiki" }),
     ).toBeInTheDocument();
     expect(within(navigation).queryByText("全局配置")).not.toBeInTheDocument();
+
+    const externalNavigation = screen.getByRole("navigation", { name: "外部链接" });
+    const githubLink = within(externalNavigation).getByRole("link", {
+      name: "打开 CodeAsk GitHub 项目",
+    });
+    expect(githubLink).toHaveAttribute(
+      "href",
+      "https://github.com/hzh000sunny/CodeAsk",
+    );
+    expect(githubLink).toHaveAttribute("target", "_blank");
   });
 
   it("allows primary and secondary sidebars to collapse and expand", async () => {
