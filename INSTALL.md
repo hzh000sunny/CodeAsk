@@ -2,28 +2,170 @@
 
 本文承载 CodeAsk 的安装、配置、启动、开发联调和验证命令。产品介绍请看 [README.md](./README.md)。
 
+## 适用范围
+
+这份文档的目标是让第一次接触项目的人，或者 AI 编码助手，在一台新机器上可以按步骤完成本地部署、开发联调和基础验证。
+
+当前支持两种启动方式：
+
+| 方式 | 适用场景 | 浏览器地址 |
+|---|---|---|
+| 单进程启动 | 本地体验、轻量部署、让后端直接托管前端构建产物 | `http://127.0.0.1:8000` |
+| 前后端开发联调 | 日常前端开发、Playwright 调试、热更新 | `http://127.0.0.1:5173` |
+
+说明：
+
+- `8000` 是后端端口。只有前端已经构建到 `frontend/dist` 时，后端才会在 `/` 托管页面。
+- `5173` 是 Vite 前端开发端口。开发联调时应访问 `5173`，由 Vite 把 `/api/*` 代理到后端 `8000`。
+- Docker / Compose 暂不属于当前版本的部署路径，后续版本再补。
+
 ## 环境要求
 
 | 依赖 | 用途 |
 |---|---|
 | Python 3.11+ | 后端运行环境 |
 | uv | Python 依赖管理和命令运行 |
-| Node.js 22+ | 前端构建和测试 |
-| Corepack / pnpm | 前端依赖管理 |
+| Node.js 22+ | 前端构建、开发服务器和测试 |
+| Corepack / pnpm 10.x | 前端依赖管理；项目声明 `pnpm@10.12.1` |
 | git | clone、fetch、worktree |
 | ripgrep (`rg`) | 代码全文检索 |
 | universal-ctags (`ctags`) | 符号检索；缺失时相关测试会跳过 |
+| curl / ca-certificates | 安装工具链和访问本地接口 |
+| build-essential / Xcode Command Line Tools | 编译部分 Python 或 Node 依赖时可能需要 |
 
-Debian / Ubuntu：
+## 全新环境安装工具链
+
+如果机器已经安装了 Python 3.11+、uv、Node.js 22+、Corepack、git、ripgrep 和 ctags，可以跳过本节，直接进入“部署前检查”。
+
+### Debian / Ubuntu
+
+安装系统工具：
 
 ```bash
-sudo apt-get install git ripgrep universal-ctags
+sudo apt-get update
+sudo apt-get install -y \
+  git curl ca-certificates build-essential \
+  ripgrep universal-ctags
 ```
 
-macOS：
+确认 Python 版本：
 
 ```bash
-brew install git ripgrep universal-ctags
+python3 --version
+```
+
+如果系统没有 Python 3.11+，请使用发行版包管理器、pyenv 或内部基础镜像安装。安装完成后再次确认：
+
+```bash
+python3 --version
+```
+
+安装 uv：
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+安装 Node.js 22。推荐使用 nvm，便于固定 Node 主版本：
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm install 22
+nvm use 22
+corepack enable
+```
+
+如果部署环境禁止从 GitHub 下载 nvm，请使用系统镜像、NodeSource 或公司内部 Node.js 22 包，但仍需执行：
+
+```bash
+corepack enable
+```
+
+### macOS
+
+安装系统工具：
+
+```bash
+xcode-select --install
+brew install git ripgrep universal-ctags uv node@22
+corepack enable
+```
+
+如果 `node` 未指向 Node.js 22，请按 Homebrew 输出把 `node@22` 加入 `PATH`，或使用 nvm 安装 Node.js 22。
+
+## 部署前检查
+
+在 clone 项目前或进入项目根目录后，先确认工具链可用：
+
+```bash
+python3 --version
+uv --version
+node --version
+corepack --version
+git --version
+rg --version
+ctags --version
+```
+
+期望结果：
+
+- Python 显示 `3.11` 或更高。
+- Node 显示 `v22` 或更高。
+- `uv`、`corepack`、`git`、`rg`、`ctags` 都能正常输出版本。
+
+如果 `python` 命令不存在但 `python3` 存在，不需要特别处理；项目命令统一通过 `uv` 运行。
+
+## 从源码启动一套可访问服务
+
+这是给新环境和 AI 部署使用的最短完整路径。请把 `<repo-url>` 替换为实际仓库地址。
+
+```bash
+git clone <repo-url> CodeAsk
+cd CodeAsk
+
+uv sync
+corepack pnpm --dir frontend install --frozen-lockfile
+
+export CODEASK_DATA_KEY="$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+export CODEASK_ADMIN_USERNAME="admin"
+export CODEASK_ADMIN_PASSWORD="admin"
+
+./start.sh
+```
+
+启动成功后会看到类似输出：
+
+```text
+Starting CodeAsk on 127.0.0.1:8000
+Data dir: /home/<user>/.codeask
+```
+
+打开：
+
+```text
+http://127.0.0.1:8000
+```
+
+健康检查：
+
+```bash
+curl -s http://127.0.0.1:8000/api/healthz -H 'X-Subject-Id: alice@dev-1' | python3 -m json.tool
+```
+
+正式部署时不要使用默认管理员密码，必须覆盖：
+
+```bash
+export CODEASK_ADMIN_USERNAME="admin"
+export CODEASK_ADMIN_PASSWORD="<strong-password>"
+```
+
+如果需要让其它机器访问：
+
+```bash
+CODEASK_HOST=0.0.0.0 CODEASK_PORT=8000 ./start.sh
 ```
 
 ## 安装依赖
@@ -37,7 +179,7 @@ uv sync
 前端依赖通过 pnpm 安装：
 
 ```bash
-corepack pnpm --dir frontend install
+corepack pnpm --dir frontend install --frozen-lockfile
 ```
 
 项目已在 `pyproject.toml` 配置 uv 默认包索引为清华 TUNA：
@@ -53,13 +195,26 @@ default = true
 
 `CODEASK_DATA_KEY` 用于加密 LLM API Key 等敏感字段。它不是登录密码，也不是访问 token。丢失后，已经加密存储的敏感字段无法恢复。
 
-首次本地启动前生成一个 Fernet key：
+首次启动前生成一个 Fernet key：
 
 ```bash
 export CODEASK_DATA_KEY="$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 ```
 
-建议把正式环境的 key 写入部署系统的 secret 管理，不要提交到仓库。
+首次启动成功后，CodeAsk 会把该 key 缓存在：
+
+```text
+<CODEASK_DATA_DIR>/secrets/data.key
+```
+
+后续再次启动时，如果没有设置 `CODEASK_DATA_KEY`，服务会从数据目录缓存读取 key。正式环境仍建议把 key 写入部署系统的 secret 管理，不要提交到仓库。
+
+关键规则：
+
+- `CODEASK_DATA_KEY` 是数据目录主密钥，不能随意重新生成。
+- 如果缓存文件已存在，环境变量中的 key 必须和缓存一致，否则服务会拒绝启动。
+- 备份和迁移时必须保留 `secrets/data.key`，否则数据库中已加密的敏感字段无法恢复。
+- CodeAsk 不会在没有环境变量、也没有缓存文件时自动生成 key；首次启动仍需要用户显式提供。
 
 ## 启动单进程服务
 
@@ -67,11 +222,13 @@ export CODEASK_DATA_KEY="$(uv run python -c 'from cryptography.fernet import Fer
 ./start.sh
 ```
 
-默认服务地址：
+默认单进程服务地址：
 
 ```text
 http://127.0.0.1:8000
 ```
+
+`8000` 是后端服务端口。当前端构建产物 `frontend/dist/index.html` 存在时，后端会把前端页面挂载到 `/`，此时可以直接用浏览器打开 `8000`。开发联调时请打开 Vite dev server 的 `5173`，见下文“前端开发联调”。
 
 如果需要让局域网或容器外部访问：
 
@@ -84,7 +241,7 @@ CODEASK_HOST=0.0.0.0 CODEASK_PORT=8000 ./start.sh
 健康检查：
 
 ```bash
-curl -s http://127.0.0.1:8000/api/healthz -H 'X-Subject-Id: alice@dev-1' | python -m json.tool
+curl -s http://127.0.0.1:8000/api/healthz -H 'X-Subject-Id: alice@dev-1' | python3 -m json.tool
 ```
 
 ## 管理员账号
@@ -113,13 +270,15 @@ export CODEASK_ADMIN_PASSWORD="<strong-password>"
 
 ## 前端开发联调
 
-单独启动后端：
+开发模式需要两个终端。
+
+终端 1：启动后端：
 
 ```bash
 CODEASK_HOST=0.0.0.0 CODEASK_PORT=8000 uv run codeask
 ```
 
-启动 Vite dev server：
+终端 2：启动 Vite dev server：
 
 ```bash
 corepack pnpm --dir frontend dev --host 0.0.0.0 --port 5173
@@ -162,6 +321,8 @@ CODEASK_API_PROXY_TARGET=http://127.0.0.1:8010 corepack pnpm --dir frontend dev 
 ```text
 ~/.codeask/
 ├── data.db
+├── secrets/
+│   └── data.key
 ├── wiki/
 ├── skills/
 ├── sessions/
@@ -178,6 +339,7 @@ CODEASK_API_PROXY_TARGET=http://127.0.0.1:8010 corepack pnpm --dir frontend dev 
 
 关键约定：
 
+- `secrets/data.key` 是本地敏感字段加密主密钥缓存，权限应为 `0600`，必须随数据目录一起备份。
 - 会话附件按 `sessions/<session_id>/` 隔离。
 - 附件物理文件名使用稳定 `attachment_id`，避免同名日志互相覆盖。
 - `display_name` 可编辑，`original_filename` 不变，`aliases` 保留名称历史。
@@ -198,6 +360,55 @@ frontend/dist
 ```
 
 当 `frontend/dist/index.html` 存在时，后端会把前端静态产物挂载到 `/`。`/api/*` 始终由后端 API 处理，不会被静态路由吞掉。
+
+## 升级现有部署
+
+升级前请先阅读跨版本规则：[docs/rules/upgrade-compatibility.md](./docs/rules/upgrade-compatibility.md)。
+
+CodeAsk 当前的升级原则是：**代码可以更新，依赖可以重装，用户数据目录不能被破坏。**
+
+标准升级流程：
+
+```bash
+# 1. 停止当前 CodeAsk 服务
+
+# 2. 确认数据目录，默认是 ~/.codeask
+export CODEASK_DATA_DIR="${CODEASK_DATA_DIR:-$HOME/.codeask}"
+
+# 3. 备份整个数据目录。不要只备份 data.db。
+tar -czf "$HOME/codeask-backup-$(date +%Y%m%d-%H%M%S).tar.gz" -C "$(dirname "$CODEASK_DATA_DIR")" "$(basename "$CODEASK_DATA_DIR")"
+
+# 4. 拉取新代码。也可以切换到明确的 release branch / tag。
+git pull --ff-only
+
+# 5. 更新依赖并重新构建前端。
+uv sync
+corepack pnpm --dir frontend install --frozen-lockfile
+corepack pnpm --dir frontend build
+
+# 6. 使用原数据目录启动。已有 secrets/data.key 时，可以不再导出 CODEASK_DATA_KEY。
+./start.sh
+```
+
+升级成功后检查：
+
+```bash
+curl -s http://127.0.0.1:8000/api/healthz -H 'X-Subject-Id: alice@dev-1' | python3 -m json.tool
+```
+
+再用浏览器确认：
+
+- 会话列表可以加载。
+- Wiki 页面可以打开并预览文档。
+- 设置页可以打开。
+- 管理员账号可以登录。
+- 已有 LLM 配置仍能正常使用。
+
+回滚规则：
+
+- 如果新版本还没有启动，数据库 migration 没有执行，可以直接切回旧代码。
+- 如果新版本已经启动并执行了 migration，不要只回滚代码；应停止服务并恢复升级前备份的整个数据目录。
+- 不承诺任意 Alembic downgrade 都能安全恢复业务数据。
 
 ## 测试与验证
 
@@ -240,13 +451,75 @@ git diff --check
 
 ## 常见问题
 
+### `uv: command not found`
+
+安装 uv，并确认当前 shell 能找到它：
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+uv --version
+```
+
+### `corepack: command not found`
+
+通常是 Node.js 版本不对，或安装包未包含 Corepack。请先确认：
+
+```bash
+node --version
+```
+
+项目要求 Node.js 22+。如果版本过低，先升级 Node.js；如果版本正确但没有 Corepack，可尝试：
+
+```bash
+npm install -g corepack
+corepack enable
+```
+
+### `ERR_PNPM_UNSUPPORTED_ENGINE` 或前端依赖安装失败
+
+确认 Node.js 是 22 或更高版本：
+
+```bash
+node --version
+corepack pnpm --version
+```
+
+如果刚切换过 Node 版本，重新启用 Corepack：
+
+```bash
+corepack enable
+corepack prepare pnpm@10.12.1 --activate
+```
+
 ### 启动时报 `CODEASK_DATA_KEY is not set`
 
-先生成并导出 Fernet key：
+首次启动时，先生成并导出 Fernet key：
 
 ```bash
 export CODEASK_DATA_KEY="$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 ```
+
+首次启动成功后，CodeAsk 会把 key 缓存在 `<CODEASK_DATA_DIR>/secrets/data.key`。后续启动如果没有设置环境变量，会自动读取该缓存。
+
+正式环境要把这个值持久保存到 secret 管理中。不要每次启动都生成新 key，否则已加密的 LLM API Key 将无法解密。
+
+### 启动时报 `CODEASK_DATA_KEY conflicts with cached data key`
+
+说明当前环境变量中的 key 和数据目录中的缓存 key 不一致。通常原因是：
+
+- 用户对已有数据目录重新生成了一个 key。
+- `CODEASK_DATA_DIR` 指向了另一个环境的数据目录。
+- 部署系统 secret 配错。
+
+处理方式：
+
+1. 停止服务。
+2. 确认当前 `CODEASK_DATA_DIR` 是否正确。
+3. 如果要继续使用该数据目录，应使用 `<CODEASK_DATA_DIR>/secrets/data.key` 对应的 key。
+4. 如果要恢复旧版本或旧环境，应恢复升级前备份的整个数据目录。
+
+不要直接覆盖 `secrets/data.key`。
 
 ### 前端 dev server 访问不到 API
 
@@ -261,9 +534,59 @@ corepack pnpm --dir frontend dev --host 0.0.0.0 --port 5173
 
 确认系统安装了 `ripgrep` 和 `universal-ctags`。缺少 `ctags` 时，符号检索相关能力和测试会受限。
 
+```bash
+rg --version
+ctags --version
+```
+
+### 浏览器从远程机器访问不到服务
+
+确认服务监听在 `0.0.0.0`，并检查防火墙或云服务器安全组：
+
+```bash
+CODEASK_HOST=0.0.0.0 CODEASK_PORT=8000 ./start.sh
+```
+
+开发联调时也需要让 Vite 监听 `0.0.0.0`：
+
+```bash
+corepack pnpm --dir frontend dev --host 0.0.0.0 --port 5173
+```
+
+### 端口被占用
+
+单进程后端默认使用 `8000`，开发前端默认使用 `5173`。如果端口被占用：
+
+```bash
+CODEASK_PORT=8010 ./start.sh
+```
+
+开发联调时：
+
+```bash
+CODEASK_HOST=0.0.0.0 CODEASK_PORT=8010 uv run codeask
+CODEASK_API_PROXY_TARGET=http://127.0.0.1:8010 corepack pnpm --dir frontend dev --host 0.0.0.0 --port 5173
+```
+
 ### LiteLLM 启动时尝试联网
 
 CodeAsk 已在项目级禁用 LiteLLM 启动联网拉取模型价格表。请确认环境中没有手动把 `LITELLM_LOCAL_MODEL_COST_MAP` 改为非 `True` 值。
+
+## AI 部署验收清单
+
+如果让 AI 或自动化脚本按本文部署，至少要完成以下检查：
+
+- 工具链版本检查全部通过：Python 3.11+、uv、Node.js 22+、Corepack、git、rg、ctags。
+- `uv sync` 成功完成。
+- `corepack pnpm --dir frontend install --frozen-lockfile` 成功完成。
+- `CODEASK_DATA_KEY` 已生成并导出；正式环境已持久保存。
+- 首次启动后，`<CODEASK_DATA_DIR>/secrets/data.key` 已生成，且后续无 env 启动可读取缓存 key。
+- `./start.sh` 能启动服务，日志显示监听地址和数据目录。
+- `curl /api/healthz` 返回正常 JSON。
+- 浏览器能打开正确地址：单进程为 `8000`，开发联调为 `5173`。
+- 管理员账号能登录；正式环境已修改默认密码。
+- 如果需要远程访问，`CODEASK_HOST=0.0.0.0`、防火墙和安全组已经配置。
+- 开发验收阶段必须运行端到端测试：`corepack pnpm --dir frontend test:e2e --project=chromium`。
 
 ## 相关文档
 

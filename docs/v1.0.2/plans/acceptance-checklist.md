@@ -505,6 +505,12 @@ git diff --check
 - [ ] LLM 资源繁忙错误在会话 UI 中显示为明确失败提示，不允许静默失败或只在行动轨迹中出现。
 - [ ] 资源繁忙不应该持久化成一条看似正常的 AI 回答。
 - [ ] LLM 网关应在 trace 或结构化日志中记录配置选择、切换、失败、冷却原因和尝试过的配置 id，便于排查资源池问题。
+- [x] 升级兼容规则已落入 `docs/rules/upgrade-compatibility.md`，安装文档包含从旧版本升级、备份、回滚和 `CODEASK_DATA_KEY` 缓存说明。
+- [x] 首次启动提供 `CODEASK_DATA_KEY` 时，服务会把 key 写入 `<CODEASK_DATA_DIR>/secrets/data.key`。
+- [x] 二次启动未设置 `CODEASK_DATA_KEY` 时，服务可以从 `<CODEASK_DATA_DIR>/secrets/data.key` 读取 key。
+- [x] 当环境变量 key 和缓存 key 不一致时，服务拒绝启动，避免破坏已有加密数据。
+- [x] `start.sh` 不再在存在缓存 key 的情况下要求用户重复导出 `CODEASK_DATA_KEY`。
+- [x] 数据 key 缓存逻辑具备单元 / 集成测试，覆盖首次写入、二次读取、冲突拒绝和缺失失败。
 
 ## 13. 非目标与后续项
 
@@ -515,3 +521,4 @@ git diff --check
 - 完整向量库重构、复杂 reranker、历史特性向量迁移放到后续版本。
 - Claude Code 级别的 prompt cache editing 不纳入 v1.0.2。
 - 用户手动 compact UI 不纳入 v1.0.2。
+- 自动升级工具、显式 `doctor / backup / migrate / version` 命令和前后端 build revision 校验不纳入 v1.0.2，后续版本单独规划。

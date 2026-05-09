@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 
 from codeask.settings import Settings
 from codeask.storage import ensure_layout
@@ -10,7 +11,7 @@ from codeask.storage import ensure_layout
 
 @pytest.fixture()
 def settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Settings:
-    monkeypatch.setenv("CODEASK_DATA_KEY", "TGltSXRlc3Rrcm5hYmFzZTY0LXVybHNhZmUtMzJieXRlcw==")
+    monkeypatch.setenv("CODEASK_DATA_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
     return Settings()
 
@@ -29,7 +30,7 @@ def test_idempotent(settings: Settings) -> None:
 
 def test_creates_data_dir_itself(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     nested = tmp_path / "deep" / "codeask"
-    monkeypatch.setenv("CODEASK_DATA_KEY", "TGltSXRlc3Rrcm5hYmFzZTY0LXVybHNhZmUtMzJieXRlcw==")
+    monkeypatch.setenv("CODEASK_DATA_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("CODEASK_DATA_DIR", str(nested))
     settings = Settings()
 

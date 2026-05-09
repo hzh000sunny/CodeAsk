@@ -3,11 +3,12 @@
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
-from alembic import command
-from alembic.config import Config
 
+from alembic import command
 from codeask.migrations import run_migrations
 
 
@@ -69,6 +70,13 @@ def _alembic_config(sync_url: str) -> Config:
     return cfg
 
 
+def _alembic_head(sync_url: str) -> str:
+    cfg = _alembic_config(sync_url)
+    head = ScriptDirectory.from_config(cfg).get_current_head()
+    assert head is not None
+    return head
+
+
 @pytest.mark.asyncio
 async def test_feature_archive_migration_recovers_from_stale_sqlite_batch_table(
     tmp_path: Path,
@@ -124,5 +132,5 @@ async def test_feature_archive_migration_recovers_from_stale_sqlite_batch_table(
     await engine.dispose()
 
     assert "_alembic_tmp_features" not in tables
-    assert version == "0021"
+    assert version == _alembic_head(sync_url)
     assert feature_row == ("active", None, None)

@@ -9,6 +9,13 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
+CODEASK_EFFECTIVE_DATA_DIR="${CODEASK_DATA_DIR:-$HOME/.codeask}"
+CODEASK_CACHED_DATA_KEY="$CODEASK_EFFECTIVE_DATA_DIR/secrets/data.key"
+
+if [[ -z "${CODEASK_DATA_KEY:-}" && -f "$CODEASK_CACHED_DATA_KEY" ]]; then
+    export CODEASK_DATA_KEY="$(<"$CODEASK_CACHED_DATA_KEY")"
+fi
+
 if [[ -z "${CODEASK_DATA_KEY:-}" ]]; then
     cat >&2 <<EOF
 ERROR: CODEASK_DATA_KEY is not set.
@@ -17,7 +24,11 @@ Generate one (and save it — losing it makes encrypted DB fields unreadable):
 
     export CODEASK_DATA_KEY="\$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 
-Then re-run ./start.sh.
+On first successful startup, CodeAsk caches the key at:
+
+    $CODEASK_CACHED_DATA_KEY
+
+Then later startups can read the cached key from CODEASK_DATA_DIR.
 EOF
     exit 1
 fi

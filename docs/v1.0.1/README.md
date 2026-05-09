@@ -23,8 +23,10 @@ v1.0.1 是一个聚焦版本，专门用于建设 CodeAsk 的独立 LLM Wiki 工
 | `prd/llm-wiki.md` | LLM Wiki 产品契约：定位、范围、权限、生命周期、Agent 接入和验收标准 |
 | `design/llm-wiki-workbench.md` | 独立 Wiki 工作台 SDD：前后端模块边界、目标目录结构、数据模型、API 和测试策略 |
 | `plans/llm-wiki-workbench.md` | v1.0.1 LLM Wiki 分阶段实施计划，明确目录结构和落地顺序 |
+| `plans/wiki-tree-ordering.md` | Wiki 目录树排序和拖拽移动的实施计划 |
 | `plans/closure-checklist.md` | v1.0.1 版本关闭清单：明确哪些必须在本版本收口，哪些正式后移 |
 | `specs/llm-wiki-brainstorm.md` | 头脑风暴记录和决策快照；正式实现以 PRD / SDD / Plan 为准 |
+| `specs/wiki-tree-ordering-design.md` | Wiki 目录树排序能力的设计草稿 |
 
 ## 当前实现进度
 
@@ -173,8 +175,10 @@ v1.0.1 的目标不是在特性页里继续堆功能，而是把 Wiki 升级为�
 1. `prd/llm-wiki.md`
 2. `design/llm-wiki-workbench.md`
 3. `plans/llm-wiki-workbench.md`
-4. `specs/llm-wiki-brainstorm.md`
-5. `../v1.0/design/wiki-search.md`
-6. `../v1.0/design/evidence-report.md`
-7. `../v1.0/design/frontend-workbench.md`
-8. `../v1.0/prd/codeask.md`
+4. `plans/wiki-tree-ordering.md`
+5. `specs/llm-wiki-brainstorm.md`
+6. `specs/wiki-tree-ordering-design.md`
+7. `../v1.0/design/wiki-search.md`
+8. `../v1.0/design/evidence-report.md`
+9. `../v1.0/design/frontend-workbench.md`
+10. `../v1.0/prd/codeask.md`

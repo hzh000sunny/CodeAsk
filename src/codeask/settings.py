@@ -6,6 +6,8 @@ from typing import Self
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from codeask.data_key import resolve_data_key
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -16,7 +18,7 @@ class Settings(BaseSettings):
     )
 
     data_key: str = Field(
-        ...,
+        default="",
         description="Fernet master key (base64-urlsafe, 32 bytes). Encrypts sensitive DB fields.",
     )
     data_dir: Path = Field(
@@ -52,7 +54,8 @@ class Settings(BaseSettings):
     )
 
     @model_validator(mode="after")
-    def _derive_database_url(self) -> Self:
+    def _derive_runtime_values(self) -> Self:
+        self.data_key = resolve_data_key(self.data_key, self.data_dir)
         if self.database_url is None:
             self.database_url = f"sqlite+aiosqlite:///{self.data_dir / 'data.db'}"
         return self

@@ -48,7 +48,7 @@ def _write_passthrough_command(bin_dir: Path, name: str, target: str) -> None:
     command.chmod(command.stat().st_mode | stat.S_IXUSR)
 
 
-def test_start_script_fails_fast_without_data_key(tmp_path: Path) -> None:
+def test_start_script_fails_fast_without_data_key_or_cache(tmp_path: Path) -> None:
     script = _copy_start_script(tmp_path)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -70,6 +70,40 @@ def test_start_script_fails_fast_without_data_key(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "CODEASK_DATA_KEY is not set" in result.stderr
+
+
+def test_start_script_uses_cached_data_key_when_env_is_missing(tmp_path: Path) -> None:
+    script = _copy_start_script(tmp_path)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "commands.log"
+    _write_passthrough_command(bin_dir, "dirname", "/usr/bin/dirname")
+    _write_passthrough_command(bin_dir, "cat", "/bin/cat")
+    _write_env_logging_command(bin_dir, "uv", log)
+    dist = tmp_path / "frontend" / "dist"
+    dist.mkdir(parents=True)
+    (dist / "index.html").write_text("<html></html>", encoding="utf-8")
+    secrets_dir = tmp_path / ".codeask" / "secrets"
+    secrets_dir.mkdir(parents=True)
+    key = Fernet.generate_key().decode()
+    (secrets_dir / "data.key").write_text(key, encoding="utf-8")
+
+    env = {
+        "PATH": str(bin_dir),
+        "HOME": str(tmp_path),
+    }
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    commands = log.read_text(encoding="utf-8")
+    assert "uv run codeask LITELLM_LOCAL_MODEL_COST_MAP=True" in commands
 
 
 def test_start_script_builds_frontend_dist_when_tools_are_available(tmp_path: Path) -> None:
