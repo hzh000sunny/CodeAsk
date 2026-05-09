@@ -22,6 +22,7 @@
 
 - [RAG 与知识处理增强路线](./rag-knowledge-pipeline.md)
 - [特性边界探测与上下文隔离](./scoped-context-boundary-probe.md)
+- [外部 Agent Backend：Claude Code 与 opencode](./external-agent-backends.md)
 
 ## 使用规则
 
