@@ -27,6 +27,7 @@ from codeask.agent.wiki_tools import AgentWikiToolService
 from codeask.auth.bootstrap import ensure_admin_user
 from codeask.api.auth import router as auth_router
 from codeask.api.code_index import router as code_index_router
+from codeask.api.feature_admins import router as feature_admins_router
 from codeask.api.healthz import router as healthz_router
 from codeask.api.llm_configs import router as llm_configs_router
 from codeask.api.metrics import router as metrics_router
@@ -184,6 +185,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(healthz_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(users_router, prefix="/api")
+    app.include_router(feature_admins_router, prefix="/api")
     app.include_router(metrics_router, prefix="/api")
     app.include_router(wiki_router, prefix="/api")
     app.include_router(code_index_router, prefix="/api")

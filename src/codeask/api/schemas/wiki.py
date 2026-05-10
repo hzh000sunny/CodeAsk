@@ -35,6 +35,18 @@ class FeatureRead(BaseModel):
     updated_at: datetime
 
 
+class FeatureAdminRead(BaseModel):
+    feature_id: int
+    user_id: str
+    username: str
+    created_by_user_id: str
+    created_at: datetime
+
+
+class FeatureAdminCreate(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=64)
+
+
 class DocumentUpload(BaseModel):
     feature_id: int
     title: str | None = None

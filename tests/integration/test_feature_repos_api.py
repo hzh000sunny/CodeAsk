@@ -6,24 +6,21 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_link_list_and_unlink_feature_repo(client: AsyncClient) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
     feature = await client.post(
         "/api/features",
         json={"name": "Payments", "slug": "payments"},
-        headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert feature.status_code == 201
     feature_id = feature.json()["id"]
 
-    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
-    assert login.status_code == 200
     repo = await client.post(
         "/api/repos",
         json={"name": "codeask", "source": "local_dir", "local_path": "/tmp/codeask"},
     )
     assert repo.status_code == 201
     repo_id = repo.json()["id"]
-    logout = await client.post("/api/auth/logout")
-    assert logout.status_code == 204
 
     linked = await client.post(f"/api/features/{feature_id}/repos/{repo_id}")
     assert linked.status_code == 200

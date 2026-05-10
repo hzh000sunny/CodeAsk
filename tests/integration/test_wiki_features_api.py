@@ -12,15 +12,16 @@ async def test_create_list_get_update_archive_feature(
     client: AsyncClient,
     app,
 ) -> None:  # type: ignore[no-untyped-def]
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
     response = await client.post(
         "/api/features",
         json={"name": "Order", "slug": "order", "description": "core"},
-        headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert response.status_code == 201, response.text
     body = response.json()
     feature_id = body["id"]
-    assert body["owner_subject_id"] == "alice@dev-1"
+    assert body["owner_subject_id"] == "admin"
     assert body["slug"] == "order"
 
     response = await client.get("/api/features")
@@ -36,7 +37,6 @@ async def test_create_list_get_update_archive_feature(
 
     response = await client.delete(
         f"/api/features/{feature_id}",
-        headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert response.status_code == 204
 
@@ -52,7 +52,7 @@ async def test_create_list_get_update_archive_feature(
         assert feature is not None
         assert feature.status == "archived"
         assert feature.archived_at is not None
-        assert feature.archived_by_subject_id == "alice@dev-1"
+        assert feature.archived_by_subject_id == "admin"
         history_space = (
             await session.execute(
                 select(WikiSpace).where(
@@ -64,40 +64,42 @@ async def test_create_list_get_update_archive_feature(
     assert history_space is not None
     assert history_space.status == "archived"
     assert history_space.archived_at is not None
-    assert history_space.archived_by_subject_id == "alice@dev-1"
+    assert history_space.archived_by_subject_id == "admin"
 
 
 @pytest.mark.asyncio
 async def test_duplicate_slug_returns_409(client: AsyncClient) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
     await client.post(
         "/api/features",
         json={"name": "A", "slug": "dup-slug"},
-        headers={"X-Subject-Id": "x@y"},
     )
     response = await client.post(
         "/api/features",
         json={"name": "B", "slug": "dup-slug"},
-        headers={"X-Subject-Id": "x@y"},
     )
     assert response.status_code == 409
 
 
 @pytest.mark.asyncio
 async def test_invalid_slug_format_rejected(client: AsyncClient) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
     response = await client.post(
         "/api/features",
         json={"name": "Bad", "slug": "Invalid Slug"},
-        headers={"X-Subject-Id": "x@y"},
     )
     assert response.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_create_feature_bootstraps_wiki_space(client: AsyncClient, app) -> None:  # type: ignore[no-untyped-def]
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
     response = await client.post(
         "/api/features",
         json={"name": "Payments", "slug": "payments", "description": "core"},
-        headers={"X-Subject-Id": "alice@dev-2"},
     )
     assert response.status_code == 201, response.text
     feature_id = response.json()["id"]

@@ -11,7 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from codeask.api.schemas.code_index import RepoListOut, RepoOut
 from codeask.api.schemas.wiki import FeatureCreate, FeatureRead, FeatureUpdate
 from codeask.api.wiki.deps import SessionDep, load_repo
-from codeask.db.models import Feature, FeatureRepo, Repo, WikiSpace
+from codeask.db.models import Feature, FeatureAdmin, FeatureRepo, Repo, WikiSpace
+from codeask.features.permissions import can_manage_feature
 from codeask.wiki.api_support import repo_to_out, unique_feature_slug
 from codeask.wiki.spaces import WikiSpaceBootstrapService
 
@@ -21,10 +22,14 @@ router = APIRouter(prefix="/features")
 @router.get("", response_model=list[FeatureRead])
 async def list_features(session: SessionDep) -> list[FeatureRead]:
     rows = (
-        await session.execute(
-            select(Feature).where(Feature.status == "active").order_by(Feature.id)
+        (
+            await session.execute(
+                select(Feature).where(Feature.status == "active").order_by(Feature.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [FeatureRead.model_validate(row) for row in rows]
 
 
@@ -34,6 +39,7 @@ async def create_feature(
     request: Request,
     session: SessionDep,
 ) -> FeatureRead:
+    _require_admin(request)
     slug = payload.slug or await unique_feature_slug(payload.name, session)
     feature = Feature(
         name=payload.name,
@@ -81,8 +87,14 @@ async def list_feature_repos(feature_id: int, session: SessionDep) -> RepoListOu
 
 
 @router.post("/{feature_id}/repos/{repo_id}", response_model=RepoOut)
-async def link_feature_repo(feature_id: int, repo_id: str, session: SessionDep) -> RepoOut:
+async def link_feature_repo(
+    feature_id: int,
+    repo_id: str,
+    request: Request,
+    session: SessionDep,
+) -> RepoOut:
     await _load_active_feature(feature_id, session)
+    await _require_feature_manager(request, session, feature_id)
     repo = await load_repo(repo_id, session)
     existing = await session.get(FeatureRepo, {"feature_id": feature_id, "repo_id": repo_id})
     if existing is None:
@@ -92,8 +104,14 @@ async def link_feature_repo(feature_id: int, repo_id: str, session: SessionDep) 
 
 
 @router.delete("/{feature_id}/repos/{repo_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def unlink_feature_repo(feature_id: int, repo_id: str, session: SessionDep) -> None:
+async def unlink_feature_repo(
+    feature_id: int,
+    repo_id: str,
+    request: Request,
+    session: SessionDep,
+) -> None:
     await _load_active_feature(feature_id, session)
+    await _require_feature_manager(request, session, feature_id)
     link = await session.get(FeatureRepo, {"feature_id": feature_id, "repo_id": repo_id})
     if link is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="feature repo not found")
@@ -105,9 +123,11 @@ async def unlink_feature_repo(feature_id: int, repo_id: str, session: SessionDep
 async def update_feature(
     feature_id: int,
     payload: FeatureUpdate,
+    request: Request,
     session: SessionDep,
 ) -> FeatureRead:
     feature = await _load_active_feature(feature_id, session)
+    await _require_feature_manager(request, session, feature_id)
     if payload.name is not None:
         feature.name = payload.name
     if payload.description is not None:
@@ -119,6 +139,7 @@ async def update_feature(
 
 @router.delete("/{feature_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_feature(feature_id: int, request: Request, session: SessionDep) -> None:
+    _require_admin(request)
     feature = await _load_active_feature(feature_id, session)
     feature.status = "archived"
     feature.archived_at = datetime.now(UTC)
@@ -165,3 +186,22 @@ async def _load_active_feature(feature_id: int, session: SessionDep) -> Feature:
     if feature is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="feature not found")
     return feature
+
+
+def _require_admin(request: Request) -> None:
+    if getattr(request.state, "role", "member") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin role required")
+
+
+async def _require_feature_manager(request: Request, session: SessionDep, feature_id: int) -> None:
+    rows = (
+        (
+            await session.execute(
+                select(FeatureAdmin.user_id).where(FeatureAdmin.feature_id == feature_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not can_manage_feature(request.state.actor, feature_admin_user_ids=set(rows)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="feature admin required")
