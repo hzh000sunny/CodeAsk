@@ -53,7 +53,7 @@
 
 ## 2026-05-03 当前实现补充
 
-- `metrics-eval` 已落地 `/api/feedback`、`/api/events`、`/api/audit-log`；会话反馈和强制代码调查事件已接入 raw metrics。
+- `metrics-eval` 已落地 `/api/feedback`、`/api/events`、`/api/audit-log`；会话反馈已接入 raw metrics。历史强制代码调查事件保留为旧数据兼容，但 v1.0.2 默认会话界面不再触发。
 - `deployment` 已落地 backend 静态挂载 `frontend/dist/` 和本地单进程 `start.sh`。
 - `admin-repo-analysis-policy` 已落地仓库编辑 / 同步语义、全局 / 特性分析策略、运行时 Prompt 注入和 UI 管理。
 - 本文件后续 Task 区域中的 Dashboard、旧 feedback 持久化片段、`我的 / 全部` tabs、`stage/token` SSE 名称、`openai_compatible` UI 选项和 shadcn/TanStack Router 生成步骤属于历史计划片段；当前验收和后续开发以本节、`../specs/frontend-workbench-handoff.md`、`../design/frontend-workbench.md` 和实际代码为准。
@@ -5501,7 +5501,7 @@ git tag -a frontend-workbench-v0.1.0 -m "Frontend workbench milestone"
 - [ ] 顶栏 UserMenu 区分未登录普通用户和管理员；未登录只显示登录入口，管理员登录后显示全局配置能力
 - [ ] 一级入口只有 `会话 / 特性 / 设置`；一级与二级侧边栏均可收起 / 展开
 - [ ] 会话列表只显示当前 subject 会话，不提供"我的 / 全部"切换；条目右侧三点菜单包含编辑名称、分享占位、置顶、批量操作、删除
-- [ ] 会话页支持默认会话发送、SSE 阶段展示、强制代码调查、会话级附件上传 / 重命名 / 说明 / 删除、session id 短标签复制、报告生成确认和特性绑定
+- [ ] 会话页支持默认会话发送、SSE 行动轨迹展示、会话级附件上传 / 重命名 / 说明 / 删除、session id 短标签复制、报告生成确认和特性绑定；v1.0.2 起不再提供强制代码调查入口
 - [ ] 特性页支持搜索、新建、删除确认；详情 tab 包含设置、知识库、问题报告、关联仓库、特性分析策略
 - [ ] 特性页不创建问题报告；只展示会话生成 / 归档到该特性的报告
 - [ ] 设置页普通用户只看到用户配置和个人 LLM 配置；管理员只看到全局 LLM 配置和仓库管理

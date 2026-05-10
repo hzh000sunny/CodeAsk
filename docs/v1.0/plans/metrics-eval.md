@@ -368,6 +368,8 @@ from pydantic import BaseModel, Field, field_validator
 FeedbackVerdict = Literal["solved", "partial", "wrong"]
 
 # 与 metrics-collection.md §3 / §4 锁定的事件白名单。
+# force_deeper_investigation 是历史强制代码调查事件；v1.0.2 默认会话界面不再触发，
+# 但白名单保留以兼容旧数据和旧 orchestrator 验收。
 # 新增事件需先更新本列表 + 同步 SDD。
 ALLOWED_EVENT_TYPES: frozenset[str] = frozenset(
     {

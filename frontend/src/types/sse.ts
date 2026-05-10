@@ -1,4 +1,5 @@
 export type AgentEventName =
+  | "llm_input"
   | "stage_transition"
   | "text_delta"
   | "reasoning_observed"

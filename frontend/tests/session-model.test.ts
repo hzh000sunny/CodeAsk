@@ -147,6 +147,40 @@ describe("session runtime stage model", () => {
     expect(runtimeState?.usageRatio).toBeGreaterThan(0);
   });
 
+  it("maps llm input audits into debug trace insights", () => {
+    const insight = runtimeInsightFromEvent({
+      type: "llm_input",
+      data: {
+        round: 2,
+        messages_count: 8,
+        tools_count: 11,
+        context_size_chars: 15337,
+        recent_tool_results: [
+          {
+            tool: "list_code_repos",
+            ok: true,
+            summary: "可用代码仓库 1 个",
+            items_count: 1,
+            repos: [
+              {
+                repo_id: "repo_anything_llm",
+                repo_name: "Manual continuity anything-llm 1778137237804",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(insight).not.toBeNull();
+    expect(insight?.kind).toBe("diagnostic");
+    expect(insight?.title).toBe("模型输入审计");
+    expect(insight?.detail).toContain("第 2 轮");
+    expect(insight?.detail).toContain("8 条消息");
+    expect(insight?.detailMarkdown).toContain("Manual continuity anything-llm");
+    expect(insight?.detailMarkdown).toContain("repo_anything_llm");
+  });
+
   it("maps UI reasoning leak diagnostics without exposing raw text", () => {
     const insight = runtimeInsightFromEvent({
       type: "reasoning_leak_detected",

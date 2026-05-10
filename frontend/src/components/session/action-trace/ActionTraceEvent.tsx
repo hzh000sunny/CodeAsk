@@ -300,6 +300,8 @@ function detailRowsForEvent(event: ActionTraceEventModel) {
       stringValue(resultData.summary) ??
       stringValue(result.message),
   );
+  addRow(rows, "结果条数", numberDataLabel(data.items_count));
+  addRow(rows, "结果预览", itemsPreviewLabel(data.items_preview));
   addRow(rows, "错误类型", stringValue(data.error_type) ?? stringValue(result.error));
   addRow(rows, "错误信息", stringValue(data.message) ?? stringValue(result.message));
   if (versionInfo) {
@@ -325,6 +327,10 @@ function detailRowsForEvent(event: ActionTraceEventModel) {
     "结果规模",
     Array.isArray(resultData.hits) ? `${resultData.hits.length} 条命中` : null,
   );
+  addRow(rows, "消息数", numberDataLabel(data.messages_count));
+  addRow(rows, "可用工具数", numberDataLabel(data.tools_count));
+  addRow(rows, "上下文长度", contextSizeLabel(data.context_size_chars));
+  addRow(rows, "最近工具结果", recentToolResultsLabel(data.recent_tool_results));
   addRow(rows, "路径", stringValue(data.path) ?? stringValue(resultData.path));
   return rows;
 }
@@ -347,6 +353,42 @@ function recordValue(value: unknown): Record<string, unknown> | null {
 
 function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function numberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function numberDataLabel(value: unknown) {
+  const number = numberValue(value);
+  return number === null ? null : String(number);
+}
+
+function contextSizeLabel(value: unknown) {
+  const number = numberValue(value);
+  return number === null ? null : `${number} 字符`;
+}
+
+function itemsPreviewLabel(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+  return value.map((item) => readableUnknown(item)).join("\n");
+}
+
+function recentToolResultsLabel(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+  return value.map((item) => readableUnknown(item)).join("\n");
+}
+
+function readableUnknown(value: unknown) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function featureIdsLabel(value: unknown) {

@@ -172,6 +172,9 @@ function agentEventFromTrace(trace: AgentTraceResponse): AgentEvent | null {
   if (trace.event_type === "runtime_state") {
     return { type: "runtime_state", data: payload };
   }
+  if (trace.event_type === "llm_input") {
+    return { type: "llm_input", data: payload };
+  }
   if (trace.event_type === "tool_call") {
     return { type: "tool_call", data: payload };
   }

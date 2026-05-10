@@ -8,10 +8,8 @@ export function SessionComposer({
   createPending,
   draft,
   fileInputRef,
-  forceCodeInvestigation,
   isStreaming,
   onDraftChange,
-  onForceCodeInvestigationChange,
   onCancelMessage,
   onOpenReportDialog,
   onSendMessage,
@@ -23,10 +21,8 @@ export function SessionComposer({
   createPending: boolean;
   draft: string;
   fileInputRef: RefObject<HTMLInputElement | null>;
-  forceCodeInvestigation: boolean;
   isStreaming: boolean;
   onDraftChange: (value: string) => void;
-  onForceCodeInvestigationChange: (checked: boolean) => void;
   onCancelMessage: () => void;
   onOpenReportDialog: () => void;
   onSendMessage: () => void;
@@ -96,34 +92,26 @@ export function SessionComposer({
         {uploadStatus ? (
           <span className="upload-status">{uploadStatus}</span>
         ) : null}
-        <label className="checkbox-row">
-          <input
-            checked={forceCodeInvestigation}
-            onChange={(event) =>
-              onForceCodeInvestigationChange(event.target.checked)
-            }
-            type="checkbox"
-          />
-          <span>强制代码调查</span>
-        </label>
-        <Button
-          disabled={!selected || reportPending}
-          icon={<FileText size={16} />}
-          onClick={onOpenReportDialog}
-          type="button"
-          variant="secondary"
-        >
-          {reportPending ? "准备中" : "生成报告"}
-        </Button>
-        <Button
-          disabled={!isStreaming && !draft.trim()}
-          icon={isStreaming ? <Square size={15} /> : <SendHorizontal size={16} />}
-          onClick={isStreaming ? onCancelMessage : onSendMessage}
-          type="button"
-          variant={isStreaming ? "secondary" : "primary"}
-        >
-          {isStreaming ? "停止" : "发送"}
-        </Button>
+        <div className="composer-primary-actions">
+          <Button
+            disabled={!selected || reportPending}
+            icon={<FileText size={16} />}
+            onClick={onOpenReportDialog}
+            type="button"
+            variant="secondary"
+          >
+            {reportPending ? "准备中" : "生成报告"}
+          </Button>
+          <Button
+            disabled={!isStreaming && !draft.trim()}
+            icon={isStreaming ? <Square size={15} /> : <SendHorizontal size={16} />}
+            onClick={isStreaming ? onCancelMessage : onSendMessage}
+            type="button"
+            variant={isStreaming ? "secondary" : "primary"}
+          >
+            {isStreaming ? "停止" : "发送"}
+          </Button>
+        </div>
       </div>
     </div>
   );

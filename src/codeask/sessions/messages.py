@@ -165,8 +165,6 @@ async def stream_agent_response(
             )
             event_data = _event_data_dict(event.data)
             await persist_runtime_event_trace(request, session_id, turn_id, event.type, event_data)
-            if event.type == "llm_input":
-                continue
             if event.type == "text_delta":
                 delta = event_data.get("delta") or event_data.get("text")
                 if isinstance(delta, str):

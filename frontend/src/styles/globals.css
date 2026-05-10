@@ -1697,6 +1697,13 @@ textarea:focus-visible {
   flex-wrap: wrap;
 }
 
+.composer-primary-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
 .checkbox-row {
   display: inline-flex;
   align-items: center;
@@ -4568,6 +4575,10 @@ textarea:focus-visible {
   .content-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .composer-primary-actions {
+    margin-left: 0;
   }
 
   .account-popover {

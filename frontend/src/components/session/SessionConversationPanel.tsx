@@ -17,7 +17,6 @@ interface SessionConversationPanelProps {
   feedbackByTurnId: Record<string, FeedbackVerdict>;
   feedbackPendingTurnId: string | null;
   fileInputRef: RefObject<HTMLInputElement | null>;
-  forceCodeInvestigation: boolean;
   isStreaming: boolean;
   messages: ConversationMessage[];
   onCancelMessage: () => void;
@@ -28,7 +27,6 @@ interface SessionConversationPanelProps {
     turnId: string;
     verdict: FeedbackVerdict;
   }) => void;
-  onForceCodeInvestigationChange: (checked: boolean) => void;
   onOpenReportDialog: () => void;
   onSendMessage: () => void;
   onUnsupportedAction: (message: string) => void;
@@ -46,14 +44,12 @@ export function SessionConversationPanel({
   feedbackByTurnId,
   feedbackPendingTurnId,
   fileInputRef,
-  forceCodeInvestigation,
   isStreaming,
   messages,
   onCancelMessage,
   onCopySessionId,
   onDraftChange,
   onFeedback,
-  onForceCodeInvestigationChange,
   onOpenReportDialog,
   onSendMessage,
   onUnsupportedAction,
@@ -95,10 +91,8 @@ export function SessionConversationPanel({
         createPending={createPending}
         draft={draft}
         fileInputRef={fileInputRef}
-        forceCodeInvestigation={forceCodeInvestigation}
         isStreaming={isStreaming}
         onDraftChange={onDraftChange}
-        onForceCodeInvestigationChange={onForceCodeInvestigationChange}
         onOpenReportDialog={onOpenReportDialog}
         onCancelMessage={onCancelMessage}
         onSendMessage={onSendMessage}

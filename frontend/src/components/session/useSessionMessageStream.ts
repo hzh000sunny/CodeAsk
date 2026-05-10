@@ -30,7 +30,6 @@ import { createReasoningLeakGuard } from "./reasoning-leak-guard";
 
 export function useSessionMessageStream({
   draft,
-  forceCodeInvestigation,
   isStreaming,
   messagesSessionIdRef,
   queryClient,
@@ -47,7 +46,6 @@ export function useSessionMessageStream({
   showActionNotice,
 }: {
   draft: string;
-  forceCodeInvestigation: boolean;
   isStreaming: boolean;
   messagesSessionIdRef: RefObject<string | null>;
   queryClient: QueryClient;
@@ -161,7 +159,6 @@ export function useSessionMessageStream({
         sessionId: target.id,
         content,
         client_turn_id: clientTurnId,
-        force_code_investigation: forceCodeInvestigation,
         signal: abortController.signal,
         onTurnId: (turnId) => {
           if (activeStreamRef.current?.liveTurnId === liveTurnId) {

@@ -93,7 +93,7 @@ API 与数据模型文档定义前后端、Agent 和持久化之间的稳定契�
 | `POST` | `/api/events` | 写前端打点；`event_type` 必须在白名单内，`payload` 为 JSON |
 | `GET` | `/api/audit-log?entity_type=&entity_id=&limit=` | 按实体查询审计日志，按 `at desc` 返回 |
 
-当前前端会话页已接入回答反馈：用户点击“已解决 / 部分解决 / 没解决”后写 `/api/feedback`，同时写 `feedback_submitted` 前端事件。用户打开“强制代码调查”时写 `force_deeper_investigation` 前端事件。Maintainer Dashboard 的聚合视图仍是后续前端增强，本阶段只保证 raw data 写入与读取边界。
+当前前端会话页已接入回答反馈：用户点击“已解决 / 部分解决 / 没解决”后写 `/api/feedback`，同时写 `feedback_submitted` 前端事件。历史版本曾在用户打开“强制代码调查”时写 `force_deeper_investigation` 前端事件；v1.0.2 起会话界面已取消该入口，当前默认会话不再提交此事件。Maintainer Dashboard 的聚合视图仍是后续前端增强，本阶段只保证 raw data 写入与读取边界。
 
 ## 3. 核心表
 

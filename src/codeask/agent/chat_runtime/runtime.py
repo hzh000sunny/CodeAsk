@@ -379,6 +379,8 @@ class ChatRuntime:
                         tool_name=tool_name,
                         ok=result.ok,
                         summary=result.summary,
+                        items_count=len(result.items),
+                        items_preview=_tool_result_items_preview(result.items),
                         evidence_refs=result.evidence_refs,
                         warnings=result.warnings,
                         truncated=result.truncated,
@@ -635,6 +637,39 @@ def _repo_summaries_from_items(items: list[Any]) -> list[dict[str, str | None]]:
         seen.add(key)
         repos.append({"repo_id": repo_id, "repo_name": repo_name})
     return repos[:10]
+
+
+def _tool_result_items_preview(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_tool_result_item_preview(item) for item in items[:5]]
+
+
+def _tool_result_item_preview(item: dict[str, Any]) -> dict[str, Any]:
+    preview: dict[str, Any] = {}
+    for source_key, target_key in (
+        ("repo_id", "repo_id"),
+        ("repo_name", "repo_name"),
+        ("name", "repo_name"),
+        ("status", "status"),
+        ("source", "source"),
+        ("path", "path"),
+        ("line", "line"),
+        ("start_line", "start_line"),
+        ("end_line", "end_line"),
+        ("kind", "kind"),
+        ("title", "title"),
+        ("summary", "summary"),
+    ):
+        value = item.get(source_key)
+        if value is None or target_key in preview:
+            continue
+        preview[target_key] = _truncate_preview_value(value)
+    return preview
+
+
+def _truncate_preview_value(value: Any) -> Any:
+    if isinstance(value, str) and len(value) > 180:
+        return value[:177] + "..."
+    return value
 
 
 def _runtime_state_from_event(

@@ -368,6 +368,17 @@ async function installApiMocks(page: Page) {
     if (path === "/api/sessions/sess_e2e/attachments" && method === "GET") {
       return json(route, []);
     }
+    if (path === "/api/sessions/sess_e2e/title/generate" && method === "POST") {
+      return json(route, {
+        id: "sess_e2e",
+        title: "线上启动失败",
+        created_by_subject_id: "client_e2e",
+        status: "active",
+        pinned: false,
+        created_at: "2026-04-30T10:00:00",
+        updated_at: "2026-04-30T10:00:01",
+      });
+    }
     if (path === "/api/sessions/sess_e2e" && method === "DELETE") {
       return route.fulfill({ status: 204 });
     }

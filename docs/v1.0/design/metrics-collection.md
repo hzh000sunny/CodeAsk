@@ -89,13 +89,13 @@ PRD §7.1.A3：判断过早进代码 = 慢、贵；过晚 = 用残缺答案误�
 
 | 指标 | 定义 | 数据来源 | 公式 | 阈值方向 | 状态 |
 |---|---|---|---|---|---|
-| 用户兜底使用率 | 用户在 Agent 判定"够"后仍点"再深查一下" | 前端事件：`force_deeper_investigation` | `clicks / sufficient_judgements` | 持续偏高 = Agent 判太松 | TODO |
+| 用户兜底使用率 | 用户在 Agent 判定"够"后仍点"再深查一下" | 历史前端事件：`force_deeper_investigation` | `clicks / sufficient_judgements` | 持续偏高 = Agent 判太松 | 历史指标 |
 | 答得过浅率 | 用户反馈"部分解决"且备注暗示"想要更深"的比例 | 反馈表 `feedback = partial` + 备注关键词 / 人工标注 | 估算 — alpha 阶段先人工每周抽样 | 上升 = A3 失效 | TODO |
 | 进代码层比例 | 进入 CodeInvestigation 阶段的会话比例 | `轨迹日志.stage_transitions` | `code_investigated_sessions / total_sessions` | 不锁；alpha 期人工观察是否合理（不该 100%，也不该 0%） | partial |
 
 **采集要点**：
 
-- "再深查一下" 按钮（`frontend-workbench.md` §4.3）的点击事件必须携带：会话 ID、当前 sufficiency 判断结果、判断理由
+- 历史 "再深查一下" 按钮（`frontend-workbench.md` §4.3）的点击事件曾要求携带：会话 ID、当前 sufficiency 判断结果、判断理由。v1.0.2 起默认会话界面已取消强制代码调查入口，后续类似指标应基于用户追问、反馈和模型实际工具调用评估。
 - 答得过浅率一期**人工抽样**——线上信号弱，规则化太早会引入噪声
 
 ## 4. 主指标 — Deflection Rate（PRD §5.1）
@@ -170,7 +170,7 @@ PRD §7.1.A3：判断过早进代码 = 慢、贵；过晚 = 用残缺答案误�
 - `POST /api/feedback` 写 `feedback` 表，verdict 固定为 `solved / partial / wrong`。
 - `POST /api/events` 写 `frontend_events` 表，事件类型白名单为：`doc_edit_session_started`、`doc_edit_session_completed`、`force_deeper_investigation`、`feature_switch`、`report_unverify_clicked`、`feedback_submitted`、`session_naturally_ended`、`ask_for_human_clicked`。
 - `GET /api/audit-log` 按实体只读查询 `audit_log`。
-- 会话界面当前已接入 `feedback_submitted` 与 `force_deeper_investigation` 两类前端事件；文档编辑耗时、自然结束和找人按钮事件仍等待对应 UI/流程落地。
+- 会话界面当前接入 `feedback_submitted` 前端事件；`force_deeper_investigation` 保留为历史事件白名单和旧数据兼容，v1.0.2 默认会话界面不再触发。文档编辑耗时、自然结束和找人按钮事件仍等待对应 UI/流程落地。
 
 ## 9. 阶段计划
 

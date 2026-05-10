@@ -10,7 +10,6 @@ import {
   listSessions,
   listSessionTraces,
   listSessionTurns,
-  postFrontendEvent,
   updateSession,
 } from "../../lib/api";
 import type {
@@ -70,7 +69,6 @@ export function SessionWorkspace({
   const previousSubjectQueryKeyRef = useRef<string | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
-  const [forceCodeInvestigation, setForceCodeInvestigation] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [insights, setInsights] = useState<RuntimeInsight[]>([]);
@@ -339,7 +337,6 @@ export function SessionWorkspace({
   });
   const { cancelMessage, sendMessage } = useSessionMessageStream({
     draft,
-    forceCodeInvestigation,
     isStreaming,
     messagesSessionIdRef,
     queryClient,
@@ -440,25 +437,11 @@ export function SessionWorkspace({
         feedbackByTurnId={feedbackByTurnId}
         feedbackPendingTurnId={feedbackPendingTurnId}
         fileInputRef={fileInputRef}
-        forceCodeInvestigation={forceCodeInvestigation}
         isStreaming={isStreaming}
         messages={messages}
         onCopySessionId={() => void copySessionId()}
         onDraftChange={setDraft}
         onFeedback={submitFeedback}
-        onForceCodeInvestigationChange={(checked) => {
-          setForceCodeInvestigation(checked);
-          if (checked && selectedSessionId) {
-            void postFrontendEvent({
-              event_type: "force_deeper_investigation",
-              session_id: selectedSessionId,
-              payload: {
-                turn_count: messages.length,
-                streaming: isStreaming,
-              },
-            }).catch(() => undefined);
-          }
-        }}
         onOpenReportDialog={openReportDialog}
         onCancelMessage={cancelMessage}
         onSendMessage={() => void sendMessage()}

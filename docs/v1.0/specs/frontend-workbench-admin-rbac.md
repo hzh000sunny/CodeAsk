@@ -181,8 +181,9 @@ Default session:
 
 Report generation:
 
-- The composer action row exposes "生成报告" to the left of the send button and
-  to the right of "强制代码调查".
+- The composer action row exposes "生成报告" to the left of the send button in
+  the right-side primary action group. The old "强制代码调查" composer entry was
+  removed in v1.0.2; code tool usage is model-led.
 - The first backend contract is `POST /api/sessions/{session_id}/reports`.
 - Clicking "生成报告" first opens a confirmation flow, or a blocking message if
   the session has not completed at least one user question and agent answer.

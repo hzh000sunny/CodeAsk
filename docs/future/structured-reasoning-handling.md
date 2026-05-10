@@ -518,6 +518,7 @@ anthropic_budget_thinking:
 建议事件：
 
 ```text
+llm_input
 context_prepared
 analysis_note
 evidence_selected
@@ -527,6 +528,8 @@ reasoning_observed
 ```
 
 其中 `reasoning_observed` 只用于管理员 / debug，且只能记录字段名、长度、redacted 标记和 provider，不记录 raw reasoning。
+
+`llm_input` 用于模型请求前的公开审计，只展示消息数量、工具数量、上下文规模、最近工具结果摘要等结构化元数据。它不能展示 prompt 原文、raw `reasoning_delta`、Anthropic `thinking_delta` 或 OpenAI-compatible `reasoning_content`。行动轨迹中的这类调试摘要应由 Runtime 已有事件字段确定性生成，不能为了每张卡片额外调用 LLM。
 
 ### 5.8 持久化策略
 

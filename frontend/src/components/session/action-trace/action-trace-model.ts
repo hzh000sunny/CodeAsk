@@ -1,6 +1,7 @@
 import type { AgentEvent } from "../../../types/sse";
 
 export type ActionTraceKind =
+  | "analysis"
   | "retrieval"
   | "tool_call"
   | "tool_result"
@@ -41,6 +42,19 @@ export interface ActionTraceEvent {
 export function actionTraceFromAgentEvent(
   event: AgentEvent,
 ): ActionTraceEvent | null {
+  if (event.type === "llm_input") {
+    return {
+      id: `llm_input_${numberValue(event.data.round) ?? Date.now()}`,
+      kind: "diagnostic",
+      title: "模型输入审计",
+      detail: llmInputDetail(event.data),
+      detailMarkdown: llmInputMarkdown(event.data),
+      status: "info",
+      data: event.data,
+      evidenceRefs: [],
+    };
+  }
+
   if (event.type === "retrieval_context") {
     const featureCandidates = objectArrayData(event.data.feature_candidates);
     const wikiHits = objectArrayData(event.data.wiki_hits);
@@ -335,12 +349,14 @@ function toolResultDetail(data: Record<string, unknown>) {
   const warnings = Array.isArray(data.warnings)
     ? data.warnings.filter((item): item is string => typeof item === "string")
     : [];
+  const itemsCount = numberValue(data.items_count);
   const parts = [
     summary,
     scopeSourceLabel(stringValue(versionInfo.scope_source)),
     featureIds.length > 0 ? `特性 ${featureIds.join(", ")}` : null,
     repo,
     hits,
+    itemsCount !== null ? `结果 ${itemsCount} 条` : null,
     warnings.length > 0 ? `提醒 ${warnings.length} 条` : null,
     data.truncated === true ? "结果已截断" : null,
     stringValue(data.error_type) ? `错误：${stringValue(data.error_type)}` : null,
@@ -449,6 +465,8 @@ function toolDisplayName(name: string) {
   const labels: Record<string, string> = {
     ask_user: "补充信息",
     inspect_repo_tree: "仓库目录",
+    list_code_repos: "代码仓库",
+    list_code_paths: "代码路径",
     list_session_attachments: "会话数据",
     load_analysis_policy: "分析策略",
     propose_report: "报告建议",
@@ -481,6 +499,65 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function numberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function llmInputDetail(data: Record<string, unknown>) {
+  const round = numberValue(data.round);
+  const messages = numberValue(data.messages_count);
+  const tools = numberValue(data.tools_count);
+  const contextSize = numberValue(data.context_size_chars);
+  return [
+    round !== null ? `第 ${round} 轮` : null,
+    messages !== null ? `${messages} 条消息` : null,
+    tools !== null ? `${tools} 个工具` : null,
+    contextSize !== null ? `上下文 ${Math.max(1, Math.floor(contextSize / 1024))}k` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ") || "模型请求前的公开输入摘要";
+}
+
+function llmInputMarkdown(data: Record<string, unknown>) {
+  const sections: string[] = [];
+  const toolNames = Array.isArray(data.tool_names)
+    ? data.tool_names.filter((item): item is string => typeof item === "string")
+    : [];
+  if (toolNames.length > 0) {
+    sections.push(`**可用工具**\n${toolNames.map((name) => `- ${escapeMarkdown(toolDisplayName(name))} (${escapeMarkdown(name)})`).join("\n")}`);
+  }
+
+  const recentToolResults = objectArrayData(data.recent_tool_results);
+  if (recentToolResults.length > 0) {
+    sections.push(
+      `**最近工具结果**\n${recentToolResults.map(toolResultAuditLine).join("\n")}`,
+    );
+  }
+  return sections.join("\n\n");
+}
+
+function toolResultAuditLine(item: Record<string, unknown>) {
+  const tool = stringValue(item.tool) ?? "unknown";
+  const summary = stringValue(item.summary);
+  const itemsCount = numberValue(item.items_count);
+  const repos = objectArrayData(item.repos);
+  const head = [
+    `- ${escapeMarkdown(toolDisplayName(tool))}`,
+    summary ? `：${escapeMarkdown(summary)}` : "",
+    itemsCount !== null ? ` · ${itemsCount} 条结果` : "",
+  ].join("");
+  if (repos.length === 0) {
+    return head;
+  }
+  return `${head}\n${repos
+    .map((repo) => {
+      const repoName = stringValue(repo.repo_name) ?? "未命名仓库";
+      const repoId = stringValue(repo.repo_id);
+      return `  - ${escapeMarkdown(repoName)}${repoId ? ` (${escapeMarkdown(repoId)})` : ""}`;
+    })
+    .join("\n")}`;
 }
 
 function intValue(value: unknown) {

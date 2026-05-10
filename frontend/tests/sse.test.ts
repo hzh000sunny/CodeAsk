@@ -37,7 +37,6 @@ describe("session SSE client", () => {
     await streamSessionMessage({
       sessionId: "sess_1",
       content: "为什么启动失败",
-      force_code_investigation: true,
       onEvent: (event) => events.push(event),
     });
 
@@ -51,10 +50,12 @@ describe("session SSE client", () => {
     expect(new Headers(init.headers).get("X-Subject-Id")).toMatch(/^client_/);
     expect(JSON.parse(String(init.body))).toMatchObject({
       content: "为什么启动失败",
-      force_code_investigation: true,
       feature_ids: [],
       repo_bindings: [],
     });
+    expect(JSON.parse(String(init.body))).not.toHaveProperty(
+      "force_code_investigation",
+    );
     expect(events).toEqual([
       { type: "stage_transition", data: { stage: "knowledge_retrieval" } },
       { type: "text_delta", data: { text: "需要检查" } },

@@ -51,7 +51,7 @@ eval 数据点：
 
 - A2 ScopeDetection：聚合 `event_type='scope_decision'` 的 payload，并结合后续用户是否改特性。
 - A3 SufficiencyJudgement：聚合 `event_type='sufficiency_decision'` 的 payload，并结合用户是否触发“再深查一下”。
-- “再深查一下”已通过 `POST /api/sessions/{id}/messages` 的 `force_code_investigation=true` 支持；前端只需要把用户意图透传。
+- 历史“再深查一下”曾通过 `POST /api/sessions/{id}/messages` 的 `force_code_investigation=true` 支持；v1.0.2 起默认会话界面取消该入口，字段仅作为旧 orchestrator 链路兼容，当前 Chat Runtime 不依赖它强制进入代码调查。
 
 ## 3. ORM 表
 
@@ -94,7 +94,7 @@ eval 数据点：
 - `POST /api/events`：保存白名单前端事件，例如 `feedback_submitted`、`force_deeper_investigation`。
 - `GET /api/audit-log`：按实体查询审计日志。
 
-前端会话页已接入回答反馈和强制代码调查事件。Maintainer Dashboard 聚合查询仍是后续前端增强。
+前端会话页已接入回答反馈。历史强制代码调查事件已不再由 v1.0.2 默认会话界面触发；Maintainer Dashboard 聚合查询仍是后续前端增强。
 
 ## 6. 真实 LLM Smoke
 

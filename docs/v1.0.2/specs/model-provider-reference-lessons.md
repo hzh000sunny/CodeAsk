@@ -140,6 +140,7 @@ UI Leak Guard 允许存在，但必须满足以下约束：
 
 | 事件类型 | 用户可见 | 来源 | 内容要求 |
 |---|---:|---|---|
+| `llm_input` | 是 | Runtime 请求前审计 | 消息数、工具数、上下文规模、最近工具结果摘要；不展示 prompt 原文和 raw reasoning |
 | `context_prepared` | 是 | Runtime 组装结果 | 本轮给模型注入了哪些候选：特性、Wiki、报告、附件、仓库 |
 | `analysis_note` | 是 | 基于可见上下文 / 工具事件的公开摘要 | 简短说明当前分析方向，不包含 raw reasoning |
 | `evidence_selected` | 是 | 工具结果 / RAG 召回 | 被采用的证据路径、标题、片段摘要 |
@@ -149,6 +150,7 @@ UI Leak Guard 允许存在，但必须满足以下约束：
 
 `analysis_note` 的生成原则：
 
+- `llm_input`、`tool_result`、`runtime_state` 等调试展示优先由结构化字段确定性格式化，不能为每个行动轨迹事件新增模型摘要请求。
 - 可以由模型在普通可见回答中明确写出，也可以由 Runtime 根据已发生工具事件生成短摘要。
 - 内容必须来自用户问题、RAG 候选、工具调用、工具结果、证据引用或模型可见的公开回答。
 - 不得使用 `reasoning_delta` 原文。

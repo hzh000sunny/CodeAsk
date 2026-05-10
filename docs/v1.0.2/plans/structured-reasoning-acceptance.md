@@ -135,12 +135,17 @@ corepack pnpm --dir frontend exec tsc --noEmit
 
 ### 3.6 Agent 行动轨迹
 
+- [x] 行动轨迹可以展示 `llm_input`，说明本轮请求前的消息数量、可用工具数量、上下文规模和最近工具结果摘要。
+- [x] `llm_input` 不展示 prompt 原文、用户完整隐私数据或 raw reasoning，只展示有界结构化摘要。
+- [x] 行动轨迹调试摘要必须由 Runtime 事件字段确定性生成，不能为每个事件额外调用 LLM 做摘要。
 - [x] 行动轨迹可以展示 `context_prepared`，说明注入了多少特性、Wiki、报告、附件、仓库候选。
 - [x] 行动轨迹可以展示 `analysis_note`，但必须来自公开上下文、工具事件、证据链或正式回答。
 - [x] `analysis_note.raw_reasoning_used` 必须为 `false`。
 - [x] 行动轨迹可以展示 `evidence_selected`、`uncertainty`、`next_step_hint`。
 - [x] 行动轨迹不能展示 raw `reasoning_content`。
 - [x] 行动轨迹展开详情不能泄漏 raw reasoning。
+- [x] 工具结果展开详情可以展示结果条数和有限结果预览，便于审计模型是否拿到了正确仓库、路径和证据。
+- [x] 行动轨迹不能因为关键词命中生成“代码证据要求 / 回答约束”等强制代码调查事件；代码工具是否调用仍由模型基于上下文和工具说明决策。
 - [x] 行动轨迹按 turn 分组；切换会话、刷新、停止、删除时状态一致。
 
 ### 3.7 错误与失败判定

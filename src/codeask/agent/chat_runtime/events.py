@@ -65,6 +65,8 @@ class ToolResultEventData(BaseModel):
     tool_name: str
     ok: bool
     summary: str
+    items_count: int = 0
+    items_preview: list[dict[str, Any]] = Field(default_factory=list)
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     truncated: bool = False

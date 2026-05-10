@@ -509,7 +509,7 @@ Agent 运行事件验收：
 - [ ] `analysis_note` 事件不得使用 `reasoning_delta` 原文，payload 必须明确 `raw_reasoning_used=false`。
 - [ ] `context_prepared` 事件可以展示本轮注入了多少特性、Wiki、报告、附件和仓库候选。
 - [ ] `evidence_selected` 事件必须引用真实 Wiki / 报告 / 附件 / 代码工具结果或 RAG 候选，不得伪造证据。
-- [x] 用户明确要求查阅代码或源码时，系统 prompt 必须约束模型：没有成功代码工具结果时，不能声称已经查阅源码、仓库结构或完成代码级分析；上一轮代码工具失败后继续要求查代码，应重新调用代码工具或追问最小必要范围。
+- [x] 用户明确要求查阅代码或源码时，系统 prompt 只约束证据真实性：没有成功代码工具结果时，不能声称已经查阅源码、仓库结构或完成代码级分析；是否继续调用代码工具或追问最小必要范围由模型基于上下文决定。
 - [ ] `uncertainty` 和 `next_step_hint` 必须表达公开可读的不确定点和下一步动作，不得包含模型私有思考链。
 - [x] `reasoning_observed` 默认不对普通用户展示 raw 内容；当前第一版行动轨迹只展示字段名、长度、redacted 等诊断元数据。
 - [ ] 删除会话、停止生成、回滚本轮时，相关 `analysis_note` / `reasoning_observed` / 工具事件必须跟随本轮 trace 一起回滚或清理。

@@ -3,6 +3,7 @@ import { getSubjectId } from "./identity";
 import type { AgentEvent, AgentEventName } from "../types/sse";
 
 const AGENT_EVENT_NAMES = new Set<AgentEventName>([
+  "llm_input",
   "stage_transition",
   "text_delta",
   "reasoning_observed",
@@ -28,7 +29,6 @@ interface StreamSessionMessageInput {
   client_turn_id?: string;
   feature_ids?: number[];
   repo_bindings?: Array<{ repo_id: string; ref: string }>;
-  force_code_investigation?: boolean;
   reply_to?: string | null;
   onEvent: (event: AgentEvent) => void;
   onTurnId?: (turnId: string) => void;
@@ -41,7 +41,6 @@ export async function streamSessionMessage({
   client_turn_id,
   feature_ids = [],
   repo_bindings = [],
-  force_code_investigation = false,
   reply_to = null,
   onEvent,
   onTurnId,
@@ -58,7 +57,6 @@ export async function streamSessionMessage({
       client_turn_id,
       feature_ids,
       repo_bindings,
-      force_code_investigation,
       reply_to,
     }),
     signal,

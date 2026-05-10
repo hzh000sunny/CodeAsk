@@ -443,9 +443,17 @@ describe("SessionWorkspace streaming interaction", () => {
     const actionLabels = Array.from(
       composer.querySelectorAll("label,button"),
     ).map((node) => node.textContent?.trim());
-    expect(actionLabels.indexOf("强制代码调查")).toBeLessThan(
-      actionLabels.indexOf("生成报告"),
-    );
+    expect(actionLabels).not.toContain("强制代码调查");
+    const rightActions = composer.querySelector(".composer-primary-actions");
+    expect(rightActions).toBeInTheDocument();
+    expect(
+      within(rightActions as HTMLElement).getByRole("button", {
+        name: "生成报告",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(rightActions as HTMLElement).getByRole("button", { name: "发送" }),
+    ).toBeInTheDocument();
     expect(actionLabels.indexOf("生成报告")).toBeLessThan(
       actionLabels.indexOf("发送"),
     );
@@ -1637,8 +1645,10 @@ describe("SessionWorkspace streaming interaction", () => {
       ) as unknown as [string, RequestInit];
       expect(JSON.parse(String(init.body))).toMatchObject({
         content: "服务启动失败，日志显示配置缺失",
-        force_code_investigation: false,
       });
+      expect(JSON.parse(String(init.body))).not.toHaveProperty(
+        "force_code_investigation",
+      );
     });
   });
 
@@ -2135,7 +2145,6 @@ describe("SessionWorkspace streaming interaction", () => {
     await within(screen.getByRole("region", { name: "会话列表" })).findByText(
       "支付启动失败",
     );
-    fireEvent.click(screen.getByLabelText("强制代码调查"));
     fireEvent.change(screen.getByLabelText("会话输入"), {
       target: { value: "支付服务启动失败" },
     });
@@ -2172,7 +2181,7 @@ describe("SessionWorkspace streaming interaction", () => {
           JSON.parse(String((options as RequestInit).body)).event_type ===
             "force_deeper_investigation",
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("creates a default session when uploading a log before any session exists", async () => {

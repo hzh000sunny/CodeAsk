@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 EventName = Literal[
+    "llm_input",
     "stage_transition",
     "text_delta",
     "reasoning_observed",

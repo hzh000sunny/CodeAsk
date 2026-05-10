@@ -119,4 +119,58 @@ describe("InvestigationPanel runtime previews", () => {
     const rows = document.querySelectorAll(".session-runtime-row");
     expect(rows).toHaveLength(2);
   });
+
+  it("shows expanded debug details for repo result previews", () => {
+    const insights: RuntimeInsight[] = [
+      {
+        id: "repos_1",
+        kind: "tool_result",
+        title: "代码仓库完成",
+        detail: "可用代码仓库 1 个 · 特性范围",
+        status: "success",
+        data: {
+          tool_name: "list_code_repos",
+          ok: true,
+          summary: "可用代码仓库 1 个",
+          items_count: 1,
+          items_preview: [
+            {
+              repo_id: "repo_anything_llm",
+              repo_name: "Manual continuity anything-llm 1778137237804",
+              status: "ready",
+            },
+          ],
+          version_info: {
+            scope_source: "feature_scope",
+            feature_ids: [3],
+          },
+        },
+      },
+    ];
+
+    render(
+      <InvestigationPanel
+        attachments={[]}
+        insights={insights}
+        isLoadingAttachments={false}
+        isStreaming={false}
+        onDeleteAttachment={() => undefined}
+        onDescribeAttachment={() => undefined}
+        onPromoteAttachment={() => undefined}
+        onRenameAttachment={() => undefined}
+        runtimeState={runtimeState}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /代码仓库完成/ }));
+
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
+    expect(within(dialog).getByText("结果条数")).toBeInTheDocument();
+    expect(within(dialog).getByText("1")).toBeInTheDocument();
+    expect(within(dialog).getByText("结果预览")).toBeInTheDocument();
+    expect(within(dialog).getByText(/repo_anything_llm/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/Manual continuity anything-llm/),
+    ).toBeInTheDocument();
+  });
 });

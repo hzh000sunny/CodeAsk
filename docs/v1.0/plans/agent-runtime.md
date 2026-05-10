@@ -2698,7 +2698,7 @@ git commit -m "feat(agent): L0-L6 prompt assembly + MockLLMClient for tests"
 6. 决策：
    - verdict=enough → next=AnswerFinalization
    - verdict=partial 或 insufficient → next=CodeInvestigation
-7. **UI "再深查一下" 兜底**：orchestrator 暴露一个 flag `force_code_investigation`（来自 session_turns 的 user_message metadata），若为 True 则强制 next=CodeInvestigation 而忽略 verdict
+7. **历史 UI "再深查一下" 兜底**：orchestrator 曾暴露 `force_code_investigation`（来自 session_turns 的 user_message metadata），若为 True 则强制 next=CodeInvestigation 而忽略 verdict。v1.0.2 默认会话界面已取消该入口，当前 Chat Runtime 不依赖该字段强制代码调查。
 
 **D. CodeInvestigation** (`stages/code_investigation.py`)：
 
@@ -3155,7 +3155,7 @@ git tag -a agent-runtime-v0.1.0 -m "Agent runtime milestone: 9-stage state machi
 
 eval 数据点：
 - A2 验证：聚合 `event_type='scope_decision'` payload + `event_type='user_feedback'` 中"用户改特性？"
-- A3 验证：聚合 `event_type='sufficiency_decision'` payload + 用户是否点了"再深查一下"（前端把这条意图通过 `force_code_investigation=True` 传到 messages API，本计划已支持）
+- A3 验证：历史方案聚合 `event_type='sufficiency_decision'` payload + 用户是否点了"再深查一下"（前端把这条意图通过 `force_code_investigation=True` 传到 messages API）。v1.0.2 起默认会话界面不再提供该入口，新的验收以模型工具决策、用户追问和反馈为准。
 
 ## 3. ORM 表（共用）
 

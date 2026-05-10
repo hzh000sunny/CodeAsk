@@ -79,7 +79,7 @@ async def test_post_message_stream_uses_chat_runtime(
 
 
 @pytest.mark.asyncio
-async def test_post_message_stream_persists_llm_input_audit_without_streaming_it(
+async def test_post_message_stream_streams_and_persists_llm_input_audit(
     app: FastAPI,
     client: AsyncClient,
 ) -> None:
@@ -116,7 +116,7 @@ async def test_post_message_stream_persists_llm_input_audit_without_streaming_it
     )
 
     assert response.status_code == 200, response.text
-    assert "event: llm_input" not in response.text
+    assert "event: llm_input" in response.text
 
     traces = await client.get(f"/api/sessions/{session_id}/traces", headers=headers)
     assert traces.status_code == 200, traces.text
