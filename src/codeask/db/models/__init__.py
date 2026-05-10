@@ -19,6 +19,7 @@ from codeask.db.models.session import (
 )
 from codeask.db.models.skill import Skill
 from codeask.db.models.system_settings import SystemSetting
+from codeask.db.models.user import AuthSession, FeatureAdmin, User
 from codeask.db.models.wiki import (
     WikiAsset,
     WikiDocument,
@@ -69,4 +70,7 @@ __all__ = [
     "SessionTurn",
     "Skill",
     "SystemSetting",
+    "AuthSession",
+    "FeatureAdmin",
+    "User",
 ]
