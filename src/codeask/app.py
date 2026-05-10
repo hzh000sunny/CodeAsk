@@ -24,6 +24,7 @@ from codeask.agent.orchestrator import AgentOrchestrator
 from codeask.agent.tools import ToolRegistry
 from codeask.agent.trace import AgentTraceLogger
 from codeask.agent.wiki_tools import AgentWikiToolService
+from codeask.auth.bootstrap import ensure_admin_user
 from codeask.api.auth import router as auth_router
 from codeask.api.code_index import router as code_index_router
 from codeask.api.healthz import router as healthz_router
@@ -74,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         engine = create_engine(settings.database_url or "")
         factory = session_factory(engine)
+        await ensure_admin_user(factory, default_password=settings.admin_password or "admin")
         crypto = Crypto(settings.data_key)
         llm_config_repo = LLMConfigRepo(factory, crypto)
         llm_gateway = LLMGateway(

@@ -10,15 +10,22 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 from fastapi import HTTPException, Request, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from starlette.types import ASGIApp
+
+from codeask.auth.actor import Actor
+from codeask.auth.sessions import hash_session_token, session_expiry, should_renew
+from codeask.db.models import AuthSession, User
 
 _SUBJECT_PATTERN = re.compile(r"^[A-Za-z0-9._\-@]{1,128}$")
 _HEADER_NAME = "X-Subject-Id"
 ADMIN_SUBJECT_ID = "admin"
 MEMBER_ROLE = "member"
 ADMIN_ROLE = "admin"
+_AUTH_SESSION_TTL_DAYS = 7
 
 
 def create_admin_session_token(secret: str, ttl_hours: int) -> str:
@@ -66,30 +73,136 @@ class SubjectIdMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        raw = request.headers.get(_HEADER_NAME, "").strip()
-        subject_id = raw if _SUBJECT_PATTERN.fullmatch(raw) else f"anonymous@{secrets.token_hex(4)}"
-        display_name = subject_id
-        role = MEMBER_ROLE
-        authenticated = False
+        actor = await _resolve_actor(request)
+        request.state.actor = actor
+        request.state.subject_id = actor.subject_id
+        request.state.display_name = actor.display_name
+        request.state.role = actor.role
+        request.state.authenticated = actor.authenticated
+        request.state.user_id = actor.user_id
+        request.state.username = actor.username
 
-        settings = getattr(request.app.state, "settings", None)
-        cookie_name = getattr(settings, "auth_cookie_name", "codeask_admin_session")
-        data_key = getattr(settings, "data_key", "")
-        cookie = request.cookies.get(cookie_name)
-        if cookie and data_key and verify_admin_session_token(cookie, data_key):
-            subject_id = ADMIN_SUBJECT_ID
-            display_name = "Admin"
-            role = ADMIN_ROLE
-            authenticated = True
-
-        request.state.subject_id = subject_id
-        request.state.display_name = display_name
-        request.state.role = role
-        request.state.authenticated = authenticated
-
-        structlog.contextvars.bind_contextvars(subject_id=subject_id, role=role)
+        structlog.contextvars.bind_contextvars(subject_id=actor.subject_id, role=actor.role)
         try:
             response = await call_next(request)
         finally:
             structlog.contextvars.unbind_contextvars("subject_id", "role")
         return response
+
+
+async def _resolve_actor(request: Request) -> Actor:
+    anonymous_subject_id = _anonymous_subject_id(request.headers.get(_HEADER_NAME, "").strip())
+    actor = _anonymous_actor(anonymous_subject_id)
+
+    settings = getattr(request.app.state, "settings", None)
+    cookie_name = getattr(settings, "auth_cookie_name", "codeask_admin_session")
+    cookie = request.cookies.get(cookie_name)
+    if not cookie:
+        return actor
+
+    factory = getattr(request.app.state, "session_factory", None)
+    if factory is not None:
+        resolved = await _resolve_server_side_session_actor(factory, cookie, anonymous_subject_id)
+        if resolved is not None:
+            return resolved
+
+    data_key = getattr(settings, "data_key", "")
+    if data_key and verify_admin_session_token(cookie, data_key):
+        if factory is not None:
+            resolved = await _resolve_legacy_admin_actor(factory, anonymous_subject_id)
+            if resolved is not None:
+                return resolved
+        return Actor(
+            subject_id=ADMIN_SUBJECT_ID,
+            display_name="Admin",
+            role=ADMIN_ROLE,
+            authenticated=True,
+            username=ADMIN_SUBJECT_ID,
+            anonymous_subject_id=anonymous_subject_id,
+        )
+
+    return actor
+
+
+def _anonymous_subject_id(raw: str) -> str:
+    if _SUBJECT_PATTERN.fullmatch(raw):
+        return raw
+    return f"anonymous@{secrets.token_hex(4)}"
+
+
+def _anonymous_actor(subject_id: str) -> Actor:
+    return Actor(
+        subject_id=subject_id,
+        display_name=subject_id,
+        role=MEMBER_ROLE,
+        authenticated=False,
+        anonymous_subject_id=subject_id,
+    )
+
+
+async def _resolve_server_side_session_actor(
+    factory: async_sessionmaker[AsyncSession],
+    token: str,
+    anonymous_subject_id: str,
+) -> Actor | None:
+    now = datetime.now(UTC)
+    async with factory() as session:
+        row = (
+            await session.execute(
+                select(AuthSession, User)
+                .join(User, User.id == AuthSession.user_id)
+                .where(AuthSession.token_hash == hash_session_token(token))
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+
+        auth_session, user = row
+        expires_at = _as_utc(auth_session.expires_at)
+        if expires_at <= now or auth_session.auth_version != user.auth_version:
+            return None
+
+        if should_renew(
+            now=now,
+            expires_at=expires_at,
+            last_seen_at=_as_utc(auth_session.last_seen_at),
+            ttl_days=_AUTH_SESSION_TTL_DAYS,
+        ):
+            auth_session.expires_at = session_expiry(now=now, ttl_days=_AUTH_SESSION_TTL_DAYS)
+        auth_session.last_seen_at = now
+        await session.commit()
+
+        return Actor(
+            subject_id=user.id,
+            display_name=user.username,
+            role=user.role,
+            authenticated=True,
+            user_id=user.id,
+            username=user.username,
+            anonymous_subject_id=anonymous_subject_id,
+        )
+
+
+async def _resolve_legacy_admin_actor(
+    factory: async_sessionmaker[AsyncSession],
+    anonymous_subject_id: str,
+) -> Actor | None:
+    async with factory() as session:
+        user = (await session.execute(select(User).where(User.username == ADMIN_SUBJECT_ID))).scalar_one_or_none()
+    if user is None:
+        return None
+    return Actor(
+        subject_id=ADMIN_SUBJECT_ID,
+        display_name="Admin",
+        role=ADMIN_ROLE,
+        authenticated=True,
+        user_id=user.id,
+        username=user.username,
+        anonymous_subject_id=anonymous_subject_id,
+    )
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
