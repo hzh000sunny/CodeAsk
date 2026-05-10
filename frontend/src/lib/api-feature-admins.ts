@@ -11,7 +11,7 @@ export function searchFeatureAdminCandidates(
   limit = 10,
 ) {
   const params = new URLSearchParams({
-    q: query,
+    query,
     limit: String(limit),
   });
   return apiRequest<UserCandidateResponse[]>(

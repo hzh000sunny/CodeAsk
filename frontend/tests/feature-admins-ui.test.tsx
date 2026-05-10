@@ -88,7 +88,7 @@ describe("FeatureAdminsPanel", () => {
         if (path === "/api/features/7/admins" && !init?.method) {
           return jsonResponse(admins);
         }
-        if (path === "/api/features/7/admin-candidates?q=bob&limit=10") {
+        if (path === "/api/features/7/admin-candidates?query=bob&limit=10") {
           return jsonResponse([{ id: "user_bob", username: "bob" }]);
         }
         if (path === "/api/features/7/admins" && init?.method === "POST") {

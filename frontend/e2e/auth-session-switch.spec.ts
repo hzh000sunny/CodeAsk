@@ -56,7 +56,7 @@ async function installAuthSessionSwitchMocks(page: Page) {
             },
       );
     }
-    if (path === "/api/auth/admin/login" && method === "POST") {
+    if (path === "/api/auth/login" && method === "POST") {
       authenticated = true;
       return json(route, {
         subject_id: "admin",

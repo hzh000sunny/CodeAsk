@@ -1129,7 +1129,7 @@ git commit -m "feat(ui): add feature admin and user management controls"
 - Create: `frontend/e2e/auth-access-control.spec.ts`
 - Read: `frontend/playwright.config.ts`
 
-- [ ] **Step 1：新增 Playwright 场景**
+- [x] **Step 1：新增 Playwright 场景**
 
 创建 `frontend/e2e/auth-access-control.spec.ts`，覆盖：
 
@@ -1145,7 +1145,7 @@ git commit -m "feat(ui): add feature admin and user management controls"
 - 附件上传开关关闭时，点击上传显示“该功能已被禁用”。
 - API 直接请求未授权写接口返回 401 或 403。
 
-- [ ] **Step 2：运行 v1.0.3 E2E**
+- [x] **Step 2：运行 v1.0.3 E2E**
 
 Run:
 
@@ -1155,7 +1155,7 @@ corepack pnpm --dir frontend test:e2e -- auth-access-control.spec.ts --project=c
 
 Expected: PASS，必须是真实 Chromium 浏览器。
 
-- [ ] **Step 3：运行关键回归 E2E**
+- [x] **Step 3：运行关键回归 E2E**
 
 Run:
 
@@ -1165,7 +1165,7 @@ corepack pnpm --dir frontend test:e2e -- route-refresh.spec.ts wiki-tail.spec.ts
 
 Expected: PASS。
 
-- [ ] **Step 4：提交**
+- [x] **Step 4：提交**
 
 Run:
 
