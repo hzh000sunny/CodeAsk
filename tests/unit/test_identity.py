@@ -60,6 +60,49 @@ def _build_app(db_factory: async_sessionmaker | None = None) -> FastAPI:
     return app
 
 
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+async def _seed_user_session(
+    db_factory: async_sessionmaker,
+    *,
+    user_id: str = "user_alice",
+    username: str = "alice",
+    role: str = "member",
+    auth_version: int = 3,
+    session_auth_version: int | None = None,
+    expires_at: datetime,
+    last_seen_at: datetime,
+) -> str:
+    token = create_session_token()
+    async with db_factory() as session:
+        session.add(
+            User(
+                id=user_id,
+                username=username,
+                role=role,
+                password_hash="hashed",
+                auth_version=auth_version,
+            )
+        )
+        await session.flush()
+        session.add(
+            AuthSession(
+                id=f"authsess_{user_id}",
+                token_hash=hash_session_token(token),
+                user_id=user_id,
+                auth_version=session_auth_version if session_auth_version is not None else auth_version,
+                expires_at=expires_at,
+                last_seen_at=last_seen_at,
+            )
+        )
+        await session.commit()
+    return token
+
+
 @pytest.mark.asyncio
 async def test_uses_header_when_provided() -> None:
     app = _build_app()
@@ -116,29 +159,11 @@ async def test_rejects_obviously_malformed_header() -> None:
 async def test_resolves_authenticated_actor_from_server_side_session(
     db_factory: async_sessionmaker,
 ) -> None:
-    token = create_session_token()
-    async with db_factory() as session:
-        session.add(
-            User(
-                id="user_alice",
-                username="alice",
-                role="member",
-                password_hash="hashed",
-                auth_version=3,
-            )
-        )
-        await session.flush()
-        session.add(
-            AuthSession(
-                id="authsess_alice",
-                token_hash=hash_session_token(token),
-                user_id="user_alice",
-                auth_version=3,
-                expires_at=datetime.now(UTC) + timedelta(days=7),
-                last_seen_at=datetime.now(UTC) - timedelta(minutes=5),
-            )
-        )
-        await session.commit()
+    token = await _seed_user_session(
+        db_factory,
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+        last_seen_at=datetime.now(UTC) - timedelta(minutes=5),
+    )
 
     app = _build_app(db_factory)
     async with AsyncClient(
@@ -172,29 +197,99 @@ async def test_resolves_authenticated_actor_from_server_side_session(
 async def test_falls_back_to_anonymous_when_session_auth_version_is_stale(
     db_factory: async_sessionmaker,
 ) -> None:
-    token = create_session_token()
+    token = await _seed_user_session(
+        db_factory,
+        auth_version=4,
+        session_auth_version=3,
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+        last_seen_at=datetime.now(UTC),
+    )
+
+    app = _build_app(db_factory)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={"codeask_admin_session": token},
+    ) as client:
+        response = await client.get("/whoami", headers={"X-Subject-Id": "client_123"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["subject_id"] == "client_123"
+    assert body["authenticated"] is False
+    assert body["role"] == "member"
+    assert body["user_id"] is None
+    assert body["username"] is None
+    assert body["actor"]["anonymous_subject_id"] == "client_123"
+
+
+@pytest.mark.asyncio
+async def test_updates_last_seen_for_successful_db_backed_session(
+    db_factory: async_sessionmaker,
+) -> None:
+    original_expires_at = datetime.now(UTC) + timedelta(days=7)
+    original_last_seen_at = datetime.now(UTC) - timedelta(minutes=5)
+    token = await _seed_user_session(
+        db_factory,
+        expires_at=original_expires_at,
+        last_seen_at=original_last_seen_at,
+    )
+
+    app = _build_app(db_factory)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={"codeask_admin_session": token},
+    ) as client:
+        response = await client.get("/whoami", headers={"X-Subject-Id": "client_123"})
+
+    assert response.status_code == 200
     async with db_factory() as session:
-        session.add(
-            User(
-                id="user_alice",
-                username="alice",
-                role="member",
-                password_hash="hashed",
-                auth_version=4,
-            )
-        )
-        await session.flush()
-        session.add(
-            AuthSession(
-                id="authsess_alice",
-                token_hash=hash_session_token(token),
-                user_id="user_alice",
-                auth_version=3,
-                expires_at=datetime.now(UTC) + timedelta(days=7),
-                last_seen_at=datetime.now(UTC),
-            )
-        )
-        await session.commit()
+        auth_session = await session.get(AuthSession, "authsess_user_alice")
+
+    assert auth_session is not None
+    assert _as_utc(auth_session.last_seen_at) > original_last_seen_at
+    assert _as_utc(auth_session.expires_at) == original_expires_at
+
+
+@pytest.mark.asyncio
+async def test_renews_expiry_when_db_backed_session_is_past_half_life(
+    db_factory: async_sessionmaker,
+) -> None:
+    original_expires_at = datetime.now(UTC) + timedelta(days=2)
+    original_last_seen_at = datetime.now(UTC) - timedelta(days=4)
+    token = await _seed_user_session(
+        db_factory,
+        expires_at=original_expires_at,
+        last_seen_at=original_last_seen_at,
+    )
+
+    app = _build_app(db_factory)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={"codeask_admin_session": token},
+    ) as client:
+        response = await client.get("/whoami", headers={"X-Subject-Id": "client_123"})
+
+    assert response.status_code == 200
+    async with db_factory() as session:
+        auth_session = await session.get(AuthSession, "authsess_user_alice")
+
+    assert auth_session is not None
+    assert _as_utc(auth_session.last_seen_at) > original_last_seen_at
+    assert _as_utc(auth_session.expires_at) > original_expires_at
+
+
+@pytest.mark.asyncio
+async def test_falls_back_to_anonymous_when_db_backed_session_is_expired(
+    db_factory: async_sessionmaker,
+) -> None:
+    token = await _seed_user_session(
+        db_factory,
+        expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        last_seen_at=datetime.now(UTC) - timedelta(days=1),
+    )
 
     app = _build_app(db_factory)
     async with AsyncClient(
