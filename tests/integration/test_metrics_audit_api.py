@@ -42,6 +42,9 @@ async def test_audit_log_filters_and_orders(client: AsyncClient, app) -> None:
         )
         await session.commit()
 
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
+
     response = await client.get(
         "/api/audit-log",
         params={"entity_type": "report", "entity_id": "42"},
@@ -55,6 +58,9 @@ async def test_audit_log_filters_and_orders(client: AsyncClient, app) -> None:
 
 
 @pytest.mark.asyncio
-async def test_audit_log_requires_filters(client: AsyncClient) -> None:
+async def test_audit_log_supports_unfiltered_admin_reads(client: AsyncClient) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
+
     response = await client.get("/api/audit-log")
-    assert response.status_code == 422
+    assert response.status_code == 200

@@ -41,6 +41,7 @@ from codeask.api.schemas.session import (
     SessionUpdate,
 )
 from codeask.api.schemas.wiki import ReportRead
+from codeask.audit import write_audit
 from codeask.db.models import (
     AgentTrace,
     Feature,
@@ -569,6 +570,14 @@ async def generate_session_report(
             metadata=merge_session_report_metadata(existing_metadata, session_id, list(turns)),
             subject_id=request.state.subject_id,
         )
+        await write_audit(
+            session,
+            entity_type="report",
+            entity_id=str(report.id),
+            action="session_report.upsert",
+            subject_id=request.state.subject_id,
+            result="draft",
+        )
         sync_service = LegacyWikiSyncService()
         duplicate_reports = await report_service.list_session_report_duplicates(
             session,
@@ -624,6 +633,17 @@ async def upload_attachment(
 ) -> AttachmentResponse:
     await _load_session(request, session_id)
     if not await _session_attachments_enabled(request):
+        async with request.app.state.session_factory() as audit_session:
+            await write_audit(
+                audit_session,
+                entity_type="session",
+                entity_id=session_id,
+                action="session_attachment.upload_denied",
+                subject_id=request.state.subject_id,
+                result="denied",
+                reason="disabled",
+            )
+            await audit_session.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="该功能已被禁用",

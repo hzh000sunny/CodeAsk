@@ -15,9 +15,11 @@ async def test_report_verify_creates_audit_row(
     app,
     seeded_report_draft: int,
 ) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
+
     response = await client.post(
         f"/api/reports/{seeded_report_draft}/verify",
-        headers={"X-Subject-Id": "alice@dev"},
     )
 
     assert response.status_code == 200, response.text
@@ -40,7 +42,7 @@ async def test_report_verify_creates_audit_row(
     assert len(rows) == 1
     assert rows[0].from_status == "draft"
     assert rows[0].to_status == "verified"
-    assert rows[0].subject_id == "alice@dev"
+    assert rows[0].subject_id == "admin"
 
 
 @pytest.mark.asyncio
@@ -49,9 +51,11 @@ async def test_report_unverify_creates_audit_row(
     app,
     seeded_report_verified: int,
 ) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
+
     response = await client.post(
         f"/api/reports/{seeded_report_verified}/unverify",
-        headers={"X-Subject-Id": "bob@dev"},
     )
 
     assert response.status_code == 200, response.text
@@ -74,7 +78,7 @@ async def test_report_unverify_creates_audit_row(
     assert len(rows) == 1
     assert rows[0].from_status == "verified"
     assert rows[0].to_status == "draft"
-    assert rows[0].subject_id == "bob@dev"
+    assert rows[0].subject_id == "admin"
 
 
 def report_gate_metadata() -> dict[str, Any]:

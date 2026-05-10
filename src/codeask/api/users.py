@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from codeask.api.schemas.user import PasswordUpdate, UserCandidateResponse, UserResponse, UserUpdate
+from codeask.audit import write_audit
 from codeask.auth.bootstrap import ADMIN_USERNAME
 from codeask.auth.passwords import hash_password
 from codeask.db.models import AuthSession, User
@@ -32,11 +33,24 @@ async def update_current_user(payload: UserUpdate, request: Request) -> UserResp
         if current is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login required")
         duplicate = (
-            await session.execute(select(User).where(User.username == payload.username, User.id != current.id))
+            await session.execute(
+                select(User).where(User.username == payload.username, User.id != current.id)
+            )
         ).scalar_one_or_none()
         if duplicate is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="username already exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="username already exists"
+            )
+        old_username = current.username
         current.username = payload.username
+        await write_audit(
+            session,
+            entity_type="user",
+            entity_id=current.id,
+            action="user.rename",
+            subject_id=request.state.subject_id,
+            reason=old_username,
+        )
         try:
             await session.commit()
         except IntegrityError as exc:
@@ -50,7 +64,9 @@ async def update_current_user(payload: UserUpdate, request: Request) -> UserResp
 
 
 @router.patch("/users/me/password", status_code=status.HTTP_204_NO_CONTENT)
-async def update_current_user_password(payload: PasswordUpdate, request: Request, response: Response) -> Response:
+async def update_current_user_password(
+    payload: PasswordUpdate, request: Request, response: Response
+) -> Response:
     user = await _require_current_user(request)
     factory = request.app.state.session_factory
     async with factory() as session:
@@ -60,6 +76,13 @@ async def update_current_user_password(payload: PasswordUpdate, request: Request
         current.password_hash = hash_password(payload.password)
         current.auth_version += 1
         await session.execute(delete(AuthSession).where(AuthSession.user_id == current.id))
+        await write_audit(
+            session,
+            entity_type="user",
+            entity_id=current.id,
+            action="user.password_update",
+            subject_id=request.state.subject_id,
+        )
         await session.commit()
     response.delete_cookie(request.app.state.settings.auth_cookie_name)
     response.status_code = status.HTTP_204_NO_CONTENT
@@ -98,10 +121,19 @@ async def clear_user_password(user_id: str, request: Request) -> UserResponse:
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
         if user.username == ADMIN_USERNAME:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="admin password cannot be cleared")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="admin password cannot be cleared"
+            )
         user.password_hash = None
         user.auth_version += 1
         await session.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+        await write_audit(
+            session,
+            entity_type="user",
+            entity_id=user.id,
+            action="user.password_clear",
+            subject_id=request.state.subject_id,
+        )
         await session.commit()
         await session.refresh(user)
         return UserResponse.model_validate(user)

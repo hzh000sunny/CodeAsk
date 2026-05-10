@@ -15,9 +15,14 @@ def _stable_id(
     action: str,
     at: datetime,
     subject_id: str,
+    from_status: str | None,
+    to_status: str | None,
 ) -> str:
     digest = hashlib.sha1(
-        f"{entity_type}|{entity_id}|{action}|{at.isoformat(timespec='seconds')}|{subject_id}".encode()
+        (
+            f"{entity_type}|{entity_id}|{action}|{at.isoformat(timespec='seconds')}|"
+            f"{subject_id}|{from_status or ''}|{to_status or ''}"
+        ).encode()
     ).hexdigest()
     return f"al_{digest[:24]}"
 
@@ -42,7 +47,7 @@ async def record_audit_log(
     when = (at or datetime.now(UTC)).replace(microsecond=0)
     if when.tzinfo is None:
         when = when.replace(tzinfo=UTC)
-    row_id = _stable_id(entity_type, entity_id, action, when, subject_id)
+    row_id = _stable_id(entity_type, entity_id, action, when, subject_id, from_status, to_status)
     stmt = (
         sqlite_insert(AuditLog)
         .values(

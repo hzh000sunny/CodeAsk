@@ -546,7 +546,7 @@ uv run pytest tests/integration/test_auth_users_api.py tests/integration/test_se
 
 Expected: PASS。
 
-- [ ] **Step 7：提交**
+- [x] **Step 7：提交**
 
 Run:
 
@@ -705,7 +705,7 @@ git commit -m "feat(authz): add feature administrator permissions"
 - Create: `tests/integration/test_authz_wiki_api.py`
 - Create: `tests/integration/test_attachment_upload_gate.py`
 
-- [ ] **Step 1：写 Wiki 权限测试**
+- [x] **Step 1：写 Wiki 权限测试**
 
 创建 `tests/integration/test_authz_wiki_api.py`，覆盖：
 
@@ -716,7 +716,7 @@ git commit -m "feat(authz): add feature administrator permissions"
 - 特性管理员写未授权特性返回 403。
 - admin 可写所有特性 Wiki。
 
-- [ ] **Step 2：写附件开关测试**
+- [x] **Step 2：写附件开关测试**
 
 创建 `tests/integration/test_attachment_upload_gate.py`，覆盖：
 
@@ -725,7 +725,7 @@ git commit -m "feat(authz): add feature administrator permissions"
 - 开关关闭时登录用户上传返回 403。
 - 开关关闭不影响已有附件重命名和删除。
 
-- [ ] **Step 3：确认测试失败**
+- [x] **Step 3：确认测试失败**
 
 Run:
 
@@ -735,7 +735,7 @@ uv run pytest tests/integration/test_authz_wiki_api.py tests/integration/test_at
 
 Expected: FAIL。
 
-- [ ] **Step 4：更新 Wiki actor 和权限**
+- [x] **Step 4：更新 Wiki actor 和权限**
 
 修改 `src/codeask/wiki/actor.py`：
 
@@ -779,11 +779,11 @@ def can_maintain_feature(actor: WikiActor, feature: Feature) -> bool:
     return can_write_feature(actor, feature)
 ```
 
-- [ ] **Step 5：更新 Wiki API actor 构造**
+- [x] **Step 5：更新 Wiki API actor 构造**
 
 修改 `src/codeask/api/wiki/deps.py`，构造 `WikiActor` 时查询当前用户授权的 `feature_admins.feature_id`。读接口继续公开，写接口通过已有 service `_require_write` 拦截。
 
-- [ ] **Step 6：接入其它资源权限**
+- [x] **Step 6：接入其它资源权限**
 
 - `src/codeask/api/sessions.py`：附件上传读取 `session_attachments_enabled`，关闭时返回 403 和“该功能已被禁用”。
 - `src/codeask/api/sessions.py`：报告草稿生成只校验会话所有者；报告管理操作校验 admin 或特性管理员。
@@ -791,7 +791,7 @@ def can_maintain_feature(actor: WikiActor, feature: Feature) -> bool:
 - `src/codeask/api/code_index.py`：全局仓库 admin-only。
 - `src/codeask/api/skills.py`：全局 Skill admin-only，特性 Skill 走特性管理员权限。
 
-- [ ] **Step 7：运行 Task 5 测试**
+- [x] **Step 7：运行 Task 5 测试**
 
 Run:
 
@@ -801,7 +801,7 @@ uv run pytest tests/integration/test_authz_wiki_api.py tests/integration/test_at
 
 Expected: PASS。
 
-- [ ] **Step 8：提交**
+- [x] **Step 8：提交**
 
 Run:
 
@@ -821,7 +821,7 @@ git commit -m "feat(authz): enforce wiki report and attachment permissions"
 - Create: `tests/integration/test_audit_authz_api.py`
 - Modify: `tests/unit/test_metrics_audit_writer.py`
 
-- [ ] **Step 1：写审计测试**
+- [x] **Step 1：写审计测试**
 
 创建 `tests/integration/test_audit_authz_api.py`，覆盖：
 
@@ -833,13 +833,13 @@ git commit -m "feat(authz): enforce wiki report and attachment permissions"
 - 添加特性管理员写入审计。
 - 附件关闭导致的上传拒绝写入审计。
 
-- [ ] **Step 2：确认测试失败**
+- [x] **Step 2：确认测试失败**
 
 Run: `uv run pytest tests/integration/test_audit_authz_api.py -v`
 
 Expected: FAIL。
 
-- [ ] **Step 3：实现安全审计 writer**
+- [x] **Step 3：实现安全审计 writer**
 
 创建 `src/codeask/audit/__init__.py`：
 
@@ -887,7 +887,7 @@ async def write_audit(
 
 审计内容禁止写入密码、API Key、LLM 配置明文、原始聊天内容。
 
-- [ ] **Step 4：接入审计点**
+- [x] **Step 4：接入审计点**
 
 接入以下事件：
 
@@ -905,7 +905,9 @@ async def write_audit(
 - 特性配置写操作拒绝。
 - 附件上传因全局开关拒绝。
 
-- [ ] **Step 5：实现 admin 审计查询**
+实现备注：权限拒绝通过全局 403 审计兜底记录 `authz.denied`，避免在每个业务模块重复写拒绝逻辑；附件关闭额外记录 `session_attachment.upload_denied` 专项事件。访客 LLM 迁移的审计入口随 Task 7 前端访客 LLM 配置迁移能力一起接入。
+
+- [x] **Step 5：实现 admin 审计查询**
 
 在 `src/codeask/api/metrics.py` 或 `src/codeask/api/audit.py` 中提供：
 
@@ -914,7 +916,7 @@ async def write_audit(
 - 支持 `action`、`subject`、`entity_id`、`limit`、`offset`
 - 新记录在前
 
-- [ ] **Step 6：运行 Task 6 测试**
+- [x] **Step 6：运行 Task 6 测试**
 
 Run:
 

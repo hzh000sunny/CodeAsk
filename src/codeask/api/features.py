@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from codeask.api.schemas.code_index import RepoListOut, RepoOut
 from codeask.api.schemas.wiki import FeatureCreate, FeatureRead, FeatureUpdate
 from codeask.api.wiki.deps import SessionDep, load_repo
+from codeask.audit import write_audit
 from codeask.db.models import Feature, FeatureAdmin, FeatureRepo, Repo, WikiSpace
 from codeask.features.permissions import can_manage_feature
 from codeask.wiki.api_support import repo_to_out, unique_feature_slug
@@ -54,6 +55,13 @@ async def create_feature(
             session,
             feature_id=feature.id,
             feature_slug=feature.slug,
+        )
+        await write_audit(
+            session,
+            entity_type="feature",
+            entity_id=str(feature.id),
+            action="feature.create",
+            subject_id=request.state.subject_id,
         )
         await session.commit()
     except IntegrityError as exc:
@@ -132,6 +140,13 @@ async def update_feature(
         feature.name = payload.name
     if payload.description is not None:
         feature.description = payload.description
+    await write_audit(
+        session,
+        entity_type="feature",
+        entity_id=str(feature.id),
+        action="feature.update",
+        subject_id=request.state.subject_id,
+    )
     await session.commit()
     await session.refresh(feature)
     return FeatureRead.model_validate(feature)
@@ -171,6 +186,13 @@ async def delete_feature(feature_id: int, request: Request, session: SessionDep)
         current_space.status = "archived"
         current_space.archived_at = feature.archived_at
         current_space.archived_by_subject_id = request.state.subject_id
+    await write_audit(
+        session,
+        entity_type="feature",
+        entity_id=str(feature.id),
+        action="feature.archive",
+        subject_id=request.state.subject_id,
+    )
     await session.commit()
 
 

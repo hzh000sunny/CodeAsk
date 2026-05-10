@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.api.schemas.user import UserCandidateResponse
 from codeask.api.schemas.wiki import FeatureAdminCreate, FeatureAdminRead
+from codeask.audit import write_audit
 from codeask.auth.bootstrap import ADMIN_USERNAME
 from codeask.db.models import Feature, FeatureAdmin, User
 
@@ -112,6 +113,14 @@ async def add_feature_admin(
                         detail="feature admin already exists",
                     ) from exc
             await session.refresh(existing)
+            await write_audit(
+                session,
+                entity_type="feature_admin",
+                entity_id=f"{feature_id}:{payload.user_id}",
+                action="feature_admin.add",
+                subject_id=request.state.subject_id,
+            )
+            await session.commit()
         return FeatureAdminRead(
             feature_id=existing.feature_id,
             user_id=existing.user_id,
@@ -140,6 +149,13 @@ async def remove_feature_admin(feature_id: int, user_id: str, request: Request) 
                 detail="feature admin not found",
             )
         await session.delete(row)
+        await write_audit(
+            session,
+            entity_type="feature_admin",
+            entity_id=f"{feature_id}:{user_id}",
+            action="feature_admin.remove",
+            subject_id=request.state.subject_id,
+        )
         await session.commit()
 
 

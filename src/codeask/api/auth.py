@@ -8,6 +8,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
 from codeask.api.schemas.auth import AdminLoginRequest, AuthMeResponse, LoginRequest
+from codeask.audit import write_audit
 from codeask.auth.bootstrap import ADMIN_USERNAME
 from codeask.auth.passwords import hash_password, verify_password
 from codeask.auth.sessions import create_session_token, hash_session_token, session_expiry
@@ -40,7 +41,9 @@ async def login(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="password must be at least 6 characters",
         )
-    return await _login(payload.username, payload.password, request, response, migrate_anonymous=True)
+    return await _login(
+        payload.username, payload.password, request, response, migrate_anonymous=True
+    )
 
 
 @router.post("/auth/admin/login", response_model=AuthMeResponse)
@@ -52,7 +55,9 @@ async def login_admin(
     username = payload.username or ADMIN_USERNAME
     if username != ADMIN_USERNAME:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
-    return await _login(ADMIN_USERNAME, payload.password, request, response, migrate_anonymous=False)
+    return await _login(
+        ADMIN_USERNAME, payload.password, request, response, migrate_anonymous=False
+    )
 
 
 async def _login(
@@ -66,11 +71,25 @@ async def _login(
     factory = request.app.state.session_factory
     now = datetime.now(UTC)
     async with factory() as session:
-        user = (await session.execute(select(User).where(User.username == username))).scalar_one_or_none()
+        user = (
+            await session.execute(select(User).where(User.username == username))
+        ).scalar_one_or_none()
         created = False
         if user is None:
             if username == ADMIN_USERNAME:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
+                await write_audit(
+                    session,
+                    entity_type="auth",
+                    entity_id=username,
+                    action="auth.login",
+                    subject_id=request.state.subject_id,
+                    result="failed",
+                    reason="invalid_credentials",
+                )
+                await session.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials"
+                )
             user = User(
                 id=f"user_{token_hex(12)}",
                 username=username,
@@ -83,7 +102,19 @@ async def _login(
             created = True
         elif user.password_hash:
             if not verify_password(password, user.password_hash):
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
+                await write_audit(
+                    session,
+                    entity_type="auth",
+                    entity_id=username,
+                    action="auth.login",
+                    subject_id=username,
+                    result="failed",
+                    reason="invalid_credentials",
+                )
+                await session.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials"
+                )
             user.last_login_at = now
         else:
             user.password_hash = hash_password(password)
@@ -94,7 +125,10 @@ async def _login(
             user.last_login_at = now
 
         if migrate_anonymous and user.username != ADMIN_USERNAME:
-            anonymous_subject_id = getattr(request.state.actor, "anonymous_subject_id", None) or request.state.subject_id
+            anonymous_subject_id = (
+                getattr(request.state.actor, "anonymous_subject_id", None)
+                or request.state.subject_id
+            )
             await session.execute(
                 update(Session)
                 .where(Session.created_by_subject_id == anonymous_subject_id)
@@ -111,6 +145,23 @@ async def _login(
             last_seen_at=now,
         )
         session.add(auth_session)
+        if created:
+            await write_audit(
+                session,
+                entity_type="user",
+                entity_id=username,
+                action="auth.register",
+                subject_id=user.id,
+                result="success",
+            )
+        await write_audit(
+            session,
+            entity_type="auth",
+            entity_id=username,
+            action="auth.login",
+            subject_id=user.id,
+            result="success",
+        )
         try:
             await session.commit()
         except IntegrityError as exc:
@@ -144,7 +195,9 @@ async def logout(request: Request, response: Response) -> Response:
     token = request.cookies.get(cookie_name)
     if token:
         async with request.app.state.session_factory() as session:
-            await session.execute(delete(AuthSession).where(AuthSession.token_hash == hash_session_token(token)))
+            await session.execute(
+                delete(AuthSession).where(AuthSession.token_hash == hash_session_token(token))
+            )
             await session.commit()
     response.delete_cookie(cookie_name)
     response.status_code = status.HTTP_204_NO_CONTENT
