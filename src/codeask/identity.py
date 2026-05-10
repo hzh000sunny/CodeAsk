@@ -18,7 +18,7 @@ from starlette.types import ASGIApp
 
 from codeask.auth.actor import Actor
 from codeask.auth.sessions import hash_session_token, session_expiry, should_renew
-from codeask.db.models import AuthSession, User
+from codeask.db.models import AuthSession, FeatureAdmin, User
 
 _SUBJECT_PATTERN = re.compile(r"^[A-Za-z0-9._\-@]{1,128}$")
 _HEADER_NAME = "X-Subject-Id"
@@ -170,6 +170,15 @@ async def _resolve_server_side_session_actor(
         ):
             auth_session.expires_at = session_expiry(now=now, ttl_days=_AUTH_SESSION_TTL_DAYS)
         auth_session.last_seen_at = now
+        feature_admin_feature_ids = frozenset(
+            (
+                await session.execute(
+                    select(FeatureAdmin.feature_id).where(FeatureAdmin.user_id == user.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
         await session.commit()
 
         subject_id = ADMIN_SUBJECT_ID if user.username == ADMIN_SUBJECT_ID else user.id
@@ -182,6 +191,7 @@ async def _resolve_server_side_session_actor(
             user_id=user.id,
             username=user.username,
             anonymous_subject_id=anonymous_subject_id,
+            feature_admin_feature_ids=feature_admin_feature_ids,
         )
 
 
@@ -190,7 +200,9 @@ async def _resolve_legacy_admin_actor(
     anonymous_subject_id: str,
 ) -> Actor | None:
     async with factory() as session:
-        user = (await session.execute(select(User).where(User.username == ADMIN_SUBJECT_ID))).scalar_one_or_none()
+        user = (
+            await session.execute(select(User).where(User.username == ADMIN_SUBJECT_ID))
+        ).scalar_one_or_none()
     if user is None:
         return None
     return Actor(

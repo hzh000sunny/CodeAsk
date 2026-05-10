@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
-
-from dataclasses import asdict
 
 from codeask.api.schemas.wiki import ReportCreate, ReportRead, ReportUpdate
 from codeask.api.schemas.wiki import ReportSearchHit as ReportSearchHitSchema
 from codeask.api.wiki.deps import SessionDep
-from codeask.db.models import Report
+from codeask.db.models import FeatureAdmin, Report
+from codeask.features.permissions import can_manage_feature
 from codeask.wiki.reports import ReportService, ReportVerificationError
 from codeask.wiki.search import WikiSearchService
 from codeask.wiki.sync import LegacyWikiSyncService
@@ -33,6 +34,7 @@ async def create_report(
     request: Request,
     session: SessionDep,
 ) -> ReportRead:
+    await _require_feature_report_manager(request, session, payload.feature_id)
     sync_service = LegacyWikiSyncService()
     report_id = await ReportService().create_draft(
         session,
@@ -78,9 +80,12 @@ async def get_report(report_id: int, session: SessionDep) -> ReportRead:
 async def update_report(
     report_id: int,
     payload: ReportUpdate,
+    request: Request,
     session: SessionDep,
 ) -> ReportRead:
     sync_service = LegacyWikiSyncService()
+    report = await _load_report(report_id, session)
+    await _require_feature_report_manager(request, session, report.feature_id)
     try:
         await ReportService().update_draft(
             session,
@@ -108,6 +113,8 @@ async def verify_report(
     request: Request,
     session: SessionDep,
 ) -> ReportRead:
+    report = await _load_report(report_id, session)
+    await _require_feature_report_manager(request, session, report.feature_id)
     try:
         await ReportService().verify(
             session, report_id=report_id, subject_id=request.state.subject_id
@@ -128,6 +135,8 @@ async def unverify_report(
     request: Request,
     session: SessionDep,
 ) -> ReportRead:
+    report = await _load_report(report_id, session)
+    await _require_feature_report_manager(request, session, report.feature_id)
     await ReportService().unverify(
         session, report_id=report_id, subject_id=request.state.subject_id
     )
@@ -142,9 +151,9 @@ async def reject_report(
     request: Request,
     session: SessionDep,
 ) -> ReportRead:
-    await ReportService().reject(
-        session, report_id=report_id, subject_id=request.state.subject_id
-    )
+    report = await _load_report(report_id, session)
+    await _require_feature_report_manager(request, session, report.feature_id)
+    await ReportService().reject(session, report_id=report_id, subject_id=request.state.subject_id)
     await session.commit()
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
@@ -152,11 +161,8 @@ async def reject_report(
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_report(report_id: int, request: Request, session: SessionDep) -> None:
-    report = (
-        await session.execute(select(Report).where(Report.id == report_id))
-    ).scalar_one_or_none()
-    if report is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="report not found")
+    report = await _load_report(report_id, session)
+    await _require_feature_report_manager(request, session, report.feature_id)
     from_status = report.status
     from codeask.metrics.audit import record_audit_log
     from codeask.wiki.indexer import WikiIndexer
@@ -174,3 +180,34 @@ async def delete_report(report_id: int, request: Request, session: SessionDep) -
     await LegacyWikiSyncService().delete_report_ref(session, report_id=report_id)
     await session.delete(report)
     await session.commit()
+
+
+async def _load_report(report_id: int, session: SessionDep) -> Report:
+    report = (
+        await session.execute(select(Report).where(Report.id == report_id))
+    ).scalar_one_or_none()
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="report not found")
+    return report
+
+
+async def _require_feature_report_manager(
+    request: Request,
+    session: SessionDep,
+    feature_id: int | None,
+) -> None:
+    if feature_id is None:
+        if getattr(request.state, "role", "member") != "admin":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin role required")
+        return
+    rows = (
+        (
+            await session.execute(
+                select(FeatureAdmin.user_id).where(FeatureAdmin.feature_id == feature_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not can_manage_feature(request.state.actor, feature_admin_user_ids=set(rows)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="feature admin required")

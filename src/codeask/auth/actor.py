@@ -1,6 +1,6 @@
 """Request actor resolved by identity middleware."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True)
@@ -12,6 +12,7 @@ class Actor:
     user_id: str | None = None
     username: str | None = None
     anonymous_subject_id: str | None = None
+    feature_admin_feature_ids: frozenset[int] = field(default_factory=lambda: frozenset[int]())
 
     @property
     def is_admin(self) -> bool:

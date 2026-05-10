@@ -1,14 +1,20 @@
 """End-to-end native wiki import API tests."""
 
 import pytest
+from fastapi import HTTPException, status
 from httpx import AsyncClient
 from sqlalchemy import select
+
+from codeask.db.models import (
+    AuditLog,
+    WikiAsset,
+    WikiDocument,
+    WikiImportJob,
+    WikiImportSession,
+    WikiSource,
+)
 from codeask.settings import Settings
-from fastapi import HTTPException, status
-
-from codeask.db.models import AuditLog, WikiAsset, WikiDocument, WikiImportJob, WikiImportSession, WikiSource
 from codeask.wiki.imports.session_service import WikiImportSessionService
-
 
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n"
@@ -27,10 +33,11 @@ async def _create_space_and_folder(
     slug: str = "wiki-imports",
     folder_name: str = "Docs",
 ) -> tuple[int, int]:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     feature = await client.post(
         "/api/features",
         json={"name": "Wiki Imports", "slug": slug},
-        headers={"X-Subject-Id": "owner@dev-1"},
     )
     assert feature.status_code == 201, feature.text
     feature_id = int(feature.json()["id"])
@@ -49,7 +56,9 @@ async def _create_space_and_folder(
 
 
 @pytest.mark.asyncio
-async def test_import_preflight_accepts_uploaded_markdown_relationships(client: AsyncClient) -> None:
+async def test_import_preflight_accepts_uploaded_markdown_relationships(
+    client: AsyncClient,
+) -> None:
     space_id, parent_id = await _create_space_and_folder(client, slug="wiki-imports-ready")
 
     response = await client.post(
@@ -60,7 +69,10 @@ async def test_import_preflight_accepts_uploaded_markdown_relationships(client: 
                 "files",
                 (
                     "Runbook.md",
-                    b"# Runbook\n\nSee [Guide](./guides/Guide.md)\n\n![Diagram](./images/diagram.png)",
+                    (
+                        b"# Runbook\n\nSee [Guide](./guides/Guide.md)\n\n"
+                        b"![Diagram](./images/diagram.png)"
+                    ),
                     "text/markdown",
                 ),
             ),
@@ -112,7 +124,10 @@ async def test_import_preflight_reports_conflicts_and_broken_links(client: Async
                 "files",
                 (
                     "Existing.md",
-                    b"# Existing\n\nSee [Missing](./missing.md)\n\n![Diagram](./images/diagram.png)",
+                    (
+                        b"# Existing\n\nSee [Missing](./missing.md)\n\n"
+                        b"![Diagram](./images/diagram.png)"
+                    ),
                     "text/markdown",
                 ),
             ),
@@ -136,7 +151,9 @@ async def test_import_preflight_reports_conflicts_and_broken_links(client: Async
     assert items["Existing.md"]["status"] == "conflict"
     issue_codes = {issue["code"] for issue in items["Existing.md"]["issues"]}
     assert issue_codes == {"path_conflict", "broken_link"}
-    broken_link = next(issue for issue in items["Existing.md"]["issues"] if issue["code"] == "broken_link")
+    broken_link = next(
+        issue for issue in items["Existing.md"]["issues"] if issue["code"] == "broken_link"
+    )
     assert broken_link["target"] == "./missing.md"
     assert broken_link["resolved_path"] == "docs/missing"
     assert items["images/diagram.png"]["status"] == "ready"
@@ -169,7 +186,7 @@ async def test_import_preflight_does_not_collapse_distinct_chinese_titles_into_i
                 "files",
                 (
                     "小米肥大细胞瘤治疗记录.md",
-                    "# 小米肥大细胞瘤治疗记录\n".encode("utf-8"),
+                    "# 小米肥大细胞瘤治疗记录\n".encode(),
                     "text/markdown",
                 ),
             ),
@@ -187,8 +204,10 @@ async def test_import_preflight_does_not_collapse_distinct_chinese_titles_into_i
 
 
 @pytest.mark.asyncio
-async def test_non_owner_can_run_import_preflight_in_v1_0_1(client: AsyncClient) -> None:
+async def test_non_admin_cannot_run_import_preflight(client: AsyncClient) -> None:
     space_id, parent_id = await _create_space_and_folder(client, slug="wiki-imports-denied")
+    logout = await client.post("/api/auth/logout")
+    assert logout.status_code == 204
 
     response = await client.post(
         "/api/wiki/imports/preflight",
@@ -197,8 +216,7 @@ async def test_non_owner_can_run_import_preflight_in_v1_0_1(client: AsyncClient)
         headers={"X-Subject-Id": "viewer@dev-9"},
     )
 
-    assert response.status_code == 200, response.text
-    assert response.json()["ready"] is True
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -208,7 +226,7 @@ async def test_import_preflight_accepts_more_than_default_multipart_file_limit(
     space_id, parent_id = await _create_space_and_folder(client, slug="wiki-imports-many-files")
 
     files = [
-        ("files", (f"batch/doc-{index}.md", f"# Doc {index}\n".encode("utf-8"), "text/markdown"))
+        ("files", (f"batch/doc-{index}.md", f"# Doc {index}\n".encode(), "text/markdown"))
         for index in range(1001)
     ]
 
@@ -242,7 +260,10 @@ async def test_create_import_job_persists_staged_files_and_items(
                 "files",
                 (
                     "Runbook.md",
-                    b"# Runbook\n\nSee [Guide](./guides/Guide.md)\n\n![Diagram](./images/diagram.png)",
+                    (
+                        b"# Runbook\n\nSee [Guide](./guides/Guide.md)\n\n"
+                        b"![Diagram](./images/diagram.png)"
+                    ),
                     "text/markdown",
                 ),
             ),
@@ -309,7 +330,7 @@ async def test_create_import_job_persists_staged_files_and_items(
             .all()
         )
     assert len(rows) == 1
-    assert rows[0].subject_id == "owner@dev-1"
+    assert rows[0].subject_id == "admin"
     assert rows[0].to_status == "queued"
 
 
@@ -495,7 +516,9 @@ async def test_import_session_upload_auto_materializes_markdown_document(
 
     async with app.state.session_factory() as session:
         import_session = await session.get(WikiImportSession, session_id)
-        source_id = (import_session.metadata_json or {}).get("source_id") if import_session else None
+        source_id = (
+            (import_session.metadata_json or {}).get("source_id") if import_session else None
+        )
         source = await session.get(WikiSource, source_id) if isinstance(source_id, int) else None
     assert isinstance(source_id, int)
     assert source is not None
@@ -786,7 +809,7 @@ async def test_import_session_bulk_skip_all_resolves_multiple_conflicts(
     }.items():
         uploaded = await client.post(
             f"/api/wiki/import-sessions/{session_id}/items/{items[source_path]['id']}/upload",
-            files={"file": (source_path.rsplit('/', 1)[-1], body, "text/markdown")},
+            files={"file": (source_path.rsplit("/", 1)[-1], body, "text/markdown")},
             headers={"X-Subject-Id": "owner@dev-1"},
         )
         assert uploaded.status_code == 200, uploaded.text
@@ -886,7 +909,7 @@ async def test_import_session_bulk_skip_all_applies_to_future_conflicts(
     for source_path in ("ops/Runbook.md", "ops/Legacy.md"):
         uploaded = await client.post(
             f"/api/wiki/import-sessions/{session_id}/items/{items[source_path]['id']}/upload",
-            files={"file": (source_path.rsplit('/', 1)[-1], b"# conflict", "text/markdown")},
+            files={"file": (source_path.rsplit("/", 1)[-1], b"# conflict", "text/markdown")},
             headers={"X-Subject-Id": "owner@dev-1"},
         )
         assert uploaded.status_code == 200, uploaded.text
@@ -998,7 +1021,7 @@ async def test_import_session_bulk_overwrite_all_replaces_multiple_conflicts(
     }.items():
         uploaded = await client.post(
             f"/api/wiki/import-sessions/{session_id}/items/{items[source_path]['id']}/upload",
-            files={"file": (source_path.rsplit('/', 1)[-1], body, "text/markdown")},
+            files={"file": (source_path.rsplit("/", 1)[-1], body, "text/markdown")},
             headers={"X-Subject-Id": "owner@dev-1"},
         )
         assert uploaded.status_code == 200, uploaded.text
@@ -1111,7 +1134,7 @@ async def test_import_session_bulk_overwrite_all_applies_to_future_conflicts(
     for source_path in ("ops/Runbook.md", "ops/Legacy.md"):
         uploaded = await client.post(
             f"/api/wiki/import-sessions/{session_id}/items/{items[source_path]['id']}/upload",
-            files={"file": (source_path.rsplit('/', 1)[-1], b"# conflict", "text/markdown")},
+            files={"file": (source_path.rsplit("/", 1)[-1], b"# conflict", "text/markdown")},
             headers={"X-Subject-Id": "owner@dev-1"},
         )
         assert uploaded.status_code == 200, uploaded.text
@@ -1312,7 +1335,10 @@ async def test_apply_import_job_creates_native_wiki_content(client: AsyncClient,
                 "files",
                 (
                     "Runbook.md",
-                    b"# Runbook\n\nSee [Guide](./guides/Guide.md)\n\n![Diagram](./images/diagram.png)",
+                    (
+                        b"# Runbook\n\nSee [Guide](./guides/Guide.md)\n\n"
+                        b"![Diagram](./images/diagram.png)"
+                    ),
                     "text/markdown",
                 ),
             ),
@@ -1357,9 +1383,14 @@ async def test_apply_import_job_creates_native_wiki_content(client: AsyncClient,
     assert runbook["provenance_json"]["source_id"] is not None
     refs = {item["target"]: item for item in runbook["resolved_refs_json"]}
     assert refs["./guides/Guide.md"]["broken"] is False
-    assert refs["./guides/Guide.md"]["resolved_node_id"] == items["guides/Guide.md"]["result_node_id"]
+    assert (
+        refs["./guides/Guide.md"]["resolved_node_id"] == items["guides/Guide.md"]["result_node_id"]
+    )
     assert refs["./images/diagram.png"]["broken"] is False
-    assert refs["./images/diagram.png"]["resolved_node_id"] == items["images/diagram.png"]["result_node_id"]
+    assert (
+        refs["./images/diagram.png"]["resolved_node_id"]
+        == items["images/diagram.png"]["result_node_id"]
+    )
     assert runbook["broken_refs_json"] == {"links": [], "assets": []}
 
     asset_response = await client.get(
@@ -1410,7 +1441,7 @@ async def test_apply_import_job_creates_native_wiki_content(client: AsyncClient,
             .all()
         )
     assert len(rows) == 1
-    assert rows[0].subject_id == "owner@dev-1"
+    assert rows[0].subject_id == "admin"
     assert rows[0].from_status == "queued"
     assert rows[0].to_status == "succeeded"
 
@@ -1427,7 +1458,10 @@ async def test_apply_import_job_resolves_html_img_asset_references(client: Async
                 "files",
                 (
                     "小米病历.md",
-                    b'<img src="Untitled.assets/image-20251217001114824.png" alt="image" style="zoom:50%;" />',
+                    (
+                        b'<img src="Untitled.assets/image-20251217001114824.png" '
+                        b'alt="image" style="zoom:50%;" />'
+                    ),
                     "text/markdown",
                 ),
             ),
@@ -1480,7 +1514,7 @@ async def test_apply_import_job_resolves_html_img_asset_references(client: Async
 
 
 @pytest.mark.asyncio
-async def test_non_owner_can_apply_import_job_in_v1_0_1(client: AsyncClient) -> None:
+async def test_non_admin_cannot_apply_import_job(client: AsyncClient) -> None:
     space_id, parent_id = await _create_space_and_folder(client, slug="wiki-imports-apply-denied")
 
     create_response = await client.post(
@@ -1491,11 +1525,12 @@ async def test_non_owner_can_apply_import_job_in_v1_0_1(client: AsyncClient) -> 
     )
     assert create_response.status_code == 201, create_response.text
     job_id = int(create_response.json()["id"])
+    logout = await client.post("/api/auth/logout")
+    assert logout.status_code == 204
 
     response = await client.post(
         f"/api/wiki/imports/{job_id}/apply",
         headers={"X-Subject-Id": "viewer@dev-9"},
     )
 
-    assert response.status_code == 200, response.text
-    assert response.json()["status"] == "succeeded"
+    assert response.status_code == 403

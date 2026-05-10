@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.db.models import Feature, Repo, WikiNode, WikiSpace
+from codeask.wiki.actor import WikiActor
 
 
 async def _session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -19,6 +20,17 @@ async def _session(request: Request) -> AsyncIterator[AsyncSession]:
 
 
 SessionDep = Annotated[AsyncSession, Depends(_session)]
+
+
+def wiki_actor_from_request(request: Request) -> WikiActor:
+    actor = request.state.actor
+    return WikiActor(
+        subject_id=actor.subject_id,
+        role=actor.role,
+        user_id=actor.user_id,
+        authenticated=actor.authenticated,
+        feature_admin_feature_ids=actor.feature_admin_feature_ids,
+    )
 
 
 async def load_feature(feature_id: int, session: AsyncSession) -> Feature:
@@ -42,7 +54,9 @@ async def load_repo(repo_id: str, session: AsyncSession) -> Repo:
 
 
 async def load_space(space_id: int, session: AsyncSession) -> WikiSpace:
-    space = (await session.execute(select(WikiSpace).where(WikiSpace.id == space_id))).scalar_one_or_none()
+    space = (
+        await session.execute(select(WikiSpace).where(WikiSpace.id == space_id))
+    ).scalar_one_or_none()
     if space is None:
         from fastapi import HTTPException, status
 
@@ -51,7 +65,9 @@ async def load_space(space_id: int, session: AsyncSession) -> WikiSpace:
 
 
 async def load_node(node_id: int, session: AsyncSession) -> WikiNode:
-    node = (await session.execute(select(WikiNode).where(WikiNode.id == node_id))).scalar_one_or_none()
+    node = (
+        await session.execute(select(WikiNode).where(WikiNode.id == node_id))
+    ).scalar_one_or_none()
     if node is None:
         from fastapi import HTTPException, status
 

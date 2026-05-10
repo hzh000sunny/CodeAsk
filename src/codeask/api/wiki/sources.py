@@ -2,21 +2,16 @@
 
 from fastapi import APIRouter, Request, status
 
-from codeask.api.wiki.deps import SessionDep
+from codeask.api.wiki.deps import SessionDep, wiki_actor_from_request
 from codeask.api.wiki.schemas import (
     WikiSourceCreate,
     WikiSourceListRead,
     WikiSourceRead,
     WikiSourceUpdate,
 )
-from codeask.wiki.actor import WikiActor
 from codeask.wiki.sources import WikiSourceService
 
 router = APIRouter()
-
-
-def _actor_from_request(request: Request) -> WikiActor:
-    return WikiActor(subject_id=request.state.subject_id, role=request.state.role)
 
 
 @router.get("/sources", response_model=WikiSourceListRead)
@@ -33,7 +28,7 @@ async def create_source(
 ) -> WikiSourceRead:
     source = await WikiSourceService().create_source(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         space_id=payload.space_id,
         kind=payload.kind,
         display_name=payload.display_name,
@@ -56,7 +51,7 @@ async def update_source(
     source = await service.load_source(session, source_id=source_id)
     updated = await service.update_source(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         source=source,
         display_name=payload.display_name,
         uri=payload.uri,
@@ -78,7 +73,7 @@ async def sync_source(
     source = await service.load_source(session, source_id=source_id)
     synced = await service.sync_source(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         source=source,
     )
     await session.commit()

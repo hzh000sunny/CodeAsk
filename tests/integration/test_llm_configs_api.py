@@ -156,9 +156,16 @@ async def test_member_llm_configs_are_scoped_and_do_not_expose_global_configs(
     )
     assert listed_global_as_member.status_code == 403
 
+    member_login = await client.post(
+        "/api/auth/login",
+        json={"username": "alice", "password": "secret1"},
+        headers={"X-Subject-Id": "alice@device"},
+    )
+    assert member_login.status_code == 200, member_login.text
+    user_id = member_login.json()["subject_id"]
+
     user_created = await client.post(
         "/api/me/llm-configs",
-        headers={"X-Subject-Id": "alice@device"},
         json={
             "name": "alice-private",
             "protocol": "openai_compatible",
@@ -173,11 +180,17 @@ async def test_member_llm_configs_are_scoped_and_do_not_expose_global_configs(
     )
     assert user_created.status_code == 201, user_created.text
     assert user_created.json()["scope"] == "user"
-    assert user_created.json()["owner_subject_id"] == "alice@device"
+    assert user_created.json()["owner_subject_id"] == user_id
 
-    alice_list = await client.get("/api/me/llm-configs", headers={"X-Subject-Id": "alice@device"})
+    alice_list = await client.get("/api/me/llm-configs")
     assert [item["name"] for item in alice_list.json()] == ["alice-private"]
 
+    await client.post("/api/auth/logout")
+    await client.post(
+        "/api/auth/login",
+        json={"username": "bob", "password": "secret1"},
+        headers={"X-Subject-Id": "bob@device"},
+    )
     bob_list = await client.get("/api/me/llm-configs", headers={"X-Subject-Id": "bob@device"})
     assert bob_list.json() == []
 

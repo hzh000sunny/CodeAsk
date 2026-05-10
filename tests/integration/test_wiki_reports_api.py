@@ -1,10 +1,18 @@
 """End-to-end /api/reports tests."""
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
 
 from codeask.db.models import WikiNode, WikiReportRef, WikiSpace
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _admin_session(client: AsyncClient):
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
+    yield
 
 
 def _good_meta() -> dict:
@@ -61,7 +69,7 @@ async def test_create_then_verify_then_unverify(client: AsyncClient) -> None:
     body = response.json()
     assert body["verified"] is True
     assert body["status"] == "verified"
-    assert body["verified_by"] == "alice@dev-1"
+    assert body["verified_by"] == "admin"
     assert body["verified_at"] is not None
 
     response = await client.get("/api/reports/search?q=ERR_ORDER_CONTEXT_EMPTY")
@@ -69,7 +77,7 @@ async def test_create_then_verify_then_unverify(client: AsyncClient) -> None:
     hits = response.json()
     assert any(hit["report_id"] == report_id for hit in hits)
     found = next(hit for hit in hits if hit["report_id"] == report_id)
-    assert found["verified_by"] == "alice@dev-1"
+    assert found["verified_by"] == "admin"
     assert found["commit_sha"] == "abc1234"
 
     response = await client.post(
@@ -88,9 +96,7 @@ async def test_create_then_verify_then_unverify(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_verify_gate_rejects_missing_log_and_code_evidence(client: AsyncClient) -> None:
     bad = _good_meta()
-    bad["evidence"] = [
-        item for item in bad["evidence"] if item["type"] not in {"log", "code"}
-    ]
+    bad["evidence"] = [item for item in bad["evidence"] if item["type"] not in {"log", "code"}]
     response = await client.post(
         "/api/reports",
         json={"title": "t", "body_markdown": "b", "metadata": bad},
@@ -222,7 +228,9 @@ async def test_create_report_creates_native_wiki_report_ref(
     async with app.state.session_factory() as session:
         space = (
             await session.execute(
-                select(WikiSpace).where(WikiSpace.feature_id == feature_id, WikiSpace.scope == "current")
+                select(WikiSpace).where(
+                    WikiSpace.feature_id == feature_id, WikiSpace.scope == "current"
+                )
             )
         ).scalar_one()
         reports_root = (
@@ -331,8 +339,6 @@ async def test_report_projection_updates_status_groups_and_tree_title(
         headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert tree.status_code == 200, tree.text
-    report_nodes = [
-        node for node in tree.json()["nodes"] if node["type"] == "report_ref"
-    ]
+    report_nodes = [node for node in tree.json()["nodes"] if node["type"] == "report_ref"]
     assert len(report_nodes) == 1
     assert report_nodes[0]["name"] == "Projection rejected renamed"

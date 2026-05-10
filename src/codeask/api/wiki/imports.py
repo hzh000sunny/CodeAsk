@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, status
-from starlette.datastructures import FormData, UploadFile as StarletteUploadFile
+from starlette.datastructures import FormData
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from codeask.api.wiki.deps import SessionDep, load_node, load_space
+from codeask.api.wiki.deps import SessionDep, load_node, load_space, wiki_actor_from_request
 from codeask.api.wiki.schemas import (
     WikiImportJobItemsRead,
     WikiImportJobRead,
@@ -20,7 +21,6 @@ from codeask.api.wiki.schemas import (
     WikiImportSessionScanWrite,
     WikiImportSessionUploadRead,
 )
-from codeask.wiki.actor import WikiActor
 from codeask.wiki.imports import (
     WikiImportJobService,
     WikiImportPreflightService,
@@ -38,10 +38,6 @@ class ParsedImportForm:
     space_id: int
     parent_id: int | None
     files: list[UploadFile]
-
-
-def _actor_from_request(request: Request) -> WikiActor:
-    return WikiActor(subject_id=request.state.subject_id, role=request.state.role)
 
 
 def _parse_int_field(form: FormData, field: str, *, required: bool) -> int | None:
@@ -98,10 +94,12 @@ async def import_preflight(
     ) as form:
         parsed = _parse_import_form(form)
         space = await load_space(parsed.space_id, session)
-        parent = await load_node(parsed.parent_id, session) if parsed.parent_id is not None else None
+        parent = (
+            await load_node(parsed.parent_id, session) if parsed.parent_id is not None else None
+        )
         data = await WikiImportPreflightService().run_preflight(
             session,
-            actor=_actor_from_request(request),
+            actor=wiki_actor_from_request(request),
             space=space,
             parent=parent,
             files=parsed.files,
@@ -119,7 +117,7 @@ async def create_import_session(
     parent = await load_node(payload.parent_id, session) if payload.parent_id is not None else None
     data = await WikiImportSessionService().create_session(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         space=space,
         parent=parent,
         mode=payload.mode,
@@ -136,7 +134,7 @@ async def get_import_session(
 ) -> WikiImportSessionRead:
     data = await WikiImportSessionService().get_session(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         session_id=session_id,
     )
     return WikiImportSessionRead(**data)
@@ -151,7 +149,7 @@ async def scan_import_session(
 ) -> WikiImportSessionRead:
     data = await WikiImportSessionService().scan_session(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         session_id=session_id,
         items=[item.model_dump() for item in payload.items],
     )
@@ -167,7 +165,7 @@ async def list_import_session_items(
 ) -> WikiImportSessionItemsRead:
     data = await WikiImportSessionService().list_items(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         session_id=session_id,
     )
     return WikiImportSessionItemsRead(**data)
@@ -186,7 +184,7 @@ async def upload_import_session_item(
 ) -> WikiImportSessionUploadRead:
     data = await WikiImportSessionService().upload_item(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         settings_data_dir=request.app.state.settings.data_dir,
         session_id=session_id,
         item_id=item_id,
@@ -209,7 +207,7 @@ async def resolve_import_session_item(
 ) -> WikiImportSessionUploadRead:
     data = await WikiImportSessionService().resolve_item(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         settings_data_dir=request.app.state.settings.data_dir,
         session_id=session_id,
         item_id=item_id,
@@ -228,7 +226,7 @@ async def bulk_resolve_import_session_items(
 ) -> WikiImportSessionRead:
     data = await WikiImportSessionService().bulk_resolve_items(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         settings_data_dir=request.app.state.settings.data_dir,
         session_id=session_id,
         action=payload.action,
@@ -245,7 +243,7 @@ async def cancel_import_session(
 ) -> WikiImportSessionRead:
     data = await WikiImportSessionService().cancel_session(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         session_id=session_id,
     )
     await session.commit()
@@ -264,7 +262,7 @@ async def retry_import_session_item(
 ) -> WikiImportSessionUploadRead:
     data = await WikiImportSessionService().retry_item(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         settings_data_dir=request.app.state.settings.data_dir,
         session_id=session_id,
         item_id=item_id,
@@ -281,7 +279,7 @@ async def retry_import_session(
 ) -> WikiImportSessionRead:
     data = await WikiImportSessionService().retry_failed_items(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         settings_data_dir=request.app.state.settings.data_dir,
         session_id=session_id,
     )
@@ -301,10 +299,12 @@ async def create_import_job(
     ) as form:
         parsed = _parse_import_form(form)
         space = await load_space(parsed.space_id, session)
-        parent = await load_node(parsed.parent_id, session) if parsed.parent_id is not None else None
+        parent = (
+            await load_node(parsed.parent_id, session) if parsed.parent_id is not None else None
+        )
         data = await WikiImportJobService().create_job(
             session,
-            actor=_actor_from_request(request),
+            actor=wiki_actor_from_request(request),
             settings_data_dir=request.app.state.settings.data_dir,
             space=space,
             parent=parent,
@@ -318,7 +318,7 @@ async def create_import_job(
 async def get_import_job(job_id: int, request: Request, session: SessionDep) -> WikiImportJobRead:
     data = await WikiImportJobService().get_job(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         job_id=job_id,
     )
     return WikiImportJobRead(**data)
@@ -332,7 +332,7 @@ async def list_import_job_items(
 ) -> WikiImportJobItemsRead:
     data = await WikiImportJobService().list_items(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         job_id=job_id,
     )
     return WikiImportJobItemsRead(**data)
@@ -342,7 +342,7 @@ async def list_import_job_items(
 async def apply_import_job(job_id: int, request: Request, session: SessionDep) -> WikiImportJobRead:
     data = await WikiImportJobService().apply_job(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         settings_data_dir=request.app.state.settings.data_dir,
         job_id=job_id,
     )

@@ -2,16 +2,16 @@
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
 
 from codeask.db.models import WikiNode
 
 
 async def _create_feature(client: AsyncClient, slug: str = "wiki-nodes") -> int:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     response = await client.post(
         "/api/features",
         json={"name": "Wiki Nodes", "slug": slug},
-        headers={"X-Subject-Id": "owner@dev-1"},
     )
     assert response.status_code == 201, response.text
     return int(response.json()["id"])
@@ -52,7 +52,7 @@ async def test_create_rename_move_and_delete_node(client: AsyncClient, app) -> N
         headers={"X-Subject-Id": "owner@dev-1"},
     )
     assert response.status_code == 200, response.text
-    assert response.json()["permissions"] == {"read": True, "write": True, "admin": False}
+    assert response.json()["permissions"] == {"read": True, "write": True, "admin": True}
 
     response = await client.post(
         "/api/wiki/nodes",
@@ -101,7 +101,7 @@ async def test_system_nodes_are_protected(client: AsyncClient) -> None:
     feature_id = await _create_feature(client, slug="wiki-protected")
 
     response = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
-    space_id = int(response.json()["space"]["id"])
+    assert response.status_code == 200, response.text
 
     response = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
     system_node_id = next(
@@ -123,8 +123,10 @@ async def test_system_nodes_are_protected(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_owner_can_write_nodes_in_v1_0_1(client: AsyncClient) -> None:
+async def test_non_admin_cannot_write_nodes(client: AsyncClient) -> None:
     feature_id = await _create_feature(client, slug="wiki-denied")
+    logout = await client.post("/api/auth/logout")
+    assert logout.status_code == 204
     response = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
     space_id = int(response.json()["space"]["id"])
 
@@ -133,8 +135,7 @@ async def test_non_owner_can_write_nodes_in_v1_0_1(client: AsyncClient) -> None:
         json={"space_id": space_id, "parent_id": None, "type": "folder", "name": "Denied"},
         headers={"X-Subject-Id": "viewer@dev-9"},
     )
-    assert response.status_code == 201, response.text
-    assert response.json()["name"] == "Denied"
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -143,7 +144,9 @@ async def test_admin_can_write_nodes(client: AsyncClient) -> None:
     response = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
     space_id = int(response.json()["space"]["id"])
 
-    login = await client.post("/api/auth/admin/login", json={"username": "admin", "password": "admin"})
+    login = await client.post(
+        "/api/auth/admin/login", json={"username": "admin", "password": "admin"}
+    )
     assert login.status_code == 200, login.text
 
     response = await client.post(
@@ -171,7 +174,12 @@ async def test_restore_deleted_folder_restores_subtree(client: AsyncClient, app)
 
     document = await client.post(
         "/api/wiki/nodes",
-        json={"space_id": space_id, "parent_id": folder_id, "type": "document", "name": "Restart Guide"},
+        json={
+            "space_id": space_id,
+            "parent_id": folder_id,
+            "type": "document",
+            "name": "Restart Guide",
+        },
         headers={"X-Subject-Id": "owner@dev-1"},
     )
     assert document.status_code == 201, document.text
@@ -342,7 +350,9 @@ async def test_move_node_into_folder_updates_parent_and_path(client: AsyncClient
 
 @pytest.mark.asyncio
 async def test_move_node_rejects_descendant_target(client: AsyncClient) -> None:
-    _feature_id, space_id, knowledge_root_id = await _bootstrap_space(client, "wiki-move-descendant")
+    _feature_id, space_id, knowledge_root_id = await _bootstrap_space(
+        client, "wiki-move-descendant"
+    )
 
     parent = await client.post(
         "/api/wiki/nodes",

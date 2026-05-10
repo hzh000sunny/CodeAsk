@@ -17,11 +17,13 @@ Call /api/order/submit to submit the order. NullPointerException means user is a
 
 
 async def _create_feature(client: AsyncClient, slug: str = "order") -> int:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     response = await client.post(
         "/api/features",
         json={"name": "Order", "slug": slug},
-        headers={"X-Subject-Id": "alice@dev-1"},
     )
+    assert response.status_code == 201, response.text
     return int(response.json()["id"])
 
 
@@ -139,7 +141,9 @@ async def test_markdown_upload_creates_native_wiki_document(
     async with app.state.session_factory() as session:
         space = (
             await session.execute(
-                select(WikiSpace).where(WikiSpace.feature_id == feature_id, WikiSpace.scope == "current")
+                select(WikiSpace).where(
+                    WikiSpace.feature_id == feature_id, WikiSpace.scope == "current"
+                )
             )
         ).scalar_one()
         knowledge_root = (
@@ -166,7 +170,9 @@ async def test_markdown_upload_creates_native_wiki_document(
         assert wiki_document is not None
         version = (
             await session.execute(
-                select(WikiDocumentVersion).where(WikiDocumentVersion.document_id == wiki_document.id)
+                select(WikiDocumentVersion).where(
+                    WikiDocumentVersion.document_id == wiki_document.id
+                )
             )
         ).scalar_one_or_none()
 

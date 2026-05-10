@@ -6,7 +6,6 @@ from sqlalchemy import select
 
 from codeask.db.models import Document, Feature, Report, WikiDocument, WikiReportRef, WikiSpace
 
-
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n"
     b"\x00\x00\x00\rIHDR"
@@ -19,10 +18,11 @@ PNG_BYTES = (
 
 
 async def _create_feature(client: AsyncClient) -> int:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     response = await client.post(
         "/api/features",
         json={"name": "Knowledge", "slug": "knowledge"},
-        headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert response.status_code == 201, response.text
     return int(response.json()["id"])
@@ -113,9 +113,7 @@ async def test_get_wiki_tree_returns_full_active_node_set(client: AsyncClient) -
     tree = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
     assert tree.status_code == 200, tree.text
     space_id = int(tree.json()["space"]["id"])
-    knowledge_root = next(
-        node for node in tree.json()["nodes"] if node["name"] == "知识库"
-    )
+    knowledge_root = next(node for node in tree.json()["nodes"] if node["name"] == "知识库")
 
     folder = await client.post(
         "/api/wiki/nodes",
@@ -350,7 +348,10 @@ async def test_moving_document_out_and_back_restores_relative_asset_references(
         headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert detail_inside.status_code == 200, detail_inside.text
-    assert detail_inside.json()["broken_refs_json"]["assets"][0]["target"] == "Untitled.assets/image.png"
+    assert (
+        detail_inside.json()["broken_refs_json"]["assets"][0]["target"]
+        == "Untitled.assets/image.png"
+    )
 
     moved_back = await client.post(
         f"/api/wiki/nodes/{document_node_id}/move",
@@ -392,7 +393,9 @@ async def test_get_wiki_space_bootstraps_legacy_feature_without_space(
     async with app.state.session_factory() as session:
         space = (
             await session.execute(
-                select(WikiSpace).where(WikiSpace.feature_id == feature_id, WikiSpace.scope == "current")
+                select(WikiSpace).where(
+                    WikiSpace.feature_id == feature_id, WikiSpace.scope == "current"
+                )
             )
         ).scalar_one_or_none()
     assert space is not None

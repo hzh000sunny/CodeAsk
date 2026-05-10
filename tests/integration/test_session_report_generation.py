@@ -13,6 +13,21 @@ from codeask.llm.types import LLMEvent
 from codeask.wiki.sync import LegacyWikiSyncService
 from tests.mocks.mock_llm import MockLLMClient, text_message
 
+PAYMENT_REPORT_JSON = (
+    '{"title_description":"支付服务启动失败","body_markdown":"# 问题背景\\n\\n支付服务启动失败。"}'
+)
+XIAOMI_REPORT_JSON = (
+    '{"title_description":"小米病历查询端到端调试",'
+    '"body_markdown":"# 问题背景\\n\\n基于小米病历查询生成报告。"}'
+)
+XIAOMI_TREND_REPORT_JSON = (
+    '{"title_description":"小米病情变化","body_markdown":"# 问题背景\\n\\n小米病情变化分析。"}'
+)
+ANYTHING_LLM_REPORT_JSON = (
+    '{"title_description":"AnythingLLM 文档摄入分析",'
+    '"body_markdown":"# 问题背景\\n\\n分析 AnythingLLM 文档摄入流程。"}'
+)
+
 
 async def _create_default_llm_config(client: AsyncClient) -> None:
     login = await client.post("/api/auth/admin/login", json={"password": "admin"})
@@ -36,13 +51,17 @@ async def _create_default_llm_config(client: AsyncClient) -> None:
 
 
 async def _create_feature(client: AsyncClient, *, name: str = "Payment") -> int:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
     feature = await client.post(
         "/api/features",
         json={"name": name, "description": f"{name} feature"},
-        headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert feature.status_code == 201, feature.text
-    return int(feature.json()["id"])
+    feature_id = int(feature.json()["id"])
+    logout = await client.post("/api/auth/logout")
+    assert logout.status_code == 204
+    return feature_id
 
 
 async def _create_session(client: AsyncClient, *, title: str = "支付启动失败") -> str:
@@ -326,13 +345,7 @@ async def test_prepare_session_report_calls_llm_with_report_rules(
     session_id = await _create_session(client)
     await _seed_turns(app, session_id)
 
-    mock = MockLLMClient(
-        [
-            text_message(
-                '{"title_description":"支付服务启动失败","body_markdown":"# 问题背景\\n\\n支付服务启动失败。"}'
-            )
-        ]
-    )
+    mock = MockLLMClient([text_message(PAYMENT_REPORT_JSON)])
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     started = await client.post(
@@ -376,13 +389,7 @@ async def test_prepare_session_report_infers_feature_from_scope_trace(
     await _seed_turns(app, session_id)
     await _seed_scope_trace(app, session_id, feature_id)
 
-    mock = MockLLMClient(
-        [
-            text_message(
-                '{"title_description":"支付服务启动失败","body_markdown":"# 问题背景\\n\\n支付服务启动失败。"}'
-            )
-        ]
-    )
+    mock = MockLLMClient([text_message(PAYMENT_REPORT_JSON)])
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     started = await client.post(
@@ -431,13 +438,7 @@ async def test_prepare_session_report_ignores_feature_catalog_when_inferring_fea
         hit_feature_id=hit_feature_id,
     )
 
-    mock = MockLLMClient(
-        [
-            text_message(
-                '{"title_description":"小米病历查询端到端调试","body_markdown":"# 问题背景\\n\\n基于小米病历查询生成报告。"}'
-            )
-        ]
-    )
+    mock = MockLLMClient([text_message(XIAOMI_REPORT_JSON)])
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     started = await client.post(
@@ -484,13 +485,7 @@ async def test_prepare_session_report_prefers_strong_evidence_over_first_candida
         hit_feature_id=hit_feature_id,
     )
 
-    mock = MockLLMClient(
-        [
-            text_message(
-                '{"title_description":"小米病情变化","body_markdown":"# 问题背景\\n\\n小米病情变化分析。"}'
-            )
-        ]
-    )
+    mock = MockLLMClient([text_message(XIAOMI_TREND_REPORT_JSON)])
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     started = await client.post(
@@ -539,13 +534,7 @@ async def test_prepare_session_report_prefers_current_evidence_over_existing_wro
     )
     assert existing.status_code == 201, existing.text
 
-    mock = MockLLMClient(
-        [
-            text_message(
-                '{"title_description":"AnythingLLM 文档摄入分析","body_markdown":"# 问题背景\\n\\n分析 AnythingLLM 文档摄入流程。"}'
-            )
-        ]
-    )
+    mock = MockLLMClient([text_message(ANYTHING_LLM_REPORT_JSON)])
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     started = await client.post(
@@ -621,13 +610,7 @@ async def test_prepare_session_report_echoes_request_id_header(
     session_id = await _create_session(client)
     await _seed_turns(app, session_id)
 
-    mock = MockLLMClient(
-        [
-            text_message(
-                '{"title_description":"支付服务启动失败","body_markdown":"# 问题背景\\n\\n支付服务启动失败。"}'
-            )
-        ]
-    )
+    mock = MockLLMClient([text_message(PAYMENT_REPORT_JSON)])
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     started = await client.post(
@@ -662,13 +645,7 @@ async def test_prepare_session_report_status_is_scoped_to_session(
     second_session_id = await _create_session(client, title="库存启动失败")
     await _seed_turns(app, first_session_id)
 
-    mock = MockLLMClient(
-        [
-            text_message(
-                '{"title_description":"支付服务启动失败","body_markdown":"# 问题背景\\n\\n支付服务启动失败。"}'
-            )
-        ]
-    )
+    mock = MockLLMClient([text_message(PAYMENT_REPORT_JSON)])
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     started = await client.post(
@@ -821,12 +798,16 @@ async def test_save_session_report_removes_legacy_duplicate_when_rebinding_featu
             )
         ).scalar_one()
         old_report_refs = (
-            await db.execute(
-                select(WikiReportRef)
-                .join(WikiNode, WikiNode.id == WikiReportRef.node_id)
-                .where(WikiNode.space_id == old_space.id)
+            (
+                await db.execute(
+                    select(WikiReportRef)
+                    .join(WikiNode, WikiNode.id == WikiReportRef.node_id)
+                    .where(WikiNode.space_id == old_space.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     assert legacy_report is None
     assert current_report is not None

@@ -48,6 +48,7 @@ from codeask.db.models import (
     SessionAttachment,
     SessionFeature,
     SessionTurn,
+    SystemSetting,
 )
 from codeask.sessions.attachments import (
     append_attachment_alias,
@@ -85,6 +86,7 @@ _ALLOWED_KINDS = {"log", "image", "doc", "other"}
 _ALLOWED_EXTENSIONS = {".log", ".txt", ".md", ".png", ".jpg", ".jpeg"}
 _MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 _DEFAULT_SESSION_TITLE = "新的研发会话"
+_SESSION_ATTACHMENTS_ENABLED_KEY = "session_attachments_enabled"
 
 
 def _compact_reasoning_trace_responses(rows: list[AgentTrace]) -> list[AgentTraceResponse]:
@@ -621,6 +623,11 @@ async def upload_attachment(
     description: Annotated[str | None, Form()] = None,
 ) -> AttachmentResponse:
     await _load_session(request, session_id)
+    if not await _session_attachments_enabled(request):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="该功能已被禁用",
+        )
     if kind not in _ALLOWED_KINDS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="invalid kind"
@@ -760,6 +767,15 @@ async def _load_session(request: Request, session_id: str) -> Session:
     return row
 
 
+async def _session_attachments_enabled(request: Request) -> bool:
+    factory = request.app.state.session_factory
+    async with factory() as session:
+        row = await session.get(SystemSetting, _SESSION_ATTACHMENTS_ENABLED_KEY)
+    if row is None:
+        return True
+    return bool(row.value)
+
+
 def _report_prepare_cache_for_app(app: FastAPI) -> dict[str, SessionReportPrepareStatus]:
     cache = getattr(app.state, "report_prepare_results", None)
     if not isinstance(cache, dict):
@@ -850,15 +866,12 @@ async def _load_inferred_feature_ids(session: object, *, session_id: str) -> lis
         .all()
     )
     trace_rows = (
-        (
-            await session.execute(
-                select(AgentTrace.event_type, AgentTrace.payload)
-                .where(AgentTrace.session_id == session_id)
-                .order_by(AgentTrace.created_at.asc(), AgentTrace.id.asc())
-            )
+        await session.execute(
+            select(AgentTrace.event_type, AgentTrace.payload)
+            .where(AgentTrace.session_id == session_id)
+            .order_by(AgentTrace.created_at.asc(), AgentTrace.id.asc())
         )
-        .all()
-    )
+    ).all()
     scores: dict[int, int] = {}
     latest_order: dict[int, int] = {}
     order = 0
@@ -915,8 +928,7 @@ def _feature_observations_from_trace_payload(
         if isinstance(output, dict):
             append_ids(output.get("feature_ids"))
         return [
-            (feature_id, _FEATURE_INFERENCE_SCOPE_DECISION_WEIGHT)
-            for feature_id in feature_ids
+            (feature_id, _FEATURE_INFERENCE_SCOPE_DECISION_WEIGHT) for feature_id in feature_ids
         ]
 
     if event_type == "retrieval_context":

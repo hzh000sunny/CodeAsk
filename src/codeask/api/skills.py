@@ -11,7 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.api.schemas.skill import SkillCreate, SkillResponse, SkillUpdate
-from codeask.db.models import Skill
+from codeask.db.models import FeatureAdmin, Skill
+from codeask.features.permissions import can_manage_feature
 from codeask.identity import require_admin
 from codeask.metrics.audit import record_audit_log
 
@@ -35,6 +36,8 @@ async def create_skill(
 ) -> SkillResponse:
     if payload.scope == "global":
         require_admin(request)
+    else:
+        await _require_feature_skill_manager(request, session, payload.feature_id)
     skill = Skill(
         id=f"sk_{token_hex(8)}",
         name=payload.name,
@@ -77,6 +80,8 @@ async def update_skill(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="skill not found")
     if skill.scope == "global":
         require_admin(request)
+    else:
+        await _require_feature_skill_manager(request, session, skill.feature_id)
     if payload.name is not None:
         skill.name = payload.name
     if payload.stage is not None:
@@ -106,6 +111,8 @@ async def delete_skill(skill_id: str, request: Request, session: SessionDep) -> 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="skill not found")
     if skill.scope == "global":
         require_admin(request)
+    else:
+        await _require_feature_skill_manager(request, session, skill.feature_id)
     await record_audit_log(
         session,
         entity_type="skill",
@@ -115,3 +122,25 @@ async def delete_skill(skill_id: str, request: Request, session: SessionDep) -> 
     )
     await session.delete(skill)
     await session.commit()
+
+
+async def _require_feature_skill_manager(
+    request: Request,
+    session: AsyncSession,
+    feature_id: int | None,
+) -> None:
+    if feature_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="feature_id required"
+        )
+    rows = (
+        (
+            await session.execute(
+                select(FeatureAdmin.user_id).where(FeatureAdmin.feature_id == feature_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not can_manage_feature(request.state.actor, feature_admin_user_ids=set(rows)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="feature admin required")

@@ -2,20 +2,15 @@
 
 from fastapi import APIRouter, Request, status
 
+from codeask.api.wiki.deps import SessionDep, wiki_actor_from_request
 from codeask.api.wiki.schemas import (
+    WikiNodeRead,
     WikiPromotionRead,
     WikiSessionAttachmentPromotionCreate,
-    WikiNodeRead,
 )
-from codeask.api.wiki.deps import SessionDep
-from codeask.wiki.actor import WikiActor
 from codeask.wiki.promotions import WikiPromotionService
 
 router = APIRouter()
-
-
-def _actor_from_request(request: Request) -> WikiActor:
-    return WikiActor(subject_id=request.state.subject_id, role=request.state.role)
 
 
 @router.post(
@@ -30,7 +25,7 @@ async def promote_session_attachment(
 ) -> WikiPromotionRead:
     data = await WikiPromotionService().promote_session_attachment(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         settings_data_dir=request.app.state.settings.data_dir,
         session_id=payload.session_id,
         attachment_id=payload.attachment_id,

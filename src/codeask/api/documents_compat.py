@@ -58,6 +58,7 @@ async def upload_document(
             status_code=status.HTTP_400_BAD_REQUEST, detail="file must have a filename"
         )
     await load_feature(feature_id, session)
+    _require_feature_write(request, feature_id)
 
     safe_name = Path(file.filename).name
     kind = kind_from_filename(safe_name)
@@ -171,6 +172,7 @@ async def delete_document(document_id: int, request: Request, session: SessionDe
     ).scalar_one_or_none()
     if document is None or document.is_deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
+    _require_feature_write(request, int(document.feature_id))
     await WikiIndexer().unindex_chunks_for_document(session, doc_id=document_id)
     document.is_deleted = True
     await LegacyWikiSyncService().soft_delete_legacy_document(
@@ -188,3 +190,10 @@ async def delete_document(document_id: int, request: Request, session: SessionDe
         subject_id=request.state.subject_id,
     )
     await session.commit()
+
+
+def _require_feature_write(request: Request, feature_id: int) -> None:
+    actor = request.state.actor
+    if actor.is_admin or feature_id in actor.feature_admin_feature_ids:
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="feature admin required")

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Request, status
 
-from codeask.api.wiki.deps import SessionDep, load_node, load_space
+from codeask.api.wiki.deps import SessionDep, load_node, load_space, wiki_actor_from_request
 from codeask.api.wiki.schemas import (
     WikiNodeCreate,
     WikiNodeDetailRead,
@@ -11,21 +11,16 @@ from codeask.api.wiki.schemas import (
     WikiNodeRead,
     WikiNodeUpdate,
 )
-from codeask.wiki.actor import WikiActor
-from codeask.wiki.tree.ordering import WikiTreeOrderingService
 from codeask.wiki.tree import WikiTreeService
+from codeask.wiki.tree.ordering import WikiTreeOrderingService
 
 router = APIRouter()
-
-
-def _actor_from_request(request: Request) -> WikiActor:
-    return WikiActor(subject_id=request.state.subject_id, role=request.state.role)
 
 
 @router.get("/nodes/{node_id}", response_model=WikiNodeDetailRead)
 async def get_node(node_id: int, request: Request, session: SessionDep) -> WikiNodeDetailRead:
     node = await load_node(node_id, session)
-    actor = _actor_from_request(request)
+    actor = wiki_actor_from_request(request)
     _feature, permissions = await WikiTreeService().get_node_detail(session, node=node, actor=actor)
     return WikiNodeDetailRead(
         **WikiNodeRead.model_validate(node).model_dump(),
@@ -43,7 +38,7 @@ async def create_node(
     parent = await load_node(payload.parent_id, session) if payload.parent_id is not None else None
     node = await WikiTreeService().create_node(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         space=space,
         parent=parent,
         node_type=payload.type,
@@ -66,7 +61,7 @@ async def update_node(
     parent = await load_node(payload.parent_id, session) if payload.parent_id is not None else None
     updated = await WikiTreeService().update_node(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         node=node,
         parent_provided=parent_provided,
         parent=parent,
@@ -93,7 +88,7 @@ async def move_node(
     )
     moved = await WikiTreeOrderingService().move_node(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         node=node,
         target_parent=target_parent,
         target_index=payload.target_index,
@@ -108,7 +103,7 @@ async def delete_node(node_id: int, request: Request, session: SessionDep) -> No
     node = await load_node(node_id, session)
     await WikiTreeService().delete_node(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         node=node,
     )
     await session.commit()
@@ -123,7 +118,7 @@ async def restore_node(
     node = await load_node(node_id, session)
     restored = await WikiTreeService().restore_node(
         session,
-        actor=_actor_from_request(request),
+        actor=wiki_actor_from_request(request),
         node=node,
     )
     await session.commit()

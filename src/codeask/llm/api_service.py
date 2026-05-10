@@ -175,6 +175,11 @@ def scoped_select(cfg_id: str, *, scope: Scope, owner_subject_id: str | None):
 
 
 def require_member_personal_scope(request: Request) -> None:
+    if not getattr(request.state, "authenticated", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="login required",
+        )
     if getattr(request.state, "role", None) == ADMIN_ROLE:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
