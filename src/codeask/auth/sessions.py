@@ -21,7 +21,8 @@ def session_expiry(now: datetime | None = None, ttl_days: int = 7) -> datetime:
 
 
 def should_renew(*, now: datetime, expires_at: datetime, last_seen_at: datetime, ttl_days: int) -> bool:
+    del last_seen_at
     ttl = timedelta(days=ttl_days)
     if expires_at <= now:
         return False
-    return now - last_seen_at >= ttl / 2
+    return expires_at - now <= ttl / 2

@@ -23,17 +23,17 @@ def test_session_expiry_uses_ttl_days() -> None:
     assert session_expiry(now=now, ttl_days=7) == now + timedelta(days=7)
 
 
-def test_should_renew_when_half_lifetime_elapsed() -> None:
+def test_should_renew_when_remaining_lifetime_enters_second_half() -> None:
     now = datetime(2026, 5, 10, tzinfo=UTC)
     expires = now + timedelta(days=2)
-    last_seen = now - timedelta(days=4)
+    last_seen = now - timedelta(minutes=5)
 
     assert should_renew(now=now, expires_at=expires, last_seen_at=last_seen, ttl_days=7)
 
 
-def test_should_not_renew_for_recent_session() -> None:
+def test_should_not_renew_when_remaining_lifetime_is_still_large() -> None:
     now = datetime(2026, 5, 10, tzinfo=UTC)
     expires = now + timedelta(days=6)
-    last_seen = now - timedelta(minutes=30)
+    last_seen = now - timedelta(days=4)
 
     assert not should_renew(now=now, expires_at=expires, last_seen_at=last_seen, ttl_days=7)

@@ -257,7 +257,7 @@ async def test_renews_expiry_when_db_backed_session_is_past_half_life(
     db_factory: async_sessionmaker,
 ) -> None:
     original_expires_at = datetime.now(UTC) + timedelta(days=2)
-    original_last_seen_at = datetime.now(UTC) - timedelta(days=4)
+    original_last_seen_at = datetime.now(UTC) - timedelta(minutes=5)
     token = await _seed_user_session(
         db_factory,
         expires_at=original_expires_at,
