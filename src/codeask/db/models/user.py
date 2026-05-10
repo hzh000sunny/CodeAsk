@@ -2,7 +2,16 @@
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from codeask.db.base import Base, TimestampMixin
@@ -50,19 +59,21 @@ class FeatureAdmin(Base):
 
     __tablename__ = "feature_admins"
     __table_args__ = (
+        UniqueConstraint("feature_id", "user_id", name="uq_feature_admins_feature_user"),
         Index("ix_feature_admins_user_id", "user_id"),
         Index("ix_feature_admins_created_by_user_id", "created_by_user_id"),
     )
 
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     feature_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("features.id", ondelete="CASCADE"),
-        primary_key=True,
+        nullable=False,
     )
     user_id: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("users.id", ondelete="CASCADE"),
-        primary_key=True,
+        nullable=False,
     )
     created_by_user_id: Mapped[str] = mapped_column(
         String(64),

@@ -17,3 +17,9 @@ def test_auth_migration_creates_user_tables(tmp_path: Path) -> None:
     assert "users" in inspector.get_table_names()
     assert "auth_sessions" in inspector.get_table_names()
     assert "feature_admins" in inspector.get_table_names()
+    assert inspector.get_pk_constraint("feature_admins")["constrained_columns"] == ["id"]
+    unique_constraints = inspector.get_unique_constraints("feature_admins")
+    assert any(
+        constraint["column_names"] == ["feature_id", "user_id"]
+        for constraint in unique_constraints
+    )

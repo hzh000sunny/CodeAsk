@@ -74,6 +74,7 @@ def upgrade() -> None:
     op.create_index("ix_auth_sessions_user_id", "auth_sessions", ["user_id"])
     op.create_table(
         "feature_admins",
+        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("feature_id", sa.Integer(), nullable=False),
         sa.Column("user_id", sa.String(length=64), nullable=False),
         sa.Column("created_by_user_id", sa.String(length=64), nullable=False),
@@ -86,7 +87,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["created_by_user_id"], ["users.id"]),
         sa.ForeignKeyConstraint(["feature_id"], ["features.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("feature_id", "user_id"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "feature_id",
+            "user_id",
+            name="uq_feature_admins_feature_user",
+        ),
     )
     op.create_index("ix_feature_admins_user_id", "feature_admins", ["user_id"])
     op.create_index(
