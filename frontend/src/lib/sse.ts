@@ -1,5 +1,5 @@
 import { ApiError } from "./api";
-import { getSubjectId } from "./identity";
+import { getGuestLlmConfig, getSubjectId } from "./identity";
 import type { AgentEvent, AgentEventName } from "../types/sse";
 
 const AGENT_EVENT_NAMES = new Set<AgentEventName>([
@@ -46,6 +46,7 @@ export async function streamSessionMessage({
   onTurnId,
   signal,
 }: StreamSessionMessageInput) {
+  const guestLlmConfig = getCompleteGuestLlmConfig();
   const response = await fetch(`/api/sessions/${sessionId}/messages`, {
     method: "POST",
     headers: {
@@ -58,6 +59,7 @@ export async function streamSessionMessage({
       feature_ids,
       repo_bindings,
       reply_to,
+      ...(guestLlmConfig ? { guest_llm_config: guestLlmConfig } : {}),
     }),
     signal,
   });
@@ -163,4 +165,12 @@ function isAgentEventName(value: string): value is AgentEventName {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getCompleteGuestLlmConfig() {
+  const config = getGuestLlmConfig();
+  if (!config?.api_key || !config.model_name) {
+    return null;
+  }
+  return config;
 }

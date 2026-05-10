@@ -23,11 +23,27 @@ const adminMe = {
   authenticated: true,
 };
 
-const memberMe = {
+const anonymousMe = {
   subject_id: "client_test",
   display_name: "client_test",
   role: "member",
   authenticated: false,
+};
+
+const memberMe = {
+  subject_id: "user_client_test",
+  display_name: "client_test",
+  role: "member",
+  authenticated: true,
+};
+
+const memberUser = {
+  id: "user_client_test",
+  username: "client_test",
+  role: "member",
+  last_login_at: "2026-04-30T10:00:00",
+  created_at: "2026-04-30T10:00:00",
+  updated_at: "2026-04-30T10:00:00",
 };
 
 function llm(overrides: Partial<Record<string, unknown>> = {}) {
@@ -80,7 +96,7 @@ describe("SettingsPage LLM configuration", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path === "/api/auth/me") {
-        return jsonResponse(memberMe);
+        return jsonResponse(anonymousMe);
       }
       if (path === "/api/sessions") {
         return jsonResponse([]);
@@ -122,9 +138,9 @@ describe("SettingsPage LLM configuration", () => {
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input);
         if (path === "/api/auth/me") {
-          return jsonResponse(authenticated ? adminMe : memberMe);
+          return jsonResponse(authenticated ? adminMe : anonymousMe);
         }
-        if (path === "/api/auth/admin/login" && init?.method === "POST") {
+        if (path === "/api/auth/login" && init?.method === "POST") {
           authenticated = true;
           return jsonResponse(adminMe);
         }
@@ -196,7 +212,7 @@ describe("SettingsPage LLM configuration", () => {
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input);
         if (path === "/api/auth/me") {
-          return jsonResponse(authenticated ? adminMe : memberMe);
+          return jsonResponse(authenticated ? adminMe : anonymousMe);
         }
         if (path === "/api/auth/logout" && init?.method === "POST") {
           authenticated = false;
@@ -256,6 +272,9 @@ describe("SettingsPage LLM configuration", () => {
       if (path === "/api/auth/me") {
         return jsonResponse(memberMe);
       }
+      if (path === "/api/users/me") {
+        return jsonResponse(memberUser);
+      }
       if (path === "/api/sessions") {
         return jsonResponse([]);
       }
@@ -290,6 +309,9 @@ describe("SettingsPage LLM configuration", () => {
       if (path === "/api/auth/me") {
         return jsonResponse(memberMe);
       }
+      if (path === "/api/users/me") {
+        return jsonResponse(memberUser);
+      }
       if (path === "/api/sessions") {
         return jsonResponse([]);
       }
@@ -306,11 +328,11 @@ describe("SettingsPage LLM configuration", () => {
     const profileSection = (
       await screen.findByRole("heading", { name: "用户配置" })
     ).closest("section") as HTMLElement;
-    const nicknameInput = within(profileSection).getByLabelText("昵称");
+    const nicknameInput = within(profileSection).getByLabelText("用户名");
     const nicknameField = nicknameInput.closest("label") as HTMLElement;
     const profileForm = nicknameField.closest(".user-profile-form") as HTMLElement;
     const actions = within(profileSection)
-      .getByRole("button", { name: "保存用户设置" })
+      .getByRole("button", { name: "保存用户名" })
       .closest(".form-actions") as HTMLElement;
 
     expect(nicknameField).toHaveClass("user-profile-field");
@@ -330,6 +352,9 @@ describe("SettingsPage LLM configuration", () => {
         const path = String(input);
         if (path === "/api/auth/me") {
           return jsonResponse(memberMe);
+        }
+        if (path === "/api/users/me") {
+          return jsonResponse(memberUser);
         }
         if (path === "/api/sessions") {
           return jsonResponse([]);
@@ -414,6 +439,9 @@ describe("SettingsPage LLM configuration", () => {
         const path = String(input);
         if (path === "/api/auth/me") {
           return jsonResponse(memberMe);
+        }
+        if (path === "/api/users/me") {
+          return jsonResponse(memberUser);
         }
         if (path === "/api/sessions") {
           return jsonResponse([]);

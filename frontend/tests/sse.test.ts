@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setGuestLlmConfig } from "../src/lib/identity";
 import { streamSessionMessage } from "../src/lib/sse";
 import type { AgentEvent } from "../src/types/sse";
 
@@ -23,6 +24,11 @@ function sseResponse(chunks: string[]) {
 }
 
 describe("session SSE client", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
   it("posts a message with identity headers and parses named agent events", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse([
@@ -56,10 +62,59 @@ describe("session SSE client", () => {
     expect(JSON.parse(String(init.body))).not.toHaveProperty(
       "force_code_investigation",
     );
+    expect(JSON.parse(String(init.body))).not.toHaveProperty("guest_llm_config");
     expect(events).toEqual([
       { type: "stage_transition", data: { stage: "knowledge_retrieval" } },
       { type: "text_delta", data: { text: "需要检查" } },
       { type: "done", data: {} },
     ]);
+  });
+
+  it("includes browser-local guest LLM config in the message request body", async () => {
+    setGuestLlmConfig({
+      name: "访客模型",
+      protocol: "anthropic",
+      base_url: "http://guest.llm/v1",
+      api_key: "sk-guest",
+      model_name: "guest-model",
+      max_tokens: 4096,
+      temperature: 0.1,
+      reasoning_profile: "custom_json",
+      reasoning_profile_json: '{"thinking":true}',
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("event: done\ndata: {}\n\n"));
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamSessionMessage({
+      sessionId: "sess_guest",
+      content: "你好",
+      onEvent: () => undefined,
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      content: "你好",
+      guest_llm_config: {
+        protocol: "anthropic",
+        base_url: "http://guest.llm/v1",
+        api_key: "sk-guest",
+        model_name: "guest-model",
+        max_tokens: 4096,
+        temperature: 0.1,
+        reasoning_profile: "custom_json",
+        reasoning_profile_json: '{"thinking":true}',
+      },
+    });
   });
 });

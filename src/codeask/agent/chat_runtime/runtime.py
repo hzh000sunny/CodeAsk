@@ -61,6 +61,11 @@ class ContextualStreamingLLM(StreamingLLM, Protocol):
 
 
 @runtime_checkable
+class RuntimeConfigStreamingLLM(StreamingLLM, Protocol):
+    def with_runtime_config(self, config: dict[str, Any] | None) -> StreamingLLM: ...
+
+
+@runtime_checkable
 class SubjectStreamingLLM(StreamingLLM, Protocol):
     def with_subject(self, subject_id: str | None) -> StreamingLLM: ...
 
@@ -84,16 +89,19 @@ class GatewayStreamingLLM:
         *,
         subject_id: str | None = None,
         session_id: str | None = None,
+        runtime_config: dict[str, Any] | None = None,
     ) -> None:
         self._gateway = gateway
         self._subject_id = subject_id
         self._session_id = session_id
+        self._runtime_config = runtime_config
 
     def with_subject(self, subject_id: str | None) -> GatewayStreamingLLM:
         return GatewayStreamingLLM(
             self._gateway,
             subject_id=subject_id,
             session_id=self._session_id,
+            runtime_config=self._runtime_config,
         )
 
     def with_context(
@@ -106,6 +114,18 @@ class GatewayStreamingLLM:
             self._gateway,
             subject_id=subject_id,
             session_id=session_id,
+            runtime_config=self._runtime_config,
+        )
+
+    def with_runtime_config(
+        self,
+        config: dict[str, Any] | None,
+    ) -> GatewayStreamingLLM:
+        return GatewayStreamingLLM(
+            self._gateway,
+            subject_id=self._subject_id,
+            session_id=self._session_id,
+            runtime_config=config,
         )
 
     def stream(
@@ -115,11 +135,13 @@ class GatewayStreamingLLM:
         max_tokens: int,
         temperature: float,
     ) -> AsyncIterator[LLMEvent]:
-        metadata: dict[str, str] = {}
+        metadata: dict[str, Any] = {}
         if self._subject_id:
             metadata["subject_id"] = self._subject_id
         if self._session_id:
             metadata["session_id"] = self._session_id
+        if self._runtime_config:
+            metadata["runtime_llm_config"] = self._runtime_config
         return self._gateway.stream(
             LLMRequest(
                 messages=messages,
@@ -197,6 +219,7 @@ class ChatRuntime:
         attachments: list[dict[str, Any]] | None = None,
         conversation_summary: str | None = None,
         tool_action_summary: str | None = None,
+        runtime_llm_config: dict[str, Any] | None = None,
     ) -> AsyncIterator[ChatRuntimeEvent]:
         llm: StreamingLLM
         if isinstance(self._llm, ContextualStreamingLLM):
@@ -205,6 +228,8 @@ class ChatRuntime:
             llm = self._llm.with_subject(subject_id)
         else:
             llm = self._llm
+        if runtime_llm_config is not None and isinstance(llm, RuntimeConfigStreamingLLM):
+            llm = llm.with_runtime_config(runtime_llm_config)
         retrieval_context = await self._retrieval.retrieve(
             user_message=user_message,
             session_summary=conversation_summary,
@@ -776,15 +801,16 @@ def _format_retrieval_context(retrieval_context: dict[str, Any]) -> str | None:
     lines = [
         "【RAG候选上下文】",
         "以下内容只是候选证据，由你判断是否使用；不要把它当作固定流程。",
-        "判断用户问题范围时，先参考特性目录、特性知识索引、Wiki/报告候选，"
-        "再决定是否需要调用工具。",
+        "判断用户问题范围时，先参考特性目录、特性知识索引、Wiki/报告候选，再决定是否需要调用工具。",
         "调用代码工具时，把你判断相关的 feature_id 填入 feature_ids；"
         "只有用户明确要求查询某个仓库时，才设置 explicit_repo_scope=true。",
         "不要因为代码仓库候选存在就默认搜索代码。",
     ]
     if feature_catalog:
         lines.append("【特性目录】")
-        lines.append("以下是当前系统可识别的业务/功能范围，用户问题可能对应一个或多个特性，由你判断。")
+        lines.append(
+            "以下是当前系统可识别的业务/功能范围，用户问题可能对应一个或多个特性，由你判断。"
+        )
         for item in feature_catalog[:50]:
             feature_id = _candidate_value(item, "feature_id", "id")
             name = _candidate_value(item, "name", "title")

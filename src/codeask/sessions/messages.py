@@ -130,6 +130,7 @@ async def stream_agent_response(
     content: str,
     *,
     force_code_investigation: bool,
+    runtime_llm_config: dict[str, Any] | None = None,
 ) -> AsyncIterator[bytes]:
     runtime = request.app.state.chat_runtime
     multiplexer = SSEMultiplexer()
@@ -155,6 +156,7 @@ async def stream_agent_response(
             attachments=attachments,
             conversation_summary=conversation_summary,
             tool_action_summary=tool_action_summary,
+            runtime_llm_config=runtime_llm_config,
         ):
             await persist_runtime_audit_payload(
                 request,
@@ -259,23 +261,18 @@ async def load_chat_runtime_context(
             current_turn_id=current_turn_id,
             keep_recent_messages=max_history_messages,
         )
-        turn_query = (
-            select(SessionTurn)
-            .where(
-                SessionTurn.session_id == session_id,
-                SessionTurn.id != current_turn_id,
-            )
+        turn_query = select(SessionTurn).where(
+            SessionTurn.session_id == session_id,
+            SessionTurn.id != current_turn_id,
         )
         if summary_row is not None:
-            turn_query = turn_query.where(
-                SessionTurn.turn_index > summary_row.covered_turn_index
-            )
+            turn_query = turn_query.where(SessionTurn.turn_index > summary_row.covered_turn_index)
         turn_rows = (
             (
                 await session.execute(
-                    turn_query
-                    .order_by(SessionTurn.turn_index.desc(), SessionTurn.created_at.desc())
-                    .limit(max_history_messages)
+                    turn_query.order_by(
+                        SessionTurn.turn_index.desc(), SessionTurn.created_at.desc()
+                    ).limit(max_history_messages)
                 )
             )
             .scalars()
@@ -345,7 +342,7 @@ async def _ensure_conversation_summary(
     if len(turn_rows) <= keep_recent_messages:
         return await session.get(SessionConversationSummary, session_id)
 
-    covered_rows = list(turn_rows[: -keep_recent_messages])
+    covered_rows = list(turn_rows[:-keep_recent_messages])
     if not covered_rows:
         return await session.get(SessionConversationSummary, session_id)
     covered_turn_index = max(row.turn_index for row in covered_rows)
@@ -357,10 +354,7 @@ async def _ensure_conversation_summary(
         and summary_row.covered_turn_index >= 0
     ):
         return summary_row
-    if (
-        summary_row is not None
-        and summary_row.covered_turn_index >= covered_turn_index
-    ):
+    if summary_row is not None and summary_row.covered_turn_index >= covered_turn_index:
         return summary_row
 
     trace_rows = await _load_summary_trace_rows(
@@ -450,8 +444,7 @@ def _build_extractive_conversation_summary(
         for row in covered_rows[-8:]:
             label = "用户" if row.role == "user" else "CodeAsk"
             lines.append(
-                f"- turn_index={row.turn_index} {label}: "
-                f"{_truncate_summary(row.content, 360)}"
+                f"- turn_index={row.turn_index} {label}: {_truncate_summary(row.content, 360)}"
             )
     tool_summary = summarize_tool_actions(trace_rows)
     if tool_summary:

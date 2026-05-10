@@ -79,7 +79,7 @@ export function TopBar({ onLoginRequest, onNavigate }: TopBarProps) {
               <>
                 <div className="account-summary">
                   <strong>{displayName}</strong>
-                  <span>管理员</span>
+                  <span>{me.role === "admin" ? "管理员" : "已登录用户"}</span>
                 </div>
                 <button
                   className="menu-item"
@@ -129,6 +129,9 @@ export function TopBar({ onLoginRequest, onNavigate }: TopBarProps) {
 function displayNameFor(me: AuthMeResponse | undefined) {
   if (me?.role === "admin") {
     return "Admin";
+  }
+  if (me?.authenticated) {
+    return me.display_name || "已登录";
   }
   return "未登录";
 }

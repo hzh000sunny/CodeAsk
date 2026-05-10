@@ -5,6 +5,13 @@ export function getMe() {
   return apiRequest<AuthMeResponse>("/api/auth/me");
 }
 
+export function login(payload: { username: string; password: string }) {
+  return apiRequest<AuthMeResponse>("/api/auth/login", {
+    method: "POST",
+    body: payload,
+  });
+}
+
 export function adminLogin(payload: { username: string; password: string }) {
   return apiRequest<AuthMeResponse>("/api/auth/admin/login", {
     method: "POST",

@@ -182,3 +182,17 @@ export interface AuthMeResponse {
   role: "member" | "admin";
   authenticated: boolean;
 }
+
+export interface UserResponse {
+  id: string;
+  username: string;
+  role: "member" | "admin";
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserCandidateResponse {
+  id: string;
+  username: string;
+}

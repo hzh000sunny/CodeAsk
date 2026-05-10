@@ -25,10 +25,12 @@ class _ScriptedClient:
 class _CapturingFactoryClient(_ScriptedClient):
     def __init__(self) -> None:
         super().__init__(
-            [[
-                LLMEvent(type="message_start", data={}),
-                LLMEvent(type="message_stop", data={"stop_reason": "end_turn"}),
-            ]]
+            [
+                [
+                    LLMEvent(type="message_start", data={}),
+                    LLMEvent(type="message_stop", data={"stop_reason": "end_turn"}),
+                ]
+            ]
         )
         self.kwargs: dict[str, object] = {}
 
@@ -79,12 +81,15 @@ def _request(
     subject_id: str | None = None,
     session_id: str | None = None,
     config_id: str | None = None,
+    runtime_llm_config: dict[str, Any] | None = None,
 ) -> LLMRequest:
     metadata: dict[str, Any] = {}
     if subject_id is not None:
         metadata["subject_id"] = subject_id
     if session_id is not None:
         metadata["session_id"] = session_id
+    if runtime_llm_config is not None:
+        metadata["runtime_llm_config"] = runtime_llm_config
     return LLMRequest(
         config_id=config_id,
         messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
@@ -165,6 +170,53 @@ async def test_gateway_passes_reasoning_profile_to_client_factory() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gateway_uses_runtime_llm_config_without_persisted_repo_lookup() -> None:
+    client = _CapturingFactoryClient()
+
+    def build_client(**kwargs: object) -> _CapturingFactoryClient:
+        client.kwargs = kwargs
+        return client
+
+    repo = _FakeRepo(
+        user_configs=[_Config(id="user_cfg", model_name="user-model", scope="user")],
+        global_configs=[_Config(id="global_cfg", model_name="global-model")],
+    )
+    gateway = LLMGateway(
+        repo,
+        ClientFactory(provider_clients={"anthropic": build_client}),
+        base_delay=0.0,
+    )  # type: ignore[arg-type]
+
+    out = [
+        event
+        async for event in gateway.stream(
+            _request(
+                subject_id="client_guest",
+                session_id="sess_guest",
+                runtime_llm_config={
+                    "name": "访客模型",
+                    "protocol": "anthropic",
+                    "base_url": "http://guest.llm/v1",
+                    "api_key": "sk-guest",
+                    "model_name": "guest-model",
+                    "max_tokens": 4096,
+                    "temperature": 0.1,
+                    "reasoning_profile": "custom_json",
+                    "reasoning_profile_json": '{"thinking":true}',
+                },
+            )
+        )
+    ]
+
+    assert out[-1].type == "message_stop"
+    assert client.kwargs["api_key"] == "sk-guest"
+    assert client.kwargs["base_url"] == "http://guest.llm/v1"
+    assert client.kwargs["model_name"] == "guest-model"
+    assert client.kwargs["reasoning_request_profile"] == "custom_json"
+    assert client.kwargs["reasoning_request_profile_json"] == '{"thinking":true}'
+
+
+@pytest.mark.asyncio
 async def test_gateway_prefers_enabled_user_config_over_global_pool() -> None:
     clients: dict[str, _CapturingFactoryClient] = {}
 
@@ -182,9 +234,7 @@ async def test_gateway_prefers_enabled_user_config_over_global_pool() -> None:
 
     _ = [
         event
-        async for event in gateway.stream(
-            _request(subject_id="alice@dev", session_id="sess_user")
-        )
+        async for event in gateway.stream(_request(subject_id="alice@dev", session_id="sess_user"))
     ]
 
     assert "user-model" in clients
@@ -281,9 +331,7 @@ async def test_gateway_limits_global_config_to_three_sessions_per_minute() -> No
 
     out = [
         event
-        async for event in gateway.stream(
-            _request(subject_id="alice@dev", session_id="sess_4")
-        )
+        async for event in gateway.stream(_request(subject_id="alice@dev", session_id="sess_4"))
     ]
 
     assert out[-1].type == "error"
@@ -316,9 +364,7 @@ async def test_gateway_counts_same_session_once_per_window() -> None:
 
     out = [
         event
-        async for event in gateway.stream(
-            _request(subject_id="alice@dev", session_id="sess_4")
-        )
+        async for event in gateway.stream(_request(subject_id="alice@dev", session_id="sess_4"))
     ]
 
     assert selected_models == ["global-model"] * 5
@@ -601,9 +647,7 @@ async def test_gateway_does_not_cool_down_config_for_context_length_errors() -> 
 
     out = [
         event
-        async for event in gateway.stream(
-            _request(subject_id="alice@dev", session_id="sess_ctx_4")
-        )
+        async for event in gateway.stream(_request(subject_id="alice@dev", session_id="sess_ctx_4"))
     ]
 
     assert selected_models == ["model-a", "model-a", "model-a", "model-a"]

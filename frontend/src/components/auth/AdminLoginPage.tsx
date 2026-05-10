@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, LogIn, UserRound } from "lucide-react";
 
-import { adminLogin } from "../../lib/api";
+import { login } from "../../lib/api";
 import { resetSubjectScopedQueries } from "../../lib/auth-cache";
 import { useAppFeedback } from "../feedback/AppFeedback";
 import { Button } from "../ui/button";
@@ -19,7 +19,7 @@ export function AdminLoginPage({ onSuccess }: AdminLoginPageProps) {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const loginMutation = useMutation({
-    mutationFn: adminLogin,
+    mutationFn: login,
     onSuccess: (me) => {
       queryClient.setQueryData(["auth", "me"], me);
       resetSubjectScopedQueries(queryClient);
@@ -29,6 +29,8 @@ export function AdminLoginPage({ onSuccess }: AdminLoginPageProps) {
       showError("登录失败，请检查用户名和密码", { title: "登录失败" });
     },
   });
+
+  const passwordTooShort = username.trim() !== "admin" && password.trim().length < 6;
 
   return (
     <section className="login-page" aria-label="登录页">
@@ -45,7 +47,7 @@ export function AdminLoginPage({ onSuccess }: AdminLoginPageProps) {
           </div>
           <div>
             <h1>登录</h1>
-            <p>输入账号信息后继续使用 CodeAsk。</p>
+            <p>首次使用会自动创建账号，用户名和密码大小写敏感。</p>
           </div>
         </div>
         <label className="field-label" htmlFor="login-username">
@@ -54,6 +56,7 @@ export function AdminLoginPage({ onSuccess }: AdminLoginPageProps) {
             autoComplete="username"
             id="login-username"
             onChange={(event) => setUsername(event.target.value)}
+            placeholder="输入用户名"
             value={username}
           />
         </label>
@@ -82,7 +85,7 @@ export function AdminLoginPage({ onSuccess }: AdminLoginPageProps) {
           </span>
         </div>
         <Button
-          disabled={!username.trim() || !password || loginMutation.isPending}
+          disabled={!username.trim() || !password || passwordTooShort || loginMutation.isPending}
           icon={<LogIn size={16} />}
           type="submit"
           variant="primary"

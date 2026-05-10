@@ -951,7 +951,7 @@ git commit -m "feat(audit): record auth and authorization events"
 - Create: `frontend/tests/auth-cache.test.ts`
 - Create: `frontend/tests/guest-llm-config.test.ts`
 
-- [ ] **Step 1：写前端缓存测试**
+- [x] **Step 1：写前端缓存测试**
 
 创建 `frontend/tests/auth-cache.test.ts`：
 
@@ -977,23 +977,23 @@ describe("resetSubjectScopedQueries", () => {
 });
 ```
 
-- [ ] **Step 2：确认测试失败**
+- [x] **Step 2：确认测试失败**
 
 Run: `corepack pnpm --dir frontend test:run auth-cache.test.ts`
 
 Expected: FAIL。
 
-- [ ] **Step 3：实现前端身份和 API**
+- [x] **Step 3：实现前端身份和 API**
 
 修改：
 
 - `identity.ts`：保留匿名浏览器 ID，新增访客 LLM localStorage helper。
 - `api-auth.ts`：登录、退出、`me`、改用户名、改密码。
 - `api-users.ts`：用户搜索、清空密码。
-- `api-client.ts`：继续发送 `X-Subject-Id`，会话请求支持携带访客 LLM 配置。
+- `api-client.ts` / `sse.ts`：继续发送 `X-Subject-Id`，会话请求支持携带访客 LLM 配置。
 - `auth-cache.ts`：清理 sessions、session-turns、session-traces、session-attachments、feature-admins、wiki-tree、wiki-documents、user-llm-configs 等身份相关缓存。
 
-- [ ] **Step 4：实现登录页和用户设置**
+- [x] **Step 4：实现登录页和用户设置**
 
 修改：
 
@@ -1002,7 +1002,7 @@ Expected: FAIL。
 - `UserSettings.tsx`：未登录显示浏览器 ID 和访客 LLM；登录用户显示用户名和密码修改；admin 用户名固定不可改。
 - `GuestLlmConfig.tsx`：保存访客 LLM 到浏览器本地。
 
-- [ ] **Step 5：运行 Task 7 测试**
+- [x] **Step 5：运行 Task 7 测试**
 
 Run:
 
@@ -1013,7 +1013,25 @@ corepack pnpm --dir frontend typecheck
 
 Expected: PASS。
 
-- [ ] **Step 6：提交**
+实际补充验证：
+
+```bash
+corepack pnpm --dir frontend test:run auth-cache.test.ts guest-llm-config.test.ts sse.test.ts settings-page.test.tsx app-shell.test.tsx app-feedback.test.tsx
+corepack pnpm --dir frontend typecheck
+uv run pytest tests/unit/test_llm_gateway.py -v
+uv run ruff check src/codeask/llm/gateway.py src/codeask/api/schemas/session.py src/codeask/api/sessions.py src/codeask/sessions/messages.py src/codeask/agent/chat_runtime/runtime.py tests/unit/test_llm_gateway.py
+uv run ruff format --check src/codeask/llm/gateway.py src/codeask/api/schemas/session.py src/codeask/api/sessions.py src/codeask/sessions/messages.py src/codeask/agent/chat_runtime/runtime.py tests/unit/test_llm_gateway.py
+```
+
+实现备注：
+
+- 通用登录页已走 `/api/auth/login`，首次普通用户自动注册，admin 继续使用固定用户名和默认密码兜底。
+- 未登录用户的 LLM 配置只写入浏览器 localStorage；发送会话消息时，如果本地配置完整，会作为 `guest_llm_config` 随 SSE 请求提交。
+- 后端只在未登录 actor 上接受 `guest_llm_config`，登录用户和 admin 仍使用服务端持久化 LLM 配置。
+- `LLMGateway` 支持运行时 LLM 配置，不落库、不进入全局配置负载池，不占用全局模型并发窗口。
+- 当前完成的是“访客本地配置直接用于匿名会话请求”；“登录后迁移访客 LLM 配置到个人配置并记录迁移审计”将在 Task 8/Task 9 前端权限 UI 与用户管理阶段继续接入。
+
+- [x] **Step 6：提交**
 
 Run:
 

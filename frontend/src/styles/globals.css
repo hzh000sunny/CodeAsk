@@ -2690,6 +2690,19 @@ textarea:focus-visible {
 .user-profile-actions {
   margin-top: 0;
   margin-left: 124px;
+  gap: 8px;
+}
+
+.guest-llm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 320px));
+  gap: 12px 14px;
+  margin-top: 16px;
+}
+
+.guest-llm-actions {
+  justify-content: flex-start;
+  margin-top: 14px;
 }
 
 .content-toolbar {

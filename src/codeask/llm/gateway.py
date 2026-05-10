@@ -13,7 +13,7 @@ from codeask.llm.client import (
     OpenAIClient,
     OpenAICompatibleClient,
 )
-from codeask.llm.repo import LLMConfigRepo
+from codeask.llm.repo import LLMConfigRepo, LLMConfigWithSecret
 from codeask.llm.types import LLMError, LLMEvent, LLMRequest
 
 
@@ -167,11 +167,19 @@ class LLMGateway:
         normalized_subject_id = subject_id if isinstance(subject_id, str) else None
         normalized_session_id = session_id if isinstance(session_id, str) else None
         excluded_global_config_ids: set[str] = set()
-        selected = await self._select_config(
-            request.config_id,
-            subject_id=normalized_subject_id,
-            session_id=normalized_session_id,
-            excluded_global_config_ids=excluded_global_config_ids,
+        runtime_config = _runtime_config_from_metadata(request.metadata.get("runtime_llm_config"))
+        if isinstance(runtime_config, LLMEvent):
+            yield runtime_config
+            return
+        selected = (
+            (runtime_config, False)
+            if runtime_config is not None
+            else await self._select_config(
+                request.config_id,
+                subject_id=normalized_subject_id,
+                session_id=normalized_session_id,
+                excluded_global_config_ids=excluded_global_config_ids,
+            )
         )
         if selected is None:
             yield _resource_busy_event()
@@ -346,6 +354,78 @@ def _selected_config_summary(config: Any, *, pooled_global: bool) -> dict[str, A
         "scope": getattr(config, "scope", None),
         "is_global_pool": pooled_global,
     }
+
+
+def _runtime_config_from_metadata(raw: Any) -> LLMConfigWithSecret | LLMEvent | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        return _invalid_runtime_config_event("runtime LLM config must be an object")
+    protocol = _required_string(raw, "protocol")
+    api_key = _required_string(raw, "api_key")
+    model_name = _required_string(raw, "model_name")
+    if protocol is None or api_key is None or model_name is None:
+        return _invalid_runtime_config_event("runtime LLM config is incomplete")
+    if protocol not in {"openai", "openai_compatible", "anthropic"}:
+        return _invalid_runtime_config_event("runtime LLM config protocol is not supported")
+    return LLMConfigWithSecret(
+        id="runtime_guest",
+        name=_optional_string(raw, "name") or "访客 LLM",
+        scope="runtime",
+        owner_subject_id=None,
+        protocol=protocol,
+        base_url=_optional_string(raw, "base_url"),
+        api_key=api_key,
+        model_name=model_name,
+        max_tokens=_optional_int(raw, "max_tokens", 4096),
+        temperature=_optional_float(raw, "temperature", 0.0),
+        is_default=False,
+        enabled=True,
+        rpm_limit=None,
+        quota_remaining=None,
+        reasoning_profile=_optional_string(raw, "reasoning_profile") or "none",
+        reasoning_profile_json=_optional_string(raw, "reasoning_profile_json"),
+    )
+
+
+def _required_string(raw: dict[str, Any], key: str) -> str | None:
+    value = raw.get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _optional_string(raw: dict[str, Any], key: str) -> str | None:
+    value = raw.get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _optional_int(raw: dict[str, Any], key: str, fallback: int) -> int:
+    value = raw.get(key)
+    if isinstance(value, int):
+        return value
+    return fallback
+
+
+def _optional_float(raw: dict[str, Any], key: str, fallback: float) -> float:
+    value = raw.get(key)
+    if isinstance(value, int | float):
+        return float(value)
+    return fallback
+
+
+def _invalid_runtime_config_event(message: str) -> LLMEvent:
+    return LLMEvent(
+        type="error",
+        data={
+            "provider": "runtime_llm_config",
+            "error_code": "invalid_runtime_config",
+            "message": message,
+            "retryable": False,
+        },
+    )
 
 
 def _counts_against_config_health(data: dict[str, Any]) -> bool:

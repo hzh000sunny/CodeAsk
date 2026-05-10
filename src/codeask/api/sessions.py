@@ -350,6 +350,12 @@ async def post_message(
             turn_id,
             payload.content,
             force_code_investigation=payload.force_code_investigation,
+            runtime_llm_config=(
+                payload.guest_llm_config.model_dump()
+                if payload.guest_llm_config is not None
+                and not bool(getattr(request.state, "authenticated", False))
+                else None
+            ),
         ),
         media_type="text/event-stream",
         headers={"X-CodeAsk-Turn-Id": turn_id},
