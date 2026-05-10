@@ -3,10 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { createFeature, deleteFeature, listFeatures } from "../../lib/api";
 import type { FeatureRead } from "../../types/api";
+import { useAppFeedback } from "../feedback/AppFeedback";
 import { DeleteFeatureDialog } from "./FeatureDialogs";
 import { FeatureListPanel } from "./FeatureListPanel";
 import { FeatureTabs, type FeatureWikiOpenOptions } from "./FeatureTabs";
 import { mergeById, messageFromError } from "./feature-utils";
+import { useFeaturePermissions } from "./useFeaturePermissions";
 
 interface ReportTarget {
   featureId: number;
@@ -23,6 +25,7 @@ export function FeatureWorkbench({
   reportTarget,
 }: FeatureWorkbenchProps) {
   const queryClient = useQueryClient();
+  const { showError } = useAppFeedback();
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState("settings");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -103,6 +106,7 @@ export function FeatureWorkbench({
     visibleFeatures.find((item) => item.id === selectedId) ??
     visibleFeatures[0] ??
     null;
+  const { canCreateFeature, isAdmin } = useFeaturePermissions(selected?.id);
 
   return (
     <section
@@ -130,13 +134,20 @@ export function FeatureWorkbench({
         onFeatureNameChange={setFeatureName}
         onQueryChange={setQuery}
         onSelect={setSelectedId}
-        onShowCreateChange={setShowCreate}
+        onShowCreateChange={(value) => {
+          if (value && !canCreateFeature) {
+            showError("请联系管理员添加", { title: "无权创建特性" });
+            return;
+          }
+          setShowCreate(value);
+        }}
         onToggleCollapsed={() => setListCollapsed((value) => !value)}
         pendingDelete={deleteMutation.isPending}
         query={query}
         selectedFeatureId={selected?.id ?? null}
         showCreate={showCreate}
         visibleFeatures={visibleFeatures}
+        canDeleteFeatures={isAdmin}
       />
 
       <section className="detail-panel">

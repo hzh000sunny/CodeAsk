@@ -672,7 +672,7 @@ uv run pytest tests/unit/test_feature_permissions.py tests/integration/test_feat
 
 Expected: PASS。
 
-- [ ] **Step 7：提交**
+- [x] **Step 7：提交**
 
 Run:
 
@@ -1055,24 +1055,24 @@ git commit -m "feat(ui): add unified auth and guest llm settings"
 - Create: `frontend/src/components/settings/users/UserManager.tsx`
 - Create: `frontend/tests/feature-admins-ui.test.tsx`
 
-- [ ] **Step 1：写 UI 测试**
+- [x] **Step 1：写 UI 测试**
 
 创建 `frontend/tests/feature-admins-ui.test.tsx`，先验证非 admin 只能看管理员列表，看不到添加/删除按钮。
 
-- [ ] **Step 2：确认测试失败**
+- [x] **Step 2：确认测试失败**
 
 Run: `corepack pnpm --dir frontend test:run feature-admins-ui.test.tsx`
 
 Expected: FAIL。
 
-- [ ] **Step 3：实现特性管理员前端**
+- [x] **Step 3：实现特性管理员前端**
 
 - `api-feature-admins.ts`：实现 list/search/add/remove。
 - `FeatureAdminsPanel.tsx`：所有人可查看列表；只有 admin 显示搜索、添加、删除。
 - `FeatureTabs.tsx`：新增“管理员”tab。
 - 添加和删除成功使用轻量 toast，失败使用居中弹窗。
 
-- [ ] **Step 4：实现权限 UI**
+- [x] **Step 4：实现权限 UI**
 
 - `FeatureWorkbench.tsx`：创建特性按钮保留；非 admin 点击弹窗“请联系管理员添加”。
 - `FeatureSettings.tsx`：非授权用户看只读内容。
@@ -1080,12 +1080,12 @@ Expected: FAIL。
 - `KnowledgePanel.tsx` 和 Wiki 入口：只读保留，上传/编辑跳转只对授权用户显示。
 - `ReportsPanel.tsx`：报告查看开放，编辑/删除/验证只对授权用户显示。
 
-- [ ] **Step 5：实现全局用户管理**
+- [x] **Step 5：实现全局用户管理**
 
 - `GlobalSettings.tsx`：新增附件上传开关和 `UserManager`。
-- `UserManager.tsx`：admin 搜索用户、查看密码状态、清空普通用户密码；不显示清空 admin 密码按钮。
+- `UserManager.tsx`：admin 搜索用户、清空普通用户密码；候选接口已过滤 admin，因此不会显示清空 admin 密码按钮。当前后端候选响应不含密码状态，密码状态展示保留为后续扩展。
 
-- [ ] **Step 6：运行 Task 8 测试**
+- [x] **Step 6：运行 Task 8 测试**
 
 Run:
 
@@ -1095,6 +1095,24 @@ corepack pnpm --dir frontend typecheck
 ```
 
 Expected: PASS。
+
+实际补充验证：
+
+```bash
+corepack pnpm --dir frontend test:run feature-admins-ui.test.tsx settings-page.test.tsx app-shell.test.tsx app-feedback.test.tsx
+corepack pnpm --dir frontend typecheck
+uv run pytest tests/integration/test_system_settings_api.py tests/integration/test_attachment_upload_gate.py -v
+uv run ruff check src/codeask/api/system_settings.py src/codeask/app.py tests/integration/test_system_settings_api.py
+uv run ruff format --check src/codeask/api/system_settings.py src/codeask/app.py tests/integration/test_system_settings_api.py
+```
+
+实现备注：
+
+- `FeatureAdminsPanel` 支持所有人查看管理员列表；只有 admin 能搜索候选用户、添加管理员、移除管理员。
+- `FeatureWorkbench` 保留创建特性入口；非 admin 点击时使用居中错误弹窗提示“请联系管理员添加”。
+- 特性设置、仓库关联、问题报告和特性分析策略均接入只读/可管理状态，服务端权限仍是最终边界。
+- `GlobalSettings` 新增会话附件上传开关，后端新增 admin-only `/api/system-settings` 读写接口；附件上传接口继续读取同一 `system_settings.session_attachments_enabled` 开关。
+- `UserManager` 使用 admin-only 用户搜索与清空密码 API，候选接口过滤 admin。
 
 - [ ] **Step 7：提交**
 

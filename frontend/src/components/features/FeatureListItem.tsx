@@ -8,12 +8,14 @@ export function FeatureListItem({
   onClick,
   onDelete,
   pendingDelete,
+  showDelete,
 }: {
   active: boolean;
   feature: FeatureRead;
   onClick: () => void;
   onDelete: () => void;
   pendingDelete: boolean;
+  showDelete: boolean;
 }) {
   return (
     <div className="list-row" data-active={active}>
@@ -28,16 +30,18 @@ export function FeatureListItem({
           <span className="item-meta feature-item-description">{feature.description}</span>
         ) : null}
       </button>
-      <button
-        aria-label={`删除特性 ${feature.name}`}
-        className="list-delete-button"
-        disabled={pendingDelete}
-        onClick={onDelete}
-        title="删除特性"
-        type="button"
-      >
-        <Trash2 aria-hidden="true" size={15} />
-      </button>
+      {showDelete ? (
+        <button
+          aria-label={`删除特性 ${feature.name}`}
+          className="list-delete-button"
+          disabled={pendingDelete}
+          onClick={onDelete}
+          title="删除特性"
+          type="button"
+        >
+          <Trash2 aria-hidden="true" size={15} />
+        </button>
+      ) : null}
     </div>
   );
 }

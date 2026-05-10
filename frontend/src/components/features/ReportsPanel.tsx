@@ -28,9 +28,11 @@ import { Textarea } from "../ui/textarea";
 import { messageFromError } from "./feature-utils";
 
 export function ReportsPanel({
+  canManageFeature,
   featureId,
   selectedReportId,
 }: {
+  canManageFeature: boolean;
   featureId?: number;
   selectedReportId: number | null;
 }) {
@@ -297,60 +299,62 @@ export function ReportsPanel({
         </div>
         {selectedReport ? (
           <>
-            <div aria-label="报告操作" className="report-detail-actions">
-              <Button
-                disabled={isActionPending}
-                icon={<FilePenLine aria-hidden="true" size={16} />}
-                onClick={openEditor}
-                type="button"
-                variant="secondary"
-              >
-                编辑报告
-              </Button>
-              {reportStatusKey(selectedReport) === "verified" ? (
+            {canManageFeature ? (
+              <div aria-label="报告操作" className="report-detail-actions">
                 <Button
                   disabled={isActionPending}
-                  icon={<RotateCcw aria-hidden="true" size={16} />}
-                  onClick={() => unverifyMutation.mutate(selectedReport.id)}
+                  icon={<FilePenLine aria-hidden="true" size={16} />}
+                  onClick={openEditor}
                   type="button"
                   variant="secondary"
                 >
-                  撤销验证
+                  编辑报告
                 </Button>
-              ) : (
-                <>
+                {reportStatusKey(selectedReport) === "verified" ? (
                   <Button
                     disabled={isActionPending}
-                    icon={<CheckCircle2 aria-hidden="true" size={16} />}
-                    onClick={() => verifyMutation.mutate(selectedReport.id)}
+                    icon={<RotateCcw aria-hidden="true" size={16} />}
+                    onClick={() => unverifyMutation.mutate(selectedReport.id)}
                     type="button"
-                    variant="primary"
+                    variant="secondary"
                   >
-                    验证通过
+                    撤销验证
                   </Button>
-                  {reportStatusKey(selectedReport) !== "rejected" ? (
+                ) : (
+                  <>
                     <Button
                       disabled={isActionPending}
-                      icon={<XCircle aria-hidden="true" size={16} />}
-                      onClick={() => rejectMutation.mutate(selectedReport.id)}
+                      icon={<CheckCircle2 aria-hidden="true" size={16} />}
+                      onClick={() => verifyMutation.mutate(selectedReport.id)}
                       type="button"
-                      variant="secondary"
+                      variant="primary"
                     >
-                      验证不通过
+                      验证通过
                     </Button>
-                  ) : null}
-                </>
-              )}
-              <Button
-                disabled={isActionPending}
-                icon={<Trash2 aria-hidden="true" size={16} />}
-                onClick={confirmDelete}
-                type="button"
-                variant="danger"
-              >
-                删除报告
-              </Button>
-            </div>
+                    {reportStatusKey(selectedReport) !== "rejected" ? (
+                      <Button
+                        disabled={isActionPending}
+                        icon={<XCircle aria-hidden="true" size={16} />}
+                        onClick={() => rejectMutation.mutate(selectedReport.id)}
+                        type="button"
+                        variant="secondary"
+                      >
+                        验证不通过
+                      </Button>
+                    ) : null}
+                  </>
+                )}
+                <Button
+                  disabled={isActionPending}
+                  icon={<Trash2 aria-hidden="true" size={16} />}
+                  onClick={confirmDelete}
+                  type="button"
+                  variant="danger"
+                >
+                  删除报告
+                </Button>
+              </div>
+            ) : null}
             {isEditing ? (
               <form className="report-edit-form" onSubmit={saveReport}>
                 <label className="field-label compact">

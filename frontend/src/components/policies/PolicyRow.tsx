@@ -15,6 +15,7 @@ export function PolicyRow({
   onToggle,
   pending,
   policy,
+  readOnly,
 }: {
   editing: boolean;
   onCancel: () => void;
@@ -24,8 +25,9 @@ export function PolicyRow({
   onToggle: () => void;
   pending: boolean;
   policy: SkillResponse;
+  readOnly?: boolean;
 }) {
-  if (editing) {
+  if (editing && !readOnly) {
     return (
       <li data-editing="true">
         <PolicyEditForm
@@ -50,31 +52,35 @@ export function PolicyRow({
       <div className="row-actions">
         <PolicySwitch
           checked={policy.enabled}
-          disabled={pending}
+          disabled={pending || Boolean(readOnly)}
           label={`${policy.name} 启用状态`}
           onChange={onToggle}
         />
         <Badge>{policy.scope === "global" ? "全局" : "特性"}</Badge>
-        <Button
-          aria-label={`编辑分析策略 ${policy.name}`}
-          disabled={pending}
-          icon={<Pencil size={15} />}
-          onClick={onEdit}
-          type="button"
-          variant="quiet"
-        >
-          编辑
-        </Button>
-        <Button
-          aria-label={`删除分析策略 ${policy.name}`}
-          disabled={pending}
-          icon={<Trash2 size={15} />}
-          onClick={onDelete}
-          type="button"
-          variant="quiet"
-        >
-          删除
-        </Button>
+        {!readOnly ? (
+          <>
+            <Button
+              aria-label={`编辑分析策略 ${policy.name}`}
+              disabled={pending}
+              icon={<Pencil size={15} />}
+              onClick={onEdit}
+              type="button"
+              variant="quiet"
+            >
+              编辑
+            </Button>
+            <Button
+              aria-label={`删除分析策略 ${policy.name}`}
+              disabled={pending}
+              icon={<Trash2 size={15} />}
+              onClick={onDelete}
+              type="button"
+              variant="quiet"
+            >
+              删除
+            </Button>
+          </>
+        ) : null}
       </div>
     </li>
   );

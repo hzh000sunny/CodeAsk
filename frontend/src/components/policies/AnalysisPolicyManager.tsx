@@ -17,6 +17,7 @@ import { mergeById } from "./policy-utils";
 interface AnalysisPolicyManagerProps {
   description?: string;
   featureId?: number;
+  readOnly?: boolean;
   scope: "global" | "feature";
   title: string;
 }
@@ -24,6 +25,7 @@ interface AnalysisPolicyManagerProps {
 export function AnalysisPolicyManager({
   description,
   featureId,
+  readOnly = false,
   scope,
   title,
 }: AnalysisPolicyManagerProps) {
@@ -103,16 +105,18 @@ export function AnalysisPolicyManager({
         ) : (
           <p>配置注入 Agent 上下文的分析策略。</p>
         )}
-        <Button
-          icon={<Plus size={15} />}
-          onClick={() => setShowForm((value) => !value)}
-          type="button"
-          variant="primary"
-        >
-          添加分析策略
-        </Button>
+        {!readOnly ? (
+          <Button
+            icon={<Plus size={15} />}
+            onClick={() => setShowForm((value) => !value)}
+            type="button"
+            variant="primary"
+          >
+            添加分析策略
+          </Button>
+        ) : null}
       </div>
-      {showForm ? (
+      {showForm && !readOnly ? (
         <PolicyForm
           actionLabel="创建分析策略"
           className="policy-create-form"
@@ -158,6 +162,7 @@ export function AnalysisPolicyManager({
               }
               pending={updateMutation.isPending || deleteMutation.isPending}
               policy={policy}
+              readOnly={readOnly}
             />
           ))}
         </ul>

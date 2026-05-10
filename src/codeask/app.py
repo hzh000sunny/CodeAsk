@@ -34,6 +34,7 @@ from codeask.api.llm_configs import router as llm_configs_router
 from codeask.api.metrics import router as metrics_router
 from codeask.api.sessions import router as sessions_router
 from codeask.api.skills import router as skills_router
+from codeask.api.system_settings import router as system_settings_router
 from codeask.api.users import router as users_router
 from codeask.api.wiki import router as wiki_router
 from codeask.audit import write_audit
@@ -214,6 +215,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(code_index_router, prefix="/api")
     app.include_router(llm_configs_router, prefix="/api")
     app.include_router(skills_router, prefix="/api")
+    app.include_router(system_settings_router, prefix="/api")
     app.include_router(sessions_router, prefix="/api")
 
     from fastapi.staticfiles import StaticFiles

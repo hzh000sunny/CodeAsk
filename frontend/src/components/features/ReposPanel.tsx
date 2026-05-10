@@ -9,7 +9,13 @@ import {
 } from "../../lib/api";
 import type { RepoOut } from "../../types/api";
 
-export function ReposPanel({ featureId }: { featureId?: number }) {
+export function ReposPanel({
+  canManageFeature,
+  featureId,
+}: {
+  canManageFeature: boolean;
+  featureId?: number;
+}) {
   const queryClient = useQueryClient();
   const { data: globalRepos = [] } = useQuery({
     queryKey: ["repos"],
@@ -63,7 +69,7 @@ export function ReposPanel({ featureId }: { featureId?: number }) {
                 <label className="repo-check-row">
                   <input
                     checked={linkedIds.has(repo.id)}
-                    disabled={!featureId || linkMutation.isPending}
+                    disabled={!featureId || !canManageFeature || linkMutation.isPending}
                     onChange={(event) =>
                       linkMutation.mutate({
                         repo,
@@ -77,6 +83,7 @@ export function ReposPanel({ featureId }: { featureId?: number }) {
                     <small>
                       {repo.status} ·{" "}
                       {repo.source === "git" ? repo.url : repo.local_path}
+                      {!canManageFeature ? " · 只读" : ""}
                     </small>
                   </span>
                 </label>

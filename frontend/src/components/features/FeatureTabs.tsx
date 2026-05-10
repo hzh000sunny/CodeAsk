@@ -2,10 +2,12 @@ import type { FeatureRead } from "../../types/api";
 import type { WikiDrawer } from "../../lib/wiki/routing";
 import { AnalysisPolicyManager } from "../policies/AnalysisPolicyManager";
 import { Tabs } from "../ui/tabs";
+import { FeatureAdminsPanel } from "./FeatureAdminsPanel";
 import { FeatureSettings } from "./FeatureSettings";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { ReportsPanel } from "./ReportsPanel";
 import { ReposPanel } from "./ReposPanel";
+import { useFeaturePermissions } from "./useFeaturePermissions";
 
 export interface FeatureWikiOpenOptions {
   drawer?: Exclude<WikiDrawer, "detail" | "history"> | null;
@@ -18,6 +20,7 @@ const tabs = [
   { id: "reports", label: "问题报告" },
   { id: "repos", label: "关联仓库" },
   { id: "skill", label: "特性分析策略" },
+  { id: "admins", label: "管理员" },
 ];
 
 export function FeatureTabs({
@@ -33,10 +36,12 @@ export function FeatureTabs({
   onOpenWiki: (featureId: number, options?: FeatureWikiOpenOptions) => void;
   selectedReportId: number | null;
 }) {
+  const { canManageFeature } = useFeaturePermissions(feature?.id);
   return (
     <Tabs tabs={tabs} value={activeTab} onChange={onChange}>
       <FeatureTabContent
         activeTab={activeTab}
+        canManageFeature={canManageFeature}
         feature={feature}
         onOpenWiki={onOpenWiki}
         selectedReportId={selectedReportId}
@@ -47,17 +52,19 @@ export function FeatureTabs({
 
 function FeatureTabContent({
   activeTab,
+  canManageFeature,
   feature,
   onOpenWiki,
   selectedReportId,
 }: {
   activeTab: string;
+  canManageFeature: boolean;
   feature: FeatureRead | null;
   onOpenWiki: (featureId: number, options?: FeatureWikiOpenOptions) => void;
   selectedReportId: number | null;
 }) {
   if (activeTab === "settings") {
-    return <FeatureSettings feature={feature} />;
+    return <FeatureSettings canManageFeature={canManageFeature} feature={feature} />;
   }
   if (activeTab === "knowledge") {
     return (
@@ -70,18 +77,23 @@ function FeatureTabContent({
   if (activeTab === "reports") {
     return (
       <ReportsPanel
+        canManageFeature={canManageFeature}
         featureId={feature?.id}
         selectedReportId={selectedReportId}
       />
     );
   }
   if (activeTab === "repos") {
-    return <ReposPanel featureId={feature?.id} />;
+    return <ReposPanel canManageFeature={canManageFeature} featureId={feature?.id} />;
+  }
+  if (activeTab === "admins") {
+    return <FeatureAdminsPanel featureId={feature?.id} />;
   }
   return (
     <AnalysisPolicyManager
       description="特性策略只在该特性的上下文中注入，用于补充业务术语、排查习惯和输出要求。"
       featureId={feature?.id}
+      readOnly={!canManageFeature}
       scope="feature"
       title="特性分析策略"
     />

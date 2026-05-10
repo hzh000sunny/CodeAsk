@@ -4,7 +4,13 @@ import type { FeatureRead } from "../../types/api";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 
-export function FeatureSettings({ feature }: { feature: FeatureRead | null }) {
+export function FeatureSettings({
+  canManageFeature,
+  feature,
+}: {
+  canManageFeature: boolean;
+  feature: FeatureRead | null;
+}) {
   return (
     <div className="tab-content two-column">
       <section className="surface">
@@ -37,6 +43,8 @@ export function FeatureSettings({ feature }: { feature: FeatureRead | null }) {
         <dl className="meta-grid">
           <dt>Owner</dt>
           <dd>{feature?.owner_subject_id ?? "未创建"}</dd>
+          <dt>配置权限</dt>
+          <dd>{canManageFeature ? "可管理" : "只读"}</dd>
           <dt>更新时间</dt>
           <dd>
             {feature ? new Date(feature.updated_at).toLocaleString() : "-"}

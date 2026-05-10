@@ -27,6 +27,7 @@ export function FeatureListPanel({
   selectedFeatureId,
   showCreate,
   visibleFeatures,
+  canDeleteFeatures,
 }: {
   createPending: boolean;
   featureDescription: string;
@@ -47,6 +48,7 @@ export function FeatureListPanel({
   selectedFeatureId: number | null;
   showCreate: boolean;
   visibleFeatures: FeatureRead[];
+  canDeleteFeatures: boolean;
 }) {
   useForwardErrorToAppFeedback(loadErrorMessage, { title: "加载特性失败" });
 
@@ -147,6 +149,7 @@ export function FeatureListPanel({
                 onClick={() => onSelect(feature.id)}
                 onDelete={() => onDelete(feature)}
                 pendingDelete={pendingDelete}
+                showDelete={canDeleteFeatures}
               />
             ))}
           </div>

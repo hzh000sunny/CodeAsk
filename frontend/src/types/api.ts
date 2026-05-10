@@ -196,3 +196,15 @@ export interface UserCandidateResponse {
   id: string;
   username: string;
 }
+
+export interface FeatureAdminRead {
+  feature_id: number;
+  user_id: string;
+  username: string;
+  created_by_user_id: string;
+  created_at: string;
+}
+
+export interface SystemSettingsResponse {
+  session_attachments_enabled: boolean;
+}
