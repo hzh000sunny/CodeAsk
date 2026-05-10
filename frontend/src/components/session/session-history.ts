@@ -3,8 +3,10 @@ import type { AgentEvent } from "../../types/sse";
 import {
   createInitialStages,
   runtimeInsightFromEvent,
+  runtimeStateFromEvent,
   type ConversationMessage,
   type RuntimeInsight,
+  type RuntimeSessionState,
 } from "./session-model";
 
 const STAGE_LABELS: Record<string, string> = {
@@ -48,6 +50,23 @@ export function featureIdsFromSessionTraces(traces: AgentTraceResponse[]) {
     }
   }
   return result;
+}
+
+export function runtimeStateFromSessionTraces(
+  traces: AgentTraceResponse[],
+): RuntimeSessionState | null {
+  let latest: RuntimeSessionState | null = null;
+  for (const trace of traces) {
+    const event = agentEventFromTrace(trace);
+    if (!event) {
+      continue;
+    }
+    const runtimeState = runtimeStateFromEvent(event);
+    if (runtimeState) {
+      latest = runtimeState;
+    }
+  }
+  return latest;
 }
 
 export function messagesFromSessionTurns(
@@ -149,6 +168,9 @@ function agentEventFromTrace(trace: AgentTraceResponse): AgentEvent | null {
   }
   if (trace.event_type === "retrieval_context") {
     return { type: "retrieval_context", data: payload };
+  }
+  if (trace.event_type === "runtime_state") {
+    return { type: "runtime_state", data: payload };
   }
   if (trace.event_type === "tool_call") {
     return { type: "tool_call", data: payload };

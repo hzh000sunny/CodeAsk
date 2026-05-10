@@ -28,6 +28,8 @@ class LLMConfigInput(BaseModel):
     enabled: bool = True
     rpm_limit: int | None = None
     quota_remaining: float | None = None
+    reasoning_profile: str = "none"
+    reasoning_profile_json: str | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,8 @@ class LLMConfigPublic:
     enabled: bool
     rpm_limit: int | None
     quota_remaining: float | None
+    reasoning_profile: str
+    reasoning_profile_json: str | None
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,8 @@ class LLMConfigWithSecret:
     enabled: bool
     rpm_limit: int | None
     quota_remaining: float | None
+    reasoning_profile: str
+    reasoning_profile_json: str | None
 
 
 def _mask_key(key: str) -> str:
@@ -88,6 +94,8 @@ def _to_secret(row: LLMConfig, crypto: Crypto) -> LLMConfigWithSecret:
         enabled=row.enabled,
         rpm_limit=row.rpm_limit,
         quota_remaining=row.quota_remaining,
+        reasoning_profile=row.reasoning_profile,
+        reasoning_profile_json=row.reasoning_profile_json,
     )
 
 
@@ -147,6 +155,8 @@ class LLMConfigRepo:
                     enabled=data.enabled,
                     rpm_limit=data.rpm_limit,
                     quota_remaining=data.quota_remaining,
+                    reasoning_profile=data.reasoning_profile,
+                    reasoning_profile_json=data.reasoning_profile_json,
                 )
             )
             await session.commit()
@@ -185,6 +195,8 @@ class LLMConfigRepo:
                     enabled=row.enabled,
                     rpm_limit=row.rpm_limit,
                     quota_remaining=row.quota_remaining,
+                    reasoning_profile=row.reasoning_profile,
+                    reasoning_profile_json=row.reasoning_profile_json,
                 )
             )
         return items

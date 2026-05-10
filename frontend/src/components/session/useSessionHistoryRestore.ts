@@ -10,6 +10,7 @@ import {
   featureIdsFromSessionTraces,
   insightsFromSessionHistory,
   messagesFromSessionTurns,
+  runtimeStateFromSessionTraces,
   stagesFromSessionTraces,
 } from "./session-history";
 import { createInitialStages } from "./session-model";
@@ -17,6 +18,7 @@ import type {
   ConversationMessage,
   RuntimeInsight,
   RuntimeStage,
+  RuntimeSessionState,
 } from "./session-model";
 
 export function useSessionHistoryRestore({
@@ -35,6 +37,7 @@ export function useSessionHistoryRestore({
   setInsights,
   setMessages,
   setDetectedFeatureIds,
+  setRuntimeState,
   setStages,
   stages,
 }: {
@@ -53,6 +56,7 @@ export function useSessionHistoryRestore({
   setInsights: Dispatch<SetStateAction<RuntimeInsight[]>>;
   setMessages: (value: ConversationMessage[] | ((current: ConversationMessage[]) => ConversationMessage[])) => void;
   setDetectedFeatureIds: Dispatch<SetStateAction<number[]>>;
+  setRuntimeState: Dispatch<SetStateAction<RuntimeSessionState | null>>;
   setStages: (value: RuntimeStage[] | ((current: RuntimeStage[]) => RuntimeStage[])) => void;
   stages: RuntimeStage[];
 }) {
@@ -63,6 +67,7 @@ export function useSessionHistoryRestore({
       }
       setInsights((current) => (current.length === 0 ? current : []));
       setDetectedFeatureIds((current) => (current.length === 0 ? current : []));
+      setRuntimeState((current) => (current === null ? current : null));
       setStages((current) =>
         current.some((stage) => stage.status !== "pending")
           ? createInitialStages()
@@ -95,6 +100,7 @@ export function useSessionHistoryRestore({
     }
     setInsights(insightsFromSessionHistory(sessionTurns, sessionTraces));
     setDetectedFeatureIds(featureIdsFromSessionTraces(sessionTraces));
+    setRuntimeState(runtimeStateFromSessionTraces(sessionTraces));
     setStages(stagesFromSessionTraces(sessionTraces));
     messagesSessionIdRef.current = selectedSessionId;
     appliedHistoryKeyRef.current = historyKey;
@@ -114,6 +120,7 @@ export function useSessionHistoryRestore({
     setInsights,
     setMessages,
     setDetectedFeatureIds,
+    setRuntimeState,
     setStages,
     stages,
   ]);

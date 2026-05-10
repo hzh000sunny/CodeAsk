@@ -87,6 +87,65 @@ _MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 _DEFAULT_SESSION_TITLE = "新的研发会话"
 
 
+def _compact_reasoning_trace_responses(rows: list[AgentTrace]) -> list[AgentTraceResponse]:
+    responses: list[AgentTraceResponse] = []
+    reasoning_by_turn: dict[str, dict[str, object]] = {}
+    reasoning_order: dict[str, int] = {}
+    for row in rows:
+        if row.event_type != "reasoning_observed":
+            responses.append(AgentTraceResponse.model_validate(row))
+            continue
+
+        payload = row.payload if isinstance(row.payload, dict) else {}
+        bucket = reasoning_by_turn.get(row.turn_id)
+        if bucket is None:
+            bucket = {
+                "fields": set(),
+                "length": 0,
+                "chunks": 0,
+                "redacted": False,
+            }
+            reasoning_by_turn[row.turn_id] = bucket
+            reasoning_order[row.turn_id] = len(responses)
+            responses.append(
+                AgentTraceResponse(
+                    id=f"{row.id}_summary",
+                    session_id=row.session_id,
+                    turn_id=row.turn_id,
+                    stage=row.stage,
+                    event_type=row.event_type,
+                    payload={},
+                    created_at=row.created_at,
+                    updated_at=row.updated_at,
+                )
+            )
+
+        fields = bucket["fields"]
+        if isinstance(fields, set):
+            field = payload.get("field")
+            if isinstance(field, str) and field:
+                fields.update(part.strip() for part in field.split(",") if part.strip())
+        length = payload.get("length")
+        if isinstance(length, int):
+            bucket["length"] = int(bucket["length"]) + length
+        chunks = payload.get("chunks")
+        bucket["chunks"] = int(bucket["chunks"]) + (chunks if isinstance(chunks, int) else 1)
+        if payload.get("redacted") is True:
+            bucket["redacted"] = True
+
+    for turn_id, bucket in reasoning_by_turn.items():
+        index = reasoning_order[turn_id]
+        fields = bucket["fields"]
+        responses[index].payload = {
+            "field": ", ".join(sorted(fields)) if isinstance(fields, set) and fields else "unknown",
+            "length": int(bucket["length"]),
+            "chunks": int(bucket["chunks"]),
+            "redacted": bool(bucket["redacted"]),
+            "raw_reasoning_used": False,
+        }
+    return responses
+
+
 @router.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session(payload: SessionCreate, request: Request) -> SessionResponse:
     factory = request.app.state.session_factory
@@ -167,7 +226,7 @@ async def list_session_traces(session_id: str, request: Request) -> list[AgentTr
         )
     visible_rows = [row for row in rows if is_visible_trace(row)]
     visible_rows.sort(key=lambda row: (row.created_at, trace_event_priority(row), row.id))
-    return [AgentTraceResponse.model_validate(row) for row in visible_rows]
+    return _compact_reasoning_trace_responses(visible_rows)
 
 
 @router.patch("/sessions/{session_id}", response_model=SessionResponse)

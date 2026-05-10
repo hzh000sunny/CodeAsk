@@ -19,11 +19,14 @@ import {
   messageFromError,
   reduceStages,
   runtimeInsightFromEvent,
+  runtimeStateFromEvent,
   textDeltaFromEvent,
   type ConversationMessage,
   type RuntimeInsight,
+  type RuntimeSessionState,
   type RuntimeStage,
 } from "./session-model";
+import { createReasoningLeakGuard } from "./reasoning-leak-guard";
 
 export function useSessionMessageStream({
   draft,
@@ -39,6 +42,7 @@ export function useSessionMessageStream({
   setIsStreaming,
   setMessages,
   setSelectedId,
+  setRuntimeState,
   setStages,
   showActionNotice,
 }: {
@@ -55,6 +59,7 @@ export function useSessionMessageStream({
   setIsStreaming: Dispatch<SetStateAction<boolean>>;
   setMessages: Dispatch<SetStateAction<ConversationMessage[]>>;
   setSelectedId: Dispatch<SetStateAction<string | null>>;
+  setRuntimeState: Dispatch<SetStateAction<RuntimeSessionState | null>>;
   setStages: Dispatch<SetStateAction<RuntimeStage[]>>;
   showActionNotice: (message: string, tone?: "success" | "error") => void;
 }) {
@@ -126,6 +131,7 @@ export function useSessionMessageStream({
     const liveTurnId = `live_${assistantMessageId}`;
     const clientTurnId = createClientTurnId();
     const abortController = new AbortController();
+    const leakGuard = createReasoningLeakGuard("mask_in_ui");
     activeStreamRef.current = {
       abortController,
       assistantMessageId,
@@ -167,6 +173,12 @@ export function useSessionMessageStream({
         },
         onEvent: (event) => {
           setStages((current) => reduceStages(current, event));
+          if (event.type === "runtime_state") {
+            const runtimeState = runtimeStateFromEvent(event);
+            if (runtimeState) {
+              setRuntimeState(runtimeState);
+            }
+          }
           const insight = runtimeInsightFromEvent(event);
           if (insight) {
             setInsights((current) => [
@@ -188,10 +200,33 @@ export function useSessionMessageStream({
           }
           const delta = textDeltaFromEvent(event);
           if (delta) {
+            const guarded = leakGuard.feed(delta);
+            if (guarded.diagnostic) {
+              const leakInsight = runtimeInsightFromEvent({
+                type: guarded.diagnostic.type,
+                data: { ...guarded.diagnostic },
+              });
+              if (leakInsight) {
+                setInsights((current) => [
+                  ...current,
+                  {
+                    ...leakInsight,
+                    occurredAt: new Date().toISOString(),
+                    turnId: liveTurnId,
+                  },
+                ]);
+              }
+            }
+            if (!guarded.visibleText) {
+              return;
+            }
             setMessages((current) =>
               current.map((message) =>
                 message.id === assistantMessageId
-                  ? { ...message, content: `${message.content}${delta}` }
+                  ? {
+                      ...message,
+                      content: `${message.content}${guarded.visibleText}`,
+                    }
                   : message,
               ),
             );

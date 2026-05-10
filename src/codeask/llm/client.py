@@ -4,8 +4,14 @@ import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol, cast
 
+import structlog
 from litellm import acompletion as _raw_acompletion  # type: ignore[reportUnknownVariableType]
 
+from codeask.llm.reasoning import normalize_openai_delta
+from codeask.llm.request_profiles import (
+    DEFAULT_REASONING_PROFILE,
+    build_reasoning_request_kwargs,
+)
 from codeask.llm.types import (
     LLMError,
     LLMEvent,
@@ -25,6 +31,7 @@ _OPENAI_TO_INTERNAL_STOP: dict[str, StopReason] = {
 }
 _ACompletion = Callable[..., Awaitable[object]]
 acompletion: _ACompletion = cast(_ACompletion, _raw_acompletion)
+logger = structlog.get_logger(__name__)
 
 
 def _with_provider_hint(provider: str, model_name: str) -> str:
@@ -77,6 +84,20 @@ def _is_retryable_initial_error(exc: Exception) -> bool:
         "overloaded",
     )
     return any(marker in name or marker in message for marker in retryable_markers)
+
+
+def _is_tool_schema_compatibility_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "tool" in message and any(
+        marker in message
+        for marker in (
+            "unknown variant",
+            "invalid tool",
+            "tool schema",
+            "tools[",
+            "failed to deserialize",
+        )
+    )
 
 
 def _messages_to_litellm(messages: list[LLMMessage]) -> list[dict[str, Any]]:
@@ -140,6 +161,52 @@ def _tools_to_litellm(tools: list[ToolDef]) -> list[dict[str, Any]]:
     ]
 
 
+def _delta_to_dict(delta: object) -> dict[str, object]:
+    model_dump = getattr(delta, "model_dump", None)
+    dict_dump = getattr(delta, "dict", None)
+    if callable(model_dump):
+        dumped = cast(Any, model_dump)(exclude_none=True)
+        return (
+            {str(key): value for key, value in cast(dict[object, object], dumped).items()}
+            if isinstance(dumped, dict)
+            else {}
+        )
+    elif callable(dict_dump):
+        dumped = cast(Any, dict_dump)(exclude_none=True)
+        return (
+            {str(key): value for key, value in cast(dict[object, object], dumped).items()}
+            if isinstance(dumped, dict)
+            else {}
+        )
+    elif hasattr(delta, "__dict__"):
+        return {
+            key: value
+            for key, value in vars(delta).items()
+            if value is not None and not key.startswith("_")
+        }
+    return {}
+
+
+def _delta_debug_payload(delta: object) -> dict[str, object]:
+    raw = _delta_to_dict(delta)
+    payload: dict[str, object] = {"fields": sorted(raw)}
+    for key in (
+        "content",
+        "reasoning_content",
+        "reasoning",
+        "thinking",
+    ):
+        if key in raw:
+            value = raw[key]
+            payload[f"{key}_present"] = True
+            payload[f"{key}_length"] = len(value) if isinstance(value, str) else None
+
+    tool_calls = raw.get("tool_calls")
+    if isinstance(tool_calls, list):
+        payload["tool_calls_count"] = len(cast(list[object], tool_calls))
+    return payload
+
+
 class LLMClient(Protocol):
     def stream(
         self,
@@ -159,11 +226,15 @@ class _BaseClient:
         model_name: str,
         base_url: str | None = None,
         timeout_seconds: int = 600,
+        reasoning_request_profile: str | None = None,
+        reasoning_request_profile_json: str | None = None,
     ) -> None:
         self._api_key = api_key
         self._model_name = model_name
         self._base_url = base_url
         self._timeout_seconds = timeout_seconds
+        self._reasoning_request_profile = reasoning_request_profile or DEFAULT_REASONING_PROFILE
+        self._reasoning_request_profile_json = reasoning_request_profile_json
 
     def _model(self) -> str:
         return self._model_name
@@ -172,6 +243,12 @@ class _BaseClient:
         kwargs: dict[str, Any] = {"api_key": self._api_key}
         if self._base_url:
             kwargs["base_url"] = self._base_url
+        kwargs.update(
+            build_reasoning_request_kwargs(
+                self._reasoning_request_profile,
+                custom_json=self._reasoning_request_profile_json,
+            )
+        )
         return kwargs
 
     async def stream(
@@ -193,14 +270,49 @@ class _BaseClient:
         if tools:
             kwargs["tools"] = _tools_to_litellm(tools)
 
+        logger.info(
+            "llm_request_debug",
+            provider=self._provider_name,
+            model=kwargs.get("model"),
+            base_url_configured=bool(self._base_url),
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stream=True,
+            tools_count=len(tools),
+            reasoning_request_profile=self._reasoning_request_profile,
+            extra_body_present="extra_body" in kwargs,
+            thinking_present="thinking" in kwargs,
+        )
+
         try:
             stream = cast(AsyncIterator[Any], await acompletion(**kwargs))
         except Exception as exc:
-            yield LLMEvent(
-                type="error",
-                data=self._error_payload(exc, retryable=_is_retryable_initial_error(exc)),
-            )
-            return
+            if tools and _is_tool_schema_compatibility_error(exc):
+                fallback_kwargs = dict(kwargs)
+                fallback_kwargs.pop("tools", None)
+                logger.warning(
+                    "llm_tool_schema_fallback_without_tools",
+                    provider=self._provider_name,
+                    model=kwargs.get("model"),
+                    error_type=type(exc).__name__,
+                )
+                try:
+                    stream = cast(AsyncIterator[Any], await acompletion(**fallback_kwargs))
+                except Exception as fallback_exc:
+                    yield LLMEvent(
+                        type="error",
+                        data=self._error_payload(
+                            fallback_exc,
+                            retryable=_is_retryable_initial_error(fallback_exc),
+                        ),
+                    )
+                    return
+            else:
+                yield LLMEvent(
+                    type="error",
+                    data=self._error_payload(exc, retryable=_is_retryable_initial_error(exc)),
+                )
+                return
 
         emitted_start = False
         tool_accumulators: dict[str, dict[str, str]] = {}
@@ -222,10 +334,12 @@ class _BaseClient:
                 delta = getattr(choice, "delta", None)
                 if delta is None:
                     continue
+                logger.info("llm_stream_delta_debug", **_delta_debug_payload(delta))
 
-                content = getattr(delta, "content", None)
-                if content:
-                    yield LLMEvent(type="text_delta", data={"delta": content})
+                for event_type, event_data in normalize_openai_delta(
+                    cast(dict[str, Any], _delta_to_dict(delta))
+                ):
+                    yield LLMEvent(type=event_type, data=event_data)
 
                 tool_calls = cast(list[Any], getattr(delta, "tool_calls", None) or [])
                 for tool_call in tool_calls:

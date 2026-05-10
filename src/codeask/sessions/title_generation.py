@@ -7,13 +7,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from codeask.db.models import Session, SessionTurn
 from codeask.llm.gateway import LLMGateway
 from codeask.sessions.report_generation import generate_single_text
 
 DEFAULT_SESSION_TITLE = "新的研发会话"
+SESSION_TITLE_MAX_TOKENS = 2048
 
 log = structlog.get_logger("codeask.sessions.title_generation")
 
@@ -35,12 +36,17 @@ async def maybe_generate_session_title(
 
     if not user_content.strip() or not assistant_content.strip():
         return
-    if not await _is_title_generation_allowed(session_factory, session_id=session_id):
+    first_exchange = await _load_first_exchange_if_title_default(
+        session_factory,
+        session_id=session_id,
+    )
+    if first_exchange is None:
         return
+    first_user_content, first_assistant_content = first_exchange
 
     prompt = build_session_title_prompt(
-        user_content=user_content,
-        assistant_content=assistant_content,
+        user_content=first_user_content,
+        assistant_content=first_assistant_content,
     )
     try:
         raw_title = await generate_single_text(
@@ -48,7 +54,7 @@ async def maybe_generate_session_title(
             subject_id=subject_id,
             session_id=session_id,
             prompt=prompt,
-            max_tokens=64,
+            max_tokens=SESSION_TITLE_MAX_TOKENS,
             temperature=0.2,
         )
     except Exception as exc:
@@ -79,28 +85,17 @@ async def generate_session_title_from_history(
 ) -> bool:
     """Generate a title from the first persisted user + assistant exchange."""
 
-    async with session_factory() as db:
-        row = await db.get(Session, session_id)
-        if row is None or row.title_source != "default":
-            return False
-        turns = (
-            (
-                await db.execute(
-                    select(SessionTurn)
-                    .where(SessionTurn.session_id == session_id)
-                    .order_by(SessionTurn.turn_index, SessionTurn.created_at)
-                    .limit(3)
-                )
-            )
-            .scalars()
-            .all()
-        )
-    if len(turns) != 2 or turns[0].role != "user" or turns[1].role != "agent":
+    first_exchange = await _load_first_exchange_if_title_default(
+        session_factory,
+        session_id=session_id,
+    )
+    if first_exchange is None:
         return False
+    user_content, assistant_content = first_exchange
 
     prompt = build_session_title_prompt(
-        user_content=turns[0].content,
-        assistant_content=turns[1].content,
+        user_content=user_content,
+        assistant_content=assistant_content,
     )
     try:
         raw_title = await generate_single_text(
@@ -108,7 +103,7 @@ async def generate_session_title_from_history(
             subject_id=subject_id,
             session_id=session_id,
             prompt=prompt,
-            max_tokens=64,
+            max_tokens=SESSION_TITLE_MAX_TOKENS,
             temperature=0.2,
         )
     except Exception as exc:
@@ -169,21 +164,32 @@ def normalize_session_title(raw_title: str, *, max_chars: int = 40) -> str:
     return title
 
 
-async def _is_title_generation_allowed(
+async def _load_first_exchange_if_title_default(
     session_factory: Callable[[], Any],
     *,
     session_id: str,
-) -> bool:
+) -> tuple[str, str] | None:
     async with session_factory() as db:
         row = await db.get(Session, session_id)
         if row is None or row.title_source != "default":
-            return False
-        turn_count = (
-            await db.execute(
-                select(func.count(SessionTurn.id)).where(SessionTurn.session_id == session_id)
+            return None
+        turns = (
+            (
+                await db.execute(
+                    select(SessionTurn)
+                    .where(SessionTurn.session_id == session_id)
+                    .order_by(SessionTurn.turn_index, SessionTurn.created_at)
+                    .limit(2)
+                )
             )
-        ).scalar_one()
-        return int(turn_count) == 2
+            .scalars()
+            .all()
+        )
+    if len(turns) != 2 or turns[0].role != "user" or turns[1].role != "agent":
+        return None
+    if not turns[0].content.strip() or not turns[1].content.strip():
+        return None
+    return turns[0].content, turns[1].content
 
 
 async def _apply_generated_title_if_still_default(

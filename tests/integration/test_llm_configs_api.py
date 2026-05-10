@@ -27,6 +27,8 @@ async def test_create_llm_config_uses_runtime_defaults(client: AsyncClient) -> N
     assert body["is_default"] is False
     assert body["rpm_limit"] is None
     assert body["quota_remaining"] is None
+    assert body["reasoning_profile"] == "none"
+    assert body["reasoning_profile_json"] is None
 
 
 @pytest.mark.asyncio
@@ -43,6 +45,8 @@ async def test_create_list_default_flip_and_delete_llm_config(client: AsyncClien
             "temperature": 0.1,
             "enabled": True,
             "is_default": True,
+            "reasoning_profile": "custom_json",
+            "reasoning_profile_json": '{"extra_body":{"include_reasoning":true}}',
         },
     )
     assert created.status_code == 403
@@ -84,10 +88,14 @@ async def test_create_list_default_flip_and_delete_llm_config(client: AsyncClien
             "temperature": 0.0,
             "enabled": True,
             "is_default": True,
+            "reasoning_profile": "custom_json",
+            "reasoning_profile_json": '{"extra_body":{"include_reasoning":true}}',
         },
     )
     assert second_response.status_code == 201, second_response.text
     second = second_response.json()
+    assert second["reasoning_profile"] == "custom_json"
+    assert second["reasoning_profile_json"] == '{"extra_body":{"include_reasoning":true}}'
 
     listed = await client.get("/api/admin/llm-configs")
     assert listed.status_code == 200
@@ -98,12 +106,20 @@ async def test_create_list_default_flip_and_delete_llm_config(client: AsyncClien
 
     patched = await client.patch(
         f"/api/admin/llm-configs/{second['id']}",
-        json={"model_name": "local-model-v2", "api_key": "rotated-secret", "enabled": False},
+        json={
+            "model_name": "local-model-v2",
+            "api_key": "rotated-secret",
+            "enabled": False,
+            "reasoning_profile": "volcengine_thinking",
+            "reasoning_profile_json": None,
+        },
     )
     assert patched.status_code == 200, patched.text
     assert patched.json()["model_name"] == "local-model-v2"
     assert patched.json()["api_key_masked"] == "rot...ret"
     assert patched.json()["enabled"] is False
+    assert patched.json()["reasoning_profile"] == "volcengine_thinking"
+    assert patched.json()["reasoning_profile_json"] is None
 
     deleted = await client.delete(f"/api/admin/llm-configs/{first['id']}")
     assert deleted.status_code == 204

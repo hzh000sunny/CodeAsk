@@ -20,6 +20,15 @@ def _chunk(
     return SimpleNamespace(choices=[choice], model="gpt-4o", usage=None)
 
 
+def _chunk_with_delta(
+    delta_fields: dict[str, Any],
+    finish_reason: str | None = None,
+) -> SimpleNamespace:
+    delta = SimpleNamespace(**delta_fields)
+    choice = SimpleNamespace(delta=delta, finish_reason=finish_reason)
+    return SimpleNamespace(choices=[choice], model="gpt-4o", usage=None)
+
+
 def _tool_call_chunk(
     idx: int,
     tc_id: str | None,
@@ -61,6 +70,117 @@ async def test_text_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
     assert any(
         event.type == "message_stop" and event.data["stop_reason"] == "end_turn" for event in events
     )
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_stream_emits_reasoning_delta_without_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk_with_delta({"reasoning_content": "先分析"})
+            yield _chunk_with_delta({"content": "正式回答"})
+            yield _chunk_with_delta({}, finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAICompatibleClient(api_key="x", model_name="local-reasoning")
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "message_start",
+        "reasoning_delta",
+        "text_delta",
+        "message_stop",
+    ]
+    assert events[1].data == {
+        "delta": "先分析",
+        "field": "reasoning_content",
+        "redacted": False,
+    }
+    assert events[2].data == {"delta": "正式回答"}
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_stream_emits_reasoning_and_text_from_same_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk_with_delta(
+                {"reasoning": "内部", "content": "回答"},
+                finish_reason="stop",
+            )
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAICompatibleClient(api_key="x", model_name="local-reasoning")
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "message_start",
+        "reasoning_delta",
+        "text_delta",
+        "message_stop",
+    ]
+    assert events[1].data["field"] == "reasoning"
+    assert events[1].data["delta"] == "内部"
+    assert events[2].data["delta"] == "回答"
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_does_not_parse_think_tags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="<think>内部</think>正式回答")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAICompatibleClient(api_key="x", model_name="local-reasoning")
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    deltas = [str(event.data["delta"]) for event in events if event.type == "text_delta"]
+    assert "".join(deltas) == "<think>内部</think>正式回答"
+    assert not any(event.type == "reasoning_delta" for event in events)
 
 
 @pytest.mark.asyncio
@@ -134,6 +254,7 @@ async def test_openai_protocol_uses_litellm_with_internal_provider_hint(
     assert captured["model"] == "openai/GLM-5.1"
     assert captured["api_key"] == "ark-test"
     assert captured["base_url"] == "https://ark.example.test/api/coding/v3"
+    assert "extra_body" not in captured
     assert [event.type for event in events] == [
         "message_start",
         "text_delta",
@@ -179,12 +300,52 @@ async def test_openai_compatible_protocol_uses_litellm_with_internal_provider_hi
     assert captured["model"] == "openai/local-model"
     assert captured["api_key"] == "local-secret"
     assert captured["base_url"] == "http://llm.local/v1"
+    assert "extra_body" not in captured
     assert captured["timeout"] == 600
     assert [event.type for event in events] == [
         "message_start",
         "text_delta",
         "message_stop",
     ]
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_reasoning_request_profile_adds_provider_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="ok")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAICompatibleClient(
+        api_key="local-secret",
+        model_name="local-model",
+        base_url="http://llm.local/v1",
+        reasoning_request_profile="volcengine_thinking",
+    )
+
+    _ = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert captured["extra_body"] == {"thinking": {"type": "enabled"}}
 
 
 @pytest.mark.asyncio
@@ -280,6 +441,53 @@ async def test_initial_litellm_bad_request_error_is_not_retryable(
 
     assert events[0].type == "error"
     assert events[0].data["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_initial_tool_schema_error_retries_once_without_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class BadRequestError(Exception):
+        status_code = 400
+
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise BadRequestError(
+                "Failed to deserialize the JSON body into the target type: "
+                "tools[0]: unknown variant custom"
+            )
+
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="fallback ok")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = AnthropicClient(api_key="x", model_name="deepseek-v4-flash")
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[ToolDef(name="search_wiki", description="d", input_schema={})],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert "tools" in calls[0]
+    assert "tools" not in calls[1]
+    assert [event.type for event in events] == [
+        "message_start",
+        "text_delta",
+        "message_stop",
+    ]
 
 
 @pytest.mark.asyncio

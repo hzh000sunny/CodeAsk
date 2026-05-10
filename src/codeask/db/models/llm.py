@@ -50,3 +50,10 @@ class LLMConfig(Base, TimestampMixin):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     rpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     quota_remaining: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reasoning_profile: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="none",
+        server_default="none",
+    )
+    reasoning_profile_json: Mapped[str | None] = mapped_column(String(4096), nullable=True)

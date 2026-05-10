@@ -165,6 +165,8 @@ async def stream_agent_response(
             )
             event_data = _event_data_dict(event.data)
             await persist_runtime_event_trace(request, session_id, turn_id, event.type, event_data)
+            if event.type == "llm_input":
+                continue
             if event.type == "text_delta":
                 delta = event_data.get("delta") or event_data.get("text")
                 if isinstance(delta, str):
@@ -556,6 +558,9 @@ async def persist_runtime_event_trace(
 ) -> None:
     if event_type in {"text_delta", "done"}:
         return
+    event_data = _event_data_dict(data)
+    if event_type == "runtime_state" and event_data.get("update_reason") == "assistant_delta":
+        return
     if not await session_turn_exists(request.app.state.session_factory, session_id, turn_id):
         return
     trace_logger = request.app.state.trace_logger
@@ -564,7 +569,7 @@ async def persist_runtime_event_trace(
         turn_id,
         "chat_runtime",
         event_type,
-        _event_data_dict(data),
+        event_data,
     )
 
 

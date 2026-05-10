@@ -33,6 +33,7 @@ import {
   messageFromError,
   type ConversationMessage,
   type RuntimeInsight,
+  type RuntimeSessionState,
 } from "./session-model";
 import { useSessionAttachments } from "./useSessionAttachments";
 import { useSessionFeedback } from "./useSessionFeedback";
@@ -73,6 +74,7 @@ export function SessionWorkspace({
   const [isStreaming, setIsStreaming] = useState(false);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [insights, setInsights] = useState<RuntimeInsight[]>([]);
+  const [runtimeState, setRuntimeState] = useState<RuntimeSessionState | null>(null);
   const [stages, setStages] = useState(createInitialStages);
   const [selectedId, setSelectedId] = useState<string | null>(routeSelectedSessionId);
   const [listCollapsed, setListCollapsed] = useState(false);
@@ -106,6 +108,7 @@ export function SessionWorkspace({
       return createSession("新的研发会话");
     },
     onSuccess: (session) => {
+      setRuntimeState(null);
       setSelectedId(session.id);
       onSelectedSessionChange?.(session.id);
       rememberSession(session);
@@ -117,6 +120,7 @@ export function SessionWorkspace({
     messagesSessionIdRef.current = null;
     appliedHistoryKeyRef.current = null;
     setInsights([]);
+    setRuntimeState(null);
     setStages(createInitialStages());
     setDetectedFeatureIds([]);
   }
@@ -126,6 +130,9 @@ export function SessionWorkspace({
   }, [routeSelectedSessionId]);
 
   function selectSession(sessionId: string | null) {
+    if (sessionId !== selectedId) {
+      setRuntimeState(null);
+    }
     setSelectedId(sessionId);
     onSelectedSessionChange?.(sessionId);
   }
@@ -271,6 +278,7 @@ export function SessionWorkspace({
     setDetectedFeatureIds,
     setInsights,
     setMessages,
+    setRuntimeState,
     setStages,
     stages,
   });
@@ -343,6 +351,7 @@ export function SessionWorkspace({
     setIsStreaming,
     setMessages,
     setSelectedId,
+    setRuntimeState,
     setStages,
     showActionNotice,
   });
@@ -474,6 +483,7 @@ export function SessionWorkspace({
         onDeleteAttachment={deleteAttachment}
         onPromoteAttachment={wikiPromotion.openDialog}
         onRenameAttachment={renameAttachment}
+        runtimeState={runtimeState}
       />
       <SessionWorkspaceDialogs
         bulkSelectedCount={bulkSelectedIds.length}

@@ -18,6 +18,9 @@ StopReason = Literal[
 
 EventType = Literal[
     "message_start",
+    "reasoning_start",
+    "reasoning_delta",
+    "reasoning_stop",
     "text_delta",
     "tool_call_start",
     "tool_call_delta",

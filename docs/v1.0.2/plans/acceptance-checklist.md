@@ -445,6 +445,97 @@ corepack pnpm --dir frontend test:e2e e2e/agent-conversation-continuity-live.spe
 
 后续每个开发阶段新增或修改核心用户路径时，都必须在对应版本的验收清单中补充 E2E 项，并说明是否已执行。
 
+## 10.1 结构化 Reasoning 协议适配
+
+本能力进入 v1.0.2 当前版本，实施计划见 `structured-reasoning.md`。它是 v1.0.2 收口阻塞项，不能推迟到后续版本。
+
+完整验收清单和真实前后端 E2E 场景见 `structured-reasoning-acceptance.md`。本节只保留门禁摘要；开发和收口必须以专项清单为准。
+
+当前实现状态（2026-05-10）：
+
+- 已完成后端协议适配、request profile 配置持久化、网关透传、runtime reasoning 诊断事件和前端 UI Leak Guard 第一版。
+- 已通过聚焦自动化验证：`uv run pytest tests/unit/test_llm_reasoning.py tests/unit/test_llm_request_profiles.py tests/unit/test_agent_chat_runtime_reasoning.py tests/unit/test_llm_client_adapter.py tests/unit/test_llm_gateway.py::test_gateway_passes_reasoning_profile_to_client_factory tests/integration/test_llm_config_repo.py tests/integration/test_llm_configs_api.py::test_create_llm_config_uses_runtime_defaults tests/integration/test_llm_configs_api.py::test_create_list_default_flip_and_delete_llm_config tests/integration/test_agent_chat_runtime_sse.py::test_post_message_stream_isolates_structured_reasoning -q`。
+- 已通过前端聚焦验证：`corepack pnpm --dir frontend exec vitest run tests/reasoning-leak-guard.test.ts tests/session-model.test.ts tests/sse.test.ts` 和 `corepack pnpm --dir frontend exec tsc --noEmit`。
+- 已通过全量回归：`uv run pytest -q`、`corepack pnpm --dir frontend test:run`、`corepack pnpm --dir frontend build`、本次改动文件 ruff、`git diff --check`。
+- 已新增 `frontend/e2e/agent-reasoning-protocol-live.spec.ts`，并对当前 admin 6 个真实 LLM 配置执行真实会话流验证；发布流水线可在具备真实 LLM 配置的数据目录中重复运行该 Playwright live E2E。
+
+参考驱动验收：
+
+- [x] 实现前已对照 `docs/v1.0.2/specs/model-provider-reference-lessons.md`，确认 Claude Code、AnythingLLM、vLLM 和 CodeAsk 真实模型实测分别给本次实现提供了什么依据。
+- [x] PR / commit / 验收记录必须说明参考了哪些源码或协议资料，不能只写“按 CodeAsk 方案实现”。
+- [x] 借鉴 AnythingLLM 的 provider / profile / stream handler 分层，但不得照搬其 `<think>` 文本通道和前端正则解析方案。
+- [x] 借鉴 Claude Code 的结构化 thinking 和 UI 默认隐藏边界，但不得把 CodeAsk 改成 Claude Code 的产品形态。
+- [x] 借鉴 vLLM reasoning outputs 的服务层解析边界，CodeAsk 后端不得实现模型私有 thinking parser。
+
+协议边界：
+
+- [x] CodeAsk 必须同时适配 OpenAI-compatible 和 Anthropic 两种消息接口协议。
+- [x] CodeAsk 后端不得解析 `content` / `text` 正文中的 `<think>`、`</think>`、`<thinking>`、`<reasoning>` 等私有标签。
+- [x] 如果模型服务把 raw thinking 放入 `content` / `text`，CodeAsk 应通过 stream shape debug 标记为上游接入不合规，而不是在后端强行过滤。
+- [x] vLLM / 模型网关应在服务层通过 reasoning parser 或等价能力输出结构化 `reasoning` + `content`，CodeAsk 只消费结构化字段。
+
+OpenAI-compatible 验收：
+
+- [x] `delta.reasoning_content` 必须转为内部 `reasoning_delta`，不展示在普通聊天气泡中。
+- [x] `delta.reasoning` 必须转为内部 `reasoning_delta`，不展示在普通聊天气泡中。
+- [x] 结构化 `delta.thinking` 必须转为内部 `reasoning_delta`，不展示在普通聊天气泡中。
+- [x] `delta.content` 必须转为 `text_delta`，展示并持久化为 assistant 正式回答。
+- [x] `delta.content` 中即使包含 `<think>` 字符串，也不得被 CodeAsk 后端扫描或拆分。
+- [x] 火山引擎 MiniMax 模型真实测试必须记录 observed stream fields，预期可观察到 `reasoning_content` / `content` 或平台实际字段。
+- [x] 火山引擎 GLM 模型真实测试必须记录 observed stream fields，验证不存在 raw reasoning 泄漏到普通聊天。
+- [x] DeepSeek v4 服务真实测试必须记录 observed stream fields，验证结构化 reasoning 或普通 content 均按协议处理。
+
+Anthropic 验收：
+
+- [x] `thinking_delta` 必须转为内部 `reasoning_delta`，不展示在普通聊天气泡中。
+- [x] `redacted_thinking` 必须转为内部 redacted reasoning，不展示在普通聊天气泡中。
+- [x] `signature_delta` 必须作为 provider metadata 处理，不展示、不计入普通回答。
+- [x] `text_delta` 必须转为 `text_delta`，展示并持久化为 assistant 正式回答。
+- [x] Anthropic 协议网关真实测试必须记录 observed stream events；如果用户提供对应配置，本版本收口前至少跑通一次 live E2E。
+
+上下文与持久化验收：
+
+- [x] `reasoning_delta` 不得写入 `session_turns.content`。
+- [x] `reasoning_delta` 不得进入普通下一轮 LLM messages。
+- [x] 报告生成 prompt 不得包含 raw reasoning。
+- [x] 标题生成 prompt 不得包含 raw reasoning。
+- [x] 会话摘要 / compact 不得优先保留 raw reasoning。
+- [x] Agent 行动轨迹不得把 reasoning 当工具调用或工具结果展示。
+- [x] 管理员 debug 日志只记录字段结构、字段名、短 preview 和长度，不把 preview 用作解析规则。
+
+Agent 运行事件验收：
+
+- [ ] 运行事件可以展示公开分析思路，但只能来自用户问题、注入上下文、RAG 候选、工具调用、工具结果、证据链或正式回答。
+- [ ] `analysis_note` 事件不得使用 `reasoning_delta` 原文，payload 必须明确 `raw_reasoning_used=false`。
+- [ ] `context_prepared` 事件可以展示本轮注入了多少特性、Wiki、报告、附件和仓库候选。
+- [ ] `evidence_selected` 事件必须引用真实 Wiki / 报告 / 附件 / 代码工具结果或 RAG 候选，不得伪造证据。
+- [x] 用户明确要求查阅代码或源码时，系统 prompt 必须约束模型：没有成功代码工具结果时，不能声称已经查阅源码、仓库结构或完成代码级分析；上一轮代码工具失败后继续要求查代码，应重新调用代码工具或追问最小必要范围。
+- [ ] `uncertainty` 和 `next_step_hint` 必须表达公开可读的不确定点和下一步动作，不得包含模型私有思考链。
+- [x] `reasoning_observed` 默认不对普通用户展示 raw 内容；当前第一版行动轨迹只展示字段名、长度、redacted 等诊断元数据。
+- [ ] 删除会话、停止生成、回滚本轮时，相关 `analysis_note` / `reasoning_observed` / 工具事件必须跟随本轮 trace 一起回滚或清理。
+
+自动化测试最低要求：
+
+- [x] `tests/unit/test_llm_reasoning.py` 覆盖 OpenAI-compatible 结构化 reasoning 字段和“不解析正文标签”。
+- [x] `tests/unit/test_llm_request_profiles.py` 覆盖 `none`、`volcengine_thinking`、`vllm_enable_thinking`、`anthropic_budget_thinking`。
+- [x] `tests/unit/test_llm_client_adapter.py` 覆盖 OpenAI-compatible `reasoning_content` / `reasoning` 与“不解析正文标签”。
+- [x] `tests/integration/test_agent_chat_runtime_sse.py` 覆盖 `reasoning_delta` 不进入可见 assistant turn。
+- [x] `tests/integration/test_agent_chat_runtime_sse.py` 覆盖持久化 turns 不包含 raw reasoning。
+- [x] 报告和标题生成只读取持久化正式回答；structured reasoning 不写入 turns，间接隔离 raw reasoning。
+- [x] 前端组件测试覆盖 reasoning diagnostic 进入行动轨迹且不含 raw 原文。
+- [x] 前端 UI Leak Guard 测试覆盖 `disabled | warn_only | mask_in_ui`：它只能遮蔽显示或提示诊断，不能修改后端内容、不能回写数据库、不能进入下一轮上下文。
+- [x] UI Leak Guard 触发时必须产生 `reasoning_leak_detected` 或等价诊断；诊断只包含字段/长度/来源/模式等元数据，不包含 raw reasoning。
+- [x] UI Leak Guard 通过不得计为 structured reasoning 协议适配成功；含 raw `<think>` 的 live 输出必须标记为上游模型服务或网关不合规。
+- [x] live 验证覆盖当前用户提供的真实模型池：火山引擎 MiniMax、火山引擎 GLM、DeepSeek v4，并覆盖 OpenAI / Anthropic 两种协议配置；完整 Playwright live E2E 文件已补齐。
+
+结构化 reasoning live E2E 显式运行方式：
+
+```bash
+CODEASK_RUN_LIVE_REASONING_PROTOCOL_E2E=1 \
+CODEASK_LIVE_REASONING_MODELS='minimax,glm,deepseek-v4' \
+corepack pnpm --dir frontend exec playwright test frontend/e2e/agent-reasoning-protocol-live.spec.ts --workers=1
+```
+
 ## 11. 回归验证命令
 
 当前已执行过的验证：
@@ -505,6 +596,8 @@ git diff --check
 - [ ] LLM 资源繁忙错误在会话 UI 中显示为明确失败提示，不允许静默失败或只在行动轨迹中出现。
 - [ ] 资源繁忙不应该持久化成一条看似正常的 AI 回答。
 - [ ] LLM 网关应在 trace 或结构化日志中记录配置选择、切换、失败、冷却原因和尝试过的配置 id，便于排查资源池问题。
+- [x] 完成 OpenAI-compatible / Anthropic 结构化 reasoning 隔离能力，具体见 `structured-reasoning.md` 和本文 `10.1`。
+- [x] 结构化 reasoning live E2E 至少覆盖火山引擎 MiniMax、火山引擎 GLM、DeepSeek v4；如果提供 Anthropic 协议配置，则必须覆盖 Anthropic。
 - [x] 升级兼容规则已落入 `docs/rules/upgrade-compatibility.md`，安装文档包含从旧版本升级、备份、回滚和 `CODEASK_DATA_KEY` 缓存说明。
 - [x] 首次启动提供 `CODEASK_DATA_KEY` 时，服务会把 key 写入 `<CODEASK_DATA_DIR>/secrets/data.key`。
 - [x] 二次启动未设置 `CODEASK_DATA_KEY` 时，服务可以从 `<CODEASK_DATA_DIR>/secrets/data.key` 读取 key。

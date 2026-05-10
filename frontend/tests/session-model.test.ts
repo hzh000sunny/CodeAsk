@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createInitialStages,
   runtimeInsightFromEvent,
+  runtimeStateFromEvent,
 } from "../src/components/session/session-model";
 
 describe("session runtime stage model", () => {
@@ -104,5 +105,62 @@ describe("session runtime stage model", () => {
     expect(insight?.detail).toContain("回调 Runbook > 排查步骤");
     expect(insight?.detailMarkdown).toContain("#/wiki?feature=7&node=15");
     expect(insight?.detailMarkdown).toContain("heading=%E5%9B%9E%E8%B0%83+Runbook+%3E+%E6%8E%92%E6%9F%A5%E6%AD%A5%E9%AA%A4");
+  });
+
+  it("maps reasoning diagnostics without exposing raw reasoning", () => {
+    const insight = runtimeInsightFromEvent({
+      type: "reasoning_observed",
+      data: {
+        field: "reasoning_content",
+        length: 12,
+        chunks: 3,
+        redacted: false,
+        raw_reasoning_used: false,
+      },
+    });
+
+    expect(insight).not.toBeNull();
+    expect(insight?.kind).toBe("diagnostic");
+    expect(insight?.title).toBe("模型推理已隔离");
+    expect(insight?.detail).toContain("reasoning_content");
+    expect(insight?.detail).toContain("分片 3");
+    expect(String(insight)).not.toContain("内部思考");
+  });
+
+  it("maps runtime state events into session header data", () => {
+    const runtimeState = runtimeStateFromEvent({
+      type: "runtime_state",
+      data: {
+        config_id: "cfg_glm",
+        config_name: "火山引擎 GLM-5.1",
+        model_name: "glm-5.1",
+        protocol: "openai_compatible",
+        context_size_chars: 32768,
+        context_window_chars: 202752,
+      },
+    });
+
+    expect(runtimeState).not.toBeNull();
+    expect(runtimeState?.modelName).toBe("glm-5.1");
+    expect(runtimeState?.configName).toBe("火山引擎 GLM-5.1");
+    expect(runtimeState?.usageLabel).toBe("32k / 200k");
+    expect(runtimeState?.usageRatio).toBeGreaterThan(0);
+  });
+
+  it("maps UI reasoning leak diagnostics without exposing raw text", () => {
+    const insight = runtimeInsightFromEvent({
+      type: "reasoning_leak_detected",
+      data: {
+        marker: "think",
+        mode: "mask_in_ui",
+        leakedLength: 18,
+        masked: true,
+      },
+    });
+
+    expect(insight).not.toBeNull();
+    expect(insight?.kind).toBe("warning");
+    expect(insight?.title).toBe("检测到推理泄漏");
+    expect(insight?.detail).toContain("已在界面遮蔽");
   });
 });

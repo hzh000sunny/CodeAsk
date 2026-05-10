@@ -39,6 +39,20 @@ class RetrievalContextEventData(BaseModel):
     repo_candidates: list[dict[str, Any]] = Field(default_factory=_empty_list)
 
 
+class RuntimeStateEventData(BaseModel):
+    config_id: str | None = None
+    config_name: str | None = None
+    model_name: str
+    protocol: str | None = None
+    scope: str | None = None
+    is_global_pool: bool = False
+    update_reason: str = "snapshot"
+    context_size_chars: int
+    context_window_chars: int
+    usage_ratio: float
+    usage_label: str
+
+
 class ToolCallEventData(BaseModel):
     tool_call_id: str
     tool_name: str
@@ -79,7 +93,11 @@ class AssistantActionEventData(BaseModel):
 
 
 RuntimeEventType = Literal[
+    "llm_input",
     "text_delta",
+    "reasoning_observed",
+    "reasoning_leak_detected",
+    "runtime_state",
     "retrieval_context",
     "tool_call",
     "tool_result",
@@ -92,7 +110,8 @@ RuntimeEventType = Literal[
 
 
 RuntimeEventData = (
-    RetrievalContextEventData
+    RuntimeStateEventData
+    | RetrievalContextEventData
     | ToolCallEventData
     | ToolResultEventData
     | EvidenceEventData

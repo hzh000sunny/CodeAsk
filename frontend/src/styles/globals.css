@@ -380,6 +380,12 @@ textarea:focus-visible {
   overflow: hidden;
 }
 
+.app-view-surface {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .workspace {
   display: grid;
   height: 100%;
@@ -953,6 +959,83 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.55;
+}
+
+.session-runtime-status {
+  display: grid;
+  gap: 7px;
+  width: min(520px, 100%);
+  margin-top: 12px;
+}
+
+.session-runtime-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.session-runtime-label {
+  flex: 0 0 auto;
+  width: 58px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.session-runtime-value {
+  min-width: 0;
+  overflow: hidden;
+  color: #1d2939;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-runtime-muted {
+  min-width: 0;
+  overflow: hidden;
+  color: #98a2b3;
+  font-size: 12px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-runtime-progress-wrap {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto;
+  width: min(360px, 100%);
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.session-runtime-progress {
+  position: relative;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9eef5;
+}
+
+.session-runtime-progress-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2f6fed 0%, #54a3ff 100%);
+  transition: width 180ms ease;
+}
+
+.session-runtime-usage {
+  color: #475467;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .header-actions {
@@ -1647,7 +1730,7 @@ textarea:focus-visible {
 
 .progress-panel {
   display: grid;
-  grid-template-rows: minmax(240px, 1fr) minmax(112px, 0.34fr);
+  grid-template-rows: minmax(240px, 1fr) minmax(112px, 0.34fr) auto;
   gap: 14px;
   min-height: 0;
   overflow: hidden;
@@ -2226,6 +2309,14 @@ textarea:focus-visible {
 }
 
 .attachment-section {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  overflow: hidden;
+}
+
+.runtime-section {
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--line);

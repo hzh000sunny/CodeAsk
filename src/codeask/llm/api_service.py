@@ -40,6 +40,8 @@ async def create_scoped_config(
                 enabled=payload.enabled,
                 rpm_limit=payload.rpm_limit,
                 quota_remaining=payload.quota_remaining,
+                reasoning_profile=payload.reasoning_profile,
+                reasoning_profile_json=payload.reasoning_profile_json,
             )
         )
     except IntegrityError as exc:
@@ -113,6 +115,10 @@ async def update_scoped_config(
             row.rpm_limit = payload.rpm_limit
         if "quota_remaining" in fields:
             row.quota_remaining = payload.quota_remaining
+        if "reasoning_profile" in fields and payload.reasoning_profile is not None:
+            row.reasoning_profile = payload.reasoning_profile
+        if "reasoning_profile_json" in fields:
+            row.reasoning_profile_json = payload.reasoning_profile_json
         await record_audit_log(
             session,
             entity_type="llm_config",
@@ -192,6 +198,8 @@ def to_response(config: LLMConfigWithSecret) -> LLMConfigResponse:
         enabled=config.enabled,
         rpm_limit=config.rpm_limit,
         quota_remaining=config.quota_remaining,
+        reasoning_profile=config.reasoning_profile,
+        reasoning_profile_json=config.reasoning_profile_json,
     )
 
 
@@ -211,6 +219,8 @@ def to_response_from_row(row: LLMConfig, plain_key: str) -> LLMConfigResponse:
         enabled=row.enabled,
         rpm_limit=row.rpm_limit,
         quota_remaining=row.quota_remaining,
+        reasoning_profile=row.reasoning_profile,
+        reasoning_profile_json=row.reasoning_profile_json,
     )
 
 

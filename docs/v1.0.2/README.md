@@ -28,8 +28,10 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 | `specs/agent-runtime-source-lessons.md` | 定向源码深挖后，提炼出的 CodeAsk runtime/tool/context/UI 落地约束 |
 | `specs/agent-capability-roadmap.md` | v1.0.2 之后的 Agent 能力演进路线，明确与 Claude Code 的借鉴边界 |
 | `specs/rag-context-budget-lessons.md` | AnythingLLM RAG 管线和 Claude Code 长上下文压缩对 v1.0.2 的落地约束 |
+| `specs/model-provider-reference-lessons.md` | Claude Code、AnythingLLM、vLLM 和真实模型 stream shape 对模型服务接入、reasoning 隔离和运行事件展示的参考结论 |
 | `plans/agent-chat-runtime.md` | v1.0.2 Agent Chat Runtime 实施计划 |
 | `plans/problem-report-generation.md` | 会话生成问题定位报告的专项实施计划，覆盖 AI 成文、会话唯一绑定和覆盖式再生成 |
+| `plans/structured-reasoning.md` | v1.0.2 结构化 reasoning 协议适配实施计划，覆盖 OpenAI-compatible / Anthropic、vLLM 网关边界和真实模型测试矩阵 |
 | `prd/agent-chat.md` | v1.0.2 Agent 会话产品契约 |
 | `design/agent-chat-runtime.md` | v1.0.2 Agent Chat Runtime 系统设计 |
 | `plans/acceptance-checklist.md` | v1.0.2 验收清单 |
@@ -53,6 +55,14 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 - 已接入生产只读代码工具：仓库列表、代码搜索、目录树、路径列表和代码文件读取；代码访问已收敛为“特性范围仓库池 + 用户显式仓库范围”，默认不再暴露全局 ready 仓库池。
 - 已补齐工具结果真实预算裁剪，避免超大工具结果只标记 `truncated=true` 却仍完整进入下一轮 LLM 上下文。
 - 已将 AnythingLLM 的 RAG 上传资料管线和 Claude Code 的长上下文压缩经验纳入 v1.0.2 设计输入。
+- 已新增模型服务接入参考结论：结构化 reasoning 实现必须实际对照 Claude Code 的结构化 thinking、AnythingLLM 的多 provider 适配和 vLLM reasoning outputs；借鉴 provider / profile / stream normalization 分层，不照搬 AnythingLLM 的 `<think>` 文本通道。
+- 已确认结构化 reasoning 的四层落地边界：后端只消费协议字段，request profile 只负责请求差异，私有 raw thinking 应在模型服务 / 网关 parser 转结构化；前端 UI Leak Guard 只做可配置显示保护，不能替代协议解析成功。
+- 已完成结构化 reasoning 第一版实现：`src/codeask/llm/reasoning.py` 统一归一 OpenAI-compatible `reasoning_content/reasoning/thinking` 与 Anthropic `thinking_delta/redacted_thinking/text_delta`；`LLMClient` 只把结构化 reasoning 发为 `reasoning_delta`，不扫描正文 `<think>` 标签。
+- 已完成 Reasoning Request Profile：LLM 配置新增 `reasoning_profile/reasoning_profile_json`，默认 `none`，可显式选择 `volcengine_thinking`、`vllm_enable_thinking`、`anthropic_budget_thinking` 或 `custom_json`；网关透传到 client，不按模型名硬编码。
+- 已完成 reasoning 持久化隔离：`ChatRuntime` 将 `reasoning_delta` 转成 `reasoning_observed` 元数据事件，只记录字段、长度、redacted 和 `raw_reasoning_used=false`；正式回答、会话标题、问题报告和下一轮上下文只使用 `text_delta`。
+- 已完成前端 UI Leak Guard 第一版：聊天流中疑似 `<think>` 泄漏只在显示层遮蔽并追加 `reasoning_leak_detected` 行动轨迹诊断，不回写数据库，不作为协议适配成功依据。
+- 已完成 6 个真实 LLM 配置的 structured reasoning 冒烟验证：火山 Anthropic/OpenAI MiniMax、火山 Anthropic/OpenAI GLM、DeepSeek OpenAI/Anthropic 均能完成真实会话流；SSE、`session_turns` 和 traces 均未出现 raw `<think>` 泄漏。
+- 已发现并修复 Anthropic 兼容接口的工具 schema 首包失败场景：当 provider 明确拒绝 tools schema 时，LLM client 会重试一次无工具请求，保证基础问答不被工具协议兼容性拖垮；这不是业务语义特判，不影响正常支持工具的 provider。
 - 已完成真实 LLM 前端端到端验收：使用 `references/claude-code/claude-code` 和 `references/anything-llm` 验证源码仓库检索、刷新恢复和删除清理；这些参考仓库后续必须通过对应特性关联后再进入默认代码检索范围。
 - 已实现第一版上下文预算与压缩：参考 Claude Code 的阈值体系，每轮先估算 active context，超过阈值才压缩旧工具结果；供应商返回上下文超限错误时执行一次 reactive compact retry；较早会话 turns 超过最近窗口时，会写入 `session_conversation_summaries` 并在后续轮次注入长期摘要。
 - 已新增 live E2E 测试文件：`frontend/e2e/admin-agent-source-live.spec.ts`。该用例默认跳过，显式设置 `CODEASK_RUN_LIVE_AGENT_E2E=1` 后才会触发真实 LLM 调用。
@@ -74,7 +84,7 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 - 已稳定 live Agent E2E 执行策略：当启用任一 `CODEASK_RUN_LIVE_*` 开关时，Playwright 自动强制 `workers = 1`，避免共享 LLM 配置、仓库状态和 `.tmp/playwright-e2e` 目录导致并行污染。
 - 已在 2026-05-08 完成完整 live Agent E2E 套件验收：`7 passed (12.0m)`，覆盖基础问答、连续会话、特性范围代码检索、长上下文、特性上下文技术插问和管理员源码链路。
 - 已修复报告草稿解析容错：模型返回被 Markdown 代码块包裹、字符串中含裸换行或 `body_markdown` 内含未转义半角双引号的 JSON-like 输出时，后端仍能提取 `title_description` 和正文，避免报告标题落到 `YYYY-MM-DD 未命名问题`、正文保存成原始 JSON 代码块。
-- 当前 v1.0.2 未完成项：LLM 资源繁忙错误在会话 UI 中的明确失败提示、资源繁忙不得持久化成正常 AI 回答、LLM 网关配置选择 / 切换 / 冷却的 trace 或结构化日志可观测性。
+- 当前 v1.0.2 未完成项：LLM 网关配置选择 / 切换 / 冷却的 trace 或结构化日志可观测性仍需继续增强。structured reasoning 已完成 API 真实模型验证、浏览器冒烟、全量后端测试、全量前端测试和生产构建；`frontend/e2e/agent-reasoning-protocol-live.spec.ts` 已作为后续发布流水线的可重复 live E2E 通道保留。
 - 待后续版本继续：引入外部 RAG 服务、继续收敛 RAG 来源去重、上下文预算治理、生成式结构化摘要、真实 token 预算和 Claude Code 级别的 prompt cache editing。
 
 ## 已确认方向
@@ -87,6 +97,8 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 - 代码读取是默认只读能力；真正需要处理的是仓库范围和代码版本不明确时的追问或不确定性标注。
 - 特性是候选上下文，不是用户提问前必须绑定的条件。
 - 会话 UI 的右侧调查区改为可折叠 Agent 行动轨迹，只展示真实发生的动作和证据。
+- Agent 行动轨迹允许扩展公开分析摘要，例如本轮注入了哪些候选、选择了哪些证据、下一步为何读取 Wiki / 报告 / 代码；这些摘要必须来自可见上下文、工具事件和证据链，不能使用或展示 raw reasoning。
+- 前端可做受控 UI Leak Guard 防止上游 raw thinking 直接暴露，但它不得回写数据库、不得污染下一轮上下文，也不得作为 structured reasoning 协议适配成功的证据。
 - 报告生成、写入 Wiki、删除 Wiki 等写操作仍然需要用户确认或明确 UI 动作。
 
 ## 推荐阅读顺序
@@ -95,15 +107,17 @@ v1.0.1 已完成独立 LLM Wiki 工作台，补齐了团队知识的维护和引
 2. `prd/agent-chat.md`
 3. `design/agent-chat-runtime.md`
 4. `plans/agent-chat-runtime.md`
-5. `plans/acceptance-checklist.md`
-6. `plans/e2e-scenarios.md`
-7. `specs/claude-code-reference-notes.md`
-8. `specs/agent-tools-from-claude-code.md`
-9. `specs/agent-runtime-source-lessons.md`
-10. `specs/rag-context-budget-lessons.md`
-11. `specs/agent-capability-roadmap.md`
-12. `../v1.0.1/README.md`
-13. `../v1.0/design/agent-runtime.md`
-14. `../v1.0/design/llm-gateway.md`
-15. `../v1.0/design/wiki-search.md`
-16. `../v1.0/design/frontend-workbench.md`
+5. `plans/structured-reasoning.md`
+6. `plans/acceptance-checklist.md`
+7. `plans/e2e-scenarios.md`
+8. `specs/model-provider-reference-lessons.md`
+9. `specs/claude-code-reference-notes.md`
+10. `specs/agent-tools-from-claude-code.md`
+11. `specs/agent-runtime-source-lessons.md`
+12. `specs/rag-context-budget-lessons.md`
+13. `specs/agent-capability-roadmap.md`
+14. `../v1.0.1/README.md`
+15. `../v1.0/design/agent-runtime.md`
+16. `../v1.0/design/llm-gateway.md`
+17. `../v1.0/design/wiki-search.md`
+18. `../v1.0/design/frontend-workbench.md`

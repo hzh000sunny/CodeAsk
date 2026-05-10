@@ -23,6 +23,19 @@ export interface RuntimeStage {
 
 export interface RuntimeInsight extends ActionTraceEvent {}
 
+export interface RuntimeSessionState {
+  configId: string | null;
+  configName: string | null;
+  modelName: string;
+  protocol: string | null;
+  scope: string | null;
+  isGlobalPool: boolean;
+  contextSizeChars: number;
+  contextWindowChars: number;
+  usageRatio: number;
+  usageLabel: string;
+}
+
 const STAGE_LABELS: Record<string, string> = {
   input_analysis: "输入分析",
   scope_detection: "范围判断",
@@ -133,6 +146,41 @@ export function textDeltaFromEvent(event: AgentEvent) {
     return "";
   }
   return stringData(event, "delta") ?? stringData(event, "text") ?? "";
+}
+
+export function runtimeStateFromEvent(
+  event: AgentEvent,
+): RuntimeSessionState | null {
+  if (event.type !== "runtime_state") {
+    return null;
+  }
+
+  const contextSizeChars = numberData(event, "context_size_chars");
+  const contextWindowChars = numberData(event, "context_window_chars");
+  if (contextSizeChars === null || contextWindowChars === null) {
+    return null;
+  }
+
+  const usageLabel =
+    stringData(event, "usage_label") ??
+    `${formatContextK(contextSizeChars)}k / ${formatContextK(contextWindowChars, {
+      total: true,
+    })}k`;
+
+  return {
+    configId: stringData(event, "config_id"),
+    configName: stringData(event, "config_name"),
+    modelName: stringData(event, "model_name") ?? "unknown",
+    protocol: stringData(event, "protocol"),
+    scope: stringData(event, "scope"),
+    isGlobalPool: booleanData(event, "is_global_pool"),
+    contextSizeChars,
+    contextWindowChars,
+    usageRatio:
+      numberData(event, "usage_ratio") ??
+      contextSizeChars / Math.max(1, contextWindowChars),
+    usageLabel,
+  };
 }
 
 export function runtimeInsightFromEvent(
@@ -319,6 +367,17 @@ function objectArrayData(event: AgentEvent, key: string) {
 
 function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function booleanData(event: AgentEvent, key: string) {
+  return event.data[key] === true;
+}
+
+function formatContextK(chars: number, options: { total?: boolean } = {}) {
+  if (options.total) {
+    return Math.max(1, Math.round(chars / 10_000) * 10);
+  }
+  return Math.max(1, Math.floor(chars / 1_024));
 }
 
 function intData(event: AgentEvent, key: string) {

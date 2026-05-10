@@ -25,6 +25,8 @@ class ClientBuilder(Protocol):
         model_name: str,
         base_url: str | None = None,
         timeout_seconds: int = 600,
+        reasoning_request_profile: str | None = None,
+        reasoning_request_profile_json: str | None = None,
     ) -> LLMClient: ...
 
 
@@ -34,12 +36,16 @@ def _openai_client(
     model_name: str,
     base_url: str | None = None,
     timeout_seconds: int = 600,
+    reasoning_request_profile: str | None = None,
+    reasoning_request_profile_json: str | None = None,
 ) -> LLMClient:
     return OpenAIClient(
         api_key=api_key,
         model_name=model_name,
         base_url=base_url,
         timeout_seconds=timeout_seconds,
+        reasoning_request_profile=reasoning_request_profile,
+        reasoning_request_profile_json=reasoning_request_profile_json,
     )
 
 
@@ -49,12 +55,16 @@ def _openai_compatible_client(
     model_name: str,
     base_url: str | None = None,
     timeout_seconds: int = 600,
+    reasoning_request_profile: str | None = None,
+    reasoning_request_profile_json: str | None = None,
 ) -> LLMClient:
     return OpenAICompatibleClient(
         api_key=api_key,
         model_name=model_name,
         base_url=base_url,
         timeout_seconds=timeout_seconds,
+        reasoning_request_profile=reasoning_request_profile,
+        reasoning_request_profile_json=reasoning_request_profile_json,
     )
 
 
@@ -64,12 +74,16 @@ def _anthropic_client(
     model_name: str,
     base_url: str | None = None,
     timeout_seconds: int = 600,
+    reasoning_request_profile: str | None = None,
+    reasoning_request_profile_json: str | None = None,
 ) -> LLMClient:
     return AnthropicClient(
         api_key=api_key,
         model_name=model_name,
         base_url=base_url,
         timeout_seconds=timeout_seconds,
+        reasoning_request_profile=reasoning_request_profile,
+        reasoning_request_profile_json=reasoning_request_profile_json,
     )
 
 
@@ -95,6 +109,8 @@ class ClientFactory:
         model_name: str,
         base_url: str | None = None,
         timeout_seconds: int = 600,
+        reasoning_request_profile: str | None = None,
+        reasoning_request_profile_json: str | None = None,
     ) -> LLMClient:
         if protocol not in self.provider_clients:
             raise ValueError(f"unknown protocol {protocol!r}")
@@ -103,6 +119,8 @@ class ClientFactory:
             model_name=model_name,
             base_url=base_url,
             timeout_seconds=timeout_seconds,
+            reasoning_request_profile=reasoning_request_profile,
+            reasoning_request_profile_json=reasoning_request_profile_json,
         )
 
 
@@ -165,10 +183,21 @@ class LLMGateway:
             model_name=config.model_name,
             base_url=config.base_url,
             timeout_seconds=self._timeout_seconds,
+            reasoning_request_profile=config.reasoning_profile,
+            reasoning_request_profile_json=config.reasoning_profile_json,
         )
 
         attempt = 0
         while True:
+            yield LLMEvent(
+                type="message_start",
+                data={
+                    "selected_config": _selected_config_summary(
+                        config,
+                        pooled_global=pooled_global,
+                    )
+                },
+            )
             emitted_real_event = False
             last_error: LLMEvent | None = None
             retry_with_selected_config = False
@@ -208,6 +237,8 @@ class LLMGateway:
                                 model_name=config.model_name,
                                 base_url=config.base_url,
                                 timeout_seconds=self._timeout_seconds,
+                                reasoning_request_profile=config.reasoning_profile,
+                                reasoning_request_profile_json=config.reasoning_profile_json,
                             )
                             retry_with_selected_config = True
                             break
@@ -304,6 +335,17 @@ def _resource_busy_event() -> LLMEvent:
             retryable=True,
         ).model_dump(),
     )
+
+
+def _selected_config_summary(config: Any, *, pooled_global: bool) -> dict[str, Any]:
+    return {
+        "config_id": getattr(config, "id", None),
+        "config_name": getattr(config, "name", None),
+        "model_name": getattr(config, "model_name", "unknown"),
+        "protocol": getattr(config, "protocol", None),
+        "scope": getattr(config, "scope", None),
+        "is_global_pool": pooled_global,
+    }
 
 
 def _counts_against_config_health(data: dict[str, Any]) -> bool:

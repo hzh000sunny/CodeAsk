@@ -46,7 +46,7 @@ export function LlmConfigList({
                 <span>{config.name}</span>
                 <small>
                   {protocolLabel(config.protocol)} · {config.model_name} ·{" "}
-                  {config.api_key_masked}
+                  {config.api_key_masked} · reasoning:{config.reasoning_profile}
                 </small>
               </div>
               <div className="row-actions">

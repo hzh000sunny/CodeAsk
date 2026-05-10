@@ -38,6 +38,33 @@ async def test_create_and_decrypt(repo: LLMConfigRepo) -> None:
     )
     decrypted = await repo.get_with_secret(cfg_id)
     assert decrypted.api_key == "sk-secret"
+    assert decrypted.reasoning_profile == "none"
+    assert decrypted.reasoning_profile_json is None
+
+
+@pytest.mark.asyncio
+async def test_create_and_list_reasoning_profile(repo: LLMConfigRepo) -> None:
+    cfg_id = await repo.create(
+        LLMConfigInput(
+            name="reasoning",
+            protocol="openai",
+            base_url=None,
+            api_key="sk-secret",
+            model_name="gpt-4o",
+            max_tokens=4096,
+            temperature=0.2,
+            reasoning_profile="custom_json",
+            reasoning_profile_json='{"extra_body":{"include_reasoning":true}}',
+        )
+    )
+
+    secret = await repo.get_with_secret(cfg_id)
+    public = (await repo.list())[0]
+
+    assert secret.reasoning_profile == "custom_json"
+    assert secret.reasoning_profile_json == '{"extra_body":{"include_reasoning":true}}'
+    assert public.reasoning_profile == "custom_json"
+    assert public.reasoning_profile_json == '{"extra_body":{"include_reasoning":true}}'
 
 
 @pytest.mark.asyncio

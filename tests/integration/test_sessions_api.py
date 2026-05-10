@@ -309,6 +309,24 @@ async def test_explicit_session_title_generation_returns_updated_session(
                 content="CodeAsk 可以结合 Wiki、问题报告和代码仓库辅助研发排障。",
             )
         )
+        db.add(
+            SessionTurn(
+                id="turn_title_follow_user",
+                session_id=session_id,
+                turn_index=2,
+                role="user",
+                content="再讲讲代码检索",
+            )
+        )
+        db.add(
+            SessionTurn(
+                id="turn_title_follow_agent",
+                session_id=session_id,
+                turn_index=3,
+                role="agent",
+                content="CodeAsk 可以基于仓库索引检索代码文件。",
+            )
+        )
         await db.commit()
 
     mock = MockLLMClient([text_message("CodeAsk 能力介绍")])
@@ -325,12 +343,13 @@ async def test_explicit_session_title_generation_returns_updated_session(
     assert generated.json()["title_generated_at"] is not None
     assert len(mock.calls) == 1
     assert mock.calls[0]["tools"] == []
+    assert mock.calls[0]["max_tokens"] == 2048
     turns = await client.get(
         f"/api/sessions/{session_id}/turns",
         headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert turns.status_code == 200, turns.text
-    assert [turn["role"] for turn in turns.json()] == ["user", "agent"]
+    assert [turn["role"] for turn in turns.json()] == ["user", "agent", "user", "agent"]
 
 
 @pytest.mark.asyncio
@@ -509,6 +528,103 @@ async def test_rollback_session_turn_removes_interrupted_turn_and_traces(
         ).scalars().all()
     assert turns == []
     assert traces == []
+
+
+@pytest.mark.asyncio
+async def test_list_session_traces_compacts_legacy_reasoning_diagnostics(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    created = await client.post(
+        "/api/sessions",
+        json={"title": "推理诊断聚合"},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    async with app.state.session_factory() as db:
+        db.add(
+            SessionTurn(
+                id="turn_reasoning_legacy",
+                session_id=session_id,
+                turn_index=0,
+                role="user",
+                content="测试推理诊断",
+                evidence=None,
+            )
+        )
+        await db.flush()
+        db.add_all(
+            [
+                AgentTrace(
+                    id="tr_reasoning_1",
+                    session_id=session_id,
+                    turn_id="turn_reasoning_legacy",
+                    stage="chat_runtime",
+                    event_type="reasoning_observed",
+                    payload={
+                        "field": "reasoning_content",
+                        "length": 2,
+                        "redacted": False,
+                        "raw_reasoning_used": False,
+                    },
+                ),
+                AgentTrace(
+                    id="tr_reasoning_2",
+                    session_id=session_id,
+                    turn_id="turn_reasoning_legacy",
+                    stage="chat_runtime",
+                    event_type="reasoning_observed",
+                    payload={
+                        "field": "reasoning_content",
+                        "length": 3,
+                        "redacted": False,
+                        "raw_reasoning_used": False,
+                    },
+                ),
+                AgentTrace(
+                    id="tr_reasoning_3",
+                    session_id=session_id,
+                    turn_id="turn_reasoning_legacy",
+                    stage="chat_runtime",
+                    event_type="reasoning_observed",
+                    payload={
+                        "field": "reasoning_content",
+                        "length": 4,
+                        "redacted": True,
+                        "raw_reasoning_used": False,
+                    },
+                ),
+                AgentTrace(
+                    id="tr_tool",
+                    session_id=session_id,
+                    turn_id="turn_reasoning_legacy",
+                    stage="chat_runtime",
+                    event_type="tool_call",
+                    payload={"tool_name": "search_wiki"},
+                ),
+            ]
+        )
+        await db.commit()
+
+    listed = await client.get(
+        f"/api/sessions/{session_id}/traces",
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()
+    reasoning_rows = [row for row in rows if row["event_type"] == "reasoning_observed"]
+    assert len(reasoning_rows) == 1
+    assert reasoning_rows[0]["payload"] == {
+        "field": "reasoning_content",
+        "length": 9,
+        "chunks": 3,
+        "redacted": True,
+        "raw_reasoning_used": False,
+    }
+    assert [row["event_type"] for row in rows].count("tool_call") == 1
 
 
 @pytest.mark.asyncio

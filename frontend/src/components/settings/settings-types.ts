@@ -1,5 +1,11 @@
 export type LlmScope = "user" | "global";
 export type LlmProtocol = "openai" | "anthropic";
+export type LlmReasoningProfile =
+  | "none"
+  | "volcengine_thinking"
+  | "vllm_enable_thinking"
+  | "anthropic_budget_thinking"
+  | "custom_json";
 
 export type LlmUpdatePayload = Partial<{
   name: string;
@@ -8,6 +14,8 @@ export type LlmUpdatePayload = Partial<{
   api_key: string;
   model_name: string;
   enabled: boolean;
+  reasoning_profile: LlmReasoningProfile;
+  reasoning_profile_json: string | null;
 }>;
 
 export type RepoSource = "git" | "local_dir";

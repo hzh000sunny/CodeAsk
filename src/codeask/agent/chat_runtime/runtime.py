@@ -11,12 +11,14 @@ from pydantic import BaseModel
 from codeask.agent.chat_runtime.compaction import (
     CompactionResult,
     ContextBudgetPolicy,
+    calculate_context_budget_state,
     compact_messages_if_needed,
 )
 from codeask.agent.chat_runtime.context import ChatTurnContext, ContextAssembler, SessionMessage
 from codeask.agent.chat_runtime.events import (
     ChatRuntimeEvent,
     RetrievalContextEventData,
+    RuntimeStateEventData,
     ToolCallEventData,
     ToolResultEventData,
 )
@@ -26,6 +28,7 @@ from codeask.agent.chat_runtime.tool_contracts import ToolContext, ToolResult, T
 from codeask.agent.chat_runtime.tool_executor import ToolExecutor
 from codeask.agent.chat_runtime.tool_registry import ToolRegistry
 from codeask.llm.gateway import LLMGateway
+from codeask.llm.reasoning import ReasoningDiagnosticAccumulator
 from codeask.llm.types import (
     LLMEvent,
     LLMMessage,
@@ -226,10 +229,21 @@ class ChatRuntime:
 
         for _round in range(self._max_tool_rounds + 1):
             model_turn = _prepare_model_turn(messages, self._context_budget_policy)
+            yield ChatRuntimeEvent(
+                type="llm_input",
+                data=_summarize_llm_input(
+                    messages=model_turn.messages,
+                    tools=tool_defs,
+                    round_number=_round + 1,
+                ),
+            )
             while True:
                 tool_calls: list[dict[str, Any]] = []
                 retry_with_compacted_context = False
                 emitted_model_output = False
+                selected_config: dict[str, Any] | None = None
+                assistant_text_chunks: list[str] = []
+                reasoning_diagnostics = ReasoningDiagnosticAccumulator()
                 async for event in llm.stream(
                     messages=model_turn.messages,
                     tools=tool_defs,
@@ -239,6 +253,36 @@ class ChatRuntime:
                     if event.type == "text_delta":
                         emitted_model_output = True
                         yield ChatRuntimeEvent(type="text_delta", data=event.data)
+                        delta = event.data.get("delta") or event.data.get("text")
+                        if isinstance(delta, str) and selected_config is not None:
+                            assistant_text_chunks.append(delta)
+                            yield ChatRuntimeEvent(
+                                type="runtime_state",
+                                data=_runtime_state_from_selected_config(
+                                    selected_config,
+                                    messages=_with_projected_assistant_text(
+                                        model_turn.messages,
+                                        "".join(assistant_text_chunks),
+                                    ),
+                                    policy=self._context_budget_policy,
+                                    update_reason="assistant_delta",
+                                ),
+                            )
+                    elif event.type == "message_start":
+                        event_selected_config = _selected_config_from_event(event.data)
+                        if event_selected_config is not None:
+                            selected_config = event_selected_config
+                            yield ChatRuntimeEvent(
+                                type="runtime_state",
+                                data=_runtime_state_from_selected_config(
+                                    selected_config,
+                                    messages=model_turn.messages,
+                                    policy=self._context_budget_policy,
+                                    update_reason="model_request",
+                                ),
+                            )
+                    elif event.type == "reasoning_delta":
+                        reasoning_diagnostics.observe(event.data)
                     elif event.type == "tool_call_done":
                         emitted_model_output = True
                         tool_calls.append(event.data)
@@ -261,9 +305,28 @@ class ChatRuntime:
                         return
                 if retry_with_compacted_context:
                     continue
+                diagnostic = reasoning_diagnostics.diagnostic()
+                if diagnostic is not None:
+                    yield ChatRuntimeEvent(
+                        type="reasoning_observed",
+                        data=diagnostic,
+                    )
                 break
 
             if not tool_calls:
+                if selected_config is not None and assistant_text_chunks:
+                    yield ChatRuntimeEvent(
+                        type="runtime_state",
+                        data=_runtime_state_from_selected_config(
+                            selected_config,
+                            messages=_with_projected_assistant_text(
+                                model_turn.messages,
+                                "".join(assistant_text_chunks),
+                            ),
+                            policy=self._context_budget_policy,
+                            update_reason="assistant_final",
+                        ),
+                    )
                 yield ChatRuntimeEvent(type="done", data={"turn_id": turn_id})
                 return
 
@@ -281,6 +344,17 @@ class ChatRuntime:
                     ],
                 )
             )
+            if selected_config is not None:
+                yield ChatRuntimeEvent(
+                    type="runtime_state",
+                    data=_runtime_state_from_selected_config(
+                        selected_config,
+                        messages=messages,
+                        policy=self._context_budget_policy,
+                        update_reason="tool_calls",
+                    ),
+                )
+            last_selected_config = selected_config
             for tool_call in tool_calls:
                 call_id = str(tool_call["id"])
                 tool_name = str(tool_call["name"])
@@ -328,6 +402,16 @@ class ChatRuntime:
                         ],
                     )
                 )
+                if last_selected_config is not None:
+                    yield ChatRuntimeEvent(
+                        type="runtime_state",
+                        data=_runtime_state_from_selected_config(
+                            last_selected_config,
+                            messages=messages,
+                            policy=self._context_budget_policy,
+                            update_reason="tool_result",
+                        ),
+                    )
 
         messages.append(
             LLMMessage(
@@ -341,9 +425,20 @@ class ChatRuntime:
             )
         )
         model_turn = _prepare_model_turn(messages, self._context_budget_policy)
+        yield ChatRuntimeEvent(
+            type="llm_input",
+            data=_summarize_llm_input(
+                messages=model_turn.messages,
+                tools=[],
+                round_number=self._max_tool_rounds + 2,
+            ),
+        )
         while True:
             retry_with_compacted_context = False
             emitted_model_output = False
+            selected_config: dict[str, Any] | None = None
+            assistant_text_chunks: list[str] = []
+            reasoning_diagnostics = ReasoningDiagnosticAccumulator()
             async for event in llm.stream(
                 messages=model_turn.messages,
                 tools=[],
@@ -353,6 +448,36 @@ class ChatRuntime:
                 if event.type == "text_delta":
                     emitted_model_output = True
                     yield ChatRuntimeEvent(type="text_delta", data=event.data)
+                    delta = event.data.get("delta") or event.data.get("text")
+                    if isinstance(delta, str) and selected_config is not None:
+                        assistant_text_chunks.append(delta)
+                        yield ChatRuntimeEvent(
+                            type="runtime_state",
+                            data=_runtime_state_from_selected_config(
+                                selected_config,
+                                messages=_with_projected_assistant_text(
+                                    model_turn.messages,
+                                    "".join(assistant_text_chunks),
+                                ),
+                                policy=self._context_budget_policy,
+                                update_reason="assistant_delta",
+                            ),
+                        )
+                elif event.type == "message_start":
+                    event_selected_config = _selected_config_from_event(event.data)
+                    if event_selected_config is not None:
+                        selected_config = event_selected_config
+                        yield ChatRuntimeEvent(
+                            type="runtime_state",
+                            data=_runtime_state_from_selected_config(
+                                selected_config,
+                                messages=model_turn.messages,
+                                policy=self._context_budget_policy,
+                                update_reason="model_request",
+                            ),
+                        )
+                elif event.type == "reasoning_delta":
+                    reasoning_diagnostics.observe(event.data)
                 elif event.type == "error":
                     if (
                         not emitted_model_output
@@ -372,7 +497,26 @@ class ChatRuntime:
                     return
             if retry_with_compacted_context:
                 continue
+            diagnostic = reasoning_diagnostics.diagnostic()
+            if diagnostic is not None:
+                yield ChatRuntimeEvent(
+                    type="reasoning_observed",
+                    data=diagnostic,
+                )
             break
+        if selected_config is not None and assistant_text_chunks:
+            yield ChatRuntimeEvent(
+                type="runtime_state",
+                data=_runtime_state_from_selected_config(
+                    selected_config,
+                    messages=_with_projected_assistant_text(
+                        model_turn.messages,
+                        "".join(assistant_text_chunks),
+                    ),
+                    policy=self._context_budget_policy,
+                    update_reason="assistant_final",
+                ),
+            )
         yield ChatRuntimeEvent(type="done", data={"turn_id": turn_id})
 
 
@@ -381,6 +525,143 @@ def _fake_tool_handler(name: str, summary: str):
         return ToolResult.ok(tool=name, summary=summary, items=[])
 
     return handler
+
+
+def _selected_config_from_event(data: dict[str, Any]) -> dict[str, Any] | None:
+    selected_config = data.get("selected_config")
+    if not isinstance(selected_config, dict):
+        return None
+    return selected_config
+
+
+def _runtime_state_from_selected_config(
+    selected_config: dict[str, Any],
+    *,
+    messages: list[LLMMessage],
+    policy: ContextBudgetPolicy,
+    update_reason: str = "snapshot",
+) -> RuntimeStateEventData:
+    budget_state = calculate_context_budget_state(messages, policy)
+    context_label = (
+        f"{_format_context_k(budget_state.size_chars)}k / "
+        f"{_format_context_k(policy.context_window_chars, total=True)}k"
+    )
+    return RuntimeStateEventData(
+        config_id=_string_value(selected_config.get("config_id")),
+        config_name=_string_value(selected_config.get("config_name")),
+        model_name=_string_value(selected_config.get("model_name")) or "unknown",
+        protocol=_string_value(selected_config.get("protocol")),
+        scope=_string_value(selected_config.get("scope")),
+        is_global_pool=bool(selected_config.get("is_global_pool")),
+        update_reason=update_reason,
+        context_size_chars=budget_state.size_chars,
+        context_window_chars=policy.context_window_chars,
+        usage_ratio=budget_state.size_chars / max(1, policy.context_window_chars),
+        usage_label=context_label,
+    )
+
+
+def _with_projected_assistant_text(
+    messages: list[LLMMessage],
+    assistant_text: str,
+) -> list[LLMMessage]:
+    if not assistant_text:
+        return messages
+    return [
+        *messages,
+        LLMMessage(
+            role="assistant",
+            content=[TextBlock(type="text", text=assistant_text)],
+        ),
+    ]
+
+
+def _summarize_llm_input(
+    *,
+    messages: list[LLMMessage],
+    tools: list[ToolDef],
+    round_number: int,
+) -> dict[str, Any]:
+    return {
+        "round": round_number,
+        "messages_count": len(messages),
+        "message_roles": [message.role for message in messages],
+        "tools_count": len(tools),
+        "tool_names": [tool.name for tool in tools],
+        "context_size_chars": sum(len(message.model_dump_json()) for message in messages),
+        "recent_tool_results": _recent_tool_result_summaries(messages),
+    }
+
+
+def _recent_tool_result_summaries(messages: list[LLMMessage]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for message in messages:
+        if message.role != "tool":
+            continue
+        for block in message.content:
+            if not isinstance(block, ToolResultBlock):
+                continue
+            content = block.content
+            if not isinstance(content, dict):
+                continue
+            items = content.get("items")
+            item_list = items if isinstance(items, list) else []
+            summaries.append(
+                {
+                    "tool": _string_value(content.get("tool")),
+                    "ok": content.get("ok"),
+                    "summary": _string_value(content.get("summary")),
+                    "items_count": len(item_list),
+                    "repos": _repo_summaries_from_items(item_list),
+                    "version_info": content.get("version_info"),
+                }
+            )
+    return summaries[-5:]
+
+
+def _repo_summaries_from_items(items: list[Any]) -> list[dict[str, str | None]]:
+    repos: list[dict[str, str | None]] = []
+    seen: set[tuple[str | None, str | None]] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        repo_id = _string_value(item.get("repo_id"))
+        repo_name = _string_value(item.get("repo_name")) or _string_value(item.get("name"))
+        if repo_id is None and repo_name is None:
+            continue
+        key = (repo_id, repo_name)
+        if key in seen:
+            continue
+        seen.add(key)
+        repos.append({"repo_id": repo_id, "repo_name": repo_name})
+    return repos[:10]
+
+
+def _runtime_state_from_event(
+    data: dict[str, Any],
+    *,
+    messages: list[LLMMessage],
+    policy: ContextBudgetPolicy,
+) -> RuntimeStateEventData | None:
+    selected_config = _selected_config_from_event(data)
+    if selected_config is None:
+        return None
+    return _runtime_state_from_selected_config(
+        selected_config,
+        messages=messages,
+        policy=policy,
+    )
+
+
+def _format_context_k(chars: int, *, total: bool = False) -> int:
+    if total:
+        return max(1, round(chars / 10_000) * 10)
+    return max(1, chars // 1_024)
+
+
+def _string_value(value: object) -> str | None:
+    text = str(value).strip() if isinstance(value, str) else ""
+    return text or None
 
 
 def _build_initial_messages(turn_context: ChatTurnContext) -> list[LLMMessage]:

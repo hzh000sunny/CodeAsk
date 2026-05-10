@@ -135,7 +135,10 @@ export function AppShell() {
           onToggleCollapsed={() => setPrimaryCollapsed((value) => !value)}
         />
         <main className="app-main">
-          {routeState.view === "sessions" ? (
+          <div
+            className="app-view-surface"
+            hidden={routeState.view !== "sessions"}
+          >
             <SessionWorkspace
               routeSelectedSessionId={routeState.sessions.sessionId}
               onSelectedSessionChange={navigateSession}
@@ -153,7 +156,7 @@ export function AppShell() {
                 });
               }}
             />
-          ) : null}
+          </div>
           {routeState.view === "features" ? (
             <FeatureWorkbench
               onOpenWiki={openWikiFromFeature}

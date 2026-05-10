@@ -20,6 +20,8 @@ class LLMConfigCreate(BaseModel):
     enabled: bool = True
     rpm_limit: int | None = Field(default=None, ge=1)
     quota_remaining: float | None = Field(default=None, ge=0.0)
+    reasoning_profile: str = Field(default="none", max_length=64)
+    reasoning_profile_json: str | None = Field(default=None, max_length=4096)
 
 
 class LLMConfigUpdate(BaseModel):
@@ -34,6 +36,8 @@ class LLMConfigUpdate(BaseModel):
     enabled: bool | None = None
     rpm_limit: int | None = Field(default=None, ge=1)
     quota_remaining: float | None = Field(default=None, ge=0.0)
+    reasoning_profile: str | None = Field(default=None, max_length=64)
+    reasoning_profile_json: str | None = Field(default=None, max_length=4096)
 
 
 class LLMConfigResponse(BaseModel):
@@ -53,3 +57,5 @@ class LLMConfigResponse(BaseModel):
     enabled: bool
     rpm_limit: int | None
     quota_remaining: float | None
+    reasoning_profile: str
+    reasoning_profile_json: str | None

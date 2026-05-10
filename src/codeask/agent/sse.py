@@ -8,6 +8,9 @@ from pydantic import BaseModel, Field
 EventName = Literal[
     "stage_transition",
     "text_delta",
+    "reasoning_observed",
+    "reasoning_leak_detected",
+    "runtime_state",
     "tool_call",
     "tool_result",
     "retrieval_context",

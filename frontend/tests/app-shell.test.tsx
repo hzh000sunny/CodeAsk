@@ -177,6 +177,128 @@ describe("CodeAsk AppShell information architecture", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps an active session stream running while another top-level page is open", async () => {
+    const encoder = new TextEncoder();
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null =
+      null;
+    const messageRequest: { signal?: AbortSignal } = {};
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/auth/me") {
+          return jsonResponse({
+            subject_id: "client_test",
+            display_name: "client_test",
+            role: "member",
+            authenticated: false,
+          });
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "线上启动失败",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+          ]);
+        }
+        if (
+          path === "/api/sessions/sess_1/messages" &&
+          init?.method === "POST"
+        ) {
+          if (init.signal) {
+            messageRequest.signal = init.signal;
+          }
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                streamController = controller;
+                controller.enqueue(
+                  encoder.encode(
+                    'event: retrieval_context\ndata: {"feature_candidates":[],"wiki_hits":[],"report_hits":[]}\n\n',
+                  ),
+                );
+                init.signal?.addEventListener("abort", () => {
+                  controller.error(new DOMException("Aborted", "AbortError"));
+                });
+              },
+            }),
+            {
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-CodeAsk-Turn-Id": "turn_stream",
+              },
+            },
+          );
+        }
+        if (
+          /^\/api\/sessions\/sess_1\/(turns|traces|attachments)$/.test(path)
+        ) {
+          return jsonResponse([]);
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/me/llm-configs") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/me") {
+          return jsonResponse({
+            subject_id: "client_test",
+            display_name: "client_test",
+            nickname: "client_test",
+          });
+        }
+        if (path === "/api/llm-configs") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/repos") {
+          return jsonResponse({ repos: [] });
+        }
+        if (path === "/api/analysis-policies") {
+          return jsonResponse([]);
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "线上启动失败",
+    );
+    fireEvent.change(screen.getByLabelText("会话输入"), {
+      target: { value: "服务启动失败" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("服务启动失败")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    expect(
+      await screen.findByRole("heading", { name: "用户配置" }),
+    ).toBeInTheDocument();
+    expect(messageRequest.signal).toBeDefined();
+    expect(messageRequest.signal?.aborted).toBe(false);
+
+    await act(async () => {
+      streamController?.enqueue(
+        encoder.encode('event: text_delta\ndata: {"text":"后台继续生成。"}\n\n'),
+      );
+      streamController?.enqueue(
+        encoder.encode('event: done\ndata: {"turn_id":"turn_stream"}\n\n'),
+      );
+      streamController?.close();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "会话" }));
+    expect(await screen.findByText("后台继续生成。")).toBeInTheDocument();
+  });
+
   it("opens the feature workbench with list search, create, and same-page detail tabs", () => {
     render(<App />);
 
@@ -207,7 +329,7 @@ describe("CodeAsk AppShell information architecture", () => {
     expect(
       await screen.findByRole("heading", { name: "用户配置" }),
     ).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("搜索会话")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("搜索会话")).not.toBeVisible();
     expect(screen.queryByPlaceholderText("搜索特性")).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "设置" }),
@@ -220,7 +342,7 @@ describe("CodeAsk AppShell information architecture", () => {
     render(<App />);
 
     expect(screen.getByPlaceholderText("搜索特性")).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("搜索会话")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("搜索会话")).not.toBeVisible();
     expect(
       screen.getByRole("button", { name: "特性" }),
     ).toHaveAttribute("aria-current", "page");
@@ -1186,7 +1308,7 @@ describe("CodeAsk AppShell information architecture", () => {
     expect(
       screen.queryByRole("heading", { name: "全局配置" }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("搜索会话")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("搜索会话")).not.toBeVisible();
     expect(screen.queryByPlaceholderText("搜索特性")).not.toBeInTheDocument();
   });
 });

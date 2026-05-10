@@ -172,6 +172,8 @@ export interface LLMConfigResponse {
   enabled: boolean;
   rpm_limit: number | null;
   quota_remaining: number | null;
+  reasoning_profile: string;
+  reasoning_profile_json: string | null;
 }
 
 export interface AuthMeResponse {

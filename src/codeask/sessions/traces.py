@@ -19,6 +19,7 @@ def is_visible_trace(row: AgentTrace) -> bool:
 def trace_event_priority(row: AgentTrace) -> int:
     priorities = {
         "stage_enter": 0,
+        "runtime_state": 1,
         "llm_input": 1,
         "scope_decision": 2,
         "sufficiency_decision": 2,

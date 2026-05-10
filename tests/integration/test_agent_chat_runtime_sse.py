@@ -4,6 +4,7 @@ from httpx import AsyncClient
 
 import codeask.sessions.messages as session_messages
 from codeask.db.models import AgentTrace, SessionConversationSummary, SessionTurn
+from codeask.llm.types import LLMEvent
 from codeask.sessions.messages import summarize_tool_actions
 from tests.mocks.mock_llm import MockLLMClient, text_message
 
@@ -36,7 +37,15 @@ async def test_post_message_stream_uses_chat_runtime(
     assert created.status_code == 201, created.text
     session_id = created.json()["id"]
 
-    mock = MockLLMClient([text_message("这是普通回答。")])
+    mock = MockLLMClient(
+        [[
+            LLMEvent(type="message_start", data={}),
+            LLMEvent(type="text_delta", data={"delta": "这是"}),
+            LLMEvent(type="text_delta", data={"delta": "普通"}),
+            LLMEvent(type="text_delta", data={"delta": "回答。"}),
+            LLMEvent(type="message_stop", data={"stop_reason": "end_turn"}),
+        ]]
+    )
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     response = await client.post(
@@ -46,6 +55,9 @@ async def test_post_message_stream_uses_chat_runtime(
     )
 
     assert response.status_code == 200
+    assert "event: runtime_state" in response.text
+    assert response.text.count('"update_reason":"assistant_delta"') >= 3
+    assert '"update_reason":"assistant_final"' in response.text
     assert "event: retrieval_context" in response.text
     assert "event: text_delta" in response.text
     assert "event: scope_detection" not in response.text
@@ -55,7 +67,146 @@ async def test_post_message_stream_uses_chat_runtime(
     traces = await client.get(f"/api/sessions/{session_id}/traces", headers=headers)
     assert traces.status_code == 200, traces.text
     trace_types = [item["event_type"] for item in traces.json()]
+    assert "runtime_state" in trace_types
     assert "retrieval_context" in trace_types
+    runtime_state_reasons = [
+        item["payload"].get("update_reason")
+        for item in traces.json()
+        if item["event_type"] == "runtime_state"
+    ]
+    assert "assistant_final" in runtime_state_reasons
+    assert "assistant_delta" not in runtime_state_reasons
+
+
+@pytest.mark.asyncio
+async def test_post_message_stream_persists_llm_input_audit_without_streaming_it(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    config = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "default-audit",
+            "protocol": "openai",
+            "base_url": None,
+            "api_key": "sk-secret",
+            "model_name": "gpt-test",
+            "max_tokens": 1024,
+            "temperature": 0.0,
+            "is_default": True,
+        },
+    )
+    assert config.status_code == 201, config.text
+    await client.post("/api/auth/logout")
+
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "审计会话"}, headers=headers)
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    mock = MockLLMClient([text_message("这是普通回答。")])
+    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "普通问题"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert "event: llm_input" not in response.text
+
+    traces = await client.get(f"/api/sessions/{session_id}/traces", headers=headers)
+    assert traces.status_code == 200, traces.text
+    llm_inputs = [item for item in traces.json() if item["event_type"] == "llm_input"]
+    assert len(llm_inputs) == 1
+    payload = llm_inputs[0]["payload"]
+    assert payload["round"] == 1
+    assert payload["messages_count"] >= 2
+    assert payload["tools_count"] > 0
+    assert payload["recent_tool_results"] == []
+
+
+@pytest.mark.asyncio
+async def test_post_message_stream_isolates_structured_reasoning(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    config = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "reasoning-default",
+            "protocol": "openai",
+            "base_url": None,
+            "api_key": "sk-secret",
+            "model_name": "gpt-test",
+            "is_default": True,
+        },
+    )
+    assert config.status_code == 201, config.text
+    await client.post("/api/auth/logout")
+
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "推理隔离"}, headers=headers)
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    mock = MockLLMClient(
+        [[
+            LLMEvent(type="message_start", data={}),
+            LLMEvent(
+                type="reasoning_delta",
+                data={
+                    "delta": "内部思考",
+                    "field": "reasoning_content",
+                    "redacted": False,
+                },
+            ),
+            LLMEvent(
+                type="reasoning_delta",
+                data={
+                    "delta": "不应该落库",
+                    "field": "reasoning_content",
+                    "redacted": False,
+                },
+            ),
+            LLMEvent(type="text_delta", data={"delta": "正式回答。"}),
+            LLMEvent(type="message_stop", data={"stop_reason": "end_turn"}),
+        ]]
+    )
+    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "普通问题"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert "event: reasoning_observed" in response.text
+    assert "正式回答。" in response.text
+    assert "内部思考不应该落库" not in response.text
+
+    turns = await client.get(f"/api/sessions/{session_id}/turns", headers=headers)
+    assert turns.status_code == 200, turns.text
+    persisted_text = "\n".join(item["content"] for item in turns.json())
+    assert "正式回答。" in persisted_text
+    assert "内部思考不应该落库" not in persisted_text
+
+    traces = await client.get(f"/api/sessions/{session_id}/traces", headers=headers)
+    assert traces.status_code == 200, traces.text
+    reasoning_traces = [
+        item for item in traces.json() if item["event_type"] == "reasoning_observed"
+    ]
+    assert len(reasoning_traces) == 1
+    assert reasoning_traces[0]["payload"]["field"] == "reasoning_content"
+    assert reasoning_traces[0]["payload"]["length"] == 9
+    assert reasoning_traces[0]["payload"]["chunks"] == 2
+    assert "内部思考不应该落库" not in str(reasoning_traces)
 
 
 @pytest.mark.asyncio

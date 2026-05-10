@@ -13,6 +13,10 @@ class _QueryInput(BaseModel):
     query: str
 
 
+class _RepoQueryInput(BaseModel):
+    query: str | None = None
+
+
 @pytest.mark.asyncio
 async def test_default_chat_runtime_tools_declare_runtime_contracts(app) -> None:  # type: ignore[no-untyped-def]
     registry = app.state.chat_runtime._tool_registry
@@ -166,6 +170,78 @@ async def test_runtime_executes_tool_and_continues_model_loop() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runtime_audits_model_input_with_tool_result_repo_items() -> None:
+    registry = ToolRegistry()
+
+    async def list_repos(args: BaseModel, ctx: ToolContext) -> ToolResult:
+        return ToolResult.ok(
+            tool="list_code_repos",
+            summary="可用代码仓库 1 个",
+            items=[
+                {
+                    "repo_id": "repo_anything_llm",
+                    "name": "Manual continuity anything-llm 1778137237804",
+                }
+            ],
+            version_info={"scope_source": "feature_scope", "feature_ids": [3]},
+        )
+
+    registry.register(
+        ToolSpec(
+            name="list_code_repos",
+            description="fake repo listing",
+            input_model=_RepoQueryInput,
+            read_only=True,
+            requires_confirmation=False,
+        ),
+        list_repos,
+    )
+    llm = ScriptedLLM(
+        [
+            {
+                "type": "tool_call",
+                "id": "call_repos",
+                "name": "list_code_repos",
+                "input": {"query": "anything-llm"},
+            },
+            {"type": "assistant_text", "content": "已经拿到仓库信息。"},
+        ]
+    )
+    runtime = ChatRuntime(
+        llm=llm,
+        tool_registry=registry,
+        retrieval_service=LightweightRetrievalService(),
+    )
+
+    events = [event async for event in runtime.run("sess_1", "turn_1", "查 AnythingLLM 代码")]
+
+    llm_input_events = [event for event in events if event.type == "llm_input"]
+    assert len(llm_input_events) == 2
+    assert llm_input_events[1].data["recent_tool_results"] == [
+        {
+            "tool": "list_code_repos",
+            "ok": True,
+            "summary": "可用代码仓库 1 个",
+            "items_count": 1,
+            "repos": [
+                {
+                    "repo_id": "repo_anything_llm",
+                    "repo_name": "Manual continuity anything-llm 1778137237804",
+                }
+            ],
+            "version_info": {"scope_source": "feature_scope", "feature_ids": [3]},
+        }
+    ]
+    tool_messages = [
+        message
+        for message in llm.calls[1]["messages"]
+        if message["role"] == "tool"
+    ]
+    assert "repo_anything_llm" in str(tool_messages)
+    assert "Manual continuity anything-llm 1778137237804" in str(tool_messages)
+
+
+@pytest.mark.asyncio
 async def test_runtime_injects_retrieval_context_into_model_messages() -> None:
     llm = ScriptedLLM([{"type": "assistant_text", "content": "我会先基于小米特性回答。"}])
     runtime = ChatRuntime(
@@ -256,6 +332,31 @@ async def test_runtime_injects_retrieval_context_into_model_messages() -> None:
     assert "E2E claude-code 1778123017269" in first_call_text
     assert "调用代码工具时，把你判断相关的 feature_id 填入 feature_ids" in first_call_text
     assert first_call_text.index("【RAG候选上下文】") < first_call_text.index("小米病情趋势？")
+
+
+@pytest.mark.asyncio
+async def test_runtime_prompt_prevents_false_code_inspection_claims() -> None:
+    llm = ScriptedLLM([{"type": "assistant_text", "content": "我会如实说明代码工具使用情况。"}])
+    runtime = ChatRuntime(
+        llm=llm,
+        tool_registry=ToolRegistry(),
+        retrieval_service=LightweightRetrievalService(),
+    )
+
+    events = [event async for event in runtime.run("sess_1", "turn_1", "通过查阅代码，给我更详细的回答")]
+
+    assert events[-1].type == "done"
+    system_text = "\n".join(
+        block["text"]
+        for message in llm.calls[0]["messages"]
+        if message["role"] == "system"
+        for block in message["content"]
+        if block["type"] == "text"
+    )
+    assert "用户明确要求查阅代码或源码时" in system_text
+    assert "没有成功调用代码工具" in system_text
+    assert "不能声称已经查阅代码、源码或仓库结构" in system_text
+    assert "上一轮代码工具失败" in system_text
 
 
 @pytest.mark.asyncio

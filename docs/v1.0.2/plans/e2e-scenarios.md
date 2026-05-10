@@ -594,13 +594,138 @@ frontend/e2e/wiki-tail.spec.ts
 - 同一会话的历史重复报告，包括早期只写入 `metadata_json.session_id` 的报告，保存时会被清理。
 - 旧特性的问题报告列表和 Wiki 报告引用不再显示该会话的历史草稿。
 
+### E2E-022 结构化 Reasoning 协议适配
+
+目标：验证 OpenAI-compatible 与 Anthropic 两种协议下，模型思考内容只通过结构化 reasoning/thinking 字段进入 CodeAsk 内部事件，不展示、不持久化、不污染报告、标题和下一轮上下文。
+
+实施计划：
+
+- `docs/v1.0.2/plans/structured-reasoning.md`
+- `docs/v1.0.2/plans/structured-reasoning-acceptance.md`
+
+完整真实前后端 E2E 场景以 `structured-reasoning-acceptance.md` 为准。本节保留核心场景摘要，避免版本总表过长。
+
+前置：
+
+1. 管理员可在前端配置多个 LLM。
+2. 用户可提供真实模型池：
+   - 火山引擎 MiniMax；
+   - 火山引擎 GLM；
+   - DeepSeek v4 服务；
+   - OpenAI-compatible 协议配置；
+   - Anthropic 协议配置。
+3. E2E 执行时允许从可用配置中随机选择模型，避免只验证单一供应商路径。
+
+步骤 A：OpenAI-compatible 结构化 reasoning。
+
+1. 选择一个 OpenAI-compatible 配置。
+2. 创建新会话。
+3. 发送 `你好，请用一句话介绍你自己。`
+4. 等待回答完成。
+5. 查询后端 debug / trace 中 observed stream fields。
+6. 刷新页面。
+7. 继续追问 `你刚刚回答了什么？`
+
+验收：
+
+- 如果上游返回 `reasoning_content`、`reasoning` 或结构化 `thinking`，后端产生 `reasoning_delta`。
+- `reasoning_delta` 不进入聊天气泡。
+- `reasoning_delta` 不写入 `session_turns.content`。
+- `delta.content` 正常展示并持久化。
+- 刷新后普通历史不包含 raw reasoning。
+- 追问时模型能看到正式回答历史，但不能看到 raw reasoning。
+- 如果 `content` 中出现 `<think>`，E2E 标记上游模型服务不合规；CodeAsk 后端不得解析或过滤标签。
+- 如果 UI Leak Guard 为 `mask_in_ui`，聊天气泡可以遮蔽疑似 raw thinking 泄漏，并在行动轨迹或诊断区显示 `reasoning_leak_detected`；该结果只能说明显示层保护生效，不能算作 structured reasoning 协议成功。
+- 如果 UI Leak Guard 为 `warn_only`，聊天气泡可以保留上游原始 content，但必须出现明确诊断，便于定位 provider / 网关配置问题。
+- 如果 UI Leak Guard 为 `disabled`，测试应能暴露上游 raw content 泄漏，不能被后端静默修补。
+- Agent 行动轨迹可以出现 `context_prepared`、`analysis_note`、`evidence_selected` 等公开分析事件。
+- 公开分析事件不得包含 `reasoning_content`、`thinking_delta` 或 raw reasoning 原文。
+
+步骤 B：Anthropic 协议结构化 thinking。
+
+1. 选择一个 Anthropic 协议配置。
+2. 创建新会话。
+3. 发送 `你好，请用一句话介绍你自己。`
+4. 等待回答完成。
+5. 查询 observed stream events。
+
+验收：
+
+- `thinking_delta` / `redacted_thinking` 转为 `reasoning_delta`。
+- `text_delta` 转为普通 `text_delta`。
+- `signature_delta` 不展示。
+- 普通聊天气泡只出现正式回答。
+- `session_turns` 只保存正式回答。
+- Agent 行动轨迹只展示公开分析摘要、工具动作和证据摘要，不展示完整 thinking block。
+
+步骤 C：标题和报告反污染。
+
+1. 完成一轮回答。
+2. 等待自动标题生成。
+3. 打开生成问题报告弹窗。
+4. 生成报告草稿。
+
+验收：
+
+- 会话标题不包含 raw reasoning。
+- 报告草稿正文不包含 raw reasoning。
+- 报告标题仍满足 `YYYY-MM-DD 问题描述`。
+
+步骤 D：Agent 行动轨迹公开分析思路。
+
+1. 创建新会话。
+2. 提问 `anything llm 是如何处理召回的？`
+3. 等待模型完成回答。
+4. 打开右侧 `Agent 行动轨迹`。
+5. 展开本轮运行事件。
+
+验收：
+
+- 可以看到本轮准备了哪些候选上下文，例如特性、Wiki、报告、仓库候选数量。
+- 如果模型调用 Wiki / 报告 / 代码工具，运行事件展示工具名称、查询关键词、命中摘要和采用证据。
+- 可以看到公开的 `analysis_note`，用于说明“为什么先读这些资料 / 为什么下一步查某类证据”。
+- `analysis_note.payload.raw_reasoning_used` 必须为 `false`。
+- 普通用户看不到 `reasoning_observed` 的 raw 内容；管理员 debug 模式最多看到字段名和长度。
+- 停止生成后，本轮用户消息、AI 临时回答和本轮运行事件一起回滚，不残留 analysis note 或 reasoning observed。
+
+推荐 live E2E 文件：
+
+```text
+frontend/e2e/agent-reasoning-protocol-live.spec.ts
+```
+
+显式运行命令：
+
+```bash
+CODEASK_RUN_LIVE_REASONING_PROTOCOL_E2E=1 \
+CODEASK_LIVE_REASONING_MODELS='minimax,glm,deepseek-v4' \
+corepack pnpm --dir frontend exec playwright test frontend/e2e/agent-reasoning-protocol-live.spec.ts --workers=1
+```
+
+测试记录必须包含：
+
+```text
+session id
+model display name
+protocol: OpenAI-compatible / Anthropic
+request profile
+observed stream fields/events
+是否出现 reasoning_delta
+普通聊天是否隐藏 reasoning
+session_turns 是否只保存正式回答
+Agent 行动轨迹是否展示公开 analysis_note
+公开 analysis_note 是否未使用 raw reasoning
+标题 / 报告是否无 raw reasoning
+```
+
 ## 4. 执行优先级
 
-1. 继续补显式仓库范围 `explicit_user_repo` 的浏览器 / live LLM 验收。
-2. 优化行动轨迹中 `scope_source`、`feature_ids`、repo / ref / commit 的前端展示。
-3. 为报告重复生成 / 改绑特性补真实浏览器 E2E，覆盖旧特性列表消失、新特性列表出现。
-4. 继续做 RAG 来源去重和预算治理。
-5. 在第一版 `conversation_summary` 基础上继续推进真实 token accounting、生成式结构化摘要和手动 compact UI。
+1. E2E-022 结构化 Reasoning 已完成真实 API 流式验收和真实浏览器冒烟，覆盖 6 个真实 LLM 配置；后端协议适配、request profile、runtime 隔离和前端 leak guard 已有聚焦自动化测试、全量后端测试、全量前端测试和构建验证通过。
+2. 继续补显式仓库范围 `explicit_user_repo` 的浏览器 / live LLM 验收。
+3. 优化行动轨迹中 `scope_source`、`feature_ids`、repo / ref / commit 的前端展示。
+4. 为报告重复生成 / 改绑特性补真实浏览器 E2E，覆盖旧特性列表消失、新特性列表出现。
+5. 继续做 RAG 来源去重和预算治理。
+6. 在第一版 `conversation_summary` 基础上继续推进真实 token accounting、生成式结构化摘要和手动 compact UI。
 
 ## 5. 最低回归命令
 

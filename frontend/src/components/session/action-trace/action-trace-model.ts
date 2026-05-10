@@ -7,6 +7,8 @@ export type ActionTraceKind =
   | "evidence"
   | "clarification"
   | "assistant_action"
+  | "diagnostic"
+  | "warning"
   | "error";
 
 export interface EvidenceRef {
@@ -136,6 +138,52 @@ export function actionTraceFromAgentEvent(
     };
   }
 
+  if (event.type === "reasoning_observed") {
+    return {
+      id: `reasoning_observed_${Date.now()}`,
+      kind: "diagnostic",
+      title: "模型推理已隔离",
+      detail:
+        [
+          stringValue(event.data.field) ? `字段 ${stringValue(event.data.field)}` : null,
+          typeof event.data.length === "number" ? `长度 ${event.data.length}` : null,
+          typeof event.data.chunks === "number" ? `分片 ${event.data.chunks}` : null,
+          event.data.redacted === true ? "redacted" : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "已收到结构化 reasoning 事件，未进入聊天正文",
+      status: "info",
+      data: {
+        field: event.data.field,
+        length: event.data.length,
+        chunks: event.data.chunks,
+        redacted: event.data.redacted,
+        raw_reasoning_used: false,
+      },
+      evidenceRefs: [],
+    };
+  }
+
+  if (event.type === "reasoning_leak_detected") {
+    return {
+      id: `reasoning_leak_detected_${Date.now()}`,
+      kind: "warning",
+      title: "检测到推理泄漏",
+      detail:
+        event.data.masked === true
+          ? "疑似推理文本已在界面遮蔽，需检查上游模型服务是否输出结构化 reasoning"
+          : "疑似推理文本已记录诊断，当前模式未遮蔽显示",
+      status: "info",
+      data: {
+        marker: event.data.marker,
+        mode: event.data.mode,
+        leakedLength: event.data.leakedLength,
+        masked: event.data.masked,
+      },
+      evidenceRefs: [],
+    };
+  }
+
   if (event.type === "assistant_action") {
     return {
       id: `assistant_action_${Date.now()}`,
@@ -185,6 +233,12 @@ export function actionTraceKindLabel(kind: ActionTraceKind | string) {
   }
   if (kind === "assistant_action") {
     return "建议";
+  }
+  if (kind === "diagnostic") {
+    return "诊断";
+  }
+  if (kind === "warning") {
+    return "提醒";
   }
   return "错误";
 }

@@ -23,6 +23,7 @@
 - [RAG 与知识处理增强路线](./rag-knowledge-pipeline.md)
 - [特性边界探测与上下文隔离](./scoped-context-boundary-probe.md)
 - [外部 Agent Backend：Claude Code 与 opencode](./external-agent-backends.md)
+- [结构化思考链处理与上下文隔离](./structured-reasoning-handling.md)（设计前史；当前 v1.0.2 落地计划见 `../v1.0.2/plans/structured-reasoning.md`）
 
 ## 使用规则
 

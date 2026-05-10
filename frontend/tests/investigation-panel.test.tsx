@@ -1,9 +1,25 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import { InvestigationPanel } from "../src/components/session/InvestigationPanel";
-import type { RuntimeInsight } from "../src/components/session/session-model";
+import type {
+  RuntimeInsight,
+  RuntimeSessionState,
+} from "../src/components/session/session-model";
 
 describe("InvestigationPanel runtime previews", () => {
+  const runtimeState: RuntimeSessionState = {
+    configId: "cfg_glm",
+    configName: "火山引擎 GLM-5.1",
+    modelName: "glm-5.1",
+    protocol: "openai_compatible",
+    scope: "global",
+    isGlobalPool: true,
+    contextSizeChars: 32768,
+    contextWindowChars: 202752,
+    usageRatio: 32768 / 202752,
+    usageLabel: "32k / 200k",
+  };
+
   it("renders markdown-rich wiki scope details inside the event popover", () => {
     const insights: RuntimeInsight[] = [
       {
@@ -26,6 +42,7 @@ describe("InvestigationPanel runtime previews", () => {
         onDescribeAttachment={() => undefined}
         onPromoteAttachment={() => undefined}
         onRenameAttachment={() => undefined}
+        runtimeState={runtimeState}
       />,
     );
 
@@ -61,6 +78,7 @@ describe("InvestigationPanel runtime previews", () => {
         onDescribeAttachment={() => undefined}
         onPromoteAttachment={() => undefined}
         onRenameAttachment={() => undefined}
+        runtimeState={runtimeState}
       />,
     );
 
@@ -77,5 +95,28 @@ describe("InvestigationPanel runtime previews", () => {
     expect(
       within(dialog).getByText(/命中小节：回调 Runbook > 排查步骤/),
     ).toBeInTheDocument();
+  });
+
+  it("renders the runtime model status below the session data section", () => {
+    render(
+      <InvestigationPanel
+        attachments={[]}
+        insights={[]}
+        isLoadingAttachments={false}
+        isStreaming={false}
+        onDeleteAttachment={() => undefined}
+        onDescribeAttachment={() => undefined}
+        onPromoteAttachment={() => undefined}
+        onRenameAttachment={() => undefined}
+        runtimeState={runtimeState}
+      />,
+    );
+
+    expect(screen.getByText("模型状态")).toBeInTheDocument();
+    expect(screen.getByText("当前模型")).toBeInTheDocument();
+    expect(screen.getByText("glm-5.1")).toBeInTheDocument();
+    expect(screen.getByText("32k / 200k")).toBeInTheDocument();
+    const rows = document.querySelectorAll(".session-runtime-row");
+    expect(rows).toHaveLength(2);
   });
 });

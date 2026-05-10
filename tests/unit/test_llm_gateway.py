@@ -48,6 +48,8 @@ class _Config:
     enabled: bool = True
     rpm_limit: int | None = None
     quota_remaining: float | None = None
+    reasoning_profile: str = "none"
+    reasoning_profile_json: str | None = None
 
 
 class _FakeRepo:
@@ -135,6 +137,31 @@ async def test_gateway_passes_timeout_to_client_factory() -> None:
     gateway = LLMGateway(_FakeRepo(), factory, timeout_seconds=600, base_delay=0.0)  # type: ignore[arg-type]
     _ = [event async for event in gateway.stream(_request())]
     assert client.kwargs["timeout_seconds"] == 600
+
+
+@pytest.mark.asyncio
+async def test_gateway_passes_reasoning_profile_to_client_factory() -> None:
+    client = _CapturingFactoryClient()
+
+    def build_client(**kwargs: object) -> _CapturingFactoryClient:
+        client.kwargs = kwargs
+        return client
+
+    repo = _FakeRepo(
+        explicit_config=_Config(
+            id="cfg_reasoning",
+            reasoning_profile="custom_json",
+            reasoning_profile_json='{"extra_body":{"include_reasoning":true}}',
+        )
+    )
+    gateway = LLMGateway(repo, ClientFactory(provider_clients={"openai": build_client}))  # type: ignore[arg-type]
+
+    _ = [event async for event in gateway.stream(_request(config_id="cfg_reasoning"))]
+
+    assert client.kwargs["reasoning_request_profile"] == "custom_json"
+    assert client.kwargs["reasoning_request_profile_json"] == (
+        '{"extra_body":{"include_reasoning":true}}'
+    )
 
 
 @pytest.mark.asyncio

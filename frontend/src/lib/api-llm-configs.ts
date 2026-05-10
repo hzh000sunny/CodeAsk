@@ -2,6 +2,12 @@ import type { LLMConfigResponse } from "../types/api";
 import { apiRequest } from "./api-client";
 
 type LlmProtocol = "openai" | "anthropic";
+type LlmReasoningProfile =
+  | "none"
+  | "volcengine_thinking"
+  | "vllm_enable_thinking"
+  | "anthropic_budget_thinking"
+  | "custom_json";
 type LlmCreatePayload = {
   name: string;
   protocol: LlmProtocol;
@@ -9,6 +15,8 @@ type LlmCreatePayload = {
   api_key: string;
   model_name: string;
   enabled?: boolean;
+  reasoning_profile?: LlmReasoningProfile;
+  reasoning_profile_json?: string | null;
 };
 type LlmUpdatePayload = Partial<
   Omit<LlmCreatePayload, "api_key"> & {
