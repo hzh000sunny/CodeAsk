@@ -1,5 +1,7 @@
 """Tests for password hashing helpers."""
 
+import pytest
+
 from codeask.auth.passwords import hash_password, verify_password
 
 
@@ -21,3 +23,32 @@ def test_hash_password_uses_unique_salt() -> None:
 
 def test_verify_password_rejects_malformed_hash() -> None:
     assert verify_password("Secret123", "broken") is False
+
+
+def test_verify_password_rejects_wrong_algorithm_tag() -> None:
+    encoded = hash_password("Secret123")
+    wrong_algorithm = encoded.replace("pbkdf2_sha256", "scrypt", 1)
+
+    assert verify_password("Secret123", wrong_algorithm) is False
+
+
+@pytest.mark.parametrize(
+    ("encoded",),
+    [
+        ("pbkdf2_sha256$0$YWJjZA$ZWZn",),
+        ("pbkdf2_sha256$-1$YWJjZA$ZWZn",),
+    ],
+)
+def test_verify_password_rejects_non_positive_iteration_count(encoded: str) -> None:
+    assert verify_password("Secret123", encoded) is False
+
+
+@pytest.mark.parametrize(
+    ("encoded",),
+    [
+        ("pbkdf2_sha256$210000$%%%$ZWZn",),
+        ("pbkdf2_sha256$210000$YWJjZA$%%%",),
+    ],
+)
+def test_verify_password_rejects_invalid_base64_payload(encoded: str) -> None:
+    assert verify_password("Secret123", encoded) is False
