@@ -5,6 +5,7 @@ from __future__ import annotations
 from secrets import token_hex
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from codeask.auth.passwords import hash_password
@@ -18,7 +19,7 @@ async def ensure_admin_user(
     default_password: str = "admin",
 ) -> None:
     async with factory() as session:
-        user = (await session.execute(select(User).where(User.username == ADMIN_USERNAME))).scalar_one_or_none()
+        user = await _load_admin_user(session)
         if user is None:
             session.add(
                 User(
@@ -29,9 +30,31 @@ async def ensure_admin_user(
                     auth_version=1,
                 )
             )
-        else:
-            user.role = "admin"
-            if user.password_hash is None:
-                user.password_hash = hash_password(default_password)
-                user.auth_version += 1
-        await session.commit()
+            try:
+                await session.commit()
+                return
+            except IntegrityError:
+                await session.rollback()
+                user = await _load_admin_user(session)
+                if user is None:
+                    raise
+
+        if _normalize_admin_user(user, default_password):
+            await session.commit()
+
+
+async def _load_admin_user(session: AsyncSession) -> User | None:
+    return (await session.execute(select(User).where(User.username == ADMIN_USERNAME))).scalar_one_or_none()
+
+
+def _normalize_admin_user(user: User, default_password: str) -> bool:
+    invalidate_sessions = False
+    if user.role != "admin":
+        user.role = "admin"
+        invalidate_sessions = True
+    if user.password_hash is None:
+        user.password_hash = hash_password(default_password)
+        invalidate_sessions = True
+    if invalidate_sessions:
+        user.auth_version += 1
+    return invalidate_sessions
