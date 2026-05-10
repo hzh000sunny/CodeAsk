@@ -32,6 +32,7 @@ from codeask.api.llm_configs import router as llm_configs_router
 from codeask.api.metrics import router as metrics_router
 from codeask.api.sessions import router as sessions_router
 from codeask.api.skills import router as skills_router
+from codeask.api.users import router as users_router
 from codeask.api.wiki import router as wiki_router
 from codeask.code_index.cleanup import build_cleanup_job
 from codeask.code_index.cloner import RepoCloner
@@ -182,6 +183,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(SubjectIdMiddleware)
     app.include_router(healthz_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
+    app.include_router(users_router, prefix="/api")
     app.include_router(metrics_router, prefix="/api")
     app.include_router(wiki_router, prefix="/api")
     app.include_router(code_index_router, prefix="/api")

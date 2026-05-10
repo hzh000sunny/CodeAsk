@@ -172,9 +172,11 @@ async def _resolve_server_side_session_actor(
         auth_session.last_seen_at = now
         await session.commit()
 
+        subject_id = ADMIN_SUBJECT_ID if user.username == ADMIN_SUBJECT_ID else user.id
+        display_name = "Admin" if user.username == ADMIN_SUBJECT_ID else user.username
         return Actor(
-            subject_id=user.id,
-            display_name=user.username,
+            subject_id=subject_id,
+            display_name=display_name,
             role=user.role,
             authenticated=True,
             user_id=user.id,
