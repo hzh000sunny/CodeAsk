@@ -50,7 +50,9 @@ describe("reasoning leak guard", () => {
     expect(
       visibleContentFromLeakGuardResult([first, second, third]),
     ).toBe("前缀结论");
-    expect(third.diagnostic?.leakedLength).toBe(2);
+    expect(first.diagnostic).toBeNull();
+    expect(second.diagnostic?.leakedLength).toBe(2);
+    expect(third.diagnostic).toBeNull();
   });
 
   it("masks orphan closing think tags without dropping visible text", () => {
@@ -75,5 +77,18 @@ describe("reasoning leak guard", () => {
 
     expect(visibleContentFromLeakGuardResult([first, second])).toBe("OK继续回答");
     expect(second.diagnostic?.leakedLength).toBe(0);
+  });
+
+  it("reports a leak only once for one continuous leaked reasoning span", () => {
+    const guard = createReasoningLeakGuard("mask_in_ui");
+
+    const first = guard.feed("<think>第一段");
+    const second = guard.feed("第二段");
+    const third = guard.feed("</think>结论");
+
+    expect(visibleContentFromLeakGuardResult([first, second, third])).toBe("结论");
+    expect(first.diagnostic?.type).toBe("reasoning_leak_detected");
+    expect(second.diagnostic).toBeNull();
+    expect(third.diagnostic).toBeNull();
   });
 });

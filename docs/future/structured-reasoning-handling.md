@@ -23,7 +23,7 @@ OpenAI-compatible: delta.reasoning / delta.reasoning_content / delta.thinking
 Anthropic: thinking_delta / redacted_thinking / text_delta
 ```
 
-如果某个模型服务把 raw thinking 放进 `content` / `text` 正文里，CodeAsk 不在后端解析私有标签，应把它视为模型服务接入不合规。修复点应在模型网关或 vLLM reasoning parser 层。前端可以保留受控 UI Leak Guard 防止用户界面直接泄漏，但它只是显示保护，不是协议解析成功。
+如果某个模型服务把 raw thinking 放进 `content` / `text` 正文里，应把它视为模型服务接入不合规。修复点优先在模型网关或 vLLM reasoning parser 层。CodeAsk 后端允许保留一个极窄的 `<think>` 最后防线，只用于阻止泄漏内容进入可见回答、数据库和后续上下文，并把它转换成内部 `reasoning_delta` 诊断；它不能成为主要 reasoning 解析方案，也不能扩展成任意私有标签解析器。
 
 ## 2. Claude Code 源码中的处理方式
 
@@ -184,14 +184,15 @@ CodeAsk 只消费模型服务明确返回的结构化 reasoning 字段。
 - 模型网关在服务层把 raw model output 转换成结构化字段。
 - 关闭该模型服务的 raw reasoning 输出。
 - 如果无法提供结构化字段，则该模型在 CodeAsk 中按普通 content 模型接入，不启用 reasoning 能力。
-- 如果普通 content 中仍泄漏 raw thinking，UI Leak Guard 可以在显示层遮蔽并提示上游不合规，但不得修改数据库或后续上下文。
+- 如果普通 content 中仍泄漏 raw thinking，后端最后防线应先阻止它进入数据库和后续上下文；UI Leak Guard 只保留为显示层兜底，并且同一轮不应刷出大量重复事件。
 
 ### 3.2 四层保护模型
 
 1. **协议适配层**：消费 OpenAI-compatible / Anthropic 的结构化 reasoning 字段。
 2. **Request Profile 层**：用模型配置声明是否启用 `volcengine_thinking`、`vllm_enable_thinking`、`anthropic_budget_thinking` 或自定义请求体。
 3. **模型服务 / 网关 Parser 层**：私有模型 raw thinking 必须在 vLLM、模型服务或网关中解析成结构化字段。
-4. **UI Leak Guard 层**：只作为最后一道显示层保护，可配置 `disabled | warn_only | mask_in_ui`，触发时记录 `reasoning_leak_detected` 诊断，不回写数据库，不进入上下文。
+4. **后端 Content Leak Guard 层**：只识别 OpenAI-compatible 私有网关常见的 `<think>...</think>` 正文泄漏，把泄漏段转换成内部 `reasoning_delta(content_think_tag)`，避免污染可见回答、数据库和后续上下文；不得扩展成通用私有标签解析器。
+5. **UI Leak Guard 层**：只作为最后一道显示层保护，可配置 `disabled | warn_only | mask_in_ui`，触发时记录 `reasoning_leak_detected` 诊断，不回写数据库，不进入上下文。
    显示层至少要覆盖孤立的 `</think>`、拆分跨 chunk 的 `<think>`/`</think>`，但不能反向推导模型内部 reasoning 内容。
 
 > 2026-05-11 补充：第 2 层当前仍保留第一版的历史实现痕迹，即 `volcengine_thinking`、`vllm_enable_thinking`、`anthropic_budget_thinking` 这类按厂商或网关经验命名的 profile。这个形态只允许作为过渡，不允许继续扩张。当前版本 `v1.0.3` 需要把请求侧重构为“协议族 + 能力描述 + 通用 patch”的构造方式，而不是为每个新模型继续新增 vendor profile。
@@ -353,13 +354,13 @@ error
 | OpenAI-compatible `thinking` | `reasoning_delta`，仅当 provider 明确以结构化字段返回 |
 | 普通 `content` | `text_delta` |
 | Anthropic `text_delta` | `text_delta` |
-| `content` / `text` 内嵌 `<think>` 等标签 | 不解析；视为上游模型服务未提供合规结构化 reasoning |
+| `content` / `text` 内嵌 `<think>` 等标签 | 视为上游模型服务未提供合规结构化 reasoning；CodeAsk 仅保留极窄最后防线防止污染可见回答和上下文 |
 
 关键原则：
 
 1. 先识别结构化字段。
 2. 再处理 provider 已知的 reasoning 字段。
-3. 不从 `content` / `text` 正文中强匹配 reasoning 标签。
+3. 不把 `content` / `text` 正文标签解析作为主协议能力；仅允许 `<think>` 最后防线用于泄漏隔离。
 4. 任何结构化 reasoning 都不能混入普通 `text_delta`。
 5. 如果上游把 raw reasoning 放进正文，CodeAsk 只能通过 debug shape 识别接入不合规，不能在后端猜测过滤。
 
@@ -803,7 +804,7 @@ UI 默认隐藏 reasoning
 用户侧展示行动轨迹和证据链
 ```
 
-CodeAsk 不应继续把 `<think>` 强匹配作为兼容兜底。后续必须迁移到同时支持 OpenAI-compatible 与 Anthropic 的结构化 reasoning 事件模型。否则随着接入更多模型、更多网关和外部 agent backend，思考链泄漏、上下文污染、报告污染和调试困难都会反复出现。
+CodeAsk 不应把 `<think>` 强匹配当作主要兼容方案。正式方向仍然是同时支持 OpenAI-compatible 与 Anthropic 的结构化 reasoning 事件模型；`<think>` 只能作为最后防线，避免不合规模型服务污染可见回答、数据库和后续上下文。否则随着接入更多模型、更多网关和外部 agent backend，思考链泄漏、上下文污染、报告污染和调试困难都会反复出现。
 
 ## 10. 参考
 

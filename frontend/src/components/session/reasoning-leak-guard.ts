@@ -21,6 +21,7 @@ export function createReasoningLeakGuard(mode: ReasoningLeakGuardMode) {
   let buffer = "";
   let inside = false;
   let leakedLength = 0;
+  let reported = false;
 
   function feed(text: string): ReasoningLeakGuardResult {
     if (mode === "disabled") {
@@ -82,17 +83,23 @@ export function createReasoningLeakGuard(mode: ReasoningLeakGuardMode) {
       inside = true;
     }
 
-    return {
-      visibleText: mode === "mask_in_ui" ? output.join("") : text,
-      diagnostic: detected
+    const diagnostic =
+      detected && !reported
         ? {
-            type: "reasoning_leak_detected",
+            type: "reasoning_leak_detected" as const,
             marker: "think",
             mode,
             leakedLength,
             masked: mode === "mask_in_ui",
           }
-        : null,
+        : null;
+    if (diagnostic) {
+      reported = true;
+    }
+
+    return {
+      visibleText: mode === "mask_in_ui" ? output.join("") : text,
+      diagnostic,
     };
   }
 

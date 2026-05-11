@@ -7,7 +7,7 @@ from typing import Any, Protocol, cast
 import structlog
 from litellm import acompletion as _raw_acompletion  # type: ignore[reportUnknownVariableType]
 
-from codeask.llm.reasoning import normalize_openai_delta
+from codeask.llm.reasoning import ThinkTagContentFilter, normalize_openai_delta
 from codeask.llm.request_profiles import (
     DEFAULT_REASONING_PROFILE,
     build_reasoning_request_kwargs,
@@ -346,6 +346,7 @@ class _BaseClient:
         emitted_start = False
         tool_accumulators: dict[str, dict[str, str]] = {}
         active_tool_call_id: str | None = None
+        think_tag_filter = ThinkTagContentFilter()
 
         try:
             async for chunk in stream:
@@ -368,6 +369,12 @@ class _BaseClient:
                 for event_type, event_data in normalize_openai_delta(
                     cast(dict[str, Any], _delta_to_dict(delta))
                 ):
+                    if event_type == "text_delta":
+                        text = event_data.get("delta")
+                        if isinstance(text, str):
+                            for filtered_type, filtered_data in think_tag_filter.feed(text):
+                                yield LLMEvent(type=filtered_type, data=filtered_data)
+                        continue
                     yield LLMEvent(type=event_type, data=event_data)
 
                 tool_calls = cast(list[Any], getattr(delta, "tool_calls", None) or [])
@@ -411,6 +418,8 @@ class _BaseClient:
 
                 finish_reason = getattr(choice, "finish_reason", None)
                 if finish_reason is not None:
+                    for filtered_type, filtered_data in think_tag_filter.flush():
+                        yield LLMEvent(type=filtered_type, data=filtered_data)
                     for tool_call_id, acc in tool_accumulators.items():
                         arguments: dict[str, Any] = {}
                         try:

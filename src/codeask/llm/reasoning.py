@@ -6,6 +6,10 @@ from typing import Any, Literal
 
 ReasoningEventName = Literal["reasoning_start", "reasoning_delta", "reasoning_stop", "text_delta"]
 
+_THINK_OPEN_TAG = "<think>"
+_THINK_CLOSE_TAG = "</think>"
+_CONTENT_THINK_FIELD = "content_think_tag"
+
 
 def normalize_openai_delta(
     delta: dict[str, Any],
@@ -89,6 +93,83 @@ def reasoning_diagnostic(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+class ThinkTagContentFilter:
+    """Last-resort compatibility filter for providers leaking think markup as content.
+
+    Primary reasoning handling is structured provider fields such as
+    reasoning_content, thinking_delta, or Anthropic thinking blocks. This filter
+    only prevents leaked `<think>...</think>` markup from entering visible text
+    and persisted assistant messages when a private gateway returns it inside
+    normal content.
+    """
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._inside = False
+
+    def feed(self, text: str) -> list[tuple[ReasoningEventName, dict[str, Any]]]:
+        if not text:
+            return []
+
+        self._buffer += text
+        events: list[tuple[ReasoningEventName, dict[str, Any]]] = []
+
+        while self._buffer:
+            lowered = self._buffer.lower()
+            if self._inside:
+                close_index = lowered.find(_THINK_CLOSE_TAG)
+                if close_index == -1:
+                    keep = _suffix_length(lowered, _THINK_CLOSE_TAG)
+                    leaked = self._buffer[:-keep] if keep else self._buffer
+                    _append_reasoning_delta(events, leaked)
+                    self._buffer = self._buffer[-keep:] if keep else ""
+                    break
+
+                leaked = self._buffer[:close_index]
+                _append_reasoning_delta(events, leaked)
+                self._buffer = self._buffer[close_index + len(_THINK_CLOSE_TAG) :]
+                self._inside = False
+                continue
+
+            open_index = lowered.find(_THINK_OPEN_TAG)
+            close_index = lowered.find(_THINK_CLOSE_TAG)
+            if close_index != -1 and (open_index == -1 or close_index < open_index):
+                _append_text_delta(events, self._buffer[:close_index])
+                self._buffer = self._buffer[close_index + len(_THINK_CLOSE_TAG) :]
+                continue
+
+            if open_index == -1:
+                keep = max(
+                    _suffix_length(lowered, _THINK_OPEN_TAG),
+                    _suffix_length(lowered, _THINK_CLOSE_TAG),
+                )
+                visible = self._buffer[:-keep] if keep else self._buffer
+                _append_text_delta(events, visible)
+                self._buffer = self._buffer[-keep:] if keep else ""
+                break
+
+            _append_text_delta(events, self._buffer[:open_index])
+            self._buffer = self._buffer[open_index + len(_THINK_OPEN_TAG) :]
+            self._inside = True
+
+        return events
+
+    def flush(self) -> list[tuple[ReasoningEventName, dict[str, Any]]]:
+        if not self._buffer:
+            return []
+        pending = self._buffer
+        self._buffer = ""
+        if self._inside:
+            self._inside = False
+            return [
+                (
+                    "reasoning_delta",
+                    {"delta": pending, "field": _CONTENT_THINK_FIELD, "redacted": False},
+                )
+            ] if pending else []
+        return [("text_delta", {"delta": pending})]
+
+
 class ReasoningDiagnosticAccumulator:
     """Aggregates structured reasoning chunks into one safe diagnostic event."""
 
@@ -130,6 +211,35 @@ def _reasoning_text(value: Any) -> str:
             if isinstance(item, str) and item:
                 return item
     return ""
+
+
+def _append_text_delta(
+    events: list[tuple[ReasoningEventName, dict[str, Any]]],
+    text: str,
+) -> None:
+    if text:
+        events.append(("text_delta", {"delta": text}))
+
+
+def _append_reasoning_delta(
+    events: list[tuple[ReasoningEventName, dict[str, Any]]],
+    text: str,
+) -> None:
+    if text:
+        events.append(
+            (
+                "reasoning_delta",
+                {"delta": text, "field": _CONTENT_THINK_FIELD, "redacted": False},
+            )
+        )
+
+
+def _suffix_length(text: str, tag: str) -> int:
+    max_length = min(len(text), len(tag) - 1)
+    for length in range(max_length, 0, -1):
+        if tag.startswith(text[-length:]):
+            return length
+    return 0
 
 
 def _dict_value(value: Any) -> dict[str, Any]:

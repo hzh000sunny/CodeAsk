@@ -176,6 +176,14 @@ v1.0.3 收口前必须同时满足：
 - [x] 真实浏览器会话链路验证：Vite `5173` 连接后端 `8000`，新建会话并询问 `用一句话说明 Python list 和 tuple 的区别。`，页面出现答案关键词，Agent 行动轨迹可见，`<think>` / `</think>` / `<tool_call>` 标记未泄漏，浏览器 console error 为 0。
 - [x] `git diff --check` 通过。
 
+### 9.2.1 离线部署模型 `<think>` 泄漏修复记录（2026-05-11）
+
+- [x] 根因：部分私有 OpenAI-compatible 模型服务把 raw thinking 混入 `delta.content`，而不是返回结构化 `reasoning_content`；旧实现只在前端直播流遮蔽，后端仍可能把原始 `<think>` 文本写入历史、报告上下文和后续会话上下文。
+- [x] 后端补充极窄 Content Leak Guard：仅把 `content` 中的 `<think>...</think>` 正文泄漏转换成 `reasoning_delta(content_think_tag)`，不作为主协议解析方案，不扩展到任意私有标签。
+- [x] 前端 Leak Guard 同一轮只追加一次 `reasoning_leak_detected` 诊断，避免长思考链刷出大量 Agent 事件。
+- [x] `uv run pytest tests/unit/test_llm_client_adapter.py -q`，15 passed。
+- [x] `corepack pnpm --dir frontend exec vitest run tests/reasoning-leak-guard.test.ts`，7 passed。
+
 ### 9.3 协议选择 UI 收口验证（2026-05-11）
 
 - [x] `corepack pnpm --dir frontend test:run -- settings-page.test.tsx`，命令实际复跑前端全量 Vitest：40 个测试文件 / 201 个用例通过。

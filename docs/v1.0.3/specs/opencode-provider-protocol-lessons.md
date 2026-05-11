@@ -318,7 +318,7 @@ ReasoningBlock:
 - `delta.reasoning_content` -> reasoning event
 - `delta.thinking` 只有作为结构化字段时 -> reasoning event
 - `delta.content` -> visible text
-- 不在后端扫描 `<think>`、`</think>`、`<thinking>`。
+- 不把后端扫描 `<think>`、`</think>`、`<thinking>` 当成主要协议解析能力；v1.0.3 只允许保留极窄的 `<think>` 最后防线，用于阻止不合规模型服务把 raw thinking 写入可见回答、数据库和后续上下文。
 
 前端 leak guard 只能是显示保护，不是协议解析。
 
@@ -406,7 +406,7 @@ CodeAsk v1.0.3 已停止继续扩张 vendor-style reasoning profile，第一版�
 本轮有意没有做的事情：
 
 - 没有根据模型名、厂商名或 base URL 自动判断 reasoning 参数。
-- 没有在后端扫描 `<think>` 标签。
+- 没有把 `<think>` 标签扫描作为主 reasoning 方案；后续补充的最后防线只做泄漏隔离，并转换成内部 `reasoning_delta(content_think_tag)` 诊断。
 - 没有把 raw reasoning 放入报告、标题生成或普通 answer text。
 - 没有把 provider adapter、capability 和 request patch 暴露给普通用户。前端 LLM 配置页只保留 `OpenAI` / `Anthropic` 两个消息格式选项，历史 `openai_compatible` 仅作为内部兼容值保留并在 UI 中显示为 `OpenAI`。
 
