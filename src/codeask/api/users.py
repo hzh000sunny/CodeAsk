@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
 from codeask.api.schemas.user import PasswordUpdate, UserCandidateResponse, UserResponse, UserUpdate
 from codeask.audit import write_audit
 from codeask.auth.bootstrap import ADMIN_USERNAME
 from codeask.auth.passwords import hash_password
+from codeask.auth.sessions import hash_session_token
 from codeask.db.models import AuthSession, User
 
 router = APIRouter()
@@ -75,7 +76,23 @@ async def update_current_user_password(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login required")
         current.password_hash = hash_password(payload.password)
         current.auth_version += 1
-        await session.execute(delete(AuthSession).where(AuthSession.user_id == current.id))
+        cookie_name = request.app.state.settings.auth_cookie_name
+        token = request.cookies.get(cookie_name)
+        token_hash = hash_session_token(token) if token else None
+        if token_hash:
+            await session.execute(
+                update(AuthSession)
+                .where(AuthSession.user_id == current.id, AuthSession.token_hash == token_hash)
+                .values(auth_version=current.auth_version)
+            )
+            await session.execute(
+                delete(AuthSession).where(
+                    AuthSession.user_id == current.id,
+                    AuthSession.token_hash != token_hash,
+                )
+            )
+        else:
+            await session.execute(delete(AuthSession).where(AuthSession.user_id == current.id))
         await write_audit(
             session,
             entity_type="user",
@@ -84,7 +101,6 @@ async def update_current_user_password(
             subject_id=request.state.subject_id,
         )
         await session.commit()
-    response.delete_cookie(request.app.state.settings.auth_cookie_name)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
 

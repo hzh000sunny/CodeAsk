@@ -8,6 +8,7 @@ from codeask.llm.types import (
     LLMEvent,
     LLMMessage,
     LLMRequest,
+    ReasoningBlock,
     TextBlock,
     ToolCallBlock,
     ToolDef,
@@ -37,6 +38,22 @@ def test_tool_result_block() -> None:
         content={"ok": True},
     )
     assert block.is_error is False
+
+
+def test_reasoning_block_round_trip() -> None:
+    block = ReasoningBlock(
+        type="reasoning",
+        text="internal",
+        field="reasoning_content",
+        redacted=False,
+        provider_metadata={"openai_compatible": {"item_id": "r1"}},
+    )
+
+    restored = ReasoningBlock.model_validate(block.model_dump())
+
+    assert restored.text == "internal"
+    assert restored.field == "reasoning_content"
+    assert restored.provider_metadata == {"openai_compatible": {"item_id": "r1"}}
 
 
 def test_message_with_mixed_blocks() -> None:

@@ -1,15 +1,15 @@
 import type { LlmProtocol } from "./settings-types";
 
 export function safeEditableProtocol(protocol: string): LlmProtocol {
-  return protocol === "anthropic" ? "anthropic" : "openai";
+  if (protocol === "anthropic") {
+    return "anthropic";
+  }
+  return "openai";
 }
 
 export function protocolLabel(protocol: string) {
   if (protocol === "anthropic") {
     return "Anthropic";
-  }
-  if (protocol === "openai_compatible") {
-    return "OpenAI Compatible";
   }
   return "OpenAI";
 }

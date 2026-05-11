@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from codeask.llm.client import AnthropicClient, OpenAIClient, OpenAICompatibleClient
-from codeask.llm.types import LLMMessage, TextBlock, ToolDef
+from codeask.llm.types import LLMMessage, ReasoningBlock, TextBlock, ToolDef
 
 
 def _chunk(
@@ -346,6 +346,83 @@ async def test_openai_compatible_reasoning_request_profile_adds_provider_kwargs(
     ]
 
     assert captured["extra_body"] == {"thinking": {"type": "enabled"}}
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_replays_reasoning_history_only_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="ok")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAICompatibleClient(
+        api_key="local-secret",
+        model_name="local-model",
+        base_url="http://llm.local/v1",
+    )
+    messages = [
+        LLMMessage(
+            role="assistant",
+            content=[
+                ReasoningBlock(
+                    type="reasoning",
+                    text="internal",
+                    field="reasoning_content",
+                ),
+                TextBlock(type="text", text="visible"),
+            ],
+        ),
+        LLMMessage(role="user", content=[TextBlock(type="text", text="again")]),
+    ]
+
+    _ = [
+        event
+        async for event in client.stream(
+            messages=messages,
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert captured["messages"][0] == {
+        "role": "assistant",
+        "content": "visible",
+    }
+
+    _ = [
+        event
+        async for event in client.stream(
+            messages=messages,
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+            metadata={
+                "reasoning_history": {
+                    "mode": "openai_interleaved",
+                    "field": "reasoning_content",
+                }
+            },
+        )
+    ]
+
+    assert captured["messages"][0] == {
+        "role": "assistant",
+        "content": "visible",
+        "reasoning_content": "internal",
+    }
 
 
 @pytest.mark.asyncio

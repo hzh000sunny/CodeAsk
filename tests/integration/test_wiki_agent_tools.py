@@ -1,9 +1,16 @@
 import pytest
+import pytest_asyncio
 from fastapi import FastAPI
 from httpx import AsyncClient
 
 from codeask.agent.state import AgentState
 from codeask.agent.tool_models import ToolContext
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _login_admin_for_wiki_setup(client: AsyncClient) -> None:
+    response = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert response.status_code == 200, response.text
 
 
 def _tool_ctx(feature_id: int) -> ToolContext:

@@ -136,7 +136,7 @@ describe("session runtime stage model", () => {
         model_name: "glm-5.1",
         protocol: "openai_compatible",
         context_size_chars: 32768,
-        context_window_chars: 202752,
+        context_window_chars: 200000,
       },
     });
 

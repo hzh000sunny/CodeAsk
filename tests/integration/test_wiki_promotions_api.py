@@ -10,20 +10,22 @@ from codeask.db.models import AuditLog, WikiAsset, WikiDocument, WikiNode, WikiS
 
 
 async def _create_session(client: AsyncClient) -> str:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     response = await client.post(
         "/api/sessions",
         json={"title": "排障会话"},
-        headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert response.status_code == 201, response.text
     return str(response.json()["id"])
 
 
 async def _create_feature_space(client: AsyncClient, slug: str) -> tuple[int, int, int]:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     response = await client.post(
         "/api/features",
         json={"name": slug, "slug": slug},
-        headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert response.status_code == 201, response.text
     feature_id = int(response.json()["id"])
@@ -105,7 +107,7 @@ async def test_promote_session_attachment_to_wiki_document(client: AsyncClient, 
     assert source.metadata_json["session_id"] == session_id
     assert saved_document is not None
     assert len(rows) == 1
-    assert rows[0].subject_id == "alice@dev-1"
+    assert rows[0].subject_id == "admin"
     assert rows[0].to_status == "document"
 
 

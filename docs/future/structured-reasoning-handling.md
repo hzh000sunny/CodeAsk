@@ -140,6 +140,19 @@ Claude Code 会根据模型能力和配置决定 thinking 参数：
 
 CodeAsk 当前 `<think>` 过滤属于临时调试方案，不应进入正式架构。
 
+### 3.0 用户配置边界
+
+LLM 配置界面不能把 reasoning/request patch 暴露给用户。
+
+用户预期应接近 opencode 这类成熟工具：提供 Base URL、API Key、模型名称，必要时选择接口协议；不要求用户理解 `thinking`、`reasoning_effort`、`request_patch`、历史回放字段或 provider 私有参数。
+
+CodeAsk 内部仍可以保留 provider adapter、capability declaration 和 request patch 扩展口，但这些属于协议适配层职责：
+
+- 普通用户和管理员表单不展示 `Reasoning 请求方式`、`Reasoning 请求 JSON`。
+- 新建配置默认不启用额外 reasoning 请求参数。
+- 编辑配置时不因隐藏字段覆盖已有内部适配配置。
+- 真实模型需要特殊参数时，应通过版本化 provider adapter / 能力配置 / 数据迁移解决，而不是让用户手工填写 JSON。
+
 这类输入看似可以通过字符串过滤处理：
 
 ```text
@@ -179,6 +192,9 @@ CodeAsk 只消费模型服务明确返回的结构化 reasoning 字段。
 2. **Request Profile 层**：用模型配置声明是否启用 `volcengine_thinking`、`vllm_enable_thinking`、`anthropic_budget_thinking` 或自定义请求体。
 3. **模型服务 / 网关 Parser 层**：私有模型 raw thinking 必须在 vLLM、模型服务或网关中解析成结构化字段。
 4. **UI Leak Guard 层**：只作为最后一道显示层保护，可配置 `disabled | warn_only | mask_in_ui`，触发时记录 `reasoning_leak_detected` 诊断，不回写数据库，不进入上下文。
+   显示层至少要覆盖孤立的 `</think>`、拆分跨 chunk 的 `<think>`/`</think>`，但不能反向推导模型内部 reasoning 内容。
+
+> 2026-05-11 补充：第 2 层当前仍保留第一版的历史实现痕迹，即 `volcengine_thinking`、`vllm_enable_thinking`、`anthropic_budget_thinking` 这类按厂商或网关经验命名的 profile。这个形态只允许作为过渡，不允许继续扩张。当前版本 `v1.0.3` 需要把请求侧重构为“协议族 + 能力描述 + 通用 patch”的构造方式，而不是为每个新模型继续新增 vendor profile。
 
 ## 4. CodeAsk 后续目标
 
@@ -232,7 +248,73 @@ CodeAsk 的取舍：
 
 更详细的参考结论见 `../v1.0.2/specs/model-provider-reference-lessons.md`。
 
+## 4.2 opencode 的补充参考
+
+opencode 对 CodeAsk 的主要价值，是提供了一个比 AnythingLLM 更适合 Agent 工具的多协议分层参考。更详细的源码学习记录见 `../v1.0.3/specs/opencode-provider-protocol-lessons.md`。
+
+可借鉴：
+
+- `Protocol / Endpoint / Auth / Framing` 分层：Protocol 只负责请求体构造和 stream parser，不负责 URL、鉴权和传输 framing。
+- `ContentPart` 中把 `reasoning` 作为一等 part，`LLMEvent` 中有 `reasoning-start / reasoning-delta / reasoning-end`。
+- `Usage` 中区分 `reasoningTokens` 和 visible output tokens。
+- `providerOptions` 采用 namespace，例如 `openai`、`anthropic`、`gemini`、`bedrock`，而不是业务层散落参数。
+- OpenAI-compatible 协议可复用 OpenAI Chat protocol，但通过模型能力声明处理 `interleaved.reasoning_content` / `reasoning_details`。
+- Anthropic、Gemini、Bedrock、OpenAI Responses 都在各自 protocol adapter 中处理结构化 reasoning，而不是让前端正则拆 `<think>`。
+- 长上下文压缩基于 overflow 触发，压缩前剪枝旧工具输出，并保留最近尾部上下文。
+
+需要谨慎对待：
+
+- opencode 也存在大量模型名、provider 名和 SDK 兼容分支，例如 GPT-5 variants、Gemini thinking level、DashScope `enable_thinking`、LiteLLM `_noop` tool、DeepSeek reasoning history 等。
+- 这些分支在 opencode 中集中在 provider transform / catalog / SDK adapter 中，而不是业务 runtime 中。
+- CodeAsk 当前没有等价的 `models.dev` catalog，也有明确的产品约束：不能根据模型名、厂商名、base url 猜 reasoning 参数。因此不能原样照搬这些经验分支。
+
+CodeAsk 的取舍：
+
+```text
+借鉴 opencode 的分层、结构化 reasoning part、providerOptions namespace 和协议化历史回放。
+不照搬 opencode 的模型名硬编码。
+如果确实需要特殊请求字段，必须来自用户配置的 capability 或 request patch。
+```
+
 ## 5. 建议架构
+
+### 5.0 请求侧协议适配原则
+
+这一节用于收敛 2026-05-11 已确认的一个核心原则：**reasoning 请求参数允许因协议不同而不同，但不允许继续按厂商名写死分支扩张。**
+
+需要分清三层：
+
+1. **协议族**
+   - `anthropic`
+   - `openai`
+   - `openai_compatible`
+
+2. **能力描述**
+   - 是否启用 reasoning
+   - `reasoning_mode = disabled | enabled | adaptive`
+   - reasoning 参数位于顶层还是 `extra_body`
+   - 是否支持 `budget_tokens`
+   - 是否要求把上一轮 reasoning state 回传
+
+3. **通用 patch**
+   - 某个私有网关仍有额外字段差异时，允许显式配置 JSON / path-based patch
+   - patch 是通用扩展口，不是新的厂商 profile 名称
+
+当前 CodeAsk 的问题不是“存在协议适配”，而是“请求适配还停留在 vendor profile 命名层”。这会导致：
+
+- 新接一个模型网关，就倾向于继续向 `request_profiles.py` 堆新的厂商分支。
+- 配置表达的是厂商经验，不是协议能力，无法稳定推广到未知模型。
+- 测试通过的是少量样例，不代表系统真正具备通用兼容能力。
+
+Claude Code 的可借鉴点，不是逐行照搬它当前围绕 Anthropic 生态的 provider 列表，而是照搬它的分层原则：
+
+- provider / protocol 先分层；
+- model capability 独立建模；
+- request builder 按能力序列化请求；
+- response parser 按协议归一化；
+- history continuity 独立处理，不和 UI 过滤混在一起。
+
+AnythingLLM 在 OpenAI-compatible 世界的 provider 覆盖面更广，但它大量把 reasoning 包成 `<think>` 文本通道，不适合作为 CodeAsk 的主架构。opencode 源码分析已经补充到 `../v1.0.3/specs/opencode-provider-protocol-lessons.md`，用于校准 OpenAI-compatible / 多网关兼容面的更优实现。
 
 ### 5.1 LLM 事件模型
 
@@ -451,7 +533,7 @@ CodeAsk 不实现 vLLM parser 的标签解析逻辑，也不把 vLLM parser 名�
 
 不同协议和网关开启 reasoning 的请求参数不同，不能全局硬塞同一个参数。
 
-建议引入 `ReasoningRequestProfile`：
+当前第一版实现采用 `ReasoningRequestProfile`：
 
 ```text
 none
@@ -476,6 +558,37 @@ anthropic_budget_thinking:
 ```
 
 这些 profile 只控制请求参数，不控制正文标签解析。
+
+但它们不应成为长期稳定接口。后续应收敛为下面三类配置：
+
+```text
+protocol
+reasoning_capabilities
+request_patch
+```
+
+建议方向：
+
+1. **保留 `protocol`**
+   仍然只表达消息接口协议族，不表达厂商，不表达 LiteLLM provider 名。
+
+2. **新增中性能力描述**
+
+```text
+reasoning_mode
+reasoning_transport
+reasoning_budget_tokens
+requires_reasoning_history
+```
+
+3. **保留 `request_patch` 作为通用扩展口**
+   对于未知网关或私有模型服务，允许通过显式 patch 补字段，但不能继续新增 `foo_vendor_thinking` 之类的 profile。
+
+4. **未知模型默认保守**
+   无法确认 reasoning 参数格式时，默认按不启用 reasoning 请求处理；只有在用户显式声明能力描述或 patch 后才发送特定字段。不能根据模型名、域名或厂商猜测。
+
+5. **版本要求**
+   这不是 future-only 方向，而是 v1.0.3 当前开发周期内必须完成的修复项。future 文档保留的是设计原则和扩展边界，避免实现过程中再次退回 vendor profile 思路。
 
 ### 5.7 UI 展示
 
@@ -698,3 +811,6 @@ CodeAsk 不应继续把 `<think>` 强匹配作为兼容兜底。后续必须迁�
 - vLLM How to support a new reasoning model: https://docs.vllm.ai/en/stable/features/reasoning_outputs/#how-to-support-a-new-reasoning-model
 - Claude Code 源码参考：`references/claude-code/claude-code/src/services/api/claude.ts`
 - Claude Code thinking UI 参考：`references/claude-code/claude-code/src/components/messages/AssistantThinkingMessage.tsx`
+- opencode GitHub：`https://github.com/anomalyco/opencode`
+- opencode 多协议参考：`references/opencode/packages/llm/src/route/protocol.ts`
+- opencode OpenAI-compatible reasoning history 参考：`references/opencode/packages/opencode/src/provider/transform.ts`

@@ -13,7 +13,7 @@
   ·
   <a href="./docs/README.md">文档中心</a>
   ·
-  <a href="./docs/v1.0.2/">当前版本</a>
+  <a href="./docs/v1.0.3/">当前版本</a>
   ·
   <a href="./docs/future/">未来规划</a>
 </p>
@@ -158,27 +158,27 @@ CodeAsk 暂时不适合作为：
 
 ## 当前状态
 
-当前主线是 v1.0.2，重点是 Agent 会话运行时：
+当前主线是 v1.0.3，重点是鉴权、访问控制和部署后的基础治理：
 
-- 默认会话已从固定调查流水线调整为正常聊天优先。
-- Wiki、报告、附件和代码工具由模型基于上下文决定是否使用。
-- LLM Wiki 工作台已具备独立页面、目录树、导入、编辑、版本历史和特性页预览。
+- v1.0.2 已把默认会话调整为正常聊天优先，Wiki、报告、附件和代码工具由模型基于上下文决定是否使用。
+- LLM Wiki 工作台已具备独立页面、目录树、导入、编辑、版本历史、相对资源渲染和特性页预览。
 - 问题报告生成已从“聊天记录整理”调整为 AI 按报告规则生成正式 Markdown 草稿。
-- 连续会话、行动轨迹、停止回滚、会话标题自动生成、异步报告生成等核心体验已接入。
+- v1.0.3 已补齐统一登录、用户自动注册、admin、特性管理员、全局附件开关、审计日志和真实浏览器 E2E。
+- 未登录访客仍可直接使用会话、查看特性和 Wiki；写操作由服务端权限守卫强制校验。
 
 仍在规划或后续专项中的能力：
 
 - 更完整的 RAG 服务和向量召回。
-- 企业级登录和权限体系。
+- 更细粒度的企业级权限体系。
 - 更强的代码智能索引。
 - Docker / compose / 镜像发布。
 - 更成熟的模型上下文压缩和长期记忆。
 
-详细版本状态见 [docs/v1.0.2/README.md](./docs/v1.0.2/README.md) 和 [docs/future/](./docs/future/)。
+详细版本状态见 [docs/v1.0.3/README.md](./docs/v1.0.3/README.md) 和 [docs/future/](./docs/future/)。
 
 ## 快速启动
 
-完整安装、配置、开发联调和验证命令见 [INSTALL.md](./INSTALL.md)。如果是在一台新机器上部署，请先按 `INSTALL.md` 完成 Python、uv、Node.js、Corepack、ripgrep 和 ctags 的工具链检查。
+完整安装、配置、开发联调和验证命令见 [INSTALL.md](./INSTALL.md)。如果是在一台新机器上部署，请先按 `INSTALL.md` 完成 Python、uv、Node.js、Corepack 或 pnpm、ripgrep 和 ctags 的工具链检查。
 
 最短本地启动路径：
 
@@ -188,6 +188,8 @@ corepack pnpm --dir frontend install --frozen-lockfile
 export CODEASK_DATA_KEY="$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 ./start.sh
 ```
+
+如果环境没有 Corepack，可以把 `corepack pnpm` 替换成系统 `pnpm`。`start.sh` 的自动前端构建兜底会优先使用系统 `pnpm`，再尝试 `corepack pnpm`。
 
 访问地址取决于启动方式：
 
@@ -234,6 +236,7 @@ CodeAsk/
 - [docs/v1.0/](./docs/v1.0/)：MVP 基线设计。
 - [docs/v1.0.1/](./docs/v1.0.1/)：LLM Wiki 专项。
 - [docs/v1.0.2/](./docs/v1.0.2/)：Agent 会话运行时优化。
+- [docs/v1.0.3/](./docs/v1.0.3/)：鉴权、访问控制和特性管理员。
 
 ## 开源参考
 
@@ -243,6 +246,7 @@ CodeAsk 的实现是面向自身产品定位的独立设计，但在部分版本
 |---|---|---|
 | v1.0.2 | [anthropics/claude-code](https://github.com/anthropics/claude-code) | 参考了 Claude Code 在工具调用、长上下文处理、行动轨迹和面向代码任务的 Agent 运行时组织方式。 |
 | v1.0.2 | [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | 参考了社区对 Claude Code 架构和使用模式的整理，用于辅助理解工具编排、权限边界和交互体验。 |
+| v1.0.3 | [anomalyco/opencode](https://github.com/anomalyco/opencode) | 参考了 opencode 在多模型 provider、OpenAI / Anthropic 消息协议、结构化 reasoning、provider options 和上下文压缩边界上的分层思路。 |
 
 ## License
 

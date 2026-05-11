@@ -2185,12 +2185,44 @@ describe("SessionWorkspace streaming interaction", () => {
   });
 
   it("creates a default session when uploading a log before any session exists", async () => {
+    let uploadedAttachment = false;
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input);
-        const attachmentResponse = emptyAttachmentListResponse(input, init);
-        if (attachmentResponse) {
-          return attachmentResponse;
+        if (
+          /^\/api\/sessions\/[^/]+\/turns$/.test(path) &&
+          (!init?.method || init.method === "GET")
+        ) {
+          return jsonResponse([]);
+        }
+        if (
+          /^\/api\/sessions\/[^/]+\/traces$/.test(path) &&
+          (!init?.method || init.method === "GET")
+        ) {
+          return jsonResponse([]);
+        }
+        if (
+          path === "/api/sessions/sess_new/attachments" &&
+          (!init?.method || init.method === "GET")
+        ) {
+          return jsonResponse(
+            uploadedAttachment
+              ? [
+                  {
+                    id: "att_1",
+                    session_id: "sess_new",
+                    kind: "log",
+                    display_name: "app.log",
+                    original_filename: "app.log",
+                    file_path: "/tmp/sessions/sess_new/att_1.log",
+                    mime_type: "text/plain",
+                    size_bytes: 5,
+                    created_at: "2026-04-30T10:00:00",
+                    updated_at: "2026-04-30T10:00:00",
+                  },
+                ]
+              : [],
+          );
         }
         if (path === "/api/auth/me") {
           return jsonResponse({
@@ -2227,6 +2259,7 @@ describe("SessionWorkspace streaming interaction", () => {
           path === "/api/sessions/sess_new/attachments" &&
           init?.method === "POST"
         ) {
+          uploadedAttachment = true;
           return jsonResponse(
             {
               id: "att_1",

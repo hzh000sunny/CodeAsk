@@ -16,7 +16,7 @@ def test_any_viewer_can_read_feature() -> None:
     assert can_read_feature(actor, feature) is True
 
 
-def test_feature_owner_can_write() -> None:
+def test_feature_owner_cannot_write_without_feature_admin_grant() -> None:
     feature = Feature(
         id=1,
         name="Payments",
@@ -24,6 +24,23 @@ def test_feature_owner_can_write() -> None:
         owner_subject_id="owner@dev-1",
     )
     actor = WikiActor(subject_id="owner@dev-1", role="member")
+    assert can_write_feature(actor, feature) is False
+
+
+def test_feature_admin_can_write_assigned_feature() -> None:
+    feature = Feature(
+        id=1,
+        name="Payments",
+        slug="payments",
+        owner_subject_id="owner@dev-1",
+    )
+    actor = WikiActor(
+        subject_id="user_owner",
+        role="member",
+        user_id="user_owner",
+        authenticated=True,
+        feature_admin_feature_ids=frozenset({1}),
+    )
     assert can_write_feature(actor, feature) is True
 
 
@@ -38,7 +55,7 @@ def test_admin_can_write_any_feature() -> None:
     assert can_write_feature(actor, feature) is True
 
 
-def test_non_owner_member_can_write_in_v1_0_1() -> None:
+def test_non_feature_admin_member_cannot_write() -> None:
     feature = Feature(
         id=1,
         name="Payments",
@@ -46,4 +63,4 @@ def test_non_owner_member_can_write_in_v1_0_1() -> None:
         owner_subject_id="owner@dev-1",
     )
     actor = WikiActor(subject_id="viewer@dev-1", role="member")
-    assert can_write_feature(actor, feature) is True
+    assert can_write_feature(actor, feature) is False

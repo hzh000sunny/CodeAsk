@@ -11,6 +11,8 @@ async def test_chat_runtime_registers_real_wiki_tools(
     app: FastAPI,
     client: AsyncClient,
 ) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     feature = await client.post(
         "/api/features",
         json={"name": "Runtime Wiki", "slug": "runtime-wiki"},
@@ -92,6 +94,8 @@ async def test_search_wiki_falls_back_to_terms_for_long_mixed_query(
     app: FastAPI,
     client: AsyncClient,
 ) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     feature = await client.post(
         "/api/features",
         json={"name": "AnythingLLM Reference", "slug": "anythingllm-reference"},

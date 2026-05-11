@@ -15,8 +15,8 @@ describe("InvestigationPanel runtime previews", () => {
     scope: "global",
     isGlobalPool: true,
     contextSizeChars: 32768,
-    contextWindowChars: 202752,
-    usageRatio: 32768 / 202752,
+    contextWindowChars: 200000,
+    usageRatio: 32768 / 200000,
     usageLabel: "32k / 200k",
   };
 

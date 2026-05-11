@@ -35,7 +35,7 @@
 
 ## 全新环境安装工具链
 
-如果机器已经安装了 Python 3.11+、uv、Node.js 22+、Corepack、git、ripgrep 和 ctags，可以跳过本节，直接进入“部署前检查”。
+如果机器已经安装了 Python 3.11+、uv、Node.js 22+、Corepack 或 pnpm 10.x、git、ripgrep 和 ctags，可以跳过本节，直接进入“部署前检查”。
 
 ### Debian / Ubuntu
 
@@ -114,7 +114,8 @@ ctags --version
 
 - Python 显示 `3.11` 或更高。
 - Node 显示 `v22` 或更高。
-- `uv`、`corepack`、`git`、`rg`、`ctags` 都能正常输出版本。
+- `uv`、`git`、`rg`、`ctags` 都能正常输出版本。
+- `corepack pnpm --version` 或 `pnpm --version` 至少有一个可用；裸机离线环境可以只安装 pnpm 10.x。
 
 如果 `python` 命令不存在但 `python3` 存在，不需要特别处理；项目命令统一通过 `uv` 运行。
 
@@ -134,6 +135,12 @@ export CODEASK_ADMIN_USERNAME="admin"
 export CODEASK_ADMIN_PASSWORD="admin"
 
 ./start.sh
+```
+
+如果部署环境没有 Corepack，但已经安装了 pnpm 10.x，可以把上面的前端命令替换为：
+
+```bash
+pnpm --dir frontend install --frozen-lockfile
 ```
 
 启动成功后会看到类似输出：
@@ -181,6 +188,14 @@ uv sync
 ```bash
 corepack pnpm --dir frontend install --frozen-lockfile
 ```
+
+如果环境无法使用 Corepack，也可以直接使用系统 pnpm：
+
+```bash
+pnpm --dir frontend install --frozen-lockfile
+```
+
+`start.sh` 在 `frontend/dist/index.html` 不存在时会优先使用系统 `pnpm` 自动构建前端；没有系统 `pnpm` 时再尝试 `corepack pnpm`。
 
 项目已在 `pyproject.toml` 配置 uv 默认包索引为清华 TUNA：
 
@@ -265,8 +280,11 @@ export CODEASK_ADMIN_PASSWORD="<strong-password>"
 - 全局 LLM 配置
 - 全局仓库池
 - 全局分析策略
+- 会话附件上传开关
+- 用户密码清空
+- 特性创建、归档和特性管理员授权
 
-普通用户不需要登录即可使用会话、附件、个人设置和个人 LLM 配置。
+未登录访客可以直接使用会话、查看特性和 Wiki，并可以在浏览器本地保存访客 LLM 配置。普通用户登录后可以管理自己的会话、用户设置和用户级 LLM 配置。特性、Wiki、仓库关联、全局配置等写操作由 admin 和特性管理员权限控制。
 
 ## 前端开发联调
 
@@ -390,6 +408,15 @@ corepack pnpm --dir frontend build
 ./start.sh
 ```
 
+如果离线环境只安装了系统 pnpm，可以把上面的两条前端命令替换为：
+
+```bash
+pnpm --dir frontend install --frozen-lockfile
+pnpm --dir frontend build
+```
+
+`./start.sh` 的前端构建兜底同样兼容这种环境。
+
 升级成功后检查：
 
 ```bash
@@ -482,7 +509,7 @@ corepack enable
 
 ```bash
 node --version
-corepack pnpm --version
+pnpm --version || corepack pnpm --version
 ```
 
 如果刚切换过 Node 版本，重新启用 Corepack：

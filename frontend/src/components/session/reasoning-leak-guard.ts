@@ -49,18 +49,30 @@ export function createReasoningLeakGuard(mode: ReasoningLeakGuardMode) {
         continue;
       }
 
+      if (mode === "mask_in_ui") {
+        const closeIndex = lowered.indexOf(CLOSE_TAG);
+        const openIndex = lowered.indexOf(OPEN_TAG);
+        if (closeIndex !== -1 && (openIndex === -1 || closeIndex < openIndex)) {
+          detected = true;
+          output.push(buffer.slice(0, closeIndex));
+          buffer = buffer.slice(closeIndex + CLOSE_TAG.length);
+          continue;
+        }
+      }
+
       const openIndex = lowered.indexOf(OPEN_TAG);
       if (openIndex === -1) {
         const keep = suffixLength(lowered, OPEN_TAG);
-        const visible = keep ? buffer.slice(0, -keep) : buffer;
+        const closeKeep = mode === "mask_in_ui" ? suffixLength(lowered, CLOSE_TAG) : 0;
+        const keepLength = Math.max(keep, closeKeep);
         if (mode === "mask_in_ui") {
-          output.push(visible);
+          output.push(keepLength ? buffer.slice(0, -keepLength) : buffer);
         } else {
           output.push(buffer);
           buffer = "";
           break;
         }
-        buffer = keep ? buffer.slice(-keep) : "";
+        buffer = keepLength ? buffer.slice(-keepLength) : "";
         break;
       }
 

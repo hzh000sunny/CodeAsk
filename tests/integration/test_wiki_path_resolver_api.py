@@ -1,5 +1,12 @@
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _login_admin_for_path_resolver_setup(client: AsyncClient) -> None:
+    response = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert response.status_code == 200, response.text
 
 
 @pytest.mark.asyncio

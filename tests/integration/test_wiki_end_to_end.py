@@ -15,6 +15,8 @@ call /api/order/submit; null user raises NullPointerException with code ERR_ORDE
 
 @pytest.mark.asyncio
 async def test_full_wiki_flow(client: AsyncClient, tmp_path: Path) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     response = await client.post(
         "/api/features",
         json={"name": "Order", "slug": "order"},
@@ -81,7 +83,7 @@ async def test_full_wiki_flow(client: AsyncClient, tmp_path: Path) -> None:
     response = await client.get("/api/reports/search?q=ERR_ORDER_CONTEXT_EMPTY")
     hits = response.json()
     found = next(hit for hit in hits if hit["report_id"] == report_id)
-    assert found["verified_by"] == "alice@dev-1"
+    assert found["verified_by"] == "admin"
     assert found["verified_at"] is not None
     assert found["commit_sha"] == "abc1234"
 

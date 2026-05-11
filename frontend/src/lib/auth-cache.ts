@@ -6,6 +6,7 @@ export function resetSubjectScopedQueries(queryClient: QueryClient) {
     ["session-turns"],
     ["session-traces"],
     ["session-attachments"],
+    ["users"],
     ["feature-admins"],
     ["wiki"],
     ["wiki-tree"],

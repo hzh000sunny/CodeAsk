@@ -6,7 +6,6 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import type {
   LlmProtocol,
-  LlmReasoningProfile,
   LlmUpdatePayload,
 } from "../settings-types";
 import { safeEditableProtocol } from "../settings-utils";
@@ -29,14 +28,6 @@ export function LlmConfigEditForm({
   const [baseUrl, setBaseUrl] = useState(config.base_url ?? "");
   const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState(config.model_name);
-  const [reasoningProfile, setReasoningProfile] =
-    useState<LlmReasoningProfile>(
-      (config.reasoning_profile as LlmReasoningProfile) || "none",
-    );
-  const [reasoningProfileJson, setReasoningProfileJson] = useState(
-    config.reasoning_profile_json ?? "",
-  );
-
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const payload: LlmUpdatePayload = {
@@ -44,11 +35,6 @@ export function LlmConfigEditForm({
       protocol,
       base_url: baseUrl.trim() || null,
       model_name: modelName.trim(),
-      reasoning_profile: reasoningProfile,
-      reasoning_profile_json:
-        reasoningProfile === "custom_json"
-          ? reasoningProfileJson.trim() || null
-          : null,
     };
     if (apiKey) {
       payload.api_key = apiKey;
@@ -96,32 +82,6 @@ export function LlmConfigEditForm({
           value={modelName}
         />
       </label>
-      <label className="field-label compact">
-        编辑 Reasoning 请求 Profile
-        <select
-          className="input"
-          onChange={(event) =>
-            setReasoningProfile(event.target.value as LlmReasoningProfile)
-          }
-          value={reasoningProfile}
-        >
-          <option value="none">不额外开启</option>
-          <option value="volcengine_thinking">火山 Thinking</option>
-          <option value="vllm_enable_thinking">vLLM enable_thinking</option>
-          <option value="anthropic_budget_thinking">Anthropic budget thinking</option>
-          <option value="custom_json">自定义 JSON</option>
-        </select>
-      </label>
-      {reasoningProfile === "custom_json" ? (
-        <label className="field-label compact">
-          编辑 Profile JSON
-          <Input
-            onChange={(event) => setReasoningProfileJson(event.target.value)}
-            placeholder='{"extra_body":{"include_reasoning":true}}'
-            value={reasoningProfileJson}
-          />
-        </label>
-      ) : null}
       <div className="form-actions llm-edit-actions">
         <Button
           disabled={!name.trim() || !modelName.trim() || disabled}

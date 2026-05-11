@@ -121,6 +121,9 @@ export function useSessionAttachments({
         queryKey: sessionAttachmentsQueryKey(target.id),
       });
       upsertAttachment(queryClient, uploaded);
+      await queryClient.invalidateQueries({
+        queryKey: sessionAttachmentsQueryKey(target.id),
+      });
       setUploadStatus(`已上传 ${uploaded.display_name}`);
     } catch (error) {
       setUploadStatus(messageFromError(error));

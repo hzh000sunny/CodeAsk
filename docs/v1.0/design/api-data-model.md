@@ -168,7 +168,7 @@ anthropic
 | `scope` | `user` / `global` | 配置归属 |
 | `owner_subject_id` | nullable string | `scope=user` 时所属用户 |
 | `enabled` | bool | 是否参与运行时选择 |
-| `max_tokens` | int | 模型输出 token 上限，后端默认 `8192`，配置页不展示 |
+| `max_tokens` | int | 单次模型回答的输出 token 上限，后端默认 `8192`，配置页不展示；不是模型总上下文窗口 |
 | `temperature` | float | 后端默认 `0.2`，配置页不展示 |
 | `rpm_limit` | nullable int | 保留字段；当前配置页不展示，也不参与调度 |
 | `quota_remaining` | nullable float | 保留字段；当前配置页不展示，也不参与调度 |

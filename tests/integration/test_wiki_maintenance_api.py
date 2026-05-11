@@ -8,6 +8,8 @@ from codeask.db.models import WikiDocument
 
 
 async def _create_feature_space(client: AsyncClient, *, slug: str) -> tuple[int, int, int]:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     response = await client.post(
         "/api/features",
         json={"name": slug, "slug": slug},
@@ -102,6 +104,7 @@ async def test_member_cannot_reindex_subtree(client: AsyncClient) -> None:
         client,
         slug="wiki-maintenance-denied",
     )
+    await client.post("/api/auth/logout")
 
     response = await client.post(
         f"/api/wiki/maintenance/nodes/{knowledge_root_id}/reindex",

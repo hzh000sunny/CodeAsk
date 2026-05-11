@@ -33,6 +33,12 @@ class _CapturingFactoryClient(_ScriptedClient):
             ]
         )
         self.kwargs: dict[str, object] = {}
+        self.stream_kwargs: dict[str, object] = {}
+
+    async def stream(self, **kwargs: object) -> AsyncIterator[LLMEvent]:
+        self.stream_kwargs = kwargs
+        async for event in super().stream(**kwargs):
+            yield event
 
 
 @dataclass(frozen=True)
@@ -167,6 +173,31 @@ async def test_gateway_passes_reasoning_profile_to_client_factory() -> None:
     assert client.kwargs["reasoning_request_profile_json"] == (
         '{"extra_body":{"include_reasoning":true}}'
     )
+
+
+@pytest.mark.asyncio
+async def test_gateway_passes_request_metadata_to_client_stream() -> None:
+    client = _CapturingFactoryClient()
+
+    def build_client(**kwargs: object) -> _CapturingFactoryClient:
+        client.kwargs = kwargs
+        return client
+
+    gateway = LLMGateway(
+        _FakeRepo(),
+        ClientFactory(provider_clients={"openai": build_client}),
+        base_delay=0.0,
+    )  # type: ignore[arg-type]
+
+    request = _request(subject_id="alice", session_id="sess_meta")
+    request.metadata["reasoning_history"] = {
+        "mode": "openai_interleaved",
+        "field": "reasoning_content",
+    }
+
+    _ = [event async for event in gateway.stream(request)]
+
+    assert client.stream_kwargs["metadata"] == request.metadata
 
 
 @pytest.mark.asyncio

@@ -249,6 +249,8 @@ reactive compact retry in ChatRuntime
 第一版阈值体系参考 Claude Code：
 
 ```text
+CONTEXT_WINDOW              → context_window_chars，默认 200000，表示总上下文窗口近似值
+AUTO_COMPACT_RATIO          → auto_compact_threshold_ratio，默认 0.85，触发点约 170000
 MAX_OUTPUT_TOKENS_FOR_SUMMARY → summary_output_reserve
 AUTOCOMPACT_BUFFER_TOKENS    → autocompact_buffer
 WARNING_THRESHOLD_BUFFER     → warning_buffer
@@ -261,6 +263,8 @@ keepRecent                   → keep_recent_tool_results
 
 - Claude Code 使用 token accounting，CodeAsk 当前使用 LLM message 序列化字符数作为执行单位。
 - 这个字符预算是为了立刻解决 GLM-5.1 / LiteLLM 暴露的 `Input length ... exceeds maximum length ...` 问题，不是最终形态。
+- `max_tokens` 只表示单次模型回答的输出预算，不表示总上下文窗口；配置页继续隐藏该字段。
+- 自动压缩以 `context_window_chars * 0.85` 触发，当前默认约 `170000` 字符。
 - 后续应把模型 context window、真实 usage、provider tokenizer 或近似 token counter 接入 `ContextBudgetPolicy`。
 
 ### 4.7 第二层 Auto Compact 计划

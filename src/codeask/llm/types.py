@@ -60,7 +60,15 @@ class ToolResultBlock(BaseModel):
     is_error: bool = False
 
 
-ContentBlock = TextBlock | ToolCallBlock | ToolResultBlock
+class ReasoningBlock(BaseModel):
+    type: Literal["reasoning"]
+    text: str
+    field: str | None = None
+    redacted: bool = False
+    provider_metadata: dict[str, Any] = Field(default_factory=_empty_metadata)
+
+
+ContentBlock = TextBlock | ToolCallBlock | ToolResultBlock | ReasoningBlock
 
 
 class LLMMessage(BaseModel):

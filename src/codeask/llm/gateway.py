@@ -215,6 +215,7 @@ class LLMGateway:
                 tools=request.tools,
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
+                metadata=request.metadata,
             ):
                 if event.type == "error":
                     last_error = event

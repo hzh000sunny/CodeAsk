@@ -91,16 +91,6 @@ export function GuestLlmConfig() {
             value={config.api_key}
           />
         </label>
-        <label className="field-label compact" htmlFor="guest-llm-max-tokens">
-          Max Tokens
-          <Input
-            id="guest-llm-max-tokens"
-            min={1}
-            onChange={(event) => update("max_tokens", Number(event.target.value))}
-            type="number"
-            value={config.max_tokens}
-          />
-        </label>
       </div>
       <div className="form-actions guest-llm-actions">
         <Button

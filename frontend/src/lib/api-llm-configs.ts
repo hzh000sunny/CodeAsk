@@ -1,9 +1,12 @@
 import type { LLMConfigResponse } from "../types/api";
 import { apiRequest } from "./api-client";
 
-type LlmProtocol = "openai" | "anthropic";
+type LlmProtocol = "openai" | "openai_compatible" | "anthropic";
 type LlmReasoningProfile =
   | "none"
+  | "request_patch"
+  | "openai_reasoning_effort"
+  | "anthropic_thinking"
   | "volcengine_thinking"
   | "vllm_enable_thinking"
   | "anthropic_budget_thinking"

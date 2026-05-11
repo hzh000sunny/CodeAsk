@@ -234,7 +234,7 @@ LLM 配置存 SQLite：
 - base_url
 - api_key_encrypted
 - model_name
-- max_tokens（模型输出 token 上限，API 默认 `8192`；配置页不展示）
+- max_tokens（单次模型回答的输出 token 上限，API 默认 `8192`；配置页不展示；不是模型总上下文窗口）
 - temperature（API 默认 `0.2`；配置页不展示）
 - enabled
 - is_default（历史兼容字段；新 workbench 不提供设为默认操作）
@@ -276,7 +276,7 @@ API Key 使用 Fernet 加密，master key 来自 `CODEASK_DATA_KEY`（与 `deplo
 }
 ```
 
-能力字段可以由用户配置，也可以由后端通过一次健康检查探测后写入。
+能力字段中的 `max_context_chars` 才表示模型总上下文窗口近似值。能力字段可以由用户配置，也可以由后端通过一次健康检查探测后写入。
 
 ## 9. 错误模型
 

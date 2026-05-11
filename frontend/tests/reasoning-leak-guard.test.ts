@@ -52,4 +52,28 @@ describe("reasoning leak guard", () => {
     ).toBe("前缀结论");
     expect(third.diagnostic?.leakedLength).toBe(2);
   });
+
+  it("masks orphan closing think tags without dropping visible text", () => {
+    const guard = createReasoningLeakGuard("mask_in_ui");
+
+    const result = guard.feed("OK</think>继续回答");
+
+    expect(result.visibleText).toBe("OK继续回答");
+    expect(result.diagnostic).toMatchObject({
+      type: "reasoning_leak_detected",
+      mode: "mask_in_ui",
+      marker: "think",
+      leakedLength: 0,
+    });
+  });
+
+  it("handles split orphan closing think tags across chunks", () => {
+    const guard = createReasoningLeakGuard("mask_in_ui");
+
+    const first = guard.feed("OK</th");
+    const second = guard.feed("ink>继续回答");
+
+    expect(visibleContentFromLeakGuardResult([first, second])).toBe("OK继续回答");
+    expect(second.diagnostic?.leakedLength).toBe(0);
+  });
 });

@@ -47,23 +47,32 @@ FRONTEND_DIST="${CODEASK_FRONTEND_DIST:-frontend/dist}"
 DIST_INDEX="$FRONTEND_DIST/index.html"
 
 if [[ ! -f "$DIST_INDEX" ]]; then
-    if [[ -z "${CODEASK_FRONTEND_DIST:-}" ]] && command -v corepack >/dev/null 2>&1; then
-        echo "frontend/dist not found — building frontend with pnpm..."
-        corepack pnpm --dir frontend install --frozen-lockfile
-        corepack pnpm --dir frontend build
+    FRONTEND_PNPM_CMD=()
+    if command -v pnpm >/dev/null 2>&1; then
+        FRONTEND_PNPM_CMD=(pnpm)
+    elif command -v corepack >/dev/null 2>&1; then
+        FRONTEND_PNPM_CMD=(corepack pnpm)
+    fi
+
+    if [[ -z "${CODEASK_FRONTEND_DIST:-}" ]] && [[ ${#FRONTEND_PNPM_CMD[@]} -gt 0 ]]; then
+        echo "frontend/dist not found — building frontend with ${FRONTEND_PNPM_CMD[*]}..."
+        "${FRONTEND_PNPM_CMD[@]}" --dir frontend install --frozen-lockfile
+        "${FRONTEND_PNPM_CMD[@]}" --dir frontend build
     else
         cat >&2 <<EOF
 WARNING: frontend/dist/index.html not found.
 
 The backend will still start and /api/* will work.
-To serve the SPA, build the frontend first:
-    cd frontend
-    corepack pnpm install --frozen-lockfile
-    corepack pnpm build
+To serve the SPA, build the frontend first with either:
+    pnpm --dir frontend install --frozen-lockfile
+    pnpm --dir frontend build
+
+or:
+    corepack pnpm --dir frontend install --frozen-lockfile
+    corepack pnpm --dir frontend build
 
 Or run the frontend dev server while the backend is running:
-    cd frontend
-    corepack pnpm dev
+    pnpm --dir frontend dev
 EOF
     fi
 fi

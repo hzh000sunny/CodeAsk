@@ -17,6 +17,8 @@ Legacy markdown body.
 
 
 async def _create_legacy_markdown_document(client: AsyncClient, tmp_path: Path) -> int:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     feature = await client.post(
         "/api/features",
         json={"name": "Legacy Sync", "slug": "legacy-sync"},
@@ -65,6 +67,8 @@ async def test_legacy_markdown_sync_exposes_current_native_body(
 
 @pytest.mark.asyncio
 async def test_versions_diff_and_rollback(client: AsyncClient) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     feature = await client.post(
         "/api/features",
         json={"name": "Diff Rollback", "slug": "diff-rollback"},

@@ -4,6 +4,7 @@ import { Eye, EyeOff, LogIn, UserRound } from "lucide-react";
 
 import { login } from "../../lib/api";
 import { resetSubjectScopedQueries } from "../../lib/auth-cache";
+import { readLastLoginUsername, rememberLastLoginUsername } from "../../lib/auth-login-cache";
 import { useAppFeedback } from "../feedback/AppFeedback";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -15,12 +16,13 @@ interface AdminLoginPageProps {
 export function AdminLoginPage({ onSuccess }: AdminLoginPageProps) {
   const queryClient = useQueryClient();
   const { showError } = useAppFeedback();
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState(readLastLoginUsername);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const loginMutation = useMutation({
     mutationFn: login,
     onSuccess: (me) => {
+      rememberLastLoginUsername(username);
       queryClient.setQueryData(["auth", "me"], me);
       resetSubjectScopedQueries(queryClient);
       onSuccess();

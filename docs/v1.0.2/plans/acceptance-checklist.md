@@ -256,12 +256,14 @@ v1.0.2 收口前必须满足：
   - `reactive compact retry`
   - `build_active_context(...)`
 - [x] `compaction.py` 已实现 Claude Code 风格的阈值体系：
-  - context window；
+  - context window：默认 `200000`，表示总上下文窗口近似值；
+  - auto compact ratio：默认 `0.85`，约 `170000` 字符触发；
   - summary output reserve；
   - autocompact buffer；
   - warning / error buffer；
   - blocking limit；
   - keep recent tool results。
+- [x] 已明确 `max_tokens` 与 `context_window` 是两个概念：`max_tokens` 是单次回答输出预算，配置页不展示；`context_window` 才用于上下文装配和自动压缩判断。
 - [x] 每轮模型调用前会先估算 active context，低于阈值不压缩，高于阈值才压缩旧工具结果。
 - [x] 累计多轮工具结果导致上下文膨胀时，旧工具结果会被替换成摘要，保留 summary、warnings、evidence refs、version_info、error_type 等语义字段。
 - [x] 供应商返回 `input length` / `prompt too long` / `context length` 类错误时，runtime 会执行一次更严格的 reactive compact 并重试。

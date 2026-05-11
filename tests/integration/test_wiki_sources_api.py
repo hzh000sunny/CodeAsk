@@ -10,6 +10,8 @@ from codeask.db.models import AuditLog, WikiDocument, WikiImportSession, WikiNod
 
 
 async def _create_space(client: AsyncClient) -> int:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     feature = await client.post(
         "/api/features",
         json={"name": "Source Feature", "slug": "source-feature"},
@@ -93,7 +95,7 @@ async def test_create_list_update_and_sync_wiki_source(client: AsyncClient, app)
             .all()
         )
     assert len(rows) == 1
-    assert rows[0].subject_id == "alice@dev-1"
+    assert rows[0].subject_id == "admin"
     assert rows[0].to_status == "active"
 
 

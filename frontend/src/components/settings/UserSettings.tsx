@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UserRound } from "lucide-react";
 
@@ -21,10 +21,17 @@ export function UserSettings() {
     queryFn: getCurrentUser,
     enabled: me?.authenticated === true,
   });
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState<string | null>(null);
   const [password, setPassword] = useState("");
-  const effectiveUsername = username || user?.username || "";
+  const effectiveUsername = username ?? user?.username ?? "";
   const canRename = me?.authenticated === true && me.role !== "admin";
+
+  useEffect(() => {
+    if (me?.authenticated !== true) {
+      setUsername(null);
+      setPassword("");
+    }
+  }, [me?.authenticated, me?.subject_id]);
 
   const renameMutation = useMutation({
     mutationFn: updateCurrentUser,
@@ -40,10 +47,9 @@ export function UserSettings() {
   const passwordMutation = useMutation({
     mutationFn: updateCurrentUserPassword,
     onSuccess: () => {
-      showSuccess("密码已更新，请重新登录");
+      showSuccess("密码已更新");
       setPassword("");
-      resetSubjectScopedQueries(queryClient);
-      void queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      void queryClient.invalidateQueries({ queryKey: ["users", "me"] });
     },
     onError: (error) => showError(`修改密码失败：${messageFromApiError(error)}`),
   });

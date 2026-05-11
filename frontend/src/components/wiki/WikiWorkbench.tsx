@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { deleteReport, getMe, listFeatures, listReports } from "../../lib/api";
+import {
+  deleteReport,
+  getMe,
+  listFeatureAdmins,
+  listFeatures,
+  listReports,
+} from "../../lib/api";
 import {
   createWikiNode,
   deleteWikiDraft,
@@ -110,6 +116,11 @@ export function WikiWorkbench({
     enabled: activeFeatureId != null,
   });
   const reportProjectionQuery = useWikiReportProjections(activeFeatureId);
+  const featureAdminsQuery = useQuery({
+    queryKey: ["feature-admins", activeFeatureId],
+    queryFn: () => listFeatureAdmins(activeFeatureId as number),
+    enabled: activeFeatureId != null,
+  });
   const tree = useMemo(
     () =>
       injectWikiReportProjections(
@@ -167,7 +178,15 @@ export function WikiWorkbench({
     () => findSystemRoleNode(activeFeatureTree, "knowledge_base"),
     [activeFeatureTree],
   );
-  const canManageFeature = Boolean(activeFeatureId != null && authQuery.data);
+  const canManageFeature =
+    activeFeatureId != null &&
+    (authQuery.data?.role === "admin" ||
+      Boolean(
+        authQuery.data?.authenticated &&
+          featureAdminsQuery.data?.some(
+            (admin) => admin.user_id === authQuery.data?.subject_id,
+          ),
+      ));
   const canRestoreArchivedSpaces = authQuery.data?.role === "admin";
   const activeSpace = activeSpaceQuery.data ?? treeQuery.space ?? null;
   const drawer = routeState.drawer;

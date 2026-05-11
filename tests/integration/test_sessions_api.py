@@ -52,6 +52,15 @@ async def _wait_for_session_title(
     raise AssertionError(f"expected title {expected_title!r}, got {title!r} ({source})")
 
 
+async def _create_feature_as_admin(client: AsyncClient, payload: dict[str, object]) -> dict[str, object]:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
+    response = await client.post("/api/features", json=payload)
+    assert response.status_code == 201, response.text
+    await client.post("/api/auth/logout")
+    return response.json()
+
+
 @pytest.mark.asyncio
 async def test_session_message_sse_and_attachment(
     app: FastAPI,
@@ -76,13 +85,11 @@ async def test_session_message_sse_and_attachment(
     logout = await client.post("/api/auth/logout")
     assert logout.status_code == 204
 
-    feature = await client.post(
-        "/api/features",
-        json={"name": "Order", "slug": "order-session", "description": "core"},
-        headers={"X-Subject-Id": "alice@dev-1"},
+    feature = await _create_feature_as_admin(
+        client,
+        {"name": "Order", "slug": "order-session", "description": "core"},
     )
-    assert feature.status_code == 201
-    feature_id = feature.json()["id"]
+    feature_id = feature["id"]
 
     created = await client.post(
         "/api/sessions",
@@ -926,17 +933,15 @@ async def test_session_message_persists_repo_binding_and_streams_answer(
     logout = await client.post("/api/auth/logout")
     assert logout.status_code == 204
 
-    feature = await client.post(
-        "/api/features",
-        json={
+    feature = await _create_feature_as_admin(
+        client,
+        {
             "name": "Code Tools",
             "slug": "code-tools-session",
             "description": "Code investigation feature",
         },
-        headers={"X-Subject-Id": "alice@dev-1"},
     )
-    assert feature.status_code == 201, feature.text
-    feature_id = feature.json()["id"]
+    feature_id = feature["id"]
 
     created = await client.post(
         "/api/sessions",
@@ -1343,13 +1348,11 @@ async def test_update_pin_bulk_delete_and_generate_report_are_owner_scoped(
     assert patched.json()["title"] == "支付启动失败"
     assert patched.json()["pinned"] is True
 
-    feature = await client.post(
-        "/api/features",
-        json={"name": "Payment", "description": "payment feature"},
-        headers={"X-Subject-Id": "alice@dev-1"},
+    feature = await _create_feature_as_admin(
+        client,
+        {"name": "Payment", "description": "payment feature"},
     )
-    assert feature.status_code == 201, feature.text
-    feature_id = feature.json()["id"]
+    feature_id = feature["id"]
 
     empty_report = await client.post(
         f"/api/sessions/{session_id}/reports",
@@ -1446,13 +1449,11 @@ async def test_session_generated_report_with_code_evidence_can_be_verified(
     app: FastAPI,
     client: AsyncClient,
 ) -> None:
-    feature = await client.post(
-        "/api/features",
-        json={"name": "LLM 调用链", "description": "llm runtime"},
-        headers={"X-Subject-Id": "alice@dev-1"},
+    feature = await _create_feature_as_admin(
+        client,
+        {"name": "LLM 调用链", "description": "llm runtime"},
     )
-    assert feature.status_code == 201, feature.text
-    feature_id = feature.json()["id"]
+    feature_id = feature["id"]
     created = await client.post(
         "/api/sessions",
         json={"title": "LLM 调用链排查"},
@@ -1516,10 +1517,9 @@ async def test_session_generated_report_with_code_evidence_can_be_verified(
     assert body["metadata_json"]["evidence"][0]["type"] == "code"
     assert body["metadata_json"]["evidence"][0]["source"]["commit_sha"] == "abc1234"
 
-    verified = await client.post(
-        f"/api/reports/{body['id']}/verify",
-        headers={"X-Subject-Id": "alice@dev-1"},
-    )
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
+    verified = await client.post(f"/api/reports/{body['id']}/verify")
     assert verified.status_code == 200, verified.text
     assert verified.json()["status"] == "verified"
 
@@ -1529,13 +1529,11 @@ async def test_legacy_session_report_backfills_metadata_before_verification(
     app: FastAPI,
     client: AsyncClient,
 ) -> None:
-    feature = await client.post(
-        "/api/features",
-        json={"name": "历史报告", "description": "legacy reports"},
-        headers={"X-Subject-Id": "alice@dev-1"},
+    feature = await _create_feature_as_admin(
+        client,
+        {"name": "历史报告", "description": "legacy reports"},
     )
-    assert feature.status_code == 201, feature.text
-    feature_id = feature.json()["id"]
+    feature_id = feature["id"]
     created = await client.post(
         "/api/sessions",
         json={"title": "历史报告验证"},
@@ -1597,10 +1595,9 @@ async def test_legacy_session_report_backfills_metadata_before_verification(
         await db.commit()
         report_id = report.id
 
-    verified = await client.post(
-        f"/api/reports/{report_id}/verify",
-        headers={"X-Subject-Id": "alice@dev-1"},
-    )
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
+    verified = await client.post(f"/api/reports/{report_id}/verify")
     assert verified.status_code == 200, verified.text
     body = verified.json()
     assert body["status"] == "verified"

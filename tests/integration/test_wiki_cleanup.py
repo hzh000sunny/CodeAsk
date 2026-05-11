@@ -18,6 +18,8 @@ from codeask.wiki.cleanup import purge_expired_soft_deleted_nodes
 
 
 async def _create_feature_tree(client: AsyncClient, slug: str) -> tuple[int, int]:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     feature = await client.post(
         "/api/features",
         json={"name": slug, "slug": slug},

@@ -122,13 +122,86 @@ describe("SettingsPage LLM configuration", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "登录" }));
     expect(screen.getByRole("heading", { name: "登录" })).toBeInTheDocument();
     expect(screen.queryByText(/管理员/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("用户名")).toHaveValue("admin");
+    expect(screen.getByLabelText("用户名")).toHaveValue("");
     const password = screen.getByLabelText("密码");
     expect(password).toHaveAttribute("type", "password");
     fireEvent.click(screen.getByRole("button", { name: "显示密码" }));
     expect(password).toHaveAttribute("type", "text");
     fireEvent.click(screen.getByRole("button", { name: "隐藏密码" }));
     expect(password).toHaveAttribute("type", "password");
+  });
+
+  it("remembers the last successful login username for the next login form", async () => {
+    let authenticated = false;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/auth/me") {
+          return jsonResponse(authenticated ? memberMe : anonymousMe);
+        }
+        if (path === "/api/auth/login" && init?.method === "POST") {
+          authenticated = true;
+          return jsonResponse(memberMe);
+        }
+        if (path === "/api/auth/logout" && init?.method === "POST") {
+          authenticated = false;
+          return new Response(null, { status: 204 });
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "未登录" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "登录" }));
+    fireEvent.change(screen.getByLabelText("用户名"), {
+      target: { value: "client_test" },
+    });
+    fireEvent.change(screen.getByLabelText("密码"), {
+      target: { value: "secret1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+
+    expect(
+      await screen.findByRole("button", { name: "client_test" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "client_test" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "退出" }));
+    expect(await screen.findByRole("button", { name: "未登录" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "未登录" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "登录" }));
+
+    expect(screen.getByLabelText("用户名")).toHaveValue("client_test");
+  });
+
+  it("keeps guest LLM max tokens hidden because output budget is a system default", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/auth/me") {
+        return jsonResponse(anonymousMe);
+      }
+      if (path === "/api/sessions") {
+        return jsonResponse([]);
+      }
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "访客 LLM 配置" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Max Tokens")).not.toBeInTheDocument();
   });
 
   it("refreshes session data after admin login switches the current subject", async () => {
@@ -194,6 +267,9 @@ describe("SettingsPage LLM configuration", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "未登录" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "登录" }));
+    fireEvent.change(screen.getByLabelText("用户名"), {
+      target: { value: "admin" },
+    });
     fireEvent.change(screen.getByLabelText("密码"), {
       target: { value: "admin" },
     });
@@ -345,6 +421,87 @@ describe("SettingsPage LLM configuration", () => {
     expect(getComputedStyle(actions).marginTop).toBe("0px");
   });
 
+  it("keeps the current login after password change and clears user form state after logout", async () => {
+    let authenticated = true;
+    const updatedUser = { ...memberUser, username: "renamed_user" };
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/auth/me") {
+          return jsonResponse(authenticated ? memberMe : anonymousMe);
+        }
+        if (path === "/api/users/me" && (!init?.method || init.method === "GET")) {
+          return jsonResponse(updatedUser);
+        }
+        if (path === "/api/users/me/password" && init?.method === "PATCH") {
+          return new Response(null, { status: 204 });
+        }
+        if (path === "/api/auth/logout" && init?.method === "POST") {
+          authenticated = false;
+          return new Response(null, { status: 204 });
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/me/llm-configs") {
+          return jsonResponse([]);
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    const usernameInput = await screen.findByLabelText("用户名");
+    await waitFor(() => expect(usernameInput).toHaveValue("renamed_user"));
+    fireEvent.change(usernameInput, { target: { value: "draft_name" } });
+    fireEvent.change(screen.getByLabelText("新密码"), {
+      target: { value: "newpass" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "修改密码" }));
+
+    expect(await screen.findByRole("button", { name: "client_test" })).toBeInTheDocument();
+    expect(screen.getByLabelText("用户名")).toHaveValue("draft_name");
+    expect(screen.queryByText(/请重新登录/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "client_test" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "退出" }));
+
+    expect(await screen.findByRole("button", { name: "未登录" })).toBeInTheDocument();
+    expect(screen.getByLabelText("用户名")).toHaveValue("");
+  });
+
+  it("allows clearing the username draft without restoring the current username", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/auth/me") {
+        return jsonResponse(memberMe);
+      }
+      if (path === "/api/users/me") {
+        return jsonResponse(memberUser);
+      }
+      if (path === "/api/sessions") {
+        return jsonResponse([]);
+      }
+      if (path === "/api/me/llm-configs") {
+        return jsonResponse([]);
+      }
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    const usernameInput = await screen.findByLabelText("用户名");
+    await waitFor(() => expect(usernameInput).toHaveValue("client_test"));
+
+    fireEvent.change(usernameInput, { target: { value: "" } });
+
+    expect(usernameInput).toHaveValue("");
+    expect(screen.getByRole("button", { name: "保存用户名" })).toBeDisabled();
+  });
+
   it("creates a personal LLM config from user settings", async () => {
     let userConfigs: unknown[] = [];
     const fetchMock = vi.fn(
@@ -393,6 +550,9 @@ describe("SettingsPage LLM configuration", () => {
       within(protocolSelect).getByRole("option", { name: "OpenAI" }),
     ).toHaveValue("openai");
     expect(
+      within(protocolSelect).queryByRole("option", { name: "OpenAI Compatible" }),
+    ).not.toBeInTheDocument();
+    expect(
       within(protocolSelect).getByRole("option", { name: "Anthropic" }),
     ).toHaveValue("anthropic");
     expect(screen.queryByLabelText("Max Tokens")).not.toBeInTheDocument();
@@ -400,7 +560,8 @@ describe("SettingsPage LLM configuration", () => {
     expect(screen.queryByLabelText("RPM")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("剩余额度")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("设为默认配置")).not.toBeInTheDocument();
-    fireEvent.change(protocolSelect, { target: { value: "anthropic" } });
+    expect(screen.queryByLabelText("Reasoning 请求方式")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Reasoning 请求 JSON")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Base URL"), {
       target: { value: "http://llm.internal/v1" },
     });
@@ -420,11 +581,13 @@ describe("SettingsPage LLM configuration", () => {
     ) as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
       name: "个人模型",
-      protocol: "anthropic",
+      protocol: "openai",
       base_url: "http://llm.internal/v1",
       api_key: "sk-test-abc",
       model_name: "qwen3-coder",
       enabled: true,
+      reasoning_profile: "none",
+      reasoning_profile_json: null,
     });
     expect(JSON.parse(String(init.body))).not.toHaveProperty("max_tokens");
     expect(JSON.parse(String(init.body))).not.toHaveProperty("temperature");
@@ -501,7 +664,7 @@ describe("SettingsPage LLM configuration", () => {
           return jsonResponse([]);
         }
         if (path === "/api/admin/llm-configs" && !init?.method) {
-          return jsonResponse([llm()]);
+          return jsonResponse([llm({ protocol: "openai_compatible" })]);
         }
         if (
           path === "/api/admin/llm-configs/llm_2" &&
@@ -539,6 +702,8 @@ describe("SettingsPage LLM configuration", () => {
     ).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "全局配置" }));
     expect(await screen.findByText("备用模型")).toBeInTheDocument();
+    expect(screen.getByText(/OpenAI · qwen3/)).toBeInTheDocument();
+    expect(screen.queryByText(/OpenAI Compatible/)).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([path]) => path === "/api/me/llm-configs")).toBe(
       false,
     );
@@ -583,6 +748,13 @@ describe("SettingsPage LLM configuration", () => {
     fireEvent.change(screen.getByLabelText("编辑消息接口协议"), {
       target: { value: "anthropic" },
     });
+    expect(
+      within(screen.getByLabelText("编辑消息接口协议")).queryByRole("option", {
+        name: "OpenAI Compatible",
+      }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("编辑 Reasoning 请求方式")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("编辑 Reasoning 请求 JSON")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("编辑 Base URL"), {
       target: { value: "http://llm.new/v1" },
     });
@@ -611,6 +783,12 @@ describe("SettingsPage LLM configuration", () => {
         api_key: "sk-new-key",
         model_name: "claude-test",
       });
+      expect(JSON.parse(String(editCall?.[1].body))).not.toHaveProperty(
+        "reasoning_profile",
+      );
+      expect(JSON.parse(String(editCall?.[1].body))).not.toHaveProperty(
+        "reasoning_profile_json",
+      );
     });
 
     fireEvent.click(

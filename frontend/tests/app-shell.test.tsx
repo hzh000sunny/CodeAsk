@@ -190,7 +190,7 @@ describe("CodeAsk AppShell information architecture", () => {
             subject_id: "client_test",
             display_name: "client_test",
             role: "member",
-            authenticated: false,
+            authenticated: true,
           });
         }
         if (path === "/api/sessions") {
@@ -689,10 +689,10 @@ describe("CodeAsk AppShell information architecture", () => {
         const path = String(input);
         if (path === "/api/auth/me") {
           return jsonResponse({
-            subject_id: "client_test",
-            display_name: "client_test",
-            role: "member",
-            authenticated: false,
+            subject_id: "admin",
+            display_name: "admin",
+            role: "admin",
+            authenticated: true,
           });
         }
         if (path === "/api/sessions") {

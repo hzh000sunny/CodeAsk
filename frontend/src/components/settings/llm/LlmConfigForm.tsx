@@ -32,9 +32,6 @@ export function LlmConfigForm({
   const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState("");
   const [enabled, setEnabled] = useState(true);
-  const [reasoningProfile, setReasoningProfile] =
-    useState<LlmReasoningProfile>("none");
-  const [reasoningProfileJson, setReasoningProfileJson] = useState("");
 
   function resetCreateForm() {
     setConfigName("");
@@ -43,8 +40,6 @@ export function LlmConfigForm({
     setApiKey("");
     setModelName("");
     setEnabled(true);
-    setReasoningProfile("none");
-    setReasoningProfileJson("");
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -56,11 +51,8 @@ export function LlmConfigForm({
       api_key: apiKey,
       model_name: modelName.trim(),
       enabled,
-      reasoning_profile: reasoningProfile,
-      reasoning_profile_json:
-        reasoningProfile === "custom_json"
-          ? reasoningProfileJson.trim() || null
-          : null,
+      reasoning_profile: "none",
+      reasoning_profile_json: null,
     });
   }
 
@@ -103,32 +95,6 @@ export function LlmConfigForm({
           value={modelName}
         />
       </label>
-      <label className="field-label compact">
-        Reasoning 请求 Profile
-        <select
-          className="input"
-          onChange={(event) =>
-            setReasoningProfile(event.target.value as LlmReasoningProfile)
-          }
-          value={reasoningProfile}
-        >
-          <option value="none">不额外开启</option>
-          <option value="volcengine_thinking">火山 Thinking</option>
-          <option value="vllm_enable_thinking">vLLM enable_thinking</option>
-          <option value="anthropic_budget_thinking">Anthropic budget thinking</option>
-          <option value="custom_json">自定义 JSON</option>
-        </select>
-      </label>
-      {reasoningProfile === "custom_json" ? (
-        <label className="field-label compact">
-          Profile JSON
-          <Input
-            onChange={(event) => setReasoningProfileJson(event.target.value)}
-            placeholder='{"extra_body":{"include_reasoning":true}}'
-            value={reasoningProfileJson}
-          />
-        </label>
-      ) : null}
       <div className="form-switches">
         <SwitchControl
           checked={enabled}

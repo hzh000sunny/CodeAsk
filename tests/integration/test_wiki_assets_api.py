@@ -21,6 +21,8 @@ PNG_BYTES = (
 
 
 async def _create_space_and_folder(client: AsyncClient, slug: str = "wiki-assets") -> tuple[int, int]:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     feature = await client.post(
         "/api/features",
         json={"name": "Wiki Assets", "slug": slug},
@@ -123,8 +125,9 @@ async def test_published_markdown_resolves_uploaded_asset(client: AsyncClient, t
 
 
 @pytest.mark.asyncio
-async def test_non_owner_can_upload_asset_in_v1_0_1(client: AsyncClient, tmp_path: Path) -> None:
+async def test_non_feature_admin_cannot_upload_asset(client: AsyncClient, tmp_path: Path) -> None:
     space_id, parent_id = await _create_space_and_folder(client, slug="wiki-assets-denied")
+    await client.post("/api/auth/logout")
     file_path = tmp_path / "diagram.png"
     file_path.write_bytes(PNG_BYTES)
 
@@ -135,5 +138,4 @@ async def test_non_owner_can_upload_asset_in_v1_0_1(client: AsyncClient, tmp_pat
             files={"file": ("diagram.png", file, "image/png")},
             headers={"X-Subject-Id": "viewer@dev-9"},
         )
-    assert response.status_code == 201, response.text
-    assert response.json()["original_name"] == "diagram.png"
+    assert response.status_code == 403, response.text

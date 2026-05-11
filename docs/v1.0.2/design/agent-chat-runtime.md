@@ -496,13 +496,19 @@ v1.0.2 已新增 `src/codeask/agent/chat_runtime/compaction.py`。它参考 Clau
 
 | CodeAsk 参数 | Claude Code 对应思路 | 当前说明 |
 |---|---|---|
-| `context_window_chars` | model context window | 默认参考 GLM-5.1 暴露出的 202752 input length 上限 |
+| `context_window_chars` | model context window | 默认 `200000`，表示 CodeAsk 运行时估算的模型总上下文窗口，不等同于 LLM API 的 `max_tokens` |
+| `auto_compact_threshold_ratio` | auto compact trigger ratio | 默认 `0.85`；达到约 `170000` 字符时触发自动压缩 |
 | `summary_output_reserve_chars` | `MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20000` | 为压缩摘要 / 回答预留空间 |
-| `autocompact_buffer_chars` | `AUTOCOMPACT_BUFFER_TOKENS = 13000` | 达到 effective window - buffer 才触发压缩 |
+| `autocompact_buffer_chars` | `AUTOCOMPACT_BUFFER_TOKENS = 13000` | 保留为兼容和后续 blocking limit 参考；当前自动压缩阈值以 `context_window_chars * auto_compact_threshold_ratio` 为准 |
 | `warning_buffer_chars` | `WARNING_THRESHOLD_BUFFER_TOKENS = 20000` | 预留 warning 阈值，后续供 UI / trace 使用 |
 | `error_buffer_chars` | `ERROR_THRESHOLD_BUFFER_TOKENS = 20000` | 预留 error 阈值，后续供 UI / trace 使用 |
 | `manual_compact_buffer_chars` | `MANUAL_COMPACT_BUFFER_TOKENS = 3000` | blocking limit 的保留空间 |
 | `keep_recent_tool_results` | micro compact keep recent | 默认保留最近 3 个工具结果原文 |
+
+这里必须区分两个概念：
+
+- `max_tokens` 是供应商 API 的单次回答输出预算，继续沿用后端默认值，配置页不展示。
+- `context_window_chars` 是 CodeAsk runtime 用于上下文装配和压缩判断的总窗口近似值，默认按 200k 字符估算。
 
 Claude Code 使用 token 计数；CodeAsk 当前还没有 provider-neutral token counter，所以 v1.0.2 使用 LLM message 序列化字符数作为近似执行单位。这个选择是工程上的临时适配，不改变目标方向：后续应把 LLM gateway 的真实 usage、模型 context window 配置和 tokenizer 估算接入 `ContextBudgetPolicy`。
 

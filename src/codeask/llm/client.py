@@ -16,6 +16,7 @@ from codeask.llm.types import (
     LLMError,
     LLMEvent,
     LLMMessage,
+    ReasoningBlock,
     StopReason,
     TextBlock,
     ToolCallBlock,
@@ -100,8 +101,13 @@ def _is_tool_schema_compatibility_error(exc: Exception) -> bool:
     )
 
 
-def _messages_to_litellm(messages: list[LLMMessage]) -> list[dict[str, Any]]:
+def _messages_to_litellm(
+    messages: list[LLMMessage],
+    *,
+    metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     converted: list[dict[str, Any]] = []
+    reasoning_history = _reasoning_history_policy(metadata)
     for message in messages:
         if message.role == "tool":
             for block in message.content:
@@ -121,10 +127,14 @@ def _messages_to_litellm(messages: list[LLMMessage]) -> list[dict[str, Any]]:
             continue
 
         text_parts: list[str] = []
+        reasoning_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         for block in message.content:
             if isinstance(block, TextBlock):
                 text_parts.append(block.text)
+            elif isinstance(block, ReasoningBlock):
+                if message.role == "assistant" and reasoning_history is not None:
+                    reasoning_parts.append(block.text)
             elif isinstance(block, ToolCallBlock):
                 tool_calls.append(
                     {
@@ -143,8 +153,24 @@ def _messages_to_litellm(messages: list[LLMMessage]) -> list[dict[str, Any]]:
         }
         if tool_calls:
             record["tool_calls"] = tool_calls
+        if message.role == "assistant" and reasoning_parts and reasoning_history is not None:
+            record[reasoning_history["field"]] = "".join(reasoning_parts)
         converted.append(record)
     return converted
+
+
+def _reasoning_history_policy(
+    metadata: dict[str, Any] | None,
+) -> dict[str, str] | None:
+    value = (metadata or {}).get("reasoning_history")
+    if not isinstance(value, dict):
+        return None
+    if value.get("mode") != "openai_interleaved":
+        return None
+    field = value.get("field")
+    if field not in {"reasoning_content", "reasoning_details"}:
+        return None
+    return {"mode": "openai_interleaved", "field": str(field)}
 
 
 def _tools_to_litellm(tools: list[ToolDef]) -> list[dict[str, Any]]:
@@ -214,6 +240,7 @@ class LLMClient(Protocol):
         tools: list[ToolDef],
         max_tokens: int,
         temperature: float,
+        metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[LLMEvent]: ...
 
 
@@ -247,6 +274,7 @@ class _BaseClient:
             build_reasoning_request_kwargs(
                 self._reasoning_request_profile,
                 custom_json=self._reasoning_request_profile_json,
+                protocol=self._provider_name,
             )
         )
         return kwargs
@@ -257,10 +285,11 @@ class _BaseClient:
         tools: list[ToolDef],
         max_tokens: int,
         temperature: float,
+        metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[LLMEvent]:
         kwargs: dict[str, Any] = {
             "model": self._model(),
-            "messages": _messages_to_litellm(messages),
+            "messages": _messages_to_litellm(messages, metadata=metadata),
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,

@@ -1,8 +1,8 @@
 """Unified auth and current-user API contract tests."""
 
+import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
-import pytest
 from sqlalchemy import func, select
 
 from codeask.auth.passwords import verify_password
@@ -11,7 +11,9 @@ from codeask.db.models import AuthSession, Session, User
 
 async def _load_user(app: FastAPI, username: str) -> User | None:
     async with app.state.session_factory() as db:
-        return (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
+        return (
+            await db.execute(select(User).where(User.username == username))
+        ).scalar_one_or_none()
 
 
 async def _auth_session_count(app: FastAPI, user_id: str) -> int:
@@ -95,11 +97,17 @@ async def test_login_is_case_sensitive_verifies_existing_password_and_sets_empty
     app: FastAPI,
     client: AsyncClient,
 ) -> None:
-    first = await client.post("/api/auth/login", json={"username": "CaseUser", "password": "secret1"})
+    first = await client.post(
+        "/api/auth/login",
+        json={"username": "CaseUser", "password": "secret1"},
+    )
     assert first.status_code == 200, first.text
     await client.post("/api/auth/logout")
 
-    lower = await client.post("/api/auth/login", json={"username": "caseuser", "password": "secret1"})
+    lower = await client.post(
+        "/api/auth/login",
+        json={"username": "caseuser", "password": "secret1"},
+    )
     assert lower.status_code == 200, lower.text
     await client.post("/api/auth/logout")
 
@@ -109,7 +117,10 @@ async def test_login_is_case_sensitive_verifies_existing_password_and_sets_empty
     assert lower_user is not None
     assert upper_user.id != lower_user.id
 
-    denied = await client.post("/api/auth/login", json={"username": "CaseUser", "password": "wrongpw"})
+    denied = await client.post(
+        "/api/auth/login",
+        json={"username": "CaseUser", "password": "wrongpw"},
+    )
     assert denied.status_code == 401
 
     async with app.state.session_factory() as db:
@@ -201,16 +212,23 @@ async def test_users_me_requires_login_updates_username_and_password(
 
     changed = await client.patch("/api/users/me/password", json={"password": " newpass "})
     assert changed.status_code == 204
-    assert "Max-Age=0" in changed.headers["set-cookie"]
+    assert "set-cookie" not in changed.headers
 
-    stale_me = await client.get("/api/users/me")
-    assert stale_me.status_code == 401
+    still_logged_in = await client.get("/api/users/me")
+    assert still_logged_in.status_code == 200
+    assert still_logged_in.json()["username"] == "Jane"
 
     await client.post("/api/auth/logout")
 
-    old_password = await client.post("/api/auth/login", json={"username": "Jane", "password": "secret1"})
+    old_password = await client.post(
+        "/api/auth/login",
+        json={"username": "Jane", "password": "secret1"},
+    )
     assert old_password.status_code == 401
-    new_password = await client.post("/api/auth/login", json={"username": "Jane", "password": "newpass"})
+    new_password = await client.post(
+        "/api/auth/login",
+        json={"username": "Jane", "password": "newpass"},
+    )
     assert new_password.status_code == 200, new_password.text
 
 
@@ -220,11 +238,17 @@ async def test_admin_cannot_rename_and_searches_or_clears_member_passwords(
     client: AsyncClient,
 ) -> None:
     for username in ["alpha", "alphabet", "beta"]:
-        login = await client.post("/api/auth/login", json={"username": username, "password": "secret1"})
+        login = await client.post(
+            "/api/auth/login",
+            json={"username": username, "password": "secret1"},
+        )
         assert login.status_code == 200, login.text
         await client.post("/api/auth/logout")
 
-    member_login = await client.post("/api/auth/login", json={"username": "alpha", "password": "secret1"})
+    member_login = await client.post(
+        "/api/auth/login",
+        json={"username": "alpha", "password": "secret1"},
+    )
     assert member_login.status_code == 200, member_login.text
     member_search = await client.get("/api/users/search", params={"q": "alp"})
     assert member_search.status_code == 403
@@ -257,7 +281,10 @@ async def test_admin_cannot_rename_and_searches_or_clears_member_passwords(
     assert clear_admin.status_code == 400
 
     await client.post("/api/auth/logout")
-    migrated = await client.post("/api/auth/login", json={"username": "alpha", "password": "newpass"})
+    migrated = await client.post(
+        "/api/auth/login",
+        json={"username": "alpha", "password": "newpass"},
+    )
     assert migrated.status_code == 200, migrated.text
     alpha_after_login = await _load_user(app, "alpha")
     assert alpha_after_login is not None

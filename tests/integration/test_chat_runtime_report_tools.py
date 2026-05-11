@@ -33,6 +33,8 @@ async def test_chat_runtime_registers_real_report_tools(
     app: FastAPI,
     client: AsyncClient,
 ) -> None:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     feature = await client.post(
         "/api/features",
         json={"name": "Runtime Reports", "slug": "runtime-reports"},

@@ -75,6 +75,8 @@ export function SessionWorkspace({
   const [runtimeState, setRuntimeState] = useState<RuntimeSessionState | null>(null);
   const [stages, setStages] = useState(createInitialStages);
   const [selectedId, setSelectedId] = useState<string | null>(routeSelectedSessionId);
+  const [rememberedSelectedSession, setRememberedSelectedSession] =
+    useState<SessionResponse | null>(null);
   const [listCollapsed, setListCollapsed] = useState(false);
   const [deletedSessionIds, setDeletedSessionIds] = useState<string[]>([]);
   const [deleteCandidate, setDeleteCandidate] =
@@ -114,6 +116,7 @@ export function SessionWorkspace({
   });
   function resetActiveSessionState() {
     setSelectedId(null);
+    setRememberedSelectedSession(null);
     setMessages([]);
     messagesSessionIdRef.current = null;
     appliedHistoryKeyRef.current = null;
@@ -232,6 +235,9 @@ export function SessionWorkspace({
   }, [deletedSessionIds, query, sessions]);
   const selected =
     visibleSessions.find((item) => item.id === selectedId) ??
+    (rememberedSelectedSession?.id === selectedId
+      ? rememberedSelectedSession
+      : null) ??
     visibleSessions[0] ??
     null;
   const selectedSessionId = selected?.id ?? "";
@@ -360,6 +366,7 @@ export function SessionWorkspace({
   });
 
   function rememberSession(session: SessionResponse) {
+    setRememberedSelectedSession(session);
     upsertSession(queryClient, session, subjectQueryKey);
   }
 

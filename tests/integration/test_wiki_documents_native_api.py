@@ -8,6 +8,8 @@ from codeask.db.models import WikiDocument, WikiNode, WikiSource
 
 
 async def _create_document_node(client: AsyncClient, slug: str = "wiki-doc-native") -> int:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     feature = await client.post(
         "/api/features",
         json={"name": "Wiki Native Doc", "slug": slug},
@@ -55,7 +57,7 @@ async def test_get_empty_native_document_detail(client: AsyncClient) -> None:
     assert body["node_id"] == node_id
     assert body["current_body_markdown"] is None
     assert body["draft_body_markdown"] is None
-    assert body["permissions"] == {"read": True, "write": True, "admin": False}
+    assert body["permissions"] == {"read": True, "write": True, "admin": True}
 
 
 @pytest.mark.asyncio
@@ -131,24 +133,23 @@ async def test_delete_draft_clears_subject_draft(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_owner_can_write_native_document_in_v1_0_1(client: AsyncClient) -> None:
+async def test_non_feature_admin_cannot_write_native_document(client: AsyncClient) -> None:
     node_id = await _create_document_node(client, slug="wiki-doc-denied")
+    await client.post("/api/auth/logout")
 
     response = await client.put(
         f"/api/wiki/documents/{node_id}/draft",
         json={"body_markdown": "# No access"},
         headers={"X-Subject-Id": "viewer@dev-9"},
     )
-    assert response.status_code == 200, response.text
-    assert response.json()["draft_body_markdown"] == "# No access"
+    assert response.status_code == 403, response.text
 
     response = await client.post(
         f"/api/wiki/documents/{node_id}/publish",
         json={"body_markdown": "# No access"},
         headers={"X-Subject-Id": "viewer@dev-9"},
     )
-    assert response.status_code == 200, response.text
-    assert response.json()["current_body_markdown"] == "# No access"
+    assert response.status_code == 403, response.text
 
 
 @pytest.mark.asyncio

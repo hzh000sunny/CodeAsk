@@ -34,6 +34,27 @@ const existingRepo = {
   updated_at: "2026-04-30T10:00:00",
 };
 
+const anonymousAuth = {
+  subject_id: "client_test",
+  display_name: "client_test",
+  role: "member",
+  authenticated: false,
+};
+
+const adminAuth = {
+  subject_id: "admin",
+  display_name: "admin",
+  role: "admin",
+  authenticated: true,
+};
+
+const memberAuth = {
+  subject_id: "viewer_test",
+  display_name: "viewer_test",
+  role: "member",
+  authenticated: true,
+};
+
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -73,7 +94,13 @@ function installFeatureFetchMock(
         links: unknown[];
         assets: unknown[];
       };
+      permissions?: {
+        read: boolean;
+        write: boolean;
+        admin: boolean;
+      };
     };
+    featureAdmins?: unknown[];
     repos?: unknown[];
     reports?: unknown[];
     featureWikiNodes?: unknown[];
@@ -89,14 +116,7 @@ function installFeatureFetchMock(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/auth/me") {
-        return jsonResponse(
-          options.auth ?? {
-            subject_id: "client_test",
-            display_name: "client_test",
-            role: "member",
-            authenticated: false,
-          },
-        );
+        return jsonResponse(options.auth ?? anonymousAuth);
       }
       if (path === "/api/features" && init?.method !== "POST") {
         return jsonResponse([feature]);
@@ -109,6 +129,9 @@ function installFeatureFetchMock(
       }
       if (path === "/api/features/7" && init?.method === "DELETE") {
         return new Response(null, { status: 204 });
+      }
+      if (path === "/api/features/7/admins") {
+        return jsonResponse(options.featureAdmins ?? []);
       }
       if (path === "/api/documents?feature_id=7") {
         return jsonResponse([]);
@@ -285,7 +308,11 @@ function installFeatureFetchMock(
             options.document?.broken_refs_json ?? { links: [], assets: [] },
           resolved_refs_json: options.document?.resolved_refs_json ?? [],
           provenance_json: { source: "manual_create" },
-          permissions: { read: true, write: true, admin: false },
+          permissions:
+            options.document?.permissions ??
+            (options.auth?.role === "admin"
+              ? { read: true, write: true, admin: true }
+              : { read: true, write: false, admin: false }),
         });
       }
       if (path === "/api/wiki/documents/703/versions") {
@@ -519,7 +546,7 @@ describe("FeatureWorkbench management actions", () => {
   });
 
   it("creates features from an inline list form", async () => {
-    const fetchMock = installFeatureFetchMock();
+    const fetchMock = installFeatureFetchMock({ auth: adminAuth });
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "特性" }));
@@ -543,6 +570,7 @@ describe("FeatureWorkbench management actions", () => {
   });
 
   it("shows feature descriptions in the tree and hides slug badges from the detail header", async () => {
+    installFeatureFetchMock();
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "特性" }));
@@ -556,6 +584,7 @@ describe("FeatureWorkbench management actions", () => {
   });
 
   it("truncates long feature descriptions in the tree to a single ellipsis line", async () => {
+    installFeatureFetchMock();
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "特性" }));
@@ -573,7 +602,10 @@ describe("FeatureWorkbench management actions", () => {
   });
 
   it("shows wiki management, generated reports, links a repo, and creates a feature analysis policy in feature tabs", async () => {
-    const fetchMock = installFeatureFetchMock({ repos: [existingRepo] });
+    const fetchMock = installFeatureFetchMock({
+      auth: adminAuth,
+      repos: [existingRepo],
+    });
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "特性" }));
@@ -776,13 +808,13 @@ describe("FeatureWorkbench management actions", () => {
     );
   });
 
-  it("keeps wiki management actions visible for authenticated non-owner members in v1.0.1", async () => {
+  it("keeps wiki management actions hidden for non-feature-admin members in v1.0.3", async () => {
     installFeatureFetchMock({
-      auth: {
-        subject_id: "viewer_test",
-        display_name: "viewer_test",
-        role: "member",
-        authenticated: true,
+      auth: memberAuth,
+      document: {
+        current_body_markdown: "# 支付接入说明\n\n这里是接入说明正文。",
+        resolved_refs_json: [],
+        permissions: { read: true, write: false, admin: false },
       },
     });
     render(<App />);
@@ -796,16 +828,17 @@ describe("FeatureWorkbench management actions", () => {
       name: "Wiki 目录树",
     });
 
-    fireEvent.click(
-      await within(wikiTreePane).findByRole("button", {
+    await within(wikiTreePane).findByRole("button", { name: "知识库" });
+    expect(
+      within(wikiTreePane).queryByRole("button", {
         name: /打开节点 知识库 的更多操作/,
       }),
-    );
-    expect(screen.getByRole("menuitem", { name: "新建目录" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "新建 Wiki" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "导入 Wiki" })).toBeInTheDocument();
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "新建目录" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "新建 Wiki" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "导入 Wiki" })).not.toBeInTheDocument();
 
-    expect(await screen.findByRole("button", { name: "编辑" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
   });
 
   it("shows report status filters and filters reports by lifecycle state", async () => {
@@ -877,6 +910,7 @@ describe("FeatureWorkbench management actions", () => {
 
   it("edits, verifies, rejects, un-verifies, and deletes reports from the detail pane", async () => {
     const fetchMock = installFeatureFetchMock({
+      auth: adminAuth,
       reports: [
         {
           ...defaultReports[0],
@@ -943,7 +977,10 @@ describe("FeatureWorkbench management actions", () => {
   });
 
   it("links existing global repos inside the selected feature page", async () => {
-    const fetchMock = installFeatureFetchMock({ repos: [existingRepo] });
+    const fetchMock = installFeatureFetchMock({
+      auth: adminAuth,
+      repos: [existingRepo],
+    });
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "特性" }));
@@ -963,7 +1000,7 @@ describe("FeatureWorkbench management actions", () => {
   });
 
   it("deletes a feature from the feature list after confirmation", async () => {
-    const fetchMock = installFeatureFetchMock();
+    const fetchMock = installFeatureFetchMock({ auth: adminAuth });
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "特性" }));

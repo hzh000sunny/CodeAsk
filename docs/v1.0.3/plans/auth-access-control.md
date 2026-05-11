@@ -14,6 +14,8 @@
 
 本计划实现 [v1.0.3 鉴权与访问控制设计](../specs/auth-access-control.md)。本版本不修改 Agent 决策链路、RAG 策略、模型路由和 Wiki 内容模型，除非某处必须接入权限校验。
 
+收口验收以 `./acceptance-checklist.md` 和 `../specs/real-data-acceptance.md` 为准。真实数据升级、浏览器只读 E2E 和人工验收列表属于本版本强制交付物，不能只依赖临时空库 Playwright。
+
 实现时要控制文件职责。身份识别、用户管理、特性权限、审计写入、前端权限 UI 必须拆开，不允许继续把所有逻辑堆进单个 API 或组件。
 
 ## 文件结构
@@ -1183,14 +1185,14 @@ git commit -m "test(e2e): cover auth access control"
 - Modify: `README.md`
 - Modify: `INSTALL.md`
 
-- [ ] **Step 1：更新文档**
+- [x] **Step 1：更新文档**
 
 - `docs/v1.0.3/README.md`：记录实现状态和测试入口。
 - `docs/DEVELOPMENT_ACCEPTANCE.md`：补充鉴权功能必须跑真实浏览器 E2E。
 - `INSTALL.md`：记录默认 admin 用户名、默认密码、环境变量兜底。
 - `README.md`：只保留产品层面的说明和快速启动入口。
 
-- [ ] **Step 2：运行后端定向测试**
+- [x] **Step 2：运行后端定向测试**
 
 Run:
 
@@ -1200,7 +1202,7 @@ uv run pytest tests/unit/test_auth_passwords.py tests/unit/test_auth_sessions.py
 
 Expected: PASS。
 
-- [ ] **Step 3：运行后端广域回归**
+- [x] **Step 3：运行后端广域回归**
 
 Run:
 
@@ -1210,7 +1212,7 @@ uv run pytest tests/unit tests/integration -q
 
 Expected: PASS。
 
-- [ ] **Step 4：运行前端测试**
+- [x] **Step 4：运行前端测试**
 
 Run:
 
@@ -1221,7 +1223,7 @@ corepack pnpm --dir frontend typecheck
 
 Expected: PASS。
 
-- [ ] **Step 5：运行真实浏览器 E2E**
+- [x] **Step 5：运行真实浏览器 E2E**
 
 Run:
 
@@ -1231,13 +1233,20 @@ corepack pnpm --dir frontend test:e2e -- auth-access-control.spec.ts route-refre
 
 Expected: PASS。
 
+2026-05-10 验证结果：
+
+- `uv run pytest tests/unit/test_auth_passwords.py tests/unit/test_auth_sessions.py tests/unit/test_feature_permissions.py tests/integration/test_auth_users_api.py tests/integration/test_feature_admins_api.py tests/integration/test_authz_features_api.py tests/integration/test_authz_wiki_api.py tests/integration/test_attachment_upload_gate.py tests/integration/test_audit_authz_api.py -v`：PASS。
+- `uv run pytest tests/unit tests/integration -q`：PASS。
+- `corepack pnpm --dir frontend test:run`：40 个测试文件、195 个用例 PASS。
+- `corepack pnpm --dir frontend typecheck`：PASS。
+- `corepack pnpm --dir frontend test:e2e -- auth-access-control.spec.ts route-refresh.spec.ts wiki-tail.spec.ts auth-session-switch.spec.ts --project=chromium`：8 个真实浏览器用例 PASS。
+
 - [ ] **Step 6：启动前后端做人工浏览器验收**
 
 后端：
 
 ```bash
-CODEASK_DATA_DIR=/tmp/codeask-v103-auth \
-CODEASK_DATA_KEY=dev-auth-key-32-bytes-minimum-value \
+CODEASK_DATA_DIR=/home/hzh/.codeask \
 uv run uvicorn codeask.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
@@ -1258,6 +1267,17 @@ corepack pnpm --dir frontend dev --host 0.0.0.0
 - 特性管理员只能操作授权特性。
 - 附件上传开关关闭后上传提示“该功能已被禁用”。
 - 审计日志记录登录、拒绝、授权变更、附件拒绝。
+
+- [ ] **Step 6.1：真实数据升级验收**
+
+执行要求：
+
+- 先完整备份 `/home/hzh/.codeask`。
+- 记录升级前 revision。
+- 使用真实数据目录启动 v1.0.3。
+- 记录升级后 revision。
+- 校验原有 `features`、`llm_configs`、`repos`、`system_settings`、Wiki、会话和报告数据仍然可见。
+- 浏览器验收时确认当前后端不是 `/tmp/codeask-*` 之类的临时目录。
 
 - [ ] **Step 7：提交收尾文档**
 
@@ -1292,6 +1312,21 @@ git commit -m "docs(v1.0.3): document auth acceptance status"
 - [ ] 附件上传开关关闭时禁止所有新上传。
 - [ ] 审计日志记录要求的鉴权和授权事件。
 - [ ] Playwright 真实浏览器 E2E 通过。
+- [ ] 真实用户数据目录升级到 v1.0.3 后，原有特性仍然可见。
+- [ ] 真实用户数据目录升级到 v1.0.3 后，原有全局 LLM 配置仍然可见。
+- [ ] 真实用户数据目录升级到 v1.0.3 后，原有关联仓库仍然可见。
+- [ ] 真实用户数据目录升级到 v1.0.3 后，原有系统配置仍然可见。
+- [ ] 真实用户数据目录升级到 v1.0.3 后，原有 Wiki / 会话 / 报告仍然可读。
+- [ ] 浏览器验收已确认当前后端连接真实数据目录，而不是临时测试目录。
+
+## 最终人工验证输出
+
+- [ ] 备份路径已记录。
+- [ ] 实际 `CODEASK_DATA_DIR` 已记录。
+- [ ] 升级前后 revision 已记录。
+- [ ] 自动化测试命令与结果已记录。
+- [ ] 人工点击步骤、账号与预期结果已整理。
+- [ ] 剩余风险与未覆盖边界已整理。
 
 ## 自审结果
 

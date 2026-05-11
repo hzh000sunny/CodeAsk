@@ -7,7 +7,8 @@ from typing import Any
 
 from codeask.llm.types import LLMMessage, ToolResultBlock
 
-DEFAULT_CONTEXT_WINDOW_CHARS = 202_752
+DEFAULT_CONTEXT_WINDOW_CHARS = 200_000
+DEFAULT_AUTO_COMPACT_THRESHOLD_RATIO = 0.85
 DEFAULT_SUMMARY_OUTPUT_RESERVE_CHARS = 20_000
 AUTOCOMPACT_BUFFER_CHARS = 13_000
 WARNING_THRESHOLD_BUFFER_CHARS = 20_000
@@ -27,6 +28,7 @@ class ContextBudgetPolicy:
     """
 
     context_window_chars: int = DEFAULT_CONTEXT_WINDOW_CHARS
+    auto_compact_threshold_ratio: float = DEFAULT_AUTO_COMPACT_THRESHOLD_RATIO
     summary_output_reserve_chars: int = DEFAULT_SUMMARY_OUTPUT_RESERVE_CHARS
     autocompact_buffer_chars: int = AUTOCOMPACT_BUFFER_CHARS
     warning_buffer_chars: int = WARNING_THRESHOLD_BUFFER_CHARS
@@ -41,7 +43,8 @@ class ContextBudgetPolicy:
 
     @property
     def auto_compact_threshold_chars(self) -> int:
-        return max(1, self.effective_context_window_chars - self.autocompact_buffer_chars)
+        ratio = min(1.0, max(0.0, self.auto_compact_threshold_ratio))
+        return max(1, int(self.context_window_chars * ratio))
 
     @property
     def warning_threshold_chars(self) -> int:

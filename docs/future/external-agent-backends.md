@@ -439,5 +439,6 @@ src/codeask/agent/backends/
 - Claude Code SDK 文档：`https://docs.anthropic.com/en/docs/claude-code/sdk`
 - Claude Code TypeScript SDK 文档：`https://docs.anthropic.com/es/docs/claude-code/sdk/sdk-typescript`
 - Claude Code MCP in SDK 文档：`https://docs.anthropic.com/en/docs/claude-code/sdk/sdk-mcp`
+- opencode GitHub：`https://github.com/anomalyco/opencode`
 - opencode 官方站点：`https://opencode.ai/`
 - opencode provider 文档：`https://opencode.ai/docs/providers`

@@ -41,6 +41,8 @@ def _bootstrap_repo(
 
 
 async def _create_feature(client: AsyncClient, name: str = "Claude Code") -> int:
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200, login.text
     response = await client.post(
         "/api/features",
         json={"name": name, "description": "runtime test feature"},

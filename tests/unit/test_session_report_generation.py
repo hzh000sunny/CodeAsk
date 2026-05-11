@@ -1,11 +1,27 @@
 """Unit tests for session report generation helpers."""
 
+import asyncio
+from collections.abc import AsyncIterator
 from datetime import date
 
 from codeask.sessions.report_generation import (
+    generate_single_text,
     normalize_prepared_report_payload,
     parse_prepared_report_payload,
 )
+from codeask.llm.types import LLMEvent, LLMRequest
+
+
+class _ReasoningAwareGateway:
+    def __init__(self, events: list[LLMEvent]) -> None:
+        self.events = events
+
+    def stream(self, request: LLMRequest) -> AsyncIterator[LLMEvent]:
+        async def gen() -> AsyncIterator[LLMEvent]:
+            for event in self.events:
+                yield event
+
+        return gen()
 
 
 def test_normalize_prepared_report_payload_applies_date_prefix_and_trims_description() -> None:
@@ -72,3 +88,32 @@ def test_parse_prepared_report_payload_tolerates_unescaped_quotes_in_body_markdo
 
     assert payload["title_description"] == "CodeAsk 产品架构认知"
     assert '作为"筛选后参考"的定位一致' in payload["body_markdown"]
+
+
+def test_generate_single_text_ignores_reasoning_events() -> None:
+    gateway = _ReasoningAwareGateway(
+        [
+            LLMEvent(
+                type="message_start",
+                data={"model": "test"},
+            ),
+            LLMEvent(
+                type="reasoning_delta",
+                data={"delta": "内部思考", "field": "reasoning_content", "redacted": False},
+            ),
+            LLMEvent(type="text_delta", data={"delta": "正式标题"}),
+            LLMEvent(type="message_stop", data={"stop_reason": "end_turn"}),
+        ]
+    )
+
+    text = asyncio.run(
+        generate_single_text(
+            gateway,  # type: ignore[arg-type]
+            subject_id="subject",
+            prompt="生成标题",
+            max_tokens=16,
+            temperature=0,
+        )
+    )
+
+    assert text == "正式标题"

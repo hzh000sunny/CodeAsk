@@ -1,7 +1,10 @@
 export type LlmScope = "user" | "global";
-export type LlmProtocol = "openai" | "anthropic";
+export type LlmProtocol = "openai" | "openai_compatible" | "anthropic";
 export type LlmReasoningProfile =
   | "none"
+  | "request_patch"
+  | "openai_reasoning_effort"
+  | "anthropic_thinking"
   | "volcengine_thinking"
   | "vllm_enable_thinking"
   | "anthropic_budget_thinking"

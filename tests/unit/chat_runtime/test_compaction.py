@@ -6,6 +6,13 @@ from codeask.agent.chat_runtime.compaction import (
 from codeask.llm.types import LLMMessage, TextBlock, ToolResultBlock
 
 
+def test_default_context_budget_uses_200k_window_and_085_auto_compact_ratio() -> None:
+    policy = ContextBudgetPolicy()
+
+    assert policy.context_window_chars == 200_000
+    assert policy.auto_compact_threshold_chars == 170_000
+
+
 def test_compaction_does_not_run_below_auto_compact_threshold() -> None:
     messages = [
         LLMMessage(role="system", content=[TextBlock(type="text", text="system")]),
