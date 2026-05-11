@@ -81,6 +81,8 @@ Anthropic:
 
 用户选择哪个协议，后端就按哪个消息协议构造请求。这样既保留了必要的协议边界，也避免把 `OpenAI Compatible` 这种实现细节暴露给普通用户。历史数据中的 `openai_compatible` 仅作为兼容内部值保留，前端展示和编辑时视为 `OpenAI`。
 
+同一个私有模型网关 base URL 可以同时支持 OpenAI Chat Completions 和 Anthropic Messages 两种协议。CodeAsk 的 UI 不要求用户为 Anthropic 额外理解 endpoint 细节；后端在 Anthropic adapter 中负责把 base URL 规范化为 `/v1/messages` 完整请求 URL，已填写完整 `/v1/messages` endpoint 时保持不变。
+
 ### 3.1 Protocol / Endpoint / Auth / Framing 分离
 
 `packages/llm/src/route/protocol.ts` 明确说明：Protocol 只表达一个 API 的语义契约，负责：

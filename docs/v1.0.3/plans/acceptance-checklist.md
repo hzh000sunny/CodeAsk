@@ -184,6 +184,13 @@ v1.0.3 收口前必须同时满足：
 - [x] `uv run pytest tests/unit/test_llm_client_adapter.py -q`，15 passed。
 - [x] `corepack pnpm --dir frontend exec vitest run tests/reasoning-leak-guard.test.ts`，7 passed。
 
+### 9.2.2 Anthropic 兼容网关 Base URL 修复记录（2026-05-11）
+
+- [x] 根因：LiteLLM Anthropic chat adapter 把 `base_url` 当成完整请求 URL 使用，不会像 Claude Code / Anthropic SDK 一样在 base 后自动拼 `/v1/messages`；私有网关虽然同一个 base URL 支持 OpenAI 和 Anthropic 两种协议，但 CodeAsk 旧实现会把 Anthropic 请求打到 base 根路径，导致 `NotFoundError: AnthropicException`。
+- [x] CodeAsk 在 `AnthropicClient` 内部补充协议级 URL normalization：如果用户配置的 Anthropic `base_url` 未以 `/v1/messages` 结尾，则自动补齐；如果已经是完整 `/v1/messages` endpoint，则保持不变。
+- [x] 用户配置体验不变：仍只需要填写同一个网关 Base URL、API Key、模型名称，并在接口协议中选择 `OpenAI` 或 `Anthropic`。
+- [x] `uv run pytest tests/unit/test_llm_client_adapter.py -q`，17 passed。
+
 ### 9.3 协议选择 UI 收口验证（2026-05-11）
 
 - [x] `corepack pnpm --dir frontend test:run -- settings-page.test.tsx`，命令实际复跑前端全量 Vitest：40 个测试文件 / 201 个用例通过。

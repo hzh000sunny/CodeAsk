@@ -645,3 +645,81 @@ async def test_openai_provider_hint_preserves_explicit_litellm_model_prefix(
 
     assert captured["model"] == "openai/gpt-4o"
     assert events[-1].type == "message_stop"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_protocol_normalizes_base_url_to_messages_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="ok")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = AnthropicClient(
+        api_key="x",
+        model_name="claude-compatible",
+        base_url="https://gateway.example.test",
+    )
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert captured["model"] == "anthropic/claude-compatible"
+    assert captured["base_url"] == "https://gateway.example.test/v1/messages"
+    assert events[-1].type == "message_stop"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_protocol_preserves_explicit_messages_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="ok")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = AnthropicClient(
+        api_key="x",
+        model_name="anthropic/claude-compatible",
+        base_url="https://gateway.example.test/v1/messages",
+    )
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert captured["model"] == "anthropic/claude-compatible"
+    assert captured["base_url"] == "https://gateway.example.test/v1/messages"
+    assert events[-1].type == "message_stop"

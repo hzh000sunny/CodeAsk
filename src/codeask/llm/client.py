@@ -483,3 +483,13 @@ class AnthropicClient(_BaseClient):
 
     def _model(self) -> str:
         return _with_provider_hint("anthropic", self._model_name)
+
+    def _extra_kwargs(self) -> dict[str, Any]:
+        kwargs = super()._extra_kwargs()
+        base_url = kwargs.get("base_url")
+        if isinstance(base_url, str) and base_url:
+            normalized = base_url.rstrip("/")
+            if not normalized.endswith("/v1/messages"):
+                normalized = f"{normalized}/v1/messages"
+            kwargs["base_url"] = normalized
+        return kwargs
