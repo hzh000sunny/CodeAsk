@@ -39,6 +39,22 @@ def _tool_call_chunk(
     return SimpleNamespace(index=idx, id=tc_id, type="function", function=fn)
 
 
+class _CapturingLogger:
+    def __init__(self) -> None:
+        self.info_events: list[tuple[str, dict[str, Any]]] = []
+        self.debug_events: list[tuple[str, dict[str, Any]]] = []
+        self.warning_events: list[tuple[str, dict[str, Any]]] = []
+
+    def info(self, event: str, **kwargs: Any) -> None:
+        self.info_events.append((event, kwargs))
+
+    def debug(self, event: str, **kwargs: Any) -> None:
+        self.debug_events.append((event, kwargs))
+
+    def warning(self, event: str, **kwargs: Any) -> None:
+        self.warning_events.append((event, kwargs))
+
+
 @pytest.mark.asyncio
 async def test_text_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
@@ -70,6 +86,40 @@ async def test_text_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
     assert any(
         event.type == "message_stop" and event.data["stop_reason"] == "end_turn" for event in events
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_delta_shape_logging_is_debug_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="a")
+            yield _chunk(content="b")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    logger = _CapturingLogger()
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+    monkeypatch.setattr(mod, "logger", logger)
+
+    client = OpenAIClient(api_key="x", model_name="gpt-test")
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    assert events[-1].type == "message_stop"
+    assert not any(event == "llm_stream_delta_debug" for event, _ in logger.info_events)
+    assert [event for event, _ in logger.debug_events].count("llm_stream_delta_debug") == 3
 
 
 @pytest.mark.asyncio

@@ -364,7 +364,7 @@ class _BaseClient:
                 delta = getattr(choice, "delta", None)
                 if delta is None:
                     continue
-                logger.info("llm_stream_delta_debug", **_delta_debug_payload(delta))
+                logger.debug("llm_stream_delta_debug", **_delta_debug_payload(delta))
 
                 for event_type, event_data in normalize_openai_delta(
                     cast(dict[str, Any], _delta_to_dict(delta))
