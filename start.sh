@@ -48,10 +48,10 @@ DIST_INDEX="$FRONTEND_DIST/index.html"
 
 if [[ ! -f "$DIST_INDEX" ]]; then
     FRONTEND_PNPM_CMD=()
-    if command -v pnpm >/dev/null 2>&1; then
-        FRONTEND_PNPM_CMD=(pnpm)
-    elif command -v corepack >/dev/null 2>&1; then
+    if command -v corepack >/dev/null 2>&1; then
         FRONTEND_PNPM_CMD=(corepack pnpm)
+    elif command -v pnpm >/dev/null 2>&1; then
+        FRONTEND_PNPM_CMD=(pnpm)
     fi
 
     if [[ -z "${CODEASK_FRONTEND_DIST:-}" ]] && [[ ${#FRONTEND_PNPM_CMD[@]} -gt 0 ]]; then

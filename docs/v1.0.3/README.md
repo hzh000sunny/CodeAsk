@@ -39,9 +39,10 @@ v1.0.3 聚焦登录、用户、特性管理员和权限控制。目标是在保�
 ## 最新验证记录
 
 - 后端定向鉴权测试：`uv run pytest tests/unit/test_auth_passwords.py tests/unit/test_auth_sessions.py tests/unit/test_feature_permissions.py tests/integration/test_auth_users_api.py tests/integration/test_feature_admins_api.py tests/integration/test_authz_features_api.py tests/integration/test_authz_wiki_api.py tests/integration/test_attachment_upload_gate.py tests/integration/test_audit_authz_api.py -v`，39 passed。
-- 后端全量回归：`uv run pytest tests/unit tests/integration -q`，通过。
-- 前端全量测试：`corepack pnpm --dir frontend test:run -- settings-page.test.tsx`，命令实际复跑前端全量 Vitest，2026-05-11 结果为 40 个测试文件、201 个用例通过。
+- 后端全量回归：`uv run pytest tests/unit tests/integration -q`，通过；存在 APScheduler 测试线程 warning，但退出码为 0。
+- 前端全量测试：`corepack pnpm --dir frontend test:run`，2026-05-11 结果为 42 个测试文件、205 个用例通过。
 - 前端类型检查：`corepack pnpm --dir frontend typecheck`，通过。
+- 前端生产构建：`corepack pnpm --dir frontend build`，通过；保留 Vite chunk size warning。
 - 真实浏览器组合 E2E：`corepack pnpm --dir frontend test:e2e -- auth-access-control.spec.ts route-refresh.spec.ts wiki-tail.spec.ts auth-session-switch.spec.ts --project=chromium`，8 passed。
 - 真实数据只读 E2E：`corepack pnpm --dir frontend exec playwright test -c playwright.realdata.config.ts e2e/realdata-auth-readonly.spec.ts --project=chromium`，2026-05-11 结果为 2 passed。
 - 真实 LLM 配置逐个验证：使用真实数据目录 `/home/hzh/.codeask` 的 7 个启用配置真实请求，覆盖 OpenAI 消息格式、Anthropic 消息格式、全局配置和用户配置，结果 `passed=7 failed=0 marker_leaks=0 empty_answers=0`。
@@ -73,5 +74,6 @@ v1.0.3 不能只在临时空数据目录验收。收口前必须补齐以下证�
 
 - reasoning 请求侧已完成第一版收口：`request_options` 成为 provider-neutral 请求选项入口，旧 vendor-style profile 只作为兼容 alias 保留，不再作为新能力扩张方式。
 - 已完成 `references/opencode` 源码学习和版本内落地记录，当前实现遵循“用户选择 OpenAI / Anthropic 消息格式，后端不按 URL 或模型名自动推断协议”的边界。
+- 已补齐工具参数失败诊断：模型输出非法工具参数 JSON、缺少必填字段或参数类型错误时，后端会把解析 / 校验错误作为结构化 tool result 回填给模型，并在 Agent 行动轨迹中展示详细原因，便于模型自我修正和人工排查。
 - 仍需用户在真实浏览器中完成人工验收，并确认 v1.0.3 可以结束。
 - 人工验收通过后提交并推送 v1.0.3 收尾改动。

@@ -24,7 +24,12 @@ from codeask.agent.chat_runtime.events import (
 )
 from codeask.agent.chat_runtime.prompt import build_system_prompt
 from codeask.agent.chat_runtime.retrieval import LightweightRetrievalService
-from codeask.agent.chat_runtime.tool_contracts import ToolContext, ToolResult, ToolSpec
+from codeask.agent.chat_runtime.tool_contracts import (
+    ToolContext,
+    ToolErrorType,
+    ToolResult,
+    ToolSpec,
+)
 from codeask.agent.chat_runtime.tool_executor import ToolExecutor
 from codeask.agent.chat_runtime.tool_registry import ToolRegistry
 from codeask.llm.gateway import LLMGateway
@@ -390,13 +395,31 @@ class ChatRuntime:
                         tool_call_id=call_id,
                         tool_name=tool_name,
                         arguments_summary=arguments,
+                        arguments_parse_error=_string_value(
+                            tool_call.get("arguments_parse_error")
+                        ),
+                        raw_arguments=_string_value(tool_call.get("raw_arguments")),
                     ),
                 )
-                result = await self._tool_executor.execute(
-                    tool_name,
-                    arguments,
-                    ToolContext(session_id=session_id, turn_id=turn_id),
-                )
+                arguments_parse_error = _string_value(tool_call.get("arguments_parse_error"))
+                if arguments_parse_error is not None:
+                    raw_arguments = _string_value(tool_call.get("raw_arguments"))
+                    result = ToolResult.error(
+                        tool=tool_name,
+                        error_type=ToolErrorType.INVALID_INPUT,
+                        summary="工具参数解析失败",
+                        message=(
+                            "工具参数不是合法 JSON，无法执行。"
+                            f"解析错误：{arguments_parse_error}。"
+                            f" raw_arguments={_truncate(str(raw_arguments or ''), 800)}"
+                        ),
+                    )
+                else:
+                    result = await self._tool_executor.execute(
+                        tool_name,
+                        arguments,
+                        ToolContext(session_id=session_id, turn_id=turn_id),
+                    )
                 yield ChatRuntimeEvent(
                     type="tool_result",
                     data=ToolResultEventData(
@@ -413,6 +436,8 @@ class ChatRuntime:
                         audit_raw_result=result.audit_raw_result,
                         version_info=result.version_info,
                         error_type=result.error_type.value if result.error_type else None,
+                        message=result.message,
+                        suggested_user_question=result.suggested_user_question,
                     ),
                 )
                 messages.append(

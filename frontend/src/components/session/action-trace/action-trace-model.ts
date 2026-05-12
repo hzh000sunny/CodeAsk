@@ -330,6 +330,7 @@ function toolCallDetail(data: Record<string, unknown>) {
     stringValue(args.query) ? `query=${stringValue(args.query)}` : null,
     stringValue(args.path),
     stringValue(args.ref) ? `ref=${stringValue(args.ref)}` : null,
+    stringValue(data.arguments_parse_error) ? "参数 JSON 解析失败" : null,
   ].filter(Boolean);
   return parts.join(" · ") || truncateText(compactJson(args), 160) || "等待工具返回";
 }
@@ -343,6 +344,7 @@ function toolResultDetail(data: Record<string, unknown>) {
     stringValue(result.summary) ??
     stringValue(resultData.summary) ??
     stringValue(result.message);
+  const message = stringValue(data.message) ?? stringValue(result.message);
   const hits = Array.isArray(resultData.hits) ? `${resultData.hits.length} 条命中` : null;
   const featureIds = intArrayValue(versionInfo.feature_ids);
   const repo = codeRepoLabel(versionInfo);
@@ -360,6 +362,7 @@ function toolResultDetail(data: Record<string, unknown>) {
     warnings.length > 0 ? `提醒 ${warnings.length} 条` : null,
     data.truncated === true ? "结果已截断" : null,
     stringValue(data.error_type) ? `错误：${stringValue(data.error_type)}` : null,
+    message && message !== summary ? truncateText(message, 120) : null,
   ].filter(Boolean);
   return parts.join(" · ") || compactJson(data);
 }

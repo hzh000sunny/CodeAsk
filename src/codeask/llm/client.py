@@ -422,19 +422,25 @@ class _BaseClient:
                         yield LLMEvent(type=filtered_type, data=filtered_data)
                     for tool_call_id, acc in tool_accumulators.items():
                         arguments: dict[str, Any] = {}
+                        parse_error: str | None = None
                         try:
                             loaded: object = json.loads(acc["args_str"]) if acc["args_str"] else {}
-                        except json.JSONDecodeError:
+                        except json.JSONDecodeError as exc:
+                            parse_error = str(exc)
                             loaded = {}
                         if isinstance(loaded, dict):
                             arguments = cast(dict[str, Any], loaded)
+                        data: dict[str, Any] = {
+                            "id": tool_call_id,
+                            "name": acc["name"],
+                            "arguments": arguments,
+                        }
+                        if parse_error is not None:
+                            data["arguments_parse_error"] = parse_error
+                            data["raw_arguments"] = acc["args_str"]
                         yield LLMEvent(
                             type="tool_call_done",
-                            data={
-                                "id": tool_call_id,
-                                "name": acc["name"],
-                                "arguments": arguments,
-                            },
+                            data=data,
                         )
 
                     yield LLMEvent(

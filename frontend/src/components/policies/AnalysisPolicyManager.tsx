@@ -10,6 +10,7 @@ import {
 } from "../../lib/api";
 import type { SkillResponse } from "../../types/api";
 import { Button } from "../ui/button";
+import { messageFromError } from "../features/feature-utils";
 import { PolicyForm, type PolicyUpdatePayload } from "./PolicyForm";
 import { PolicyRow } from "./PolicyRow";
 import { mergeById } from "./policy-utils";
@@ -37,10 +38,11 @@ export function AnalysisPolicyManager({
   const [stage, setStage] = useState("all");
   const [priority, setPriority] = useState("100");
   const [promptTemplate, setPromptTemplate] = useState("");
-  const { data: fetchedPolicies = [] } = useQuery({
+  const skillsQuery = useQuery({
     queryKey: ["skills"],
     queryFn: listSkills,
   });
+  const fetchedPolicies = skillsQuery.data ?? [];
   const policies = mergeById(fetchedPolicies, createdPolicies).filter(
     (policy) =>
       policy.scope === scope &&
@@ -138,7 +140,24 @@ export function AnalysisPolicyManager({
           stage={stage}
         />
       ) : null}
-      {policies.length === 0 ? (
+      {skillsQuery.isLoading ? (
+        <p className="empty-note">正在加载分析策略</p>
+      ) : skillsQuery.isError ? (
+        <div className="empty-block wide error-block">
+          <p>加载分析策略失败：{messageFromError(skillsQuery.error)}</p>
+          <div className="form-actions">
+            <Button
+              onClick={() => {
+                void skillsQuery.refetch();
+              }}
+              type="button"
+              variant="secondary"
+            >
+              重试
+            </Button>
+          </div>
+        </div>
+      ) : policies.length === 0 ? (
         <div className="empty-block wide">
           <p>暂无分析策略</p>
         </div>

@@ -142,6 +142,39 @@ def test_start_script_builds_frontend_dist_when_tools_are_available(tmp_path: Pa
     assert "uv run codeask" in commands
 
 
+def test_start_script_falls_back_to_pnpm_when_corepack_is_unavailable(tmp_path: Path) -> None:
+    script = _copy_start_script(tmp_path)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "commands.log"
+    _write_passthrough_command(bin_dir, "dirname", "/usr/bin/dirname")
+    _write_passthrough_command(bin_dir, "cat", "/bin/cat")
+    _write_fake_command(bin_dir, "uv", log)
+    _write_fake_command(bin_dir, "pnpm", log)
+    (tmp_path / "frontend").mkdir()
+
+    env = {
+        "PATH": str(bin_dir),
+        "HOME": str(tmp_path),
+        "CODEASK_DATA_KEY": Fernet.generate_key().decode(),
+        "LITELLM_LOCAL_MODEL_COST_MAP": "False",
+    }
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    commands = log.read_text(encoding="utf-8")
+    assert "pnpm --dir frontend install --frozen-lockfile" in commands
+    assert "pnpm --dir frontend build" in commands
+    assert "uv run codeask" in commands
+
+
 def test_start_script_warns_when_frontend_dist_missing_and_tools_unavailable(
     tmp_path: Path,
 ) -> None:

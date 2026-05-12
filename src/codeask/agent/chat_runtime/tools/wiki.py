@@ -22,17 +22,41 @@ from codeask.wiki.native_search import NativeWikiSearchService
 
 
 class SearchWikiInput(BaseModel):
-    query: str
-    feature_ids: list[int] = Field(default_factory=list)
-    node_ids: list[int] = Field(default_factory=list)
-    limit: int = 5
-    offset: int = 0
+    query: str = Field(
+        ...,
+        description=(
+            "必填。用于搜索 Wiki 的自然语言关键词或用户问题。"
+            "如果只有标题/路径但没有 node_id，也先用这里搜索。"
+        ),
+    )
+    feature_ids: list[int] = Field(
+        default_factory=list,
+        description="可选。模型判断相关的特性 ID 列表；不确定时留空做全局搜索。",
+    )
+    node_ids: list[int] = Field(
+        default_factory=list,
+        description="可选。只搜索这些已知 Wiki node_id；不要填标题、路径或目录名。",
+    )
+    limit: int = Field(default=5, description="可选。返回候选数量，默认 5。")
+    offset: int = Field(default=0, description="可选。分页偏移，默认 0。")
 
 
 class ReadWikiNodeInput(BaseModel):
-    node_id: int
-    heading: str | None = None
-    max_chars: int = 12_000
+    node_id: int = Field(
+        ...,
+        description=(
+            "必填。只能使用 RAG 候选上下文或 search_wiki 返回的明确 node_id。"
+            "不要猜测，不要把标题、路径、document_id 或目录名填到这里。"
+        ),
+    )
+    heading: str | None = Field(
+        default=None,
+        description="可选。只读取指定 Markdown 标题下的内容；不确定时留空。",
+    )
+    max_chars: int = Field(
+        default=12_000,
+        description="可选。最大读取字符数，默认 12000。",
+    )
 
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)

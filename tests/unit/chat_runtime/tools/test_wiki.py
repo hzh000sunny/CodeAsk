@@ -42,3 +42,19 @@ async def test_read_wiki_node_respects_max_chars() -> None:
     assert result.ok is True
     assert result.truncated is True
     assert result.items[0]["content"] == "0123"
+
+
+def test_wiki_tool_schema_explains_required_arguments() -> None:
+    registry = ToolRegistry()
+    register_wiki_tools(registry)
+    specs = {spec.name: spec for spec in registry.available_tools()}
+
+    search_schema = specs["search_wiki"].input_schema()
+    read_schema = specs["read_wiki_node"].input_schema()
+
+    assert "required" in search_schema
+    assert "query" in search_schema["required"]
+    assert "description" in search_schema["properties"]["query"]
+    assert "node_id" in read_schema["required"]
+    assert "候选上下文" in read_schema["properties"]["node_id"]["description"]
+    assert "不要猜测" in read_schema["properties"]["node_id"]["description"]

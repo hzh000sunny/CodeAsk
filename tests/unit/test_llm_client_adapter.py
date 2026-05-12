@@ -313,6 +313,39 @@ async def test_tool_call_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_tool_call_done_preserves_malformed_arguments_for_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(tool_calls=[_tool_call_chunk(0, "tc_bad", "search_wiki", "")])
+            yield _chunk(tool_calls=[_tool_call_chunk(0, None, None, '{"query":')])
+            yield _chunk(finish_reason="tool_calls")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+
+    client = OpenAICompatibleClient(api_key="x", model_name="local-model")
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[ToolDef(name="search_wiki", description="d", input_schema={})],
+            max_tokens=100,
+            temperature=0.0,
+        )
+    ]
+
+    done = [event for event in events if event.type == "tool_call_done"][0]
+    assert done.data["arguments"] == {}
+    assert "arguments_parse_error" in done.data
+    assert done.data["raw_arguments"] == '{"query":'
+
+
+@pytest.mark.asyncio
 async def test_openai_protocol_uses_litellm_with_internal_provider_hint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

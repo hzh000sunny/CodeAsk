@@ -58,6 +58,8 @@ class ToolCallEventData(BaseModel):
     tool_name: str
     arguments_summary: dict[str, Any] = Field(default_factory=_empty_dict)
     reason: str | None = None
+    arguments_parse_error: str | None = None
+    raw_arguments: str | None = None
 
 
 class ToolResultEventData(BaseModel):
@@ -74,6 +76,8 @@ class ToolResultEventData(BaseModel):
     audit_raw_result: dict[str, Any] | None = Field(default=None, exclude=True)
     version_info: dict[str, Any] | None = None
     error_type: str | None = None
+    message: str | None = None
+    suggested_user_question: str | None = None
 
 
 class EvidenceEventData(BaseModel):

@@ -283,6 +283,8 @@ function detailRowsForEvent(event: ActionTraceEventModel) {
   addRow(rows, "工具名称", stringValue(data.tool_name) ?? stringValue(data.name));
   addRow(rows, "调用编号", stringValue(data.tool_call_id) ?? stringValue(data.id));
   addRow(rows, "调用参数", args ? readableJson(args) : null);
+  addRow(rows, "参数解析错误", stringValue(data.arguments_parse_error));
+  addRow(rows, "原始参数", stringValue(data.raw_arguments));
   addRow(
     rows,
     "执行状态",

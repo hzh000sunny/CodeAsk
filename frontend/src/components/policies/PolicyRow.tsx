@@ -6,6 +6,8 @@ import { Button } from "../ui/button";
 import { PolicyEditForm, type PolicyUpdatePayload } from "./PolicyForm";
 import { stageLabel } from "./policy-options";
 
+const PROMPT_PREVIEW_LIMIT = 180;
+
 export function PolicyRow({
   editing,
   onCancel,
@@ -40,14 +42,27 @@ export function PolicyRow({
     );
   }
 
+  const promptText = policy.prompt_template.trim();
+  const promptPreview = formatPromptPreview(promptText);
+  const hasFullPrompt =
+    promptText.length > PROMPT_PREVIEW_LIMIT || promptText.includes("\n");
+
   return (
-    <li>
-      <div className="config-summary">
-        <span>{policy.name}</span>
-        <small>
-          {stageLabel(policy.stage)} · 优先级 {policy.priority} ·{" "}
-          {policy.prompt_template}
-        </small>
+    <li className="policy-row">
+      <div className="policy-row-content">
+        <div className="config-summary policy-summary">
+          <span>{policy.name}</span>
+          <small className="policy-meta">
+            {stageLabel(policy.stage)} · 优先级 {policy.priority}
+          </small>
+        </div>
+        <p className="policy-prompt-preview">{promptPreview}</p>
+        {hasFullPrompt ? (
+          <details className="policy-full-details">
+            <summary role="button">查看完整策略</summary>
+            <div className="policy-full-text">{promptText}</div>
+          </details>
+        ) : null}
       </div>
       <div className="row-actions">
         <PolicySwitch
@@ -84,6 +99,14 @@ export function PolicyRow({
       </div>
     </li>
   );
+}
+
+function formatPromptPreview(promptText: string) {
+  const compactText = promptText.replace(/\s+/g, " ").trim();
+  if (compactText.length <= PROMPT_PREVIEW_LIMIT) {
+    return compactText;
+  }
+  return `${compactText.slice(0, PROMPT_PREVIEW_LIMIT)}...`;
 }
 
 function PolicySwitch({

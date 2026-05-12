@@ -25,6 +25,7 @@ class MockLLMClient:
         tools: list[ToolDef],
         max_tokens: int,
         temperature: float,
+        metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[LLMEvent]:
         self._calls.append(
             {
@@ -32,6 +33,7 @@ class MockLLMClient:
                 "tools": [tool.model_dump() for tool in tools],
                 "max_tokens": max_tokens,
                 "temperature": temperature,
+                "metadata": dict(metadata or {}),
             }
         )
         if self._idx >= len(self._scripts):
@@ -58,6 +60,7 @@ class ScriptedLLM:
         tools: list[ToolDef],
         max_tokens: int,
         temperature: float,
+        metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[LLMEvent]:
         self.calls.append(
             {
@@ -65,6 +68,7 @@ class ScriptedLLM:
                 "tools": [tool.model_dump() for tool in tools],
                 "max_tokens": max_tokens,
                 "temperature": temperature,
+                "metadata": dict(metadata or {}),
             }
         )
         if self._cursor >= len(self._steps):

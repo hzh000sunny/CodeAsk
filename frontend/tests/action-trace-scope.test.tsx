@@ -114,6 +114,31 @@ describe("action trace code scope display", () => {
     expect(dialog).toHaveTextContent("当前关键词没有直接命中");
   });
 
+  it("shows malformed tool argument diagnostics in the action trace popover", () => {
+    const event = actionTraceFromAgentEvent({
+      type: "tool_call",
+      data: {
+        tool_call_id: "call_bad_json",
+        tool_name: "search_wiki",
+        arguments_summary: {},
+        arguments_parse_error: "Expecting value",
+        raw_arguments: '{"query":',
+      },
+    });
+
+    expect(event).not.toBeNull();
+    expect(event?.detail).toContain("参数 JSON 解析失败");
+
+    render(<ActionTraceEvent event={event as ActionTraceEventModel} />);
+    fireEvent.click(screen.getByRole("button", { name: "准备使用 Wiki 搜索 详情" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
+    expect(dialog).toHaveTextContent("参数解析错误");
+    expect(dialog).toHaveTextContent("Expecting value");
+    expect(dialog).toHaveTextContent("原始参数");
+    expect(dialog).toHaveTextContent('{"query":');
+  });
+
   it("copies long detail values from the action trace popover", async () => {
     vi.useFakeTimers();
     const writeText = vi.fn().mockResolvedValue(undefined);

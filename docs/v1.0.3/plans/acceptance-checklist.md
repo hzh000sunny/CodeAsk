@@ -199,3 +199,25 @@ v1.0.3 收口前必须同时满足：
 - [x] 设置页创建和编辑 LLM 配置只展示 `OpenAI` / `Anthropic`，不展示 `OpenAI Compatible`。
 - [x] 历史 `openai_compatible` 配置在列表中显示为 `OpenAI`，编辑时协议选择归一为 `OpenAI`。
 - [x] 使用真实数据目录 `/home/hzh/.codeask` 逐个验证全部启用 LLM 配置：7 个配置全部真实请求通过，覆盖 OpenAI 消息格式、Anthropic 消息格式、全局配置和用户配置；结果 `passed=7 failed=0 marker_leaks=0 empty_answers=0`。
+
+### 9.4 工具参数失败诊断收口（2026-05-11）
+
+本项来源于私有部署环境中“加上特性分析策略后整轮对话工具参数校验失败”的反馈。因为现场不能直接提供后端日志，v1.0.3 必须把工具失败做成用户和开发者都能从 Agent 行动轨迹里定位的结构化事件。
+
+- [x] OpenAI-compatible 流式工具调用参数 JSON 解析失败时，不再把 malformed arguments 静默吞成 `{}`；必须保留 `arguments_parse_error` 和 `raw_arguments`，并转成可回填给模型的 `tool_result`。
+- [x] Runtime 遇到工具参数解析失败时不得继续执行工具；必须返回 `invalid_input`、明确摘要和原始参数片段，让模型有机会按 schema 自我修正。
+- [x] Pydantic 工具参数校验失败的详细 `message` 必须进入 `tool_result` 事件和模型上下文，不能只在后端日志中出现。
+- [x] Agent 行动轨迹展开后必须能看到工具名称、调用参数、参数解析错误、原始参数和工具结果错误信息；失败原因不能只显示“工具参数校验失败”。
+- [x] Wiki 工具 schema 必须描述必填字段和字段语义，尤其是 `read_wiki_node.node_id` 只能来自候选上下文或 `search_wiki` 返回结果，不能让模型把标题、路径或目录名当成 node id。
+- [x] 系统提示必须明确：工具参数要严格符合 schema；发生“工具参数校验失败 / 解析失败”后，模型应阅读错误信息并修正参数，不要重复提交同一组无效参数。
+- [x] 本修复不得加入用户问题关键词拦截、固定工具链路或后端替模型决定意图的特判；只增强工具协议、schema、失败反馈和行动轨迹可观测性。
+- [x] 自动化验证：
+  - `uv run pytest tests/unit/test_llm_client_adapter.py tests/integration/test_agent_chat_runtime.py tests/unit/chat_runtime/tools/test_wiki.py -q`，39 passed。
+  - `corepack pnpm --dir frontend test:run action-trace-scope.test.tsx analysis-policy-manager.test.tsx policy-row.test.tsx`，3 个测试文件 / 8 个用例通过。
+  - `uv run pytest tests/unit/chat_runtime tests/integration/test_agent_chat_runtime.py tests/integration/test_agent_chat_runtime_sse.py -q`，55 passed。
+  - `uv run pytest tests/integration/test_start_script.py -q`，6 passed，覆盖 `pnpm` 直连和 `corepack pnpm` fallback。
+  - `uv run pytest tests/unit tests/integration -q`，通过；存在 APScheduler 测试线程 warning，但退出码为 0。
+  - `corepack pnpm --dir frontend test:run`，42 个测试文件 / 205 个用例通过。
+  - `corepack pnpm --dir frontend typecheck` 通过。
+  - `corepack pnpm --dir frontend build` 通过；保留 Vite chunk size warning。
+  - `git diff --check` 通过。

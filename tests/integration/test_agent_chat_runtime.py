@@ -170,6 +170,104 @@ async def test_runtime_executes_tool_and_continues_model_loop() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runtime_exposes_tool_validation_message_to_trace_and_model() -> None:
+    registry = ToolRegistry()
+
+    async def search_wiki(args: _QueryInput, ctx: ToolContext) -> ToolResult:
+        return ToolResult.ok(tool="search_wiki", summary=f"query={args.query}", items=[])
+
+    registry.register(
+        ToolSpec(
+            name="search_wiki",
+            description="搜索 Wiki",
+            input_model=_QueryInput,
+            read_only=True,
+            requires_confirmation=False,
+        ),
+        search_wiki,
+    )
+    llm = ScriptedLLM(
+        [
+            {
+                "type": "tool_call",
+                "id": "call_bad",
+                "name": "search_wiki",
+                "input": {},
+            },
+            {"type": "assistant_text", "content": "我会根据工具错误修正参数。"},
+        ]
+    )
+    runtime = ChatRuntime(
+        llm=llm,
+        tool_registry=registry,
+        retrieval_service=LightweightRetrievalService(),
+    )
+
+    events = [event async for event in runtime.run("sess_1", "turn_1", "查询主备重建 Wiki")]
+    tool_result = next(event for event in events if event.type == "tool_result")
+
+    assert tool_result.data.error_type == "invalid_input"
+    assert tool_result.data.message
+    assert "query" in tool_result.data.message
+    tool_message = llm.calls[1]["messages"][-1]
+    assert tool_message["role"] == "tool"
+    assert "query" in str(tool_message["content"])
+
+
+@pytest.mark.asyncio
+async def test_runtime_turns_malformed_tool_arguments_into_actionable_tool_error() -> None:
+    llm = ScriptedLLM(
+        [
+            {
+                "type": "tool_call",
+                "id": "call_bad_json",
+                "name": "search_wiki",
+                "input": {},
+            },
+            {"type": "assistant_text", "content": "我会重新按 schema 调用。"},
+        ]
+    )
+    runtime = ChatRuntime.for_test(llm=llm, fake_tools={"search_wiki": "命中"})
+
+    async def patched_stream(messages, tools, max_tokens, temperature):  # type: ignore[no-untyped-def]
+        if len(llm.calls) == 0:
+            llm.calls.append(
+                {
+                    "messages": [message.model_dump() for message in messages],
+                    "tools": [tool.model_dump() for tool in tools],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                }
+            )
+            yield LLMEvent(type="message_start", data={})
+            yield LLMEvent(
+                type="tool_call_done",
+                data={
+                    "id": "call_bad_json",
+                    "name": "search_wiki",
+                    "arguments": {},
+                    "arguments_parse_error": "Expecting value",
+                    "raw_arguments": '{"query":',
+                },
+            )
+            yield LLMEvent(type="message_stop", data={"stop_reason": "tool_call"})
+            return
+        async for event in ScriptedLLM(
+            [{"type": "assistant_text", "content": "我会重新按 schema 调用。"}]
+        ).stream(messages, tools, max_tokens, temperature):
+            yield event
+
+    llm.stream = patched_stream  # type: ignore[method-assign]
+
+    events = [event async for event in runtime.run("sess_1", "turn_1", "查询 Wiki")]
+    tool_result = next(event for event in events if event.type == "tool_result")
+
+    assert tool_result.data.error_type == "invalid_input"
+    assert "工具参数不是合法 JSON" in str(tool_result.data.message)
+    assert "raw_arguments" in str(tool_result.data.message)
+
+
+@pytest.mark.asyncio
 async def test_runtime_audits_model_input_with_tool_result_repo_items() -> None:
     registry = ToolRegistry()
 
@@ -432,6 +530,33 @@ async def test_runtime_prompt_prevents_false_code_inspection_claims() -> None:
     assert "不能声称已经查阅代码、源码或仓库结构" in system_text
     assert "上一轮代码工具失败" in system_text
     assert "用户明确要求查阅代码或源码时，优先调用代码工具获取证据" not in system_text
+
+
+@pytest.mark.asyncio
+async def test_runtime_prompt_instructs_tool_argument_repair() -> None:
+    llm = ScriptedLLM([{"type": "assistant_text", "content": "我会按工具 schema 调用。"}])
+    runtime = ChatRuntime(
+        llm=llm,
+        tool_registry=ToolRegistry(),
+        retrieval_service=LightweightRetrievalService(),
+    )
+
+    events = [event async for event in runtime.run("sess_1", "turn_1", "查询 Wiki")]
+
+    assert events[-1].type == "done"
+    system_text = "\n".join(
+        block["text"]
+        for message in llm.calls[0]["messages"]
+        if message["role"] == "system"
+        for block in message["content"]
+        if block["type"] == "text"
+    )
+    assert "工具参数必须严格符合工具 schema" in system_text
+    assert "arguments 必须是标准 JSON object" in system_text
+    assert "不要把参数写成 Markdown、自然语言" in system_text
+    assert "不完整 JSON" in system_text
+    assert "工具参数校验失败" in system_text
+    assert "不要重复提交同一组无效参数" in system_text
 
 
 @pytest.mark.asyncio
