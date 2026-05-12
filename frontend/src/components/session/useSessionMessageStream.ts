@@ -30,11 +30,15 @@ import { createReasoningLeakGuard } from "./reasoning-leak-guard";
 
 export function useSessionMessageStream({
   draft,
+  insights,
   isStreaming,
   messagesSessionIdRef,
+  messages,
   queryClient,
   rememberSession,
+  runtimeState,
   selected,
+  setActiveStreamingSessionId,
   setDetectedFeatureIds,
   setDraft,
   setInsights,
@@ -46,11 +50,15 @@ export function useSessionMessageStream({
   showActionNotice,
 }: {
   draft: string;
+  insights: RuntimeInsight[];
   isStreaming: boolean;
+  messages: ConversationMessage[];
   messagesSessionIdRef: RefObject<string | null>;
   queryClient: QueryClient;
   rememberSession: (session: SessionResponse) => void;
+  runtimeState: RuntimeSessionState | null;
   selected: SessionResponse | null;
+  setActiveStreamingSessionId: Dispatch<SetStateAction<string | null>>;
   setDetectedFeatureIds: Dispatch<SetStateAction<number[]>>;
   setDraft: Dispatch<SetStateAction<string>>;
   setInsights: Dispatch<SetStateAction<RuntimeInsight[]>>;
@@ -61,6 +69,15 @@ export function useSessionMessageStream({
   setStages: Dispatch<SetStateAction<RuntimeStage[]>>;
   showActionNotice: (message: string, tone?: "success" | "error") => void;
 }) {
+  interface LiveStreamSnapshot {
+    detectedFeatureIds: number[];
+    insights: RuntimeInsight[];
+    messages: ConversationMessage[];
+    runtimeState: RuntimeSessionState | null;
+    sessionId: string;
+    stages: RuntimeStage[];
+  }
+
   const activeStreamRef = useRef<{
     abortController: AbortController;
     assistantMessageId: string;
@@ -69,6 +86,38 @@ export function useSessionMessageStream({
     sessionId: string;
     userMessageId: string;
   } | null>(null);
+  const activeStreamSnapshotRef = useRef<LiveStreamSnapshot | null>(null);
+
+  function restoreActiveStreamSnapshot(sessionId: string) {
+    const snapshot = activeStreamSnapshotRef.current;
+    if (!snapshot || snapshot.sessionId !== sessionId) {
+      return false;
+    }
+    setMessages(snapshot.messages);
+    setInsights(snapshot.insights);
+    setStages(snapshot.stages);
+    setRuntimeState(snapshot.runtimeState);
+    setDetectedFeatureIds(snapshot.detectedFeatureIds);
+    messagesSessionIdRef.current = sessionId;
+    return true;
+  }
+
+  function updateActiveStreamSnapshot(
+    sessionId: string,
+    updater: (snapshot: LiveStreamSnapshot) => LiveStreamSnapshot,
+  ) {
+    const snapshot = activeStreamSnapshotRef.current;
+    if (!snapshot || snapshot.sessionId !== sessionId) {
+      return;
+    }
+    activeStreamSnapshotRef.current = updater(snapshot);
+  }
+
+  function applyActiveStreamSnapshotIfVisible(sessionId: string) {
+    if (messagesSessionIdRef.current === sessionId) {
+      restoreActiveStreamSnapshot(sessionId);
+    }
+  }
 
   async function rollbackActiveStream() {
     const active = activeStreamRef.current;
@@ -86,6 +135,8 @@ export function useSessionMessageStream({
       current.filter((insight) => insight.turnId !== active.liveTurnId),
     );
     setStages(createInitialStages());
+    activeStreamSnapshotRef.current = null;
+    setActiveStreamingSessionId(null);
     if (active.serverTurnId) {
       await abortSessionTurn(active.sessionId, active.serverTurnId);
     }
@@ -107,7 +158,14 @@ export function useSessionMessageStream({
 
   async function sendMessage() {
     const content = draft.trim();
-    if (!content || isStreaming) {
+    if (!content) {
+      return;
+    }
+    if (isStreaming) {
+      showActionNotice(
+        "当前已有会话正在生成，请等待完成或切回该会话停止生成。",
+        "error",
+      );
       return;
     }
 
@@ -130,6 +188,16 @@ export function useSessionMessageStream({
     const clientTurnId = createClientTurnId();
     const abortController = new AbortController();
     const leakGuard = createReasoningLeakGuard("mask_in_ui");
+    const nextMessages = [
+      ...messages,
+      { id: userMessageId, role: "user" as const, content },
+      {
+        id: assistantMessageId,
+        role: "assistant" as const,
+        content: "",
+        status: "streaming" as const,
+      },
+    ];
     activeStreamRef.current = {
       abortController,
       assistantMessageId,
@@ -138,21 +206,21 @@ export function useSessionMessageStream({
       sessionId: target.id,
       userMessageId,
     };
+    activeStreamSnapshotRef.current = {
+      detectedFeatureIds: [],
+      insights,
+      messages: nextMessages,
+      runtimeState,
+      sessionId: target.id,
+      stages: createInitialStages(),
+    };
     setDraft("");
-    setStages(createInitialStages());
+    setStages(activeStreamSnapshotRef.current.stages);
     setDetectedFeatureIds([]);
     setIsStreaming(true);
+    setActiveStreamingSessionId(target.id);
     messagesSessionIdRef.current = target.id;
-    setMessages((current) => [
-      ...current,
-      { id: userMessageId, role: "user", content },
-      {
-        id: assistantMessageId,
-        role: "assistant",
-        content: "",
-        status: "streaming",
-      },
-    ]);
+    setMessages(nextMessages);
 
     try {
       await streamSessionMessage({
@@ -169,30 +237,43 @@ export function useSessionMessageStream({
           }
         },
         onEvent: (event) => {
-          setStages((current) => reduceStages(current, event));
+          const isVisibleTargetSession = messagesSessionIdRef.current === target.id;
+          updateActiveStreamSnapshot(target.id, (snapshot) => ({
+            ...snapshot,
+            stages: reduceStages(snapshot.stages, event),
+          }));
           if (event.type === "runtime_state") {
             const runtimeState = runtimeStateFromEvent(event);
             if (runtimeState) {
-              setRuntimeState(runtimeState);
+              updateActiveStreamSnapshot(target.id, (snapshot) => ({
+                ...snapshot,
+                runtimeState,
+              }));
             }
           }
           const insight = runtimeInsightFromEvent(event);
           if (insight) {
-            setInsights((current) => [
-              ...current,
-              {
-                ...insight,
-                occurredAt: new Date().toISOString(),
-                turnId: liveTurnId,
-              },
-            ]);
+            updateActiveStreamSnapshot(target.id, (snapshot) => ({
+              ...snapshot,
+              insights: [
+                ...snapshot.insights,
+                {
+                  ...insight,
+                  occurredAt: new Date().toISOString(),
+                  turnId: liveTurnId,
+                },
+              ],
+            }));
           }
           if (event.type === "scope_detection") {
             const ids = featureIdsFromEvent(event.data);
             if (ids.length > 0) {
-              setDetectedFeatureIds((current) => [
-                ...new Set([...ids, ...current]),
-              ]);
+              updateActiveStreamSnapshot(target.id, (snapshot) => ({
+                ...snapshot,
+                detectedFeatureIds: [
+                  ...new Set([...ids, ...snapshot.detectedFeatureIds]),
+                ],
+              }));
             }
           }
           const delta = textDeltaFromEvent(event);
@@ -204,21 +285,26 @@ export function useSessionMessageStream({
                 data: { ...guarded.diagnostic },
               });
               if (leakInsight) {
-                setInsights((current) => [
-                  ...current,
-                  {
-                    ...leakInsight,
-                    occurredAt: new Date().toISOString(),
-                    turnId: liveTurnId,
-                  },
-                ]);
+                updateActiveStreamSnapshot(target.id, (snapshot) => ({
+                  ...snapshot,
+                  insights: [
+                    ...snapshot.insights,
+                    {
+                      ...leakInsight,
+                      occurredAt: new Date().toISOString(),
+                      turnId: liveTurnId,
+                    },
+                  ],
+                }));
               }
             }
             if (!guarded.visibleText) {
+              applyActiveStreamSnapshotIfVisible(target.id);
               return;
             }
-            setMessages((current) =>
-              current.map((message) =>
+            updateActiveStreamSnapshot(target.id, (snapshot) => ({
+              ...snapshot,
+              messages: snapshot.messages.map((message) =>
                 message.id === assistantMessageId
                   ? {
                       ...message,
@@ -226,12 +312,13 @@ export function useSessionMessageStream({
                     }
                   : message,
               ),
-            );
+            }));
           }
           const askUserMessage = askUserMessageFromEvent(event);
           if (askUserMessage) {
-            setMessages((current) =>
-              current.map((message) =>
+            updateActiveStreamSnapshot(target.id, (snapshot) => ({
+              ...snapshot,
+              messages: snapshot.messages.map((message) =>
                 message.id === assistantMessageId
                   ? {
                       ...message,
@@ -242,15 +329,16 @@ export function useSessionMessageStream({
                     }
                   : message,
               ),
-            );
+            }));
           }
           if (event.type === "error") {
             showActionNotice(
               `Agent 运行失败：${String(event.data.message ?? "未知错误")}`,
               "error",
             );
-            setMessages((current) =>
-              current.map((message) =>
+            updateActiveStreamSnapshot(target.id, (snapshot) => ({
+              ...snapshot,
+              messages: snapshot.messages.map((message) =>
                 message.id === assistantMessageId
                   ? {
                       ...message,
@@ -259,7 +347,7 @@ export function useSessionMessageStream({
                     }
                   : message,
               ),
-            );
+            }));
           }
           if (event.type === "done") {
             const turnId =
@@ -267,16 +355,18 @@ export function useSessionMessageStream({
                 ? event.data.turn_id
                 : null;
             if (turnId) {
-              setInsights((current) =>
-                current.map((insight) =>
+              updateActiveStreamSnapshot(target.id, (snapshot) => ({
+                ...snapshot,
+                insights: snapshot.insights.map((insight) =>
                   insight.turnId === liveTurnId
                     ? { ...insight, turnId }
                     : insight,
                 ),
-              );
+              }));
             }
-            setMessages((current) =>
-              current.map((message) =>
+            updateActiveStreamSnapshot(target.id, (snapshot) => ({
+              ...snapshot,
+              messages: snapshot.messages.map((message) =>
                 message.id === assistantMessageId
                   ? {
                       ...message,
@@ -285,8 +375,12 @@ export function useSessionMessageStream({
                     }
                   : message,
               ),
-            );
+            }));
           }
+          if (!isVisibleTargetSession) {
+            return;
+          }
+          applyActiveStreamSnapshotIfVisible(target.id);
         },
       });
       void queryClient.invalidateQueries({
@@ -323,12 +417,16 @@ export function useSessionMessageStream({
         ),
       );
     } finally {
+      if (activeStreamRef.current?.sessionId === target.id) {
+        applyActiveStreamSnapshotIfVisible(target.id);
+      }
       setIsStreaming(false);
+      setActiveStreamingSessionId(null);
       activeStreamRef.current = null;
     }
   }
 
-  return { cancelMessage, sendMessage };
+  return { cancelMessage, restoreActiveStreamSnapshot, sendMessage };
 }
 
 export function refreshSessionListAfterTitleGeneration(

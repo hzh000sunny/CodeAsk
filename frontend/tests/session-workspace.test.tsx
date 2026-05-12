@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -1652,6 +1653,163 @@ describe("SessionWorkspace streaming interaction", () => {
     });
   });
 
+  it("switches messages and action trace while another session is streaming", async () => {
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/auth/me") {
+          return jsonResponse({
+            subject_id: "client_test",
+            display_name: "client_test",
+            role: "member",
+            authenticated: false,
+          });
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "正在生成的会话",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+            {
+              id: "sess_2",
+              title: "历史会话",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T09:00:00",
+              updated_at: "2026-04-30T09:00:00",
+            },
+          ]);
+        }
+        if (path === "/api/sessions/sess_1/turns") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/sessions/sess_1/traces") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/sessions/sess_2/turns") {
+          return jsonResponse([
+            {
+              id: "turn_2_user",
+              session_id: "sess_2",
+              turn_index: 0,
+              role: "user",
+              content: "历史问题",
+              evidence: null,
+              created_at: "2026-04-30T09:00:00",
+              updated_at: "2026-04-30T09:00:00",
+            },
+            {
+              id: "turn_2_agent",
+              session_id: "sess_2",
+              turn_index: 1,
+              role: "agent",
+              content: "历史回答内容",
+              evidence: null,
+              created_at: "2026-04-30T09:00:01",
+              updated_at: "2026-04-30T09:00:01",
+            },
+          ]);
+        }
+        if (path === "/api/sessions/sess_2/traces") {
+          return jsonResponse([
+            {
+              id: "trace_2",
+              session_id: "sess_2",
+              turn_id: "turn_2_agent",
+              stage: "chat_runtime",
+              event_type: "tool_result",
+              payload: {
+                tool_name: "search_wiki",
+                ok: true,
+                summary: "历史轨迹命中 Wiki",
+              },
+              created_at: "2026-04-30T09:00:01",
+              updated_at: "2026-04-30T09:00:01",
+            },
+          ]);
+        }
+        if (/^\/api\/sessions\/[^/]+\/attachments$/.test(path)) {
+          return jsonResponse([]);
+        }
+        if (
+          path === "/api/sessions/sess_1/messages" &&
+          init?.method === "POST"
+        ) {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                streamController = controller;
+                controller.enqueue(
+                  encoder.encode(
+                    'event: text_delta\ndata: {"text":"生成中的回答"}\n\n',
+                  ),
+                );
+              },
+            }),
+            {
+              headers: {
+                "Content-Type": "text/event-stream",
+              },
+            },
+          );
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "正在生成的会话",
+    );
+    fireEvent.change(screen.getByLabelText("会话输入"), {
+      target: { value: "开始生成" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("生成中的回答")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "历史会话" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "历史会话" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("历史回答内容")).toBeInTheDocument();
+    expect(await screen.findByText("历史轨迹命中 Wiki")).toBeInTheDocument();
+    expect(screen.queryByText("生成中的回答")).not.toBeInTheDocument();
+
+    await act(async () => {
+      streamController?.enqueue(
+        encoder.encode('event: text_delta\ndata: {"text":"继续输出"}\n\n'),
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: "正在生成的会话" }));
+    expect(
+      await screen.findByRole("heading", { name: "正在生成的会话" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("生成中的回答继续输出")).toBeInTheDocument();
+    expect(screen.queryByText("历史回答内容")).not.toBeInTheDocument();
+
+    await act(async () => {
+      streamController?.enqueue(
+        encoder.encode('event: done\ndata: {"turn_id":"turn_stream"}\n\n'),
+      );
+      streamController?.close();
+    });
+  });
+
   it("keeps previous action trace entries when sending a follow-up message", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -2306,6 +2464,147 @@ describe("SessionWorkspace streaming interaction", () => {
     expect(
       await within(attachmentPanel).findByText("app.log"),
     ).toBeInTheDocument();
+  });
+
+  it("shows a dialog instead of opening the file picker when session attachments are disabled", async () => {
+    const inputClick = vi
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/auth/me") {
+          return jsonResponse({
+            subject_id: "client_test",
+            display_name: "client_test",
+            role: "member",
+            authenticated: false,
+          });
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        if (
+          path === "/api/sessions" &&
+          (!init?.method || init.method === "GET")
+        ) {
+          return jsonResponse([]);
+        }
+        if (path === "/api/system-settings") {
+          return jsonResponse({ session_attachments_enabled: false });
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      render(<App />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "上传日志" }));
+
+      expect(inputClick).not.toHaveBeenCalled();
+      expect(
+        await screen.findByRole("alertdialog", { name: "操作失败" }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("该功能已被禁用")).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        expect.stringMatching(/\/attachments$/),
+        expect.objectContaining({ method: "POST" }),
+      );
+    } finally {
+      inputClick.mockRestore();
+      queryClient.removeQueries({ queryKey: ["system-settings"] });
+    }
+  });
+
+  it("clears a stale disabled upload status when attachments are enabled again", async () => {
+    const inputClick = vi
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const attachmentResponse = emptyAttachmentListResponse(input, init);
+        if (attachmentResponse) {
+          return attachmentResponse;
+        }
+        if (path === "/api/auth/me") {
+          return jsonResponse({
+            subject_id: "client_test",
+            display_name: "client_test",
+            role: "member",
+            authenticated: false,
+          });
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        if (
+          path === "/api/sessions" &&
+          (!init?.method || init.method === "GET")
+        ) {
+          return jsonResponse([
+            {
+              id: "sess_upload",
+              title: "上传测试",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              title_source: "manual",
+              title_generated_at: null,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+          ]);
+        }
+        if (path === "/api/system-settings") {
+          return jsonResponse({ session_attachments_enabled: true });
+        }
+        if (
+          path === "/api/sessions/sess_upload/attachments" &&
+          init?.method === "POST"
+        ) {
+          return jsonResponse({ detail: "该功能已被禁用" }, 403);
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      render(<App />);
+      expect(
+        await screen.findByRole("heading", { name: "上传测试" }),
+      ).toBeInTheDocument();
+
+      const fileInput = document.querySelector(
+        'input[type="file"]',
+      ) as HTMLInputElement;
+      expect(fileInput).toBeTruthy();
+      fireEvent.change(fileInput, {
+        target: {
+          files: [new File(["ERROR"], "app.log", { type: "text/plain" })],
+        },
+      });
+
+      expect(
+        await screen.findByText("上传日志失败：该功能已被禁用"),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "知道了" }));
+      expect(screen.queryByText("该功能已被禁用")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "上传日志" }));
+
+      await waitFor(() => expect(inputClick).toHaveBeenCalledTimes(1));
+      expect(screen.queryByText("该功能已被禁用")).not.toBeInTheDocument();
+    } finally {
+      inputClick.mockRestore();
+      queryClient.removeQueries({ queryKey: ["system-settings"] });
+    }
   });
 
   it("shows a compact session id pill and lets users copy the full id", async () => {

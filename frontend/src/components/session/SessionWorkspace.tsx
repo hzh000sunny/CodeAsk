@@ -6,6 +6,7 @@ import {
   createSession,
   deleteSession,
   getMe,
+  getSystemSettings,
   listFeatures,
   listSessions,
   listSessionTraces,
@@ -70,6 +71,8 @@ export function SessionWorkspace({
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [activeStreamingSessionId, setActiveStreamingSessionId] =
+    useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [insights, setInsights] = useState<RuntimeInsight[]>([]);
   const [runtimeState, setRuntimeState] = useState<RuntimeSessionState | null>(null);
@@ -241,6 +244,8 @@ export function SessionWorkspace({
     visibleSessions[0] ??
     null;
   const selectedSessionId = selected?.id ?? "";
+  const isSelectedSessionStreaming =
+    isStreaming && activeStreamingSessionId === selectedSessionId;
   const { copiedSessionId, copySessionId, showActionNotice } =
     useSessionNotices({
       selected,
@@ -271,7 +276,7 @@ export function SessionWorkspace({
     hasLoadedSessionTurns,
     hasLoadedSessionTraces,
     insights,
-    isStreaming,
+    isStreaming: isSelectedSessionStreaming,
     messages,
     messagesSessionIdRef,
     selectedSessionId,
@@ -321,12 +326,13 @@ export function SessionWorkspace({
     submitReport,
   } = useSessionReport({
     hasCompletedQuestionAnswer,
-    isStreaming,
+    isStreaming: isSelectedSessionStreaming,
     selected,
     showActionNotice,
   });
   const {
     attachments,
+    clearUploadStatus,
     deleteAttachment,
     describeAttachment,
     fileInputRef,
@@ -341,13 +347,18 @@ export function SessionWorkspace({
     selectedSessionId,
     showActionNotice,
   });
-  const { cancelMessage, sendMessage } = useSessionMessageStream({
+  const { cancelMessage, restoreActiveStreamSnapshot, sendMessage } =
+    useSessionMessageStream({
     draft,
+    insights,
     isStreaming,
     messagesSessionIdRef,
+    messages,
     queryClient,
     rememberSession,
+    runtimeState,
     selected,
+    setActiveStreamingSessionId,
     setDetectedFeatureIds,
     setDraft,
     setInsights,
@@ -358,6 +369,14 @@ export function SessionWorkspace({
     setStages,
     showActionNotice,
   });
+  useEffect(() => {
+    if (
+      selectedSessionId &&
+      activeStreamingSessionId === selectedSessionId
+    ) {
+      restoreActiveStreamSnapshot(selectedSessionId);
+    }
+  }, [activeStreamingSessionId, restoreActiveStreamSnapshot, selectedSessionId]);
   const wikiPromotion = useSessionWikiPromotion({
     detectedFeatureIds,
     features,
@@ -368,6 +387,27 @@ export function SessionWorkspace({
   function rememberSession(session: SessionResponse) {
     setRememberedSelectedSession(session);
     upsertSession(queryClient, session, subjectQueryKey);
+  }
+
+  async function openAttachmentPicker() {
+    try {
+      const settings = await queryClient.fetchQuery({
+        queryKey: ["system-settings"],
+        queryFn: getSystemSettings,
+        staleTime: 30_000,
+      });
+      if (!settings.session_attachments_enabled) {
+        showActionNotice("该功能已被禁用", "error");
+        return;
+      }
+      clearUploadStatus();
+      fileInputRef.current?.click();
+    } catch (error) {
+      showActionNotice(
+        `读取附件上传配置失败：${messageFromError(error)}`,
+        "error",
+      );
+    }
   }
 
   return (
@@ -444,7 +484,7 @@ export function SessionWorkspace({
         feedbackByTurnId={feedbackByTurnId}
         feedbackPendingTurnId={feedbackPendingTurnId}
         fileInputRef={fileInputRef}
-        isStreaming={isStreaming}
+        isStreaming={isSelectedSessionStreaming}
         messages={messages}
         onCopySessionId={() => void copySessionId()}
         onDraftChange={setDraft}
@@ -452,6 +492,7 @@ export function SessionWorkspace({
         onOpenReportDialog={openReportDialog}
         onCancelMessage={cancelMessage}
         onSendMessage={() => void sendMessage()}
+        onUploadClick={() => void openAttachmentPicker()}
         onUnsupportedAction={(message) => showActionNotice(message, "error")}
         onUploadFile={(file) => void uploadLog(file)}
         reportPending={isReportPending}
@@ -468,7 +509,7 @@ export function SessionWorkspace({
           isFetchingAttachments &&
           attachments.length === 0
         }
-        isStreaming={isStreaming}
+        isStreaming={isSelectedSessionStreaming}
         onDescribeAttachment={describeAttachment}
         onDeleteAttachment={deleteAttachment}
         onPromoteAttachment={wikiPromotion.openDialog}

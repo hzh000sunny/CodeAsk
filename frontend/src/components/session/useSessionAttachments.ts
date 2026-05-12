@@ -126,7 +126,9 @@ export function useSessionAttachments({
       });
       setUploadStatus(`已上传 ${uploaded.display_name}`);
     } catch (error) {
-      setUploadStatus(messageFromError(error));
+      const message = messageFromError(error);
+      setUploadStatus("");
+      showActionNotice(`上传日志失败：${message}`, "error");
     } finally {
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -172,6 +174,7 @@ export function useSessionAttachments({
 
   return {
     attachments,
+    clearUploadStatus: () => setUploadStatus(""),
     deleteAttachment,
     describeAttachment,
     fileInputRef,

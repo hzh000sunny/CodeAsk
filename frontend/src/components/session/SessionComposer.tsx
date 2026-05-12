@@ -13,6 +13,7 @@ export function SessionComposer({
   onCancelMessage,
   onOpenReportDialog,
   onSendMessage,
+  onUploadClick,
   onUploadFile,
   reportPending,
   selected,
@@ -26,6 +27,7 @@ export function SessionComposer({
   onCancelMessage: () => void;
   onOpenReportDialog: () => void;
   onSendMessage: () => void;
+  onUploadClick: () => void;
   onUploadFile: (file: File | undefined) => void;
   reportPending: boolean;
   selected: boolean;
@@ -83,7 +85,7 @@ export function SessionComposer({
         <Button
           disabled={createPending}
           icon={<FileUp size={16} />}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={onUploadClick}
           type="button"
           variant="quiet"
         >

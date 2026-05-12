@@ -29,6 +29,7 @@ interface SessionConversationPanelProps {
   }) => void;
   onOpenReportDialog: () => void;
   onSendMessage: () => void;
+  onUploadClick: () => void;
   onUnsupportedAction: (message: string) => void;
   onUploadFile: (file: File | undefined) => void;
   reportPending: boolean;
@@ -52,6 +53,7 @@ export function SessionConversationPanel({
   onFeedback,
   onOpenReportDialog,
   onSendMessage,
+  onUploadClick,
   onUnsupportedAction,
   onUploadFile,
   reportPending,
@@ -96,6 +98,7 @@ export function SessionConversationPanel({
         onOpenReportDialog={onOpenReportDialog}
         onCancelMessage={onCancelMessage}
         onSendMessage={onSendMessage}
+        onUploadClick={onUploadClick}
         onUploadFile={onUploadFile}
         reportPending={reportPending}
         selected={Boolean(selected)}
