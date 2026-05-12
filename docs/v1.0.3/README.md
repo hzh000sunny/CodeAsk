@@ -12,7 +12,7 @@ v1.0.3 聚焦登录、用户、特性管理员和权限控制。目标是在保�
 
 ## 当前状态
 
-- 阶段：鉴权、用户体系、特性管理员、资源权限、审计日志、前端权限 UI、临时库回归、真实数据升级验收、真实浏览器 E2E、LLM 协议选择收口和真实 LLM 配置验证已完成；等待人工验收。
+- 阶段：鉴权、用户体系、特性管理员、资源权限、审计日志、前端权限 UI、临时库回归、真实数据升级验收、真实浏览器 E2E、LLM 协议选择收口、真实 LLM 配置验证、工具参数失败诊断、会话流式切换、附件上传开关 UX 和人工验收已完成；v1.0.3 已闭环。
 - 已提交阶段：
   - `bcb1670 fix(auth): renew sessions by remaining lifetime`
   - `61307fb feat(auth): add unified login and user APIs`
@@ -22,6 +22,12 @@ v1.0.3 聚焦登录、用户、特性管理员和权限控制。目标是在保�
   - `09ba8ee feat(ui): add unified auth and guest llm settings`
   - `35aff25 feat(ui): add feature admin and user management controls`
   - `0051275 test(e2e): cover auth access control`
+  - `937624c chore: finalize v1.0.3 auth and llm docs`
+  - `94edcbb fix(llm): isolate leaked think content`
+  - `b5cde8d fix(llm): normalize anthropic gateway url`
+  - `c418a03 fix(llm): reduce stream delta log noise`
+  - `5a28b6c fix(agent): improve tool argument diagnostics`
+  - `e2acf9a fix(session): harden streaming and attachment UX`
 
 ## 已实现能力
 
@@ -34,19 +40,26 @@ v1.0.3 聚焦登录、用户、特性管理员和权限控制。目标是在保�
 - 未授权用户可以查看特性和 Wiki，但不能执行写操作。
 - 访客 LLM 配置只保存在浏览器本地；登录用户使用自己的用户级 LLM；admin 维护全局 LLM。
 - 会话附件上传受 admin 全局开关控制；关闭后所有用户的新上传都会被拒绝。
+- 会话附件上传在前端也读取全局开关：禁用时点击上传入口不打开文件选择器，直接弹出居中错误提示；恢复启用后会清理旧的禁用文案，避免按钮旁残留错误状态。
 - 登录、自动注册、权限拒绝、特性变更、管理员变更、报告保存、附件拒绝等关键动作写入审计日志。
+- 会话流式生成期间可以切换到其它会话或其它页面，当前生成流仍继续执行；切回原会话时恢复最新的消息和 Agent 行动轨迹快照。
+- 分析策略 UI 已补充失败态和长策略预览验收：策略加载失败时显示错误和重试，不伪装为空列表；长策略提示词显示摘要并可展开完整内容。
 
 ## 最新验证记录
 
 - 后端定向鉴权测试：`uv run pytest tests/unit/test_auth_passwords.py tests/unit/test_auth_sessions.py tests/unit/test_feature_permissions.py tests/integration/test_auth_users_api.py tests/integration/test_feature_admins_api.py tests/integration/test_authz_features_api.py tests/integration/test_authz_wiki_api.py tests/integration/test_attachment_upload_gate.py tests/integration/test_audit_authz_api.py -v`，39 passed。
 - 后端全量回归：`uv run pytest tests/unit tests/integration -q`，通过；存在 APScheduler 测试线程 warning，但退出码为 0。
-- 前端全量测试：`corepack pnpm --dir frontend test:run`，2026-05-11 结果为 42 个测试文件、205 个用例通过。
+- 前端全量测试：`corepack pnpm --dir frontend test:run`，2026-05-12 结果为 42 个测试文件、208 个用例通过。
 - 前端类型检查：`corepack pnpm --dir frontend typecheck`，通过。
 - 前端生产构建：`corepack pnpm --dir frontend build`，通过；保留 Vite chunk size warning。
 - 真实浏览器组合 E2E：`corepack pnpm --dir frontend test:e2e -- auth-access-control.spec.ts route-refresh.spec.ts wiki-tail.spec.ts auth-session-switch.spec.ts --project=chromium`，8 passed。
 - 真实数据只读 E2E：`corepack pnpm --dir frontend exec playwright test -c playwright.realdata.config.ts e2e/realdata-auth-readonly.spec.ts --project=chromium`，2026-05-11 结果为 2 passed。
 - 真实 LLM 配置逐个验证：使用真实数据目录 `/home/hzh/.codeask` 的 7 个启用配置真实请求，覆盖 OpenAI 消息格式、Anthropic 消息格式、全局配置和用户配置，结果 `passed=7 failed=0 marker_leaks=0 empty_answers=0`。
 - `git diff --check`：通过。
+- 会话工作台定向回归：`corepack pnpm --dir frontend test:run session-workspace.test.tsx`，2026-05-12 结果为 29 passed，覆盖流式生成切换会话、附件禁用不打开文件选择器、附件恢复启用后清理旧禁用文案。
+- 应用壳层回归：`corepack pnpm --dir frontend test:run app-shell.test.tsx`，2026-05-12 结果为 13 passed，覆盖流式会话跨页面不中断。
+- 策略 UI 定向回归：`corepack pnpm --dir frontend test:run analysis-policy-manager.test.tsx policy-row.test.tsx`，2026-05-12 结果为 2 passed。
+- 人工验收：2026-05-12 用户确认普通用户链路、特性管理员权限链路和附件上传开关 UX 已完成验证，v1.0.3 可以闭环。
 
 ## 真实数据升级验收要求
 
@@ -70,10 +83,10 @@ v1.0.3 不能只在临时空数据目录验收。收口前必须补齐以下证�
 - 需要用户手动点击验证的页面、账号、预期结果。
 - 剩余风险和未覆盖边界。
 
-## 剩余人工验收
+## 闭环状态
 
 - reasoning 请求侧已完成第一版收口：`request_options` 成为 provider-neutral 请求选项入口，旧 vendor-style profile 只作为兼容 alias 保留，不再作为新能力扩张方式。
 - 已完成 `references/opencode` 源码学习和版本内落地记录，当前实现遵循“用户选择 OpenAI / Anthropic 消息格式，后端不按 URL 或模型名自动推断协议”的边界。
 - 已补齐工具参数失败诊断：模型输出非法工具参数 JSON、缺少必填字段或参数类型错误时，后端会把解析 / 校验错误作为结构化 tool result 回填给模型，并在 Agent 行动轨迹中展示详细原因，便于模型自我修正和人工排查。
-- 仍需用户在真实浏览器中完成人工验收，并确认 v1.0.3 可以结束。
-- 人工验收通过后提交并推送 v1.0.3 收尾改动。
+- 已补齐会话工作台前端收口：流式生成中切换会话不串屏、不丢失生成内容；附件上传禁用和恢复启用都有可见、可恢复的 UI 行为。
+- 用户已在真实浏览器中完成人工验收，v1.0.3 可以结束。

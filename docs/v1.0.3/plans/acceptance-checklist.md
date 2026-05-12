@@ -1,6 +1,6 @@
 # v1.0.3 鉴权与访问控制验收清单
 
-> 状态：自动化与真实数据验收已完成，等待人工复核
+> 状态：自动化、真实数据验收和人工复核已完成
 > 版本：v1.0.3
 > 范围：登录、自动注册、匿名会话、特性管理员、Wiki/特性/全局配置权限、附件上传开关、审计、升级兼容、真实数据验收
 > 项目级验收规则：见 `../../DEVELOPMENT_ACCEPTANCE.md`
@@ -45,7 +45,7 @@ v1.0.3 收口前必须同时满足：
 - [x] 特性管理员不能管理其它特性，也不能管理管理员列表。
 - [x] 普通用户和匿名用户可查看特性页、Wiki 页，但无写入口或写接口权限。
 - [x] 全局设置、全局仓库、全局 LLM、用户管理只允许 admin。
-- [x] 会话附件上传受全局开关控制；关闭后前端保留入口，但点击会提示不可用。
+- [x] 会话附件上传受全局开关控制；关闭后前端保留入口，但点击会弹出居中错误提示且不打开文件选择器；恢复启用后清理旧禁用状态，不在按钮旁残留错误文案。
 - [x] 非特性管理员生成的报告，仍可保存到特性问题草稿中。
 
 ## 3. 数据迁移与升级兼容
@@ -102,7 +102,7 @@ v1.0.3 收口前必须同时满足：
 
 - [x] `uv run pytest tests/unit/test_auth_passwords.py tests/unit/test_auth_sessions.py tests/unit/test_feature_permissions.py tests/integration/test_auth_users_api.py tests/integration/test_feature_admins_api.py tests/integration/test_authz_features_api.py tests/integration/test_authz_wiki_api.py tests/integration/test_attachment_upload_gate.py tests/integration/test_audit_authz_api.py -v`
 - [x] `uv run pytest tests/unit tests/integration -q`
-- [x] `corepack pnpm --dir frontend test:run`，2026-05-11 后续复跑结果：`40 个测试文件 / 201 个用例通过`
+- [x] `corepack pnpm --dir frontend test:run`，2026-05-12 后续复跑结果：`42 个测试文件 / 208 个用例通过`
 - [x] `corepack pnpm --dir frontend typecheck`
 - [x] `corepack pnpm --dir frontend test:e2e -- auth-access-control.spec.ts route-refresh.spec.ts wiki-tail.spec.ts auth-session-switch.spec.ts --project=chromium`
 - [x] `corepack pnpm --dir frontend exec playwright test -c playwright.realdata.config.ts e2e/realdata-auth-readonly.spec.ts --project=chromium`，2026-05-11 结果：`2 passed`
@@ -117,9 +117,9 @@ v1.0.3 收口前必须同时满足：
 
 ## 7. 人工验证范围
 
-- [ ] 普通用户登录后修改用户名、修改密码、退出后重新登录的完整链路。
-- [ ] 特性管理员实际被授权后，对指定特性有写权限、对未授权特性无写权限。
-- [ ] 附件上传全局开关在真实浏览器中的 UI 提示文案和阻断表现。
+- [x] 普通用户登录后修改用户名、修改密码、退出后重新登录的完整链路；2026-05-12 已由用户在真实浏览器确认。
+- [x] 特性管理员实际被授权后，对指定特性有写权限、对未授权特性无写权限；2026-05-12 已由用户在真实浏览器确认。
+- [x] 附件上传全局开关的 UI 提示文案和阻断表现：禁用时不打开文件选择器并弹窗提示；恢复启用后不会残留旧禁用文案；2026-05-12 已由用户在真实浏览器确认。
 
 ## 8. 输出要求
 
@@ -163,13 +163,13 @@ v1.0.3 收口前必须同时满足：
 ### 9.1 本轮后端切片验证记录
 
 - [x] `uv run pytest tests/unit/test_agent_chat_runtime_reasoning.py tests/unit/test_llm_request_profiles.py tests/unit/test_llm_types.py tests/unit/test_llm_client_adapter.py tests/unit/test_llm_gateway.py -v`，51 passed。
-- [x] `corepack pnpm --dir frontend test:run -- settings-page.test.tsx -t "creates a personal LLM config from user settings|edits, toggles, and deletes existing global LLM configs"`，命令实际复跑前端全量 Vitest；后续复跑结果见 9.2 / 9.3，已更新为 40 个测试文件 / 201 个用例通过。
+- [x] `corepack pnpm --dir frontend test:run -- settings-page.test.tsx -t "creates a personal LLM config from user settings|edits, toggles, and deletes existing global LLM configs"`，命令实际复跑前端全量 Vitest；后续最新复跑结果见 9.5，已更新为 42 个测试文件 / 208 个用例通过。
 - [x] 已使用真实数据目录 `/home/hzh/.codeask` 做真实 LLM 配置调用验证；后续复跑覆盖 7 个启用配置，OpenAI 消息格式 / Anthropic 消息格式均可连通，结构化 reasoning 已隔离，真实浏览器会话 E2E 已补齐。
 
 ### 9.2 真实测试记录（2026-05-11）
 
 - [x] `uv run pytest tests/unit/test_session_report_generation.py tests/unit/test_agent_chat_runtime_reasoning.py tests/unit/test_llm_request_profiles.py tests/unit/test_llm_types.py tests/unit/test_llm_client_adapter.py tests/unit/test_llm_gateway.py -v`，57 passed。
-- [x] `corepack pnpm --dir frontend test:run -- reasoning-leak-guard.test.ts settings-page.test.tsx`，命令实际复跑前端全量 Vitest：40 个测试文件 / 201 个用例通过。
+- [x] `corepack pnpm --dir frontend test:run -- reasoning-leak-guard.test.ts settings-page.test.tsx`，命令实际复跑前端全量 Vitest；后续最新复跑结果见 9.5，已更新为 42 个测试文件 / 208 个用例通过。
 - [x] `corepack pnpm --dir frontend typecheck`，TypeScript 检查通过。
 - [x] `CODEASK_RUN_REAL_DATA_E2E=1 ... playwright.realdata.config.ts e2e/realdata-auth-readonly.spec.ts --project=chromium`，真实数据浏览器只读 E2E：2 passed。
 - [x] 真实 LLM 配置调用验证：`/home/hzh/.codeask` 中 7 个启用配置全部可返回可见答案，覆盖全局配置和用户配置，`marker_leaks=0`，`empty_answers=0`。
@@ -193,7 +193,7 @@ v1.0.3 收口前必须同时满足：
 
 ### 9.3 协议选择 UI 收口验证（2026-05-11）
 
-- [x] `corepack pnpm --dir frontend test:run -- settings-page.test.tsx`，命令实际复跑前端全量 Vitest：40 个测试文件 / 201 个用例通过。
+- [x] `corepack pnpm --dir frontend test:run -- settings-page.test.tsx`，命令实际复跑前端全量 Vitest；后续最新复跑结果见 9.5，已更新为 42 个测试文件 / 208 个用例通过。
 - [x] `corepack pnpm --dir frontend typecheck` 通过。
 - [x] `git diff --check` 通过。
 - [x] 设置页创建和编辑 LLM 配置只展示 `OpenAI` / `Anthropic`，不展示 `OpenAI Compatible`。
@@ -217,7 +217,27 @@ v1.0.3 收口前必须同时满足：
   - `uv run pytest tests/unit/chat_runtime tests/integration/test_agent_chat_runtime.py tests/integration/test_agent_chat_runtime_sse.py -q`，55 passed。
   - `uv run pytest tests/integration/test_start_script.py -q`，6 passed，覆盖 `pnpm` 直连和 `corepack pnpm` fallback。
   - `uv run pytest tests/unit tests/integration -q`，通过；存在 APScheduler 测试线程 warning，但退出码为 0。
-  - `corepack pnpm --dir frontend test:run`，42 个测试文件 / 205 个用例通过。
+  - `corepack pnpm --dir frontend test:run`，当时复跑结果为 42 个测试文件 / 205 个用例通过；后续最新复跑结果见 9.5，已更新为 42 个测试文件 / 208 个用例通过。
   - `corepack pnpm --dir frontend typecheck` 通过。
   - `corepack pnpm --dir frontend build` 通过；保留 Vite chunk size warning。
+  - `git diff --check` 通过。
+
+### 9.5 会话工作台与附件上传 UX 收口（2026-05-12）
+
+本项来源于 v1.0.3 收口阶段的真实使用反馈：会话生成过程中切换会话或页面时，消息与 Agent 行动轨迹不能串屏或丢失；全局禁用附件上传时，前端不能仍打开文件选择器；解除禁用后不能在上传按钮旁残留“功能被禁用”的旧文案。
+
+- [x] 流式生成中的会话会记录当前生成会话 id 和 live snapshot；切换到其它会话时展示被选中会话的历史消息与行动轨迹，后台生成流继续更新自身快照。
+- [x] 切回正在生成的会话时，恢复最新的生成内容和 Agent 行动轨迹，不丢失后台收到的 delta。
+- [x] 顶层页面切换期间，活动会话流继续运行，返回会话页后仍能看到生成结果。
+- [x] 附件上传入口点击前读取 `system-settings.session_attachments_enabled`；禁用时不触发隐藏 file input，不发起上传请求，直接使用全局错误弹窗提示“该功能已被禁用”。
+- [x] 上传接口失败时只通过全局错误弹窗提示，不把失败原因长期写在上传按钮旁边。
+- [x] 附件上传从禁用恢复启用后，再次点击上传会清理旧上传状态，避免按钮旁残留“该功能已被禁用”。
+- [x] 分析策略加载失败时显示明确错误和重试，不再伪装为“暂无分析策略”。
+- [x] 长分析策略提示词在列表中显示摘要，并提供“查看完整策略”展开入口，避免特性策略页面被长文本撑乱。
+- [x] 自动化验证：
+  - `corepack pnpm --dir frontend test:run session-workspace.test.tsx`，29 passed。
+  - `corepack pnpm --dir frontend test:run app-shell.test.tsx`，13 passed。
+  - `corepack pnpm --dir frontend test:run analysis-policy-manager.test.tsx policy-row.test.tsx`，2 passed。
+  - `corepack pnpm --dir frontend test:run`，42 个测试文件 / 208 个用例通过。
+  - `corepack pnpm --dir frontend typecheck` 通过。
   - `git diff --check` 通过。

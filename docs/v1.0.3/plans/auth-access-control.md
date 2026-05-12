@@ -2,6 +2,8 @@
 
 > **给执行 Agent 的要求：** 实施本计划时必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans`，逐任务执行、逐任务验证、逐任务提交。本文所有步骤使用 checkbox（`- [ ]`）追踪进度。
 
+> 闭环说明：本文是 v1.0.3 的原始实施计划和任务模板，保留执行前的分步 checkbox 形式用于追溯。版本最终完成状态、验证命令、真实数据验收和人工复核结果以 [`acceptance-checklist.md`](./acceptance-checklist.md) 与 [`real-data-acceptance.md`](../specs/real-data-acceptance.md) 为准。v1.0.3 已在 2026-05-12 完成人工验收并闭环。
+
 **目标：** 在保留匿名会话能力的前提下，实现数据库用户体系、登录态、特性管理员授权、全局附件上传开关、审计日志，以及真实浏览器端到端验收。
 
 **架构：** 后端新增正式用户和登录 session，但继续保留浏览器匿名 ID 作为未登录会话身份。所有写操作统一走服务端权限守卫，前端只负责显示合适的入口和反馈。实现按“持久化基础 → 登录和用户 API → 资源权限 → 前端交互 → 真实浏览器 E2E”推进。
