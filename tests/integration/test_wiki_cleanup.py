@@ -100,10 +100,14 @@ async def test_cleanup_purges_expired_soft_deleted_nodes_and_asset_files(
     expired_at = datetime.now(UTC) - timedelta(days=31)
     async with app.state.session_factory() as session:
         nodes = (
-            await session.execute(
-                select(WikiNode).where(WikiNode.id.in_([document_node_id, asset_node_id]))
+            (
+                await session.execute(
+                    select(WikiNode).where(WikiNode.id.in_([document_node_id, asset_node_id]))
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for node in nodes:
             node.deleted_at = expired_at
         await session.commit()
@@ -118,13 +122,21 @@ async def test_cleanup_purges_expired_soft_deleted_nodes_and_asset_files(
         assert await session.get(WikiNode, document_node_id) is None
         assert await session.get(WikiNode, asset_node_id) is None
         wiki_document = (
-            await session.execute(select(WikiDocument).where(WikiDocument.node_id == document_node_id))
+            await session.execute(
+                select(WikiDocument).where(WikiDocument.node_id == document_node_id)
+            )
         ).scalar_one_or_none()
         versions = (
-            await session.execute(
-                select(WikiDocumentVersion).join(WikiDocument).where(WikiDocument.node_id == document_node_id)
+            (
+                await session.execute(
+                    select(WikiDocumentVersion)
+                    .join(WikiDocument)
+                    .where(WikiDocument.node_id == document_node_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         asset = (
             await session.execute(select(WikiAsset).where(WikiAsset.node_id == asset_node_id))
         ).scalar_one_or_none()

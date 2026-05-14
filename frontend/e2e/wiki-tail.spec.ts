@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Page, type Request, type Route } from "@playwright/test";
 
 const NOW = "2026-05-06T09:00:00";
 
@@ -243,7 +243,7 @@ async function installWikiTailMocks(
     onRoute?: (context: {
       method: string;
       path: string;
-      request: ReturnType<Page["request"]["get"]> extends never ? never : any;
+      request: Request;
       route: Route;
       url: URL;
     }) => Promise<boolean | void> | boolean | void;

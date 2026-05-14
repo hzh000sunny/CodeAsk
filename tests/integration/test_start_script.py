@@ -29,11 +29,7 @@ def _write_env_logging_command(bin_dir: Path, name: str, log: Path) -> None:
     command = bin_dir / name
     litellm_env = "LITELLM_LOCAL_MODEL_COST_MAP=${LITELLM_LOCAL_MODEL_COST_MAP:-}"
     command.write_text(
-        (
-            "#!/bin/bash\n"
-            f'echo "{name} $* {litellm_env}" >> {log}\n'
-            "exit 0\n"
-        ),
+        (f'#!/bin/bash\necho "{name} $* {litellm_env}" >> {log}\nexit 0\n'),
         encoding="utf-8",
     )
     command.chmod(command.stat().st_mode | stat.S_IXUSR)

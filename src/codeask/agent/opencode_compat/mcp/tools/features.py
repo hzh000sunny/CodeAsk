@@ -80,8 +80,7 @@ def list_features_tool(session_factory: SessionFactory) -> MCPTool:
                 "repositories, or metadata as answer evidence."
             ),
             "recovery_hint": (
-                "如果用户问题可能涉及多个特性，请继续读取候选特性详情，"
-                "由模型判断边界。"
+                "如果用户问题可能涉及多个特性，请继续读取候选特性详情，由模型判断边界。"
             ),
         }
 
@@ -139,8 +138,7 @@ def get_feature_info_tool(session_factory: SessionFactory) -> MCPTool:
                 "workspace_path": f"./wiki/{feature.slug}",
                 "entries": entries,
                 "recovery_hint": (
-                    "优先在 workspace_path 下按文件系统 grep/read Wiki；"
-                    "这些 entries 只是入口提示。"
+                    "优先在 workspace_path 下按文件系统 grep/read Wiki；这些 entries 只是入口提示。"
                 ),
             },
             "repositories": repositories,

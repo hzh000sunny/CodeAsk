@@ -11,10 +11,18 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from codeask.db.models import Feature, WikiAsset, WikiDocument, WikiImportItem, WikiImportJob, WikiNode, WikiSpace
+from codeask.db.models import (
+    Feature,
+    WikiAsset,
+    WikiDocument,
+    WikiImportItem,
+    WikiImportJob,
+    WikiNode,
+    WikiSpace,
+)
 from codeask.metrics.audit import record_audit_log
-from codeask.wiki.audit import AuditWriter
 from codeask.wiki.actor import WikiActor
+from codeask.wiki.audit import AuditWriter
 from codeask.wiki.documents.service import WikiDocumentService
 from codeask.wiki.imports.preflight import WikiImportPreflightService
 from codeask.wiki.permissions import can_write_feature
@@ -298,7 +306,11 @@ class WikiImportJobService:
         )
         self._audit.write(
             "wiki_import_job.applied",
-            {"job_id": int(job.id), "space_id": int(job.space_id), "source_id": int(job.source_id or 0)},
+            {
+                "job_id": int(job.id),
+                "space_id": int(job.space_id),
+                "source_id": int(job.source_id or 0),
+            },
             subject_id=actor.subject_id,
         )
         return await self.get_job(session, actor=actor, job_id=job.id)
@@ -320,17 +332,23 @@ class WikiImportJobService:
             await session.execute(select(WikiImportJob).where(WikiImportJob.id == job_id))
         ).scalar_one_or_none()
         if job is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki import job not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki import job not found"
+            )
         return job
 
     async def _load_items(self, session: AsyncSession, *, job_id: int) -> list[WikiImportItem]:
         return (
-            await session.execute(
-                select(WikiImportItem)
-                .where(WikiImportItem.job_id == job_id)
-                .order_by(WikiImportItem.id.asc())
+            (
+                await session.execute(
+                    select(WikiImportItem)
+                    .where(WikiImportItem.job_id == job_id)
+                    .order_by(WikiImportItem.id.asc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     async def _load_existing_nodes(
         self,
@@ -339,13 +357,17 @@ class WikiImportJobService:
         space_id: int,
     ) -> dict[str, WikiNode]:
         rows = (
-            await session.execute(
-                select(WikiNode).where(
-                    WikiNode.space_id == space_id,
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode).where(
+                        WikiNode.space_id == space_id,
+                        WikiNode.deleted_at.is_(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         return {row.path: row for row in rows}
 
     async def _load_space(self, session: AsyncSession, *, space_id: int) -> WikiSpace:
@@ -353,7 +375,9 @@ class WikiImportJobService:
             await session.execute(select(WikiSpace).where(WikiSpace.id == space_id))
         ).scalar_one_or_none()
         if space is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki space not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki space not found"
+            )
         return space
 
     async def _ensure_parent_folders(
@@ -422,7 +446,8 @@ class WikiImportJobService:
                 original_name=Path(source_path).name,
                 file_name=storage_name,
                 storage_path=str(stored_path),
-                mime_type=mimetypes.guess_type(Path(source_path).name)[0] or "application/octet-stream",
+                mime_type=mimetypes.guess_type(Path(source_path).name)[0]
+                or "application/octet-stream",
                 size_bytes=stored_path.stat().st_size,
                 provenance_json={
                     "source": "directory_import",

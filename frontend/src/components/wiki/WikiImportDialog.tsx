@@ -70,7 +70,7 @@ export function WikiImportDialog({
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("all");
 
-  const queueItems = sessionItems?.items ?? [];
+  const queueItems = useMemo(() => sessionItems?.items ?? [], [sessionItems?.items]);
   const activeQueueItems = useMemo(
     () => queueItems.filter((item) => item.status !== "ignored"),
     [queueItems],

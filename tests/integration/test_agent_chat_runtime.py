@@ -330,11 +330,7 @@ async def test_runtime_audits_model_input_with_tool_result_repo_items() -> None:
             "version_info": {"scope_source": "feature_scope", "feature_ids": [3]},
         }
     ]
-    tool_messages = [
-        message
-        for message in llm.calls[1]["messages"]
-        if message["role"] == "tool"
-    ]
+    tool_messages = [message for message in llm.calls[1]["messages"] if message["role"] == "tool"]
     assert "repo_anything_llm" in str(tool_messages)
     assert "Manual continuity anything-llm 1778137237804" in str(tool_messages)
 
@@ -348,7 +344,9 @@ async def test_runtime_does_not_emit_keyword_based_code_investigation_constraint
         retrieval_service=LightweightRetrievalService(),
     )
 
-    events = [event async for event in runtime.run("sess_1", "turn_1", "通过查阅代码，给我更详细的回答")]
+    events = [
+        event async for event in runtime.run("sess_1", "turn_1", "通过查阅代码，给我更详细的回答")
+    ]
 
     actions = [event for event in events if event.type == "assistant_action"]
     assert len(llm.calls) == 1
@@ -515,7 +513,9 @@ async def test_runtime_prompt_prevents_false_code_inspection_claims() -> None:
         retrieval_service=LightweightRetrievalService(),
     )
 
-    events = [event async for event in runtime.run("sess_1", "turn_1", "通过查阅代码，给我更详细的回答")]
+    events = [
+        event async for event in runtime.run("sess_1", "turn_1", "通过查阅代码，给我更详细的回答")
+    ]
 
     assert events[-1].type == "done"
     system_text = "\n".join(

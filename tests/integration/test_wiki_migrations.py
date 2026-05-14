@@ -124,8 +124,7 @@ async def test_feature_archive_migration_recovers_from_stale_sqlite_batch_table(
         feature_row = (
             await conn.execute(
                 text(
-                    "SELECT status, archived_at, archived_by_subject_id "
-                    "FROM features WHERE id = 1"
+                    "SELECT status, archived_at, archived_by_subject_id FROM features WHERE id = 1"
                 )
             )
         ).one()

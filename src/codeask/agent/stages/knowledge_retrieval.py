@@ -29,8 +29,7 @@ async def run(ctx: StageContext) -> StageResult:
     hits = await _search(ctx)
     evidence = [_hit_to_evidence(idx, hit) for idx, hit in enumerate(hits, start=1)]
     events.extend(
-        AgentEvent(type="evidence", data={"item": item.data | {"id": item.id}})
-        for item in evidence
+        AgentEvent(type="evidence", data={"item": item.data | {"id": item.id}}) for item in evidence
     )
     return StageResult(
         next_state=AgentState.SufficiencyJudgement,

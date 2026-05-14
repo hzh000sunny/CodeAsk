@@ -83,9 +83,7 @@ async def test_chat_runtime_emits_reasoning_diagnostic_without_raw_reasoning() -
     ]
 
     text = "".join(
-        str(event.data.get("delta", ""))
-        for event in events
-        if event.type == "text_delta"
+        str(event.data.get("delta", "")) for event in events if event.type == "text_delta"
     )
     reasoning_events = [event for event in events if event.type == "reasoning_observed"]
 

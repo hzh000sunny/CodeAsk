@@ -22,8 +22,8 @@ from codeask.db.models import (
     WikiSpace,
 )
 from codeask.metrics.audit import record_audit_log
-from codeask.wiki.audit import AuditWriter
 from codeask.wiki.actor import WikiActor
+from codeask.wiki.audit import AuditWriter
 from codeask.wiki.documents import WikiDocumentService
 from codeask.wiki.paths import normalize_asset_name
 from codeask.wiki.permissions import can_write_feature
@@ -291,7 +291,9 @@ class WikiPromotionService:
             )
         ).scalar_one_or_none()
         if row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="attachment not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="attachment not found"
+            )
         return row
 
     async def _load_space(self, session: AsyncSession, *, space_id: int) -> WikiSpace:
@@ -299,7 +301,9 @@ class WikiPromotionService:
             await session.execute(select(WikiSpace).where(WikiSpace.id == space_id))
         ).scalar_one_or_none()
         if space is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki space not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki space not found"
+            )
         return space
 
     async def _load_parent(

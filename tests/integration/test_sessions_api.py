@@ -52,7 +52,9 @@ async def _wait_for_session_title(
     raise AssertionError(f"expected title {expected_title!r}, got {title!r} ({source})")
 
 
-async def _create_feature_as_admin(client: AsyncClient, payload: dict[str, object]) -> dict[str, object]:
+async def _create_feature_as_admin(
+    client: AsyncClient, payload: dict[str, object]
+) -> dict[str, object]:
     login = await client.post("/api/auth/admin/login", json={"password": "admin"})
     assert login.status_code == 200, login.text
     response = await client.post("/api/features", json=payload)
@@ -524,15 +526,15 @@ async def test_rollback_session_turn_removes_interrupted_turn_and_traces(
 
     async with app.state.session_factory() as db:
         turns = (
-            await db.execute(
-                select(SessionTurn).where(SessionTurn.session_id == session_id)
-            )
-        ).scalars().all()
+            (await db.execute(select(SessionTurn).where(SessionTurn.session_id == session_id)))
+            .scalars()
+            .all()
+        )
         traces = (
-            await db.execute(
-                select(AgentTrace).where(AgentTrace.session_id == session_id)
-            )
-        ).scalars().all()
+            (await db.execute(select(AgentTrace).where(AgentTrace.session_id == session_id)))
+            .scalars()
+            .all()
+        )
     assert turns == []
     assert traces == []
 
@@ -685,15 +687,15 @@ async def test_abort_session_turn_endpoint_removes_interrupted_turn_and_traces(
 
     async with app.state.session_factory() as db:
         turns = (
-            await db.execute(
-                select(SessionTurn).where(SessionTurn.session_id == session_id)
-            )
-        ).scalars().all()
+            (await db.execute(select(SessionTurn).where(SessionTurn.session_id == session_id)))
+            .scalars()
+            .all()
+        )
         traces = (
-            await db.execute(
-                select(AgentTrace).where(AgentTrace.session_id == session_id)
-            )
-        ).scalars().all()
+            (await db.execute(select(AgentTrace).where(AgentTrace.session_id == session_id)))
+            .scalars()
+            .all()
+        )
     assert turns == []
     assert traces == []
 
@@ -735,10 +737,10 @@ async def test_interrupted_turn_cannot_persist_late_agent_response(
 
     async with app.state.session_factory() as db:
         turns = (
-            await db.execute(
-                select(SessionTurn).where(SessionTurn.session_id == session_id)
-            )
-        ).scalars().all()
+            (await db.execute(select(SessionTurn).where(SessionTurn.session_id == session_id)))
+            .scalars()
+            .all()
+        )
     assert turns == []
 
 
@@ -812,10 +814,10 @@ async def test_interrupted_turn_cannot_persist_late_tool_results(
 
     async with app.state.session_factory() as db:
         traces = (
-            await db.execute(
-                select(AgentTrace).where(AgentTrace.session_id == session_id)
-            )
-        ).scalars().all()
+            (await db.execute(select(AgentTrace).where(AgentTrace.session_id == session_id)))
+            .scalars()
+            .all()
+        )
     assert traces == []
 
 

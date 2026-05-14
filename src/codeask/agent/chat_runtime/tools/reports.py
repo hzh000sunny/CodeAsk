@@ -227,9 +227,7 @@ async def _read_real_report(
                 path=str(node_info.get("path")) if node_info.get("path") is not None else None,
                 report_id=args.report_id,
                 node_id=(
-                    int(node_info["node_id"])
-                    if node_info.get("node_id") is not None
-                    else None
+                    int(node_info["node_id"]) if node_info.get("node_id") is not None else None
                 ),
                 metadata={"feature_id": report.feature_id, "status": report.status},
             )

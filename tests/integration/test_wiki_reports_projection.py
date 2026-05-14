@@ -116,7 +116,9 @@ async def test_get_wiki_report_by_node_reads_markdown_body(client: AsyncClient) 
     report_id = response.json()["id"]
 
     projections = await client.get(f"/api/wiki/reports/projections?feature_id={feature_id}")
-    projection = next(item for item in projections.json()["items"] if item["report_id"] == report_id)
+    projection = next(
+        item for item in projections.json()["items"] if item["report_id"] == report_id
+    )
 
     response = await client.get(f"/api/wiki/reports/by-node/{projection['node_id']}")
     assert response.status_code == 200, response.text

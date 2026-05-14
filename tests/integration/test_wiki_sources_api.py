@@ -132,7 +132,9 @@ async def test_cannot_sync_archived_wiki_source(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_sources_hides_legacy_unfinished_import_placeholders(client: AsyncClient, app) -> None:  # type: ignore[no-untyped-def]
+async def test_list_sources_hides_legacy_unfinished_import_placeholders(
+    client: AsyncClient, app
+) -> None:  # type: ignore[no-untyped-def]
     space_id = await _create_space(client)
 
     async with app.state.session_factory() as session:
@@ -181,7 +183,9 @@ async def test_list_sources_hides_legacy_unfinished_import_placeholders(client: 
 
 
 @pytest.mark.asyncio
-async def test_list_sources_hides_legacy_placeholder_referenced_only_by_deleted_nodes(client: AsyncClient, app) -> None:  # type: ignore[no-untyped-def]
+async def test_list_sources_hides_legacy_placeholder_referenced_only_by_deleted_nodes(
+    client: AsyncClient, app
+) -> None:  # type: ignore[no-untyped-def]
     space_id = await _create_space(client)
 
     async with app.state.session_factory() as session:

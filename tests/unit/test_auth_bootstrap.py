@@ -29,7 +29,9 @@ async def test_creates_missing_admin_user(db_factory: async_sessionmaker) -> Non
     await ensure_admin_user(db_factory, default_password="Secret123")
 
     async with db_factory() as session:
-        user = (await session.execute(select(User).where(User.username == ADMIN_USERNAME))).scalar_one_or_none()
+        user = (
+            await session.execute(select(User).where(User.username == ADMIN_USERNAME))
+        ).scalar_one_or_none()
 
     assert user is not None
     assert user.role == "admin"
@@ -55,7 +57,9 @@ async def test_enforces_admin_role_on_existing_row(db_factory: async_sessionmake
     await ensure_admin_user(db_factory, default_password="ignored")
 
     async with db_factory() as session:
-        user = (await session.execute(select(User).where(User.username == ADMIN_USERNAME))).scalar_one()
+        user = (
+            await session.execute(select(User).where(User.username == ADMIN_USERNAME))
+        ).scalar_one()
 
     assert user.role == "admin"
     assert user.password_hash == "existing-hash"
@@ -81,7 +85,9 @@ async def test_backfills_missing_password_hash_and_bumps_auth_version(
     await ensure_admin_user(db_factory, default_password="Secret123")
 
     async with db_factory() as session:
-        user = (await session.execute(select(User).where(User.username == ADMIN_USERNAME))).scalar_one()
+        user = (
+            await session.execute(select(User).where(User.username == ADMIN_USERNAME))
+        ).scalar_one()
 
     assert user.role == "admin"
     assert user.password_hash is not None

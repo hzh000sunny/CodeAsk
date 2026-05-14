@@ -116,13 +116,17 @@ async def test_create_feature_bootstraps_wiki_space(client: AsyncClient, app) ->
         assert space is not None
         assert space.slug == "payments"
         nodes = (
-            await session.execute(
-                select(WikiNode).where(
-                    WikiNode.space_id == space.id,
-                    WikiNode.parent_id.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode).where(
+                        WikiNode.space_id == space.id,
+                        WikiNode.parent_id.is_(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     names = {node.name for node in nodes}
     assert names == {"知识库", "问题定位报告"}

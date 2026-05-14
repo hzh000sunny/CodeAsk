@@ -43,9 +43,7 @@ class WikiNode(Base, TimestampMixin):
 
 class WikiReportRef(Base, TimestampMixin):
     __tablename__ = "wiki_report_refs"
-    __table_args__ = (
-        Index("ix_wiki_report_refs_report_id", "report_id", unique=True),
-    )
+    __table_args__ = (Index("ix_wiki_report_refs_report_id", "report_id", unique=True),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     node_id: Mapped[int] = mapped_column(

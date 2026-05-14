@@ -27,14 +27,18 @@ def _slugify_node_name(value: str) -> str:
 class LegacyWikiSyncService:
     async def backfill_feature_content(self, session: AsyncSession, *, feature_id: int) -> None:
         documents = (
-            await session.execute(
-                select(Document).where(
-                    Document.feature_id == feature_id,
-                    Document.kind == "markdown",
-                    Document.is_deleted.is_(False),
+            (
+                await session.execute(
+                    select(Document).where(
+                        Document.feature_id == feature_id,
+                        Document.kind == "markdown",
+                        Document.is_deleted.is_(False),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for document in documents:
             raw_text = Path(document.raw_file_path).read_text(encoding="utf-8")
             await self.sync_legacy_markdown_document(
@@ -48,8 +52,10 @@ class LegacyWikiSyncService:
             )
 
         reports = (
-            await session.execute(select(Report).where(Report.feature_id == feature_id))
-        ).scalars().all()
+            (await session.execute(select(Report).where(Report.feature_id == feature_id)))
+            .scalars()
+            .all()
+        )
         for report in reports:
             await self.sync_report_ref(
                 session,
@@ -273,7 +279,9 @@ class LegacyWikiSyncService:
         leaf = preferred_leaf or "item"
         candidate = leaf
         suffix = 2
-        while await self._path_exists(session, space_id=space_id, path=f"{parent_path}/{candidate}"):
+        while await self._path_exists(
+            session, space_id=space_id, path=f"{parent_path}/{candidate}"
+        ):
             candidate = f"{leaf}-{suffix}"
             suffix += 1
         return candidate

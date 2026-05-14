@@ -21,7 +21,7 @@ export interface RuntimeStage {
   status: "pending" | "active" | "done" | "error";
 }
 
-export interface RuntimeInsight extends ActionTraceEvent {}
+export type RuntimeInsight = ActionTraceEvent;
 
 export interface RuntimeSessionState {
   configId: string | null;

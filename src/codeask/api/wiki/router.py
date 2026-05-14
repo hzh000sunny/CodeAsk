@@ -12,11 +12,11 @@ from codeask.api.wiki.imports import router as wiki_imports_router
 from codeask.api.wiki.maintenance import router as wiki_maintenance_router
 from codeask.api.wiki.nodes import router as nodes_router
 from codeask.api.wiki.promotions import router as wiki_promotions_router
-from codeask.api.wiki.resolve import router as wiki_resolve_router
 from codeask.api.wiki.reports import router as wiki_reports_router
+from codeask.api.wiki.resolve import router as wiki_resolve_router
 from codeask.api.wiki.search import router as wiki_search_router
-from codeask.api.wiki.spaces import router as spaces_router
 from codeask.api.wiki.sources import router as wiki_sources_router
+from codeask.api.wiki.spaces import router as spaces_router
 from codeask.api.wiki.tree import router as tree_router
 from codeask.api.wiki.versions import router as wiki_versions_router
 

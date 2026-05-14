@@ -38,13 +38,15 @@ async def test_post_message_stream_uses_chat_runtime(
     session_id = created.json()["id"]
 
     mock = MockLLMClient(
-        [[
-            LLMEvent(type="message_start", data={}),
-            LLMEvent(type="text_delta", data={"delta": "这是"}),
-            LLMEvent(type="text_delta", data={"delta": "普通"}),
-            LLMEvent(type="text_delta", data={"delta": "回答。"}),
-            LLMEvent(type="message_stop", data={"stop_reason": "end_turn"}),
-        ]]
+        [
+            [
+                LLMEvent(type="message_start", data={}),
+                LLMEvent(type="text_delta", data={"delta": "这是"}),
+                LLMEvent(type="text_delta", data={"delta": "普通"}),
+                LLMEvent(type="text_delta", data={"delta": "回答。"}),
+                LLMEvent(type="message_stop", data={"stop_reason": "end_turn"}),
+            ]
+        ]
     )
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
@@ -156,27 +158,29 @@ async def test_post_message_stream_isolates_structured_reasoning(
     session_id = created.json()["id"]
 
     mock = MockLLMClient(
-        [[
-            LLMEvent(type="message_start", data={}),
-            LLMEvent(
-                type="reasoning_delta",
-                data={
-                    "delta": "内部思考",
-                    "field": "reasoning_content",
-                    "redacted": False,
-                },
-            ),
-            LLMEvent(
-                type="reasoning_delta",
-                data={
-                    "delta": "不应该落库",
-                    "field": "reasoning_content",
-                    "redacted": False,
-                },
-            ),
-            LLMEvent(type="text_delta", data={"delta": "正式回答。"}),
-            LLMEvent(type="message_stop", data={"stop_reason": "end_turn"}),
-        ]]
+        [
+            [
+                LLMEvent(type="message_start", data={}),
+                LLMEvent(
+                    type="reasoning_delta",
+                    data={
+                        "delta": "内部思考",
+                        "field": "reasoning_content",
+                        "redacted": False,
+                    },
+                ),
+                LLMEvent(
+                    type="reasoning_delta",
+                    data={
+                        "delta": "不应该落库",
+                        "field": "reasoning_content",
+                        "redacted": False,
+                    },
+                ),
+                LLMEvent(type="text_delta", data={"delta": "正式回答。"}),
+                LLMEvent(type="message_stop", data={"stop_reason": "end_turn"}),
+            ]
+        ]
     )
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
@@ -304,10 +308,7 @@ async def test_post_message_injects_previous_turns_and_tool_actions_into_llm_con
 
     assert response.status_code == 200, response.text
     messages = mock.calls[0]["messages"]
-    text_by_role = [
-        (message["role"], str(message["content"]))
-        for message in messages
-    ]
+    text_by_role = [(message["role"], str(message["content"])) for message in messages]
     assert any(
         role == "user" and "anything llm中，是怎么通过rag处理上传的资料的" in text
         for role, text in text_by_role
@@ -317,17 +318,12 @@ async def test_post_message_injects_previous_turns_and_tool_actions_into_llm_con
         for role, text in text_by_role
     )
     assert any(
-        "上一轮工具行动摘要" in text
-        and "list_code_repos" in text
-        and "可用代码仓库 0 个" in text
+        "上一轮工具行动摘要" in text and "list_code_repos" in text and "可用代码仓库 0 个" in text
         for _role, text in text_by_role
     )
     assert text_by_role[-1][0] == "user"
     assert "你刚刚的回答，有查询代码吗" in text_by_role[-1][1]
-    assert sum(
-        "你刚刚的回答，有查询代码吗" in text
-        for _role, text in text_by_role
-    ) == 1
+    assert sum("你刚刚的回答，有查询代码吗" in text for _role, text in text_by_role) == 1
 
 
 @pytest.mark.asyncio

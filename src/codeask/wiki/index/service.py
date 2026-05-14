@@ -7,7 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.db.models import WikiDocument, WikiDocumentVersion, WikiNode
-from codeask.wiki.documents.markdown_refs import parse_markdown_references, resolve_markdown_references
+from codeask.wiki.documents.markdown_refs import (
+    parse_markdown_references,
+    resolve_markdown_references,
+)
 from codeask.wiki.paths import is_descendant_path
 
 
@@ -29,7 +32,9 @@ class WikiIndexService:
             )
         ).one_or_none()
         if row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki document not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki document not found"
+            )
         node, document = row
         return await self.refresh_document(
             session,
@@ -52,7 +57,9 @@ class WikiIndexService:
 
         version = (
             await session.execute(
-                select(WikiDocumentVersion).where(WikiDocumentVersion.id == document.current_version_id)
+                select(WikiDocumentVersion).where(
+                    WikiDocumentVersion.id == document.current_version_id
+                )
             )
         ).scalar_one_or_none()
         if version is None:

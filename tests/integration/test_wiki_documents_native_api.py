@@ -216,7 +216,9 @@ async def test_document_detail_returns_provenance_summary(client: AsyncClient, a
 
 
 @pytest.mark.asyncio
-async def test_document_detail_derives_legacy_import_source_display_name(client: AsyncClient, app) -> None:  # type: ignore[no-untyped-def]
+async def test_document_detail_derives_legacy_import_source_display_name(
+    client: AsyncClient, app
+) -> None:  # type: ignore[no-untyped-def]
     node_id = await _create_document_node(client, slug="wiki-doc-provenance-legacy")
 
     async with app.state.session_factory() as session:

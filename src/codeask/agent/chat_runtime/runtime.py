@@ -395,9 +395,7 @@ class ChatRuntime:
                         tool_call_id=call_id,
                         tool_name=tool_name,
                         arguments_summary=arguments,
-                        arguments_parse_error=_string_value(
-                            tool_call.get("arguments_parse_error")
-                        ),
+                        arguments_parse_error=_string_value(tool_call.get("arguments_parse_error")),
                         raw_arguments=_string_value(tool_call.get("raw_arguments")),
                     ),
                 )

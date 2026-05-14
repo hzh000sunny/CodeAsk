@@ -180,9 +180,7 @@ async def test_full_happy_path(orchestrator) -> None:  # type: ignore[no-untyped
     events = [event async for event in agent.run("sess_1", "turn_1", "为什么订单偶发 500")]
     event_types = [event.type for event in events]
     streamed_answer = "".join(
-        str(event.data.get("delta", ""))
-        for event in events
-        if event.type == "text_delta"
+        str(event.data.get("delta", "")) for event in events if event.type == "text_delta"
     )
 
     assert "scope_detection" in event_types
@@ -194,8 +192,8 @@ async def test_full_happy_path(orchestrator) -> None:  # type: ignore[no-untyped
     assert event_types.count("done") == 1
     assert "[ev_knowledge_1]" not in streamed_answer
     assert (
-        "[OrderService timeout](#/wiki?feature=1&node=11&heading=%E6%8E%92%E6%9F%A5%E6%AD%A5%E9%AA%A4)"
-        in streamed_answer
+        "[OrderService timeout]"
+        "(#/wiki?feature=1&node=11&heading=%E6%8E%92%E6%9F%A5%E6%AD%A5%E9%AA%A4)" in streamed_answer
     )
 
     async with factory() as session:
@@ -286,7 +284,9 @@ async def test_knowledge_retrieval_uses_scope_selected_feature_ids(
                     "reason": "payment domain",
                 },
             ),
-            text_message('{"verdict":"enough","reason":"docs cover this","next":"answer_finalization"}'),
+            text_message(
+                '{"verdict":"enough","reason":"docs cover this","next":"answer_finalization"}'
+            ),
             text_message("结论：看支付特性即可。证据 [ev_knowledge_1]."),
         ]
     )

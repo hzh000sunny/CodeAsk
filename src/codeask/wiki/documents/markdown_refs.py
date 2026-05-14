@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import PurePosixPath
 import posixpath
 import re
+from dataclasses import dataclass
+from pathlib import PurePosixPath
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,14 +53,7 @@ def resolve_reference_path(source_path: str, target: str) -> str:
     candidate = source_dir.joinpath(PurePosixPath(target))
     normalized = posixpath.normpath(PurePosixPath(str(candidate)).as_posix())
     parts = [part for part in PurePosixPath(normalized).parts if part not in {"", "."}]
-    if normalized.endswith(".md"):
-        normalized = "/".join(
-            [
-                *[normalize_node_name(part) for part in parts[:-1]],
-                normalize_node_name(PurePosixPath(parts[-1]).stem),
-            ]
-        )
-    elif normalized.endswith(".markdown"):
+    if normalized.endswith(".md") or normalized.endswith(".markdown"):
         normalized = "/".join(
             [
                 *[normalize_node_name(part) for part in parts[:-1]],

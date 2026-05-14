@@ -59,7 +59,13 @@ async def test_wiki_agent_tools_search_and_read_native_wiki_content(
     response = await client.post(
         f"/api/wiki/documents/{node_id}/publish",
         json={
-            "body_markdown": "# 回调 Runbook\n\n## 排查步骤\n\n先检查 webhook 回调是否超时。\n\n## 结论\n\n处理完成。",
+            "body_markdown": (
+                "# 回调 Runbook\n\n"
+                "## 排查步骤\n\n"
+                "先检查 webhook 回调是否超时。\n\n"
+                "## 结论\n\n"
+                "处理完成。"
+            ),
         },
         headers={"X-Subject-Id": "owner@test"},
     )
@@ -223,7 +229,7 @@ async def test_wiki_agent_tools_search_across_multiple_features(
 
 
 @pytest.mark.asyncio
-async def test_wiki_agent_tools_search_falls_back_to_selected_feature_alias_for_natural_language_query(
+async def test_wiki_agent_tools_search_uses_selected_feature_alias_for_query(
     app: FastAPI,
     client: AsyncClient,
 ) -> None:

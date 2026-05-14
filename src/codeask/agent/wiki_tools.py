@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import re
+from dataclasses import asdict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -12,8 +12,8 @@ from codeask.agent.tool_models import ToolContext, ToolResult
 from codeask.db.models import Feature, WikiDocument, WikiNode, WikiReportRef, WikiSpace
 from codeask.wiki.actor import WikiActor
 from codeask.wiki.documents.service import WikiDocumentService
-from codeask.wiki.path_resolver import WikiPathResolver
 from codeask.wiki.native_search import NativeWikiSearchService
+from codeask.wiki.path_resolver import WikiPathResolver
 from codeask.wiki.report_projection import WikiReportProjectionService
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
@@ -52,16 +52,22 @@ class AgentWikiToolService:
                     continue
 
                 default_nodes = (
-                    await session.execute(
-                        select(WikiNode)
-                        .where(
-                            WikiNode.space_id == space.id,
-                            WikiNode.deleted_at.is_(None),
-                            WikiNode.system_role.in_(("knowledge_base", "reports")),
+                    (
+                        await session.execute(
+                            select(WikiNode)
+                            .where(
+                                WikiNode.space_id == space.id,
+                                WikiNode.deleted_at.is_(None),
+                                WikiNode.system_role.in_(("knowledge_base", "reports")),
+                            )
+                            .order_by(
+                                WikiNode.sort_order.asc(), WikiNode.path.asc(), WikiNode.id.asc()
+                            )
                         )
-                        .order_by(WikiNode.sort_order.asc(), WikiNode.path.asc(), WikiNode.id.asc())
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 matches = await self._path_resolver.resolve_path(
                     session,
                     query,
@@ -271,7 +277,9 @@ class AgentWikiToolService:
         del ctx
         async with self._factory() as session:
             report_ref = (
-                await session.execute(select(WikiReportRef).where(WikiReportRef.report_id == report_id))
+                await session.execute(
+                    select(WikiReportRef).where(WikiReportRef.report_id == report_id)
+                )
             ).scalar_one_or_none()
             if report_ref is None:
                 return ToolResult(
@@ -299,9 +307,13 @@ class AgentWikiToolService:
         heading_path: object,
         document_id: int | None,
     ) -> ToolResult:
-        heading = str(heading_path) if isinstance(heading_path, str) and heading_path.strip() else None
+        heading = (
+            str(heading_path) if isinstance(heading_path, str) and heading_path.strip() else None
+        )
         try:
-            node, document = await self._document_service.load_document_by_node(session, node_id=node_id)
+            node, document = await self._document_service.load_document_by_node(
+                session, node_id=node_id
+            )
         except Exception:
             return ToolResult(
                 ok=False,
@@ -314,7 +326,9 @@ class AgentWikiToolService:
             actor=WikiActor(subject_id=ctx.subject_id, role="member"),
         )
         body_markdown = str(detail.get("current_body_markdown") or "")
-        excerpt_markdown = _extract_heading_excerpt(body_markdown, heading) if heading else body_markdown
+        excerpt_markdown = (
+            _extract_heading_excerpt(body_markdown, heading) if heading else body_markdown
+        )
         return ToolResult(
             ok=True,
             summary=f"已读取 Wiki 文档《{detail['title']}》",

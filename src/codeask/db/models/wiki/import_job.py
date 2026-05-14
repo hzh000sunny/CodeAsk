@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import JSON, CheckConstraint, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from codeask.db.base import Base, TimestampMixin

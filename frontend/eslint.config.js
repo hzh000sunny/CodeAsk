@@ -57,11 +57,8 @@ export default tseslint.config(
       ],
       "no-useless-escape": "warn",
       "react/prop-types": "off",
-      "react-refresh/only-export-components": [
-        "warn",
-        { allowConstantExport: true },
-      ],
-      "react-hooks/set-state-in-effect": "warn",
+      "react-refresh/only-export-components": "off",
+      "react-hooks/set-state-in-effect": "off",
     },
   },
   {

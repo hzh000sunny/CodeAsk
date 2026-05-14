@@ -254,7 +254,7 @@ describe("Wiki sources workflow", () => {
       target: { value: "file:///srv/wiki/oncall" },
     });
     fireEvent.change(within(createForm).getByLabelText("附加元数据"), {
-      target: { value: '{\"root_path\":\"notes/oncall\"}' },
+      target: { value: '{"root_path":"notes/oncall"}' },
     });
     fireEvent.click(within(createForm).getByRole("button", { name: "保存来源" }));
 

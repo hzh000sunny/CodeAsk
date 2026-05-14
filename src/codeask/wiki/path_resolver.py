@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,15 +78,19 @@ class WikiPathResolver:
         ).scalar_one_or_none()
 
         nodes = (
-            await session.execute(
-                select(WikiNode)
-                .where(
-                    WikiNode.space_id == space.id,
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode)
+                    .where(
+                        WikiNode.space_id == space.id,
+                        WikiNode.deleted_at.is_(None),
+                    )
+                    .order_by(WikiNode.path.asc(), WikiNode.id.asc())
                 )
-                .order_by(WikiNode.path.asc(), WikiNode.id.asc())
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         feature_aliases = _feature_aliases(feature, space)
         prepared = _PreparedQuery.from_description(query, feature_aliases=feature_aliases)
@@ -128,7 +132,7 @@ class _PreparedQuery:
         description: str,
         *,
         feature_aliases: tuple[str, ...] = (),
-    ) -> "_PreparedQuery":
+    ) -> _PreparedQuery:
         normalized = _normalize_description(description, feature_aliases=feature_aliases)
         compact = _compact(normalized)
         tokens = set(tokenize(normalized).split())
@@ -181,7 +185,6 @@ def _score_node(prepared: _PreparedQuery, node: WikiNode) -> _MatchScore | None:
         if not remainder_variants:
             return _MatchScore(score=120.0, reason="alias", phrase=alias)
 
-    node_name = node.name.lower()
     node_path = node.path.lower()
     node_leaf = node_path.rsplit("/", 1)[-1]
     node_compact = _compact(f"{node.name} {node.path}")
@@ -200,7 +203,7 @@ def _score_node(prepared: _PreparedQuery, node: WikiNode) -> _MatchScore | None:
         if compact_variant == _compact(node.name):
             score = 110.0
             reason = "name_exact"
-        elif lowered_variant == node_path or lowered_variant == node_leaf:
+        elif lowered_variant in (node_path, node_leaf):
             score = 104.0
             reason = "path_exact"
         elif compact_variant in node_compact:

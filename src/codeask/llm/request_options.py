@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from typing import Any, Literal
 
 ReasoningRequestMode = Literal[
@@ -14,9 +14,7 @@ ReasoningRequestMode = Literal[
 ]
 
 _LEGACY_VOLCENGINE_PATCH = {"extra_body": {"thinking": {"type": "enabled"}}}
-_LEGACY_VLLM_PATCH = {
-    "extra_body": {"chat_template_kwargs": {"enable_thinking": True}}
-}
+_LEGACY_VLLM_PATCH = {"extra_body": {"chat_template_kwargs": {"enable_thinking": True}}}
 
 
 @dataclass(frozen=True)
@@ -89,13 +87,9 @@ def build_reasoning_request_options(
             raise ValueError(f"{normalized} budget_tokens must be a positive integer")
         return ReasoningRequestOptions(
             mode="anthropic_thinking",
-            request_kwargs={
-                "thinking": {"type": "enabled", "budget_tokens": budget}
-            },
+            request_kwargs={"thinking": {"type": "enabled", "budget_tokens": budget}},
             legacy_profile=(
-                "anthropic_budget_thinking"
-                if normalized == "anthropic_budget_thinking"
-                else None
+                "anthropic_budget_thinking" if normalized == "anthropic_budget_thinking" else None
             ),
         )
 

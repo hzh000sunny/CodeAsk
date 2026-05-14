@@ -83,7 +83,14 @@ class NativeWikiSearchService:
                 .order_by(WikiNode.updated_at.desc(), WikiNode.id.desc())
             )
         ).all()
-        for node, document, version, document_feature_id, space_scope, space_status in document_rows:
+        for (
+            node,
+            document,
+            version,
+            document_feature_id,
+            space_scope,
+            space_status,
+        ) in document_rows:
             group_key, group_label = _group_for_hit(
                 kind="document",
                 hit_feature_id=document_feature_id,

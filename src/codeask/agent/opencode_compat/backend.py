@@ -134,9 +134,7 @@ class OpenCodeCompat:
                 pid=server.pid,
             )
 
-        external_session_key = await client.create_session(
-            directory=str(workspace.workspace_dir)
-        )
+        external_session_key = await client.create_session(directory=str(workspace.workspace_dir))
         return await self._session_store.upsert(
             ExternalAgentSessionCreate(
                 session_id=session_id,

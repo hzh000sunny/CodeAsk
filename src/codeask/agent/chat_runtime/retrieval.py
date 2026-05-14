@@ -98,9 +98,7 @@ class DatabaseRetrievalService:
             features = await self._search_features(session, terms)
             native_hits = await self._search_wiki_and_reports(session, terms)
             preferred_feature_ids = [
-                int(feature.id)
-                for feature in features
-                if feature.id is not None
+                int(feature.id) for feature in features if feature.id is not None
             ]
             feature_catalog_rows = _rank_feature_catalog(
                 feature_catalog_rows,
@@ -110,14 +108,8 @@ class DatabaseRetrievalService:
             native_hits = _rank_native_hits(native_hits, preferred_feature_ids)
             catalog_feature_ids = [int(feature.id) for feature in feature_catalog_rows]
             attachment_candidates = _build_attachment_candidates(attachments)
-            feature_ids = {
-                int(feature.id)
-                for feature in features
-                if feature.id is not None
-            } | {
-                int(hit.feature_id)
-                for hit in native_hits
-                if hit.feature_id is not None
+            feature_ids = {int(feature.id) for feature in features if feature.id is not None} | {
+                int(hit.feature_id) for hit in native_hits if hit.feature_id is not None
             }
             repo_links = await self._load_repo_links(
                 session,
@@ -252,11 +244,7 @@ class DatabaseRetrievalService:
             _append_unique(bucket["wiki_titles"], str(title), limit=8)
             _append_unique(bucket["wiki_paths"], str(path), limit=8)
             for keyword in _knowledge_keywords(
-                "\n".join(
-                    str(value)
-                    for value in (title, path, summary, body_excerpt)
-                    if value
-                )
+                "\n".join(str(value) for value in (title, path, summary, body_excerpt) if value)
             ):
                 _append_unique(bucket["keywords"], keyword, limit=18)
 
@@ -413,10 +401,7 @@ def _rank_feature_catalog(
 ) -> list[Feature]:
     if not preferred_feature_ids and not native_hits:
         return features
-    preferred_rank = {
-        feature_id: index
-        for index, feature_id in enumerate(preferred_feature_ids)
-    }
+    preferred_rank = {feature_id: index for index, feature_id in enumerate(preferred_feature_ids)}
     hit_rank: dict[int, int] = {}
     for index, hit in enumerate(native_hits):
         if hit.feature_id is None:
@@ -443,10 +428,7 @@ def _rank_native_hits(
 ) -> list[NativeWikiSearchHit]:
     if not preferred_feature_ids:
         return hits
-    preferred_rank = {
-        feature_id: index
-        for index, feature_id in enumerate(preferred_feature_ids)
-    }
+    preferred_rank = {feature_id: index for index, feature_id in enumerate(preferred_feature_ids)}
     fallback = len(preferred_rank) + 1
     return [
         hit
@@ -454,9 +436,7 @@ def _rank_native_hits(
             enumerate(hits),
             key=lambda item: (
                 preferred_rank.get(
-                    int(item[1].feature_id)
-                    if item[1].feature_id is not None
-                    else -1,
+                    int(item[1].feature_id) if item[1].feature_id is not None else -1,
                     fallback,
                 ),
                 item[0],
@@ -510,8 +490,7 @@ def _query_terms(text: str) -> list[str]:
         return []
     terms = [cleaned]
     terms.extend(
-        token.strip("，。？！?!.、：:；;（）()[]【】\"'")
-        for token in re.split(r"\s+", cleaned)
+        token.strip("，。？！?!.、：:；;（）()[]【】\"'") for token in re.split(r"\s+", cleaned)
     )
     terms.extend(re.findall(r"[A-Za-z0-9_-]{2,}", cleaned))
     compact_cjk = re.sub(r"[，。？！?!.、：:；;（）()【】\s]", "", cleaned)

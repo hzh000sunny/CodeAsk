@@ -1,7 +1,6 @@
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
 
 from codeask.db.models import WikiDocument, WikiDocumentVersion, WikiNode, WikiSpace
 
@@ -46,7 +45,9 @@ async def test_wiki_search_returns_native_documents_and_report_refs(client: Asyn
     response = await client.get(f"/api/wiki/tree?feature_id={feature_id}")
     assert response.status_code == 200, response.text
     tree_body = response.json()
-    knowledge_root = next(node for node in tree_body["nodes"] if node["system_role"] == "knowledge_base")
+    knowledge_root = next(
+        node for node in tree_body["nodes"] if node["system_role"] == "knowledge_base"
+    )
 
     response = await client.post(
         "/api/wiki/nodes",
@@ -190,7 +191,9 @@ async def test_wiki_search_groups_global_results_by_context_and_is_case_insensit
     assert other_doc.status_code == 201, other_doc.text
     publish_other = await client.post(
         f"/api/wiki/documents/{other_doc.json()['id']}/publish",
-        json={"body_markdown": "# Other\n\nContains MIXED_CASE_WIKI_MARKER in another active feature."},
+        json={
+            "body_markdown": "# Other\n\nContains MIXED_CASE_WIKI_MARKER in another active feature."
+        },
         headers={"X-Subject-Id": "owner@test"},
     )
     assert publish_other.status_code == 200, publish_other.text

@@ -104,11 +104,8 @@ async def test_wiki_workspace_exporter_materializes_current_wiki_and_reports(
     doc_text = (feature_dir / "knowledge-base" / "小米病历.md").read_text(encoding="utf-8")
     assert "node_id:" in doc_text
     assert "右脚脚掌肥大细胞瘤已切除" in doc_text
-    report_text = (
-        feature_dir
-        / "problem-reports"
-        / "verified"
-        / "肿瘤定位.md"
-    ).read_text(encoding="utf-8")
+    report_text = (feature_dir / "problem-reports" / "verified" / "肿瘤定位.md").read_text(
+        encoding="utf-8"
+    )
     assert "problem_report" in report_text
     assert "病历显示肿瘤发生在右脚脚掌" in report_text

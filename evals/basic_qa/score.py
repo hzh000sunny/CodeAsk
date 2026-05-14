@@ -74,8 +74,7 @@ def score_suite(cases: list[Case], outputs: dict[str, dict[str, Any]]) -> Score:
             breakdown={
                 "tool_trigger_rate": trigger_rate,
                 "allowed_tool_trigger_rate": max_rate,
-                "direct_answer_pass_rate": (len(cases) - len(direct_failures))
-                / max(len(cases), 1),
+                "direct_answer_pass_rate": (len(cases) - len(direct_failures)) / max(len(cases), 1),
             },
             notes=notes,
         ),

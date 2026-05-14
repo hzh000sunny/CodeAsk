@@ -14,13 +14,15 @@ import {
   deleteWikiNode,
   getWikiDiff,
   getWikiSpaceByFeature,
-  getWikiTree,
   publishWikiDocument,
   rollbackWikiVersion,
   updateWikiNode,
 } from "../../lib/wiki/api";
 import { buildWikiMarkdownLinkMaps } from "../../lib/wiki/markdown";
-import { groupWikiSearchHits, injectWikiReportProjections } from "../../lib/wiki/presentation";
+import {
+  groupWikiSearchHits,
+  injectWikiReportProjections,
+} from "../../lib/wiki/presentation";
 import { wikiQueryKeys } from "../../lib/wiki/query-keys";
 import type { WikiRouteState } from "../../lib/wiki/routing";
 import {
@@ -103,7 +105,7 @@ export function WikiWorkbench({
     queryKey: ["auth", "me"],
     queryFn: getMe,
   });
-  const features = featureQuery.data ?? [];
+  const features = useMemo(() => featureQuery.data ?? [], [featureQuery.data]);
   const fallbackFeatureId = features[0]?.id ?? null;
   const activeFeatureId = routeState.featureId ?? fallbackFeatureId;
   const activeListedFeature =
@@ -315,7 +317,7 @@ export function WikiWorkbench({
       nextExpanded.add(knowledgeRoot.id);
     }
     setExpandedIds(nextExpanded);
-  }, [activeFeatureRoot, knowledgeRoot]);
+  }, [activeFeatureRoot, knowledgeRoot, routeState.nodeId, tree]);
 
   useEffect(() => {
     if (reportEnabled && routeState.mode === "edit") {
@@ -330,11 +332,7 @@ export function WikiWorkbench({
         : documentQuery.data.draft_body_markdown ??
           documentQuery.data.current_body_markdown ??
           "",
-    [
-      documentQuery.data?.document_id,
-      documentQuery.data?.draft_body_markdown,
-      documentQuery.data?.current_body_markdown,
-    ],
+    [documentQuery.data],
   );
 
   useEffect(() => {

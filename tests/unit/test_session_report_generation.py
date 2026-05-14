@@ -61,14 +61,14 @@ def test_parse_prepared_report_payload_extracts_json_from_wrapped_model_text() -
 
 def test_parse_prepared_report_payload_repairs_literal_newlines_inside_json_strings() -> None:
     payload = parse_prepared_report_payload(
-        '```json\n'
-        '{\n'
+        "```json\n"
+        "{\n"
         '  "title_description": "AnythingLLM 文档摄入流程",\n'
         '  "body_markdown": "# 背景\\n\\n下面是流程图：\\n\\n```\n'
         "Collector -> Server\n"
         '```\\n\\n结论。"\n'
-        '}\n'
-        '```'
+        "}\n"
+        "```"
     )
 
     assert payload["title_description"] == "AnythingLLM 文档摄入流程"
@@ -77,13 +77,13 @@ def test_parse_prepared_report_payload_repairs_literal_newlines_inside_json_stri
 
 def test_parse_prepared_report_payload_tolerates_unescaped_quotes_in_body_markdown() -> None:
     payload = parse_prepared_report_payload(
-        '```json\n'
-        '{\n'
+        "```json\n"
+        "{\n"
         '  "title_description": "CodeAsk 产品架构认知",\n'
         '  "body_markdown": "# 背景\\n\\n'
         '模型在正文中写了未转义的半角双引号，例如作为"筛选后参考"的定位一致。"\n'
-        '}\n'
-        '```'
+        "}\n"
+        "```"
     )
 
     assert payload["title_description"] == "CodeAsk 产品架构认知"
@@ -92,8 +92,8 @@ def test_parse_prepared_report_payload_tolerates_unescaped_quotes_in_body_markdo
 
 def test_parse_prepared_report_payload_recovers_title_from_truncated_json_like_output() -> None:
     payload = parse_prepared_report_payload(
-        '```json\n'
-        '{\n'
+        "```json\n"
+        "{\n"
         '  "title_description": "AnythingLLM 核心模块代码级架构与实现机制全面调查",\n'
         '  "body_markdown": "# AnythingLLM 核心模块代码级架构与实现机制全面调查\\n\\n'
         "## 一、问题背景\\n\\n模型输出很长，最后被截断在参考资料：\\n3. 已有报告：`"

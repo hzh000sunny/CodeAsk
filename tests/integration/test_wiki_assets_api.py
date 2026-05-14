@@ -8,7 +8,6 @@ from sqlalchemy import select
 
 from codeask.db.models import WikiAsset, WikiSource
 
-
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n"
     b"\x00\x00\x00\rIHDR"
@@ -20,7 +19,9 @@ PNG_BYTES = (
 )
 
 
-async def _create_space_and_folder(client: AsyncClient, slug: str = "wiki-assets") -> tuple[int, int]:
+async def _create_space_and_folder(
+    client: AsyncClient, slug: str = "wiki-assets"
+) -> tuple[int, int]:
     login = await client.post("/api/auth/admin/login", json={"password": "admin"})
     assert login.status_code == 200, login.text
     feature = await client.post(
@@ -75,7 +76,9 @@ async def test_upload_asset_and_stream_content(client: AsyncClient, app, tmp_pat
         asset = (
             await session.execute(select(WikiAsset).where(WikiAsset.node_id == node_id))
         ).scalar_one_or_none()
-        source = await session.get(WikiSource, asset.provenance_json["source_id"]) if asset else None
+        source = (
+            await session.get(WikiSource, asset.provenance_json["source_id"]) if asset else None
+        )
     assert asset is not None
     assert asset.provenance_json["source"] == "manual_upload"
     assert asset.provenance_json["source_id"] is not None
@@ -84,7 +87,9 @@ async def test_upload_asset_and_stream_content(client: AsyncClient, app, tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_published_markdown_resolves_uploaded_asset(client: AsyncClient, tmp_path: Path) -> None:
+async def test_published_markdown_resolves_uploaded_asset(
+    client: AsyncClient, tmp_path: Path
+) -> None:
     space_id, parent_id = await _create_space_and_folder(client, slug="wiki-assets-resolve")
     file_path = tmp_path / "diagram.png"
     file_path.write_bytes(PNG_BYTES)

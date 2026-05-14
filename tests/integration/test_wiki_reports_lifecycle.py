@@ -113,9 +113,7 @@ async def test_verify_fails_without_log_or_code_evidence(tmp_path: Path) -> None
     factory = session_factory(engine)
     service = ReportService()
     bad = _good_metadata()
-    bad["evidence"] = [
-        item for item in bad["evidence"] if item["type"] not in {"log", "code"}
-    ]
+    bad["evidence"] = [item for item in bad["evidence"] if item["type"] not in {"log", "code"}]
 
     async with factory() as session:
         report_id = await service.create_draft(

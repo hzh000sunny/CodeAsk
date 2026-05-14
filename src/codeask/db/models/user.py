@@ -21,9 +21,7 @@ class User(Base, TimestampMixin):
     """Application user with optional password authentication."""
 
     __tablename__ = "users"
-    __table_args__ = (
-        CheckConstraint("role IN ('admin', 'member')", name="ck_users_role"),
-    )
+    __table_args__ = (CheckConstraint("role IN ('admin', 'member')", name="ck_users_role"),)
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     username: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)

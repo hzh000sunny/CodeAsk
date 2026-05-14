@@ -161,12 +161,16 @@ class ThinkTagContentFilter:
         self._buffer = ""
         if self._inside:
             self._inside = False
-            return [
-                (
-                    "reasoning_delta",
-                    {"delta": pending, "field": _CONTENT_THINK_FIELD, "redacted": False},
-                )
-            ] if pending else []
+            return (
+                [
+                    (
+                        "reasoning_delta",
+                        {"delta": pending, "field": _CONTENT_THINK_FIELD, "redacted": False},
+                    )
+                ]
+                if pending
+                else []
+            )
         return [("text_delta", {"delta": pending})]
 
 

@@ -40,12 +40,7 @@ def _replacement_for_evidence(item: Evidence) -> str | None:
 
 
 def _markdown_label(item: Evidence) -> str:
-    raw = (
-        item.data.get("title")
-        or item.data.get("path")
-        or item.summary
-        or item.id
-    )
+    raw = item.data.get("title") or item.data.get("path") or item.summary or item.id
     text = str(raw).strip() or item.id
     return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
 

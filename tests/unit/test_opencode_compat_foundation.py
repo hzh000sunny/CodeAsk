@@ -142,8 +142,6 @@ def test_codeask_system_prompt_instructs_model_to_bind_features_and_use_wiki_fir
     assert "Final answers must start with the answer itself" in prompt
 
 
-
-
 def test_workspace_manager_creates_and_restores_wiki_symlink(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     wiki_root = tmp_path / "wiki_workspace" / "current"

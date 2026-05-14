@@ -38,7 +38,9 @@ class WikiAssetService:
         self._require_write(actor, feature)
         if parent is not None:
             if parent.deleted_at is not None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki node not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="wiki node not found"
+                )
             if parent.space_id != space.id:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -73,7 +75,9 @@ class WikiAssetService:
         with target.open("wb") as output:
             shutil.copyfileobj(file.file, output)
 
-        mime_type = file.content_type or mimetypes.guess_type(display_name)[0] or "application/octet-stream"
+        mime_type = (
+            file.content_type or mimetypes.guess_type(display_name)[0] or "application/octet-stream"
+        )
         source = await WikiSourceService().create_source(
             session,
             actor=actor,
@@ -115,17 +119,25 @@ class WikiAssetService:
         *,
         node_id: int,
     ) -> tuple[Path, str]:
-        node = (await session.execute(select(WikiNode).where(WikiNode.id == node_id))).scalar_one_or_none()
+        node = (
+            await session.execute(select(WikiNode).where(WikiNode.id == node_id))
+        ).scalar_one_or_none()
         if node is None or node.deleted_at is not None or node.type != "asset":
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki asset not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki asset not found"
+            )
         asset = (
             await session.execute(select(WikiAsset).where(WikiAsset.node_id == node_id))
         ).scalar_one_or_none()
         if asset is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki asset not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki asset not found"
+            )
         path = Path(asset.storage_path)
         if not path.is_file():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki asset content missing")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki asset content missing"
+            )
         return path, asset.mime_type or "application/octet-stream"
 
     async def _load_feature_for_space(self, session: AsyncSession, *, space_id: int) -> Feature:

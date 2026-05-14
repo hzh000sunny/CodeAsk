@@ -784,9 +784,7 @@ def _inspect_tree(
             dir_names[:] = []
             continue
         candidates = [(dirname, True) for dirname in dir_names] + [
-            (filename, False)
-            for filename in file_names
-            if not _is_ignored_part(filename)
+            (filename, False) for filename in file_names if not _is_ignored_part(filename)
         ]
         for name, is_dir in sorted(candidates, key=lambda value: (not value[1], value[0])):
             rel = (current_path / name).relative_to(base_resolved).as_posix()
@@ -838,9 +836,7 @@ def _list_paths(
     candidates: list[tuple[str, bool]] = []
     for current_root, dir_names, file_names in os.walk(root):
         current_path = Path(current_root)
-        dir_names[:] = [
-            dirname for dirname in dir_names if not _is_ignored_part(dirname)
-        ]
+        dir_names[:] = [dirname for dirname in dir_names if not _is_ignored_part(dirname)]
         if include_dirs:
             for dirname in dir_names:
                 rel = (current_path / dirname).relative_to(base).as_posix()
@@ -924,6 +920,4 @@ def _is_ignored_part(part: str) -> bool:
 
 def _number_lines(text: str, start_line: int) -> str:
     lines = text.splitlines()
-    return "\n".join(
-        f"{line_no}: {line}" for line_no, line in enumerate(lines, start=start_line)
-    )
+    return "\n".join(f"{line_no}: {line}" for line_no, line in enumerate(lines, start=start_line))

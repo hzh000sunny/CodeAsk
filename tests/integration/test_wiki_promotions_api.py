@@ -114,7 +114,9 @@ async def test_promote_session_attachment_to_wiki_document(client: AsyncClient, 
 @pytest.mark.asyncio
 async def test_promote_session_attachment_to_wiki_asset(client: AsyncClient, app) -> None:  # type: ignore[no-untyped-def]
     session_id = await _create_session(client)
-    _feature_id, space_id, knowledge_root_id = await _create_feature_space(client, "promotion-asset")
+    _feature_id, space_id, knowledge_root_id = await _create_feature_space(
+        client, "promotion-asset"
+    )
 
     upload = await client.post(
         f"/api/sessions/{session_id}/attachments",

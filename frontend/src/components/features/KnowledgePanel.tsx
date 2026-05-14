@@ -85,8 +85,6 @@ export function KnowledgePanel({
     enabled: selectedNode?.type === "report_ref",
   });
 
-  const previewTitle =
-    documentQuery.data?.title ?? reportQuery.data?.title ?? selectedNode?.name ?? "预览";
   const previewBody =
     documentQuery.data?.current_body_markdown ?? reportQuery.data?.body_markdown ?? "";
   const previewRefMaps = useMemo(

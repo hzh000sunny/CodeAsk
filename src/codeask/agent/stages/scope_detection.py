@@ -134,8 +134,15 @@ def _normalize_decision(value: object) -> dict[str, Any]:
 
 def _ask_user_payload(ctx: StageContext, decision: dict[str, Any]) -> dict[str, Any]:
     options = [
-        f"{digest.feature_id}: {digest.feature_name or digest.feature_slug or digest.summary_text or digest.navigation_index or '未命名功能'}"
+        f"{digest.feature_id}: {display_name}"
         for digest in ctx.prompt_context.feature_digests
+        for display_name in [
+            digest.feature_name
+            or digest.feature_slug
+            or digest.summary_text
+            or digest.navigation_index
+            or "未命名功能"
+        ]
     ]
     return {
         "ask_id": f"{ctx.turn_id}:scope_detection",

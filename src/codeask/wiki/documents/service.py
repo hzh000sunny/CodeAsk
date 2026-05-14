@@ -18,7 +18,10 @@ from codeask.db.models import (
     WikiSpace,
 )
 from codeask.wiki.actor import WikiActor
-from codeask.wiki.documents.markdown_refs import parse_markdown_references, resolve_markdown_references
+from codeask.wiki.documents.markdown_refs import (
+    parse_markdown_references,
+    resolve_markdown_references,
+)
 from codeask.wiki.index import WikiIndexService
 from codeask.wiki.permissions import can_admin_feature, can_write_feature
 
@@ -30,14 +33,20 @@ class WikiDocumentService:
         *,
         node_id: int,
     ) -> tuple[WikiNode, WikiDocument]:
-        node = (await session.execute(select(WikiNode).where(WikiNode.id == node_id))).scalar_one_or_none()
+        node = (
+            await session.execute(select(WikiNode).where(WikiNode.id == node_id))
+        ).scalar_one_or_none()
         if node is None or node.deleted_at is not None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki document not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki document not found"
+            )
         document = (
             await session.execute(select(WikiDocument).where(WikiDocument.node_id == node_id))
         ).scalar_one_or_none()
         if document is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki document not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki document not found"
+            )
         return node, document
 
     async def get_document_detail(
@@ -50,7 +59,9 @@ class WikiDocumentService:
         node, document = await self.load_document_by_node(session, node_id=node_id)
         feature = await self._load_feature_for_space(session, space_id=node.space_id)
         current_version = await self._current_version(session, document=document)
-        draft = await self._draft_for_subject(session, document_id=document.id, subject_id=actor.subject_id)
+        draft = await self._draft_for_subject(
+            session, document_id=document.id, subject_id=actor.subject_id
+        )
         if current_version is not None:
             refs = await self._reference_state(
                 session,
@@ -68,7 +79,9 @@ class WikiDocumentService:
             "node_id": node.id,
             "title": document.title,
             "current_version_id": document.current_version_id,
-            "current_body_markdown": current_version.body_markdown if current_version is not None else None,
+            "current_body_markdown": current_version.body_markdown
+            if current_version is not None
+            else None,
             "draft_body_markdown": draft.body_markdown if draft is not None else None,
             "index_status": document.index_status,
             "broken_refs_json": broken_refs_json,
@@ -96,7 +109,9 @@ class WikiDocumentService:
         _node, document = await self.load_document_by_node(session, node_id=node_id)
         feature = await self._load_feature_for_document(session, document=document)
         self._require_write(actor, feature)
-        draft = await self._draft_for_subject(session, document_id=document.id, subject_id=actor.subject_id)
+        draft = await self._draft_for_subject(
+            session, document_id=document.id, subject_id=actor.subject_id
+        )
         if draft is None:
             draft = WikiDocumentDraft(
                 document_id=document.id,
@@ -119,7 +134,9 @@ class WikiDocumentService:
         _node, document = await self.load_document_by_node(session, node_id=node_id)
         feature = await self._load_feature_for_document(session, document=document)
         self._require_write(actor, feature)
-        draft = await self._draft_for_subject(session, document_id=document.id, subject_id=actor.subject_id)
+        draft = await self._draft_for_subject(
+            session, document_id=document.id, subject_id=actor.subject_id
+        )
         if draft is not None:
             await session.delete(draft)
 
@@ -135,8 +152,16 @@ class WikiDocumentService:
         feature = await self._load_feature_for_document(session, document=document)
         self._require_write(actor, feature)
 
-        draft = await self._draft_for_subject(session, document_id=document.id, subject_id=actor.subject_id)
-        final_body = body_markdown if body_markdown is not None else draft.body_markdown if draft is not None else None
+        draft = await self._draft_for_subject(
+            session, document_id=document.id, subject_id=actor.subject_id
+        )
+        final_body = (
+            body_markdown
+            if body_markdown is not None
+            else draft.body_markdown
+            if draft is not None
+            else None
+        )
         if final_body is None or not final_body.strip():
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -173,12 +198,16 @@ class WikiDocumentService:
         _node, document = await self.load_document_by_node(session, node_id=node_id)
         await self._load_feature_for_document(session, document=document)
         return (
-            await session.execute(
-                select(WikiDocumentVersion)
-                .where(WikiDocumentVersion.document_id == document.id)
-                .order_by(WikiDocumentVersion.version_no.desc(), WikiDocumentVersion.id.desc())
+            (
+                await session.execute(
+                    select(WikiDocumentVersion)
+                    .where(WikiDocumentVersion.document_id == document.id)
+                    .order_by(WikiDocumentVersion.version_no.desc(), WikiDocumentVersion.id.desc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     async def get_version(
         self,
@@ -270,7 +299,9 @@ class WikiDocumentService:
             return None
         return (
             await session.execute(
-                select(WikiDocumentVersion).where(WikiDocumentVersion.id == document.current_version_id)
+                select(WikiDocumentVersion).where(
+                    WikiDocumentVersion.id == document.current_version_id
+                )
             )
         ).scalar_one_or_none()
 
@@ -346,7 +377,9 @@ class WikiDocumentService:
     ) -> Feature:
         node = await session.get(WikiNode, document.node_id)
         if node is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki document not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki document not found"
+            )
         return await self._load_feature_for_space(session, space_id=node.space_id)
 
     async def _load_feature_for_space(self, session: AsyncSession, *, space_id: int) -> Feature:
@@ -372,7 +405,9 @@ class WikiDocumentService:
         source_name = provenance_json.get("source")
         summary: dict[str, object] = {
             "source": source_name,
-            "source_label": self._provenance_label(source_name if isinstance(source_name, str) else None),
+            "source_label": self._provenance_label(
+                source_name if isinstance(source_name, str) else None
+            ),
             "source_path": provenance_json.get("source_path"),
             "import_job_id": provenance_json.get("import_job_id"),
             "import_session_id": provenance_json.get("import_session_id"),
@@ -386,9 +421,8 @@ class WikiDocumentService:
             ).scalar_one_or_none()
             if source is not None:
                 source_display_name = source.display_name
-                if (
-                    source.kind == "directory_import"
-                    and source_display_name.startswith("导入会话 ")
+                if source.kind == "directory_import" and source_display_name.startswith(
+                    "导入会话 "
                 ):
                     derived_name = self._derive_import_source_display_name(
                         summary.get("source_path")

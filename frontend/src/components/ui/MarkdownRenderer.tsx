@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -106,7 +106,6 @@ export function MarkdownRenderer({
   );
 }
 
-let mermaidRenderSeq = 0;
 let mermaidInitialized = false;
 let mermaidModulePromise: Promise<typeof import("mermaid").default> | null = null;
 
@@ -213,12 +212,8 @@ function MermaidDiagram({ chart }: { chart: string }) {
   const [error, setError] = useState("");
   const [intrinsicWidth, setIntrinsicWidth] = useState<number | null>(null);
   const blockRef = useRef<HTMLDivElement | null>(null);
-  const renderIdRef = useRef("");
-
-  if (!renderIdRef.current) {
-    mermaidRenderSeq += 1;
-    renderIdRef.current = `codeask-mermaid-${mermaidRenderSeq}`;
-  }
+  const reactId = useId();
+  const renderId = `codeask-mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -229,7 +224,7 @@ function MermaidDiagram({ chart }: { chart: string }) {
       setIntrinsicWidth(null);
       try {
         const mermaid = await loadMermaid();
-        const result = await mermaid.render(renderIdRef.current, chart);
+        const result = await mermaid.render(renderId, chart);
         if (!cancelled) {
           setSvg(result.svg);
           setIntrinsicWidth(readSvgViewBoxWidth(result.svg));
@@ -246,7 +241,7 @@ function MermaidDiagram({ chart }: { chart: string }) {
     return () => {
       cancelled = true;
     };
-  }, [chart]);
+  }, [chart, renderId]);
 
   const displayWidth = intrinsicWidth ? Math.min(Math.max(intrinsicWidth, 720), 1200) : null;
 

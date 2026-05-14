@@ -1,9 +1,8 @@
 import type {
-  WikiNodeRead,
   WikiReportProjectionRead,
   WikiSearchHitRead,
 } from "../../types/wiki";
-import { buildWikiTree, type WikiTreeNodeRecord } from "./tree";
+import type { WikiTreeNodeRecord } from "./tree";
 
 export interface WikiSearchHitGroup {
   key: string;

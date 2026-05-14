@@ -8,10 +8,18 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from codeask.db.models import Feature, WikiAsset, WikiDocument, WikiImportSession, WikiNode, WikiSource, WikiSpace
+from codeask.db.models import (
+    Feature,
+    WikiAsset,
+    WikiDocument,
+    WikiImportSession,
+    WikiNode,
+    WikiSource,
+    WikiSpace,
+)
 from codeask.metrics.audit import record_audit_log
-from codeask.wiki.audit import AuditWriter
 from codeask.wiki.actor import WikiActor
+from codeask.wiki.audit import AuditWriter
 from codeask.wiki.permissions import can_write_feature
 
 
@@ -27,12 +35,16 @@ class WikiSourceService:
     ) -> list[WikiSource]:
         await self._load_feature_for_space(session, space_id=space_id)
         rows = (
-            await session.execute(
-                select(WikiSource)
-                .where(WikiSource.space_id == space_id)
-                .order_by(WikiSource.id.asc())
+            (
+                await session.execute(
+                    select(WikiSource)
+                    .where(WikiSource.space_id == space_id)
+                    .order_by(WikiSource.id.asc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         visible: list[WikiSource] = []
         for source in rows:
             if await self._should_hide_legacy_placeholder(session, source):
@@ -136,7 +148,9 @@ class WikiSourceService:
             await session.execute(select(WikiSource).where(WikiSource.id == source_id))
         ).scalar_one_or_none()
         if source is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki source not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki source not found"
+            )
         return source
 
     async def _load_feature_for_space(self, session: AsyncSession, *, space_id: int) -> Feature:
@@ -212,8 +226,9 @@ class WikiSourceService:
         paths: list[str] = []
         document_rows = (
             await session.execute(
-                select(WikiDocument.provenance_json, WikiNode.deleted_at)
-                .join(WikiNode, WikiNode.id == WikiDocument.node_id)
+                select(WikiDocument.provenance_json, WikiNode.deleted_at).join(
+                    WikiNode, WikiNode.id == WikiDocument.node_id
+                )
             )
         ).all()
         for provenance_json, deleted_at in document_rows:
@@ -226,8 +241,9 @@ class WikiSourceService:
 
         asset_rows = (
             await session.execute(
-                select(WikiAsset.provenance_json, WikiNode.deleted_at)
-                .join(WikiNode, WikiNode.id == WikiAsset.node_id)
+                select(WikiAsset.provenance_json, WikiNode.deleted_at).join(
+                    WikiNode, WikiNode.id == WikiAsset.node_id
+                )
             )
         ).all()
         for provenance_json, deleted_at in asset_rows:

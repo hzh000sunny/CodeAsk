@@ -166,12 +166,7 @@ class WikiWorkspaceExporter:
         count = 0
         for node, report_ref, report in rows:
             report_bucket = "verified" if report.verified else "drafts"
-            target = (
-                feature_dir
-                / "problem-reports"
-                / report_bucket
-                / _report_relpath(node.path)
-            )
+            target = feature_dir / "problem-reports" / report_bucket / _report_relpath(node.path)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(
                 _front_matter(

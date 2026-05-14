@@ -44,7 +44,9 @@ async def ensure_admin_user(
 
 
 async def _load_admin_user(session: AsyncSession) -> User | None:
-    return (await session.execute(select(User).where(User.username == ADMIN_USERNAME))).scalar_one_or_none()
+    return (
+        await session.execute(select(User).where(User.username == ADMIN_USERNAME))
+    ).scalar_one_or_none()
 
 
 def _normalize_admin_user(user: User, default_password: str) -> bool:

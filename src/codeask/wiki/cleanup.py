@@ -24,15 +24,19 @@ async def purge_expired_soft_deleted_nodes(
     cutoff = datetime.now(UTC) - timedelta(days=retention_days)
     async with session_factory() as session:
         nodes = (
-            await session.execute(
-                select(WikiNode)
-                .where(
-                    WikiNode.deleted_at.is_not(None),
-                    WikiNode.deleted_at <= cutoff,
+            (
+                await session.execute(
+                    select(WikiNode)
+                    .where(
+                        WikiNode.deleted_at.is_not(None),
+                        WikiNode.deleted_at <= cutoff,
+                    )
+                    .order_by(WikiNode.id.asc())
                 )
-                .order_by(WikiNode.id.asc())
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         removed_assets = 0
         for node in nodes:

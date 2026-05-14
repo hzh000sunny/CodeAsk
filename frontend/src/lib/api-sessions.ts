@@ -6,7 +6,6 @@ import type {
   FrontendEventAck,
   ReportRead,
   SessionReportPrepareStatus,
-  SessionReportPrepared,
   SessionResponse,
   SessionTurnResponse,
 } from "../types/api";

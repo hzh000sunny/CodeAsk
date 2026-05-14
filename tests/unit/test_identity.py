@@ -11,10 +11,10 @@ from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from codeask.auth.sessions import create_session_token, hash_session_token
 from codeask.db import Base, create_engine, session_factory
 from codeask.db.models import AuthSession, User
 from codeask.identity import SubjectIdMiddleware, create_admin_session_token
-from codeask.auth.sessions import create_session_token, hash_session_token
 
 
 @pytest_asyncio.fixture()
@@ -94,7 +94,9 @@ async def _seed_user_session(
                 id=f"authsess_{user_id}",
                 token_hash=hash_session_token(token),
                 user_id=user_id,
-                auth_version=session_auth_version if session_auth_version is not None else auth_version,
+                auth_version=session_auth_version
+                if session_auth_version is not None
+                else auth_version,
                 expires_at=expires_at,
                 last_seen_at=last_seen_at,
             )

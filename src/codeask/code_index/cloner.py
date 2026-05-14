@@ -163,9 +163,7 @@ class RepoCloner:
         self._exec_git(
             ["git", "--git-dir", str(bare_path), "config", "user.email", "codeask@local"]
         )
-        self._exec_git(
-            ["git", "--git-dir", str(bare_path), "config", "user.name", "CodeAsk"]
-        )
+        self._exec_git(["git", "--git-dir", str(bare_path), "config", "user.name", "CodeAsk"])
         self._exec_git(
             [
                 "git",

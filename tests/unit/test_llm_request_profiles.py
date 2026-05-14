@@ -47,9 +47,7 @@ def test_request_patch_profile_is_provider_neutral() -> None:
         protocol="openai_compatible",
     )
 
-    assert options.request_kwargs == {
-        "extra_body": {"thinking": {"type": "enabled"}}
-    }
+    assert options.request_kwargs == {"extra_body": {"thinking": {"type": "enabled"}}}
     assert options.mode == "request_patch"
     assert options.legacy_profile is None
 
@@ -60,9 +58,7 @@ def test_legacy_vendor_profile_becomes_explicit_patch() -> None:
         protocol="openai_compatible",
     )
 
-    assert options.request_kwargs == {
-        "extra_body": {"thinking": {"type": "enabled"}}
-    }
+    assert options.request_kwargs == {"extra_body": {"thinking": {"type": "enabled"}}}
     assert options.mode == "request_patch"
     assert options.legacy_profile == "volcengine_thinking"
 
@@ -74,7 +70,5 @@ def test_anthropic_thinking_profile_is_protocol_scoped() -> None:
         protocol="anthropic",
     )
 
-    assert options.request_kwargs == {
-        "thinking": {"type": "enabled", "budget_tokens": 8192}
-    }
+    assert options.request_kwargs == {"thinking": {"type": "enabled", "budget_tokens": 8192}}
     assert options.mode == "anthropic_thinking"

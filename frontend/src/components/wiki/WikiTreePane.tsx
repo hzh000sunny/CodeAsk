@@ -20,7 +20,7 @@ export function WikiTreePane({
   onCreateDocument,
   onCreateFolder,
   onDeleteNode,
-  onImport,
+  onImport: _onImport,
   onImportNode,
   onMoveDownNode,
   onMoveNodeRequest,

@@ -54,9 +54,7 @@ async def test_wiki_path_resolver_matches_roots_and_named_nodes_within_feature(
     assert response.status_code == 201, response.text
     runbook_document = response.json()
 
-    resolve_root = await client.get(
-        f"/api/wiki/resolve-path?q=问题报告&feature_id={feature_id}"
-    )
+    resolve_root = await client.get(f"/api/wiki/resolve-path?q=问题报告&feature_id={feature_id}")
     assert resolve_root.status_code == 200, resolve_root.text
     root_body = resolve_root.json()
     assert root_body["items"][0]["node_id"] == reports_root["id"]

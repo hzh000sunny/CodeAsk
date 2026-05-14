@@ -23,10 +23,14 @@ class WikiTreeService:
         session: AsyncSession,
     ) -> list[dict[str, Any]]:
         features = (
-            await session.execute(
-                select(Feature).where(Feature.status == "active").order_by(Feature.id.asc())
+            (
+                await session.execute(
+                    select(Feature).where(Feature.status == "active").order_by(Feature.id.asc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         now = datetime.now(UTC)
         nodes: list[dict[str, Any]] = [
             self._virtual_node(
@@ -227,16 +231,20 @@ class WikiTreeService:
         space_id: int,
     ) -> list[WikiNode]:
         return (
-            await session.execute(
-                select(WikiNode)
-                .where(
-                    WikiNode.space_id == space_id,
-                    WikiNode.parent_id.is_(None),
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode)
+                    .where(
+                        WikiNode.space_id == space_id,
+                        WikiNode.parent_id.is_(None),
+                        WikiNode.deleted_at.is_(None),
+                    )
+                    .order_by(WikiNode.sort_order.asc(), WikiNode.name.asc(), WikiNode.id.asc())
                 )
-                .order_by(WikiNode.sort_order.asc(), WikiNode.name.asc(), WikiNode.id.asc())
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     async def list_active_nodes(
         self,
@@ -245,20 +253,24 @@ class WikiTreeService:
         space_id: int,
     ) -> list[WikiNode]:
         return (
-            await session.execute(
-                select(WikiNode)
-                .where(
-                    WikiNode.space_id == space_id,
-                    WikiNode.deleted_at.is_(None),
-                )
-                .order_by(
-                    WikiNode.path.asc(),
-                    WikiNode.sort_order.asc(),
-                    WikiNode.name.asc(),
-                    WikiNode.id.asc(),
+            (
+                await session.execute(
+                    select(WikiNode)
+                    .where(
+                        WikiNode.space_id == space_id,
+                        WikiNode.deleted_at.is_(None),
+                    )
+                    .order_by(
+                        WikiNode.path.asc(),
+                        WikiNode.sort_order.asc(),
+                        WikiNode.name.asc(),
+                        WikiNode.id.asc(),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     async def get_node_detail(
         self,
@@ -377,20 +389,30 @@ class WikiTreeService:
         old_path = node.path
         new_path = join_node_path(next_parent_path, next_name)
         descendants = (
-            await session.execute(
-                select(WikiNode)
-                .where(
-                    WikiNode.space_id == node.space_id,
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode)
+                    .where(
+                        WikiNode.space_id == node.space_id,
+                        WikiNode.deleted_at.is_(None),
+                    )
+                    .order_by(WikiNode.path.asc())
                 )
-                .order_by(WikiNode.path.asc())
             )
-        ).scalars().all()
-        subtree = [row for row in descendants if row.id == node.id or is_descendant_path(row.path, old_path)]
+            .scalars()
+            .all()
+        )
+        subtree = [
+            row
+            for row in descendants
+            if row.id == node.id or is_descendant_path(row.path, old_path)
+        ]
         subtree_ids = {row.id for row in subtree}
 
         for row in subtree:
-            candidate_path = new_path if row.id == node.id else f"{new_path}/{row.path[len(old_path) + 1:]}"
+            candidate_path = (
+                new_path if row.id == node.id else f"{new_path}/{row.path[len(old_path) + 1 :]}"
+            )
             await self._assert_path_available(
                 session,
                 space_id=node.space_id,
@@ -427,13 +449,17 @@ class WikiTreeService:
         self._require_write(actor, feature)
         now = datetime.now(UTC)
         descendants = (
-            await session.execute(
-                select(WikiNode).where(
-                    WikiNode.space_id == node.space_id,
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode).where(
+                        WikiNode.space_id == node.space_id,
+                        WikiNode.deleted_at.is_(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for row in descendants:
             if row.id == node.id or is_descendant_path(row.path, node.path):
                 row.deleted_at = now
@@ -464,13 +490,21 @@ class WikiTreeService:
                 )
 
         candidates = (
-            await session.execute(
-                select(WikiNode)
-                .where(WikiNode.space_id == node.space_id)
-                .order_by(WikiNode.path.asc(), WikiNode.id.asc())
+            (
+                await session.execute(
+                    select(WikiNode)
+                    .where(WikiNode.space_id == node.space_id)
+                    .order_by(WikiNode.path.asc(), WikiNode.id.asc())
+                )
             )
-        ).scalars().all()
-        subtree = [row for row in candidates if row.id == node.id or is_descendant_path(row.path, node.path)]
+            .scalars()
+            .all()
+        )
+        subtree = [
+            row
+            for row in candidates
+            if row.id == node.id or is_descendant_path(row.path, node.path)
+        ]
         subtree_ids = {row.id for row in subtree}
         for row in subtree:
             await self._assert_path_available(
@@ -505,14 +539,18 @@ class WikiTreeService:
         exclude_ids: set[int] | None = None,
     ) -> None:
         rows = (
-            await session.execute(
-                select(WikiNode.id).where(
-                    WikiNode.space_id == space_id,
-                    WikiNode.path == path,
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode.id).where(
+                        WikiNode.space_id == space_id,
+                        WikiNode.path == path,
+                        WikiNode.deleted_at.is_(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         exclude_ids = exclude_ids or set()
         if any(row_id not in exclude_ids for row_id in rows):
             raise HTTPException(

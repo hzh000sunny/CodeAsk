@@ -18,11 +18,7 @@ def test_codeask_import_defaults_litellm_to_local_model_cost_map() -> None:
         [
             sys.executable,
             "-c",
-            (
-                "import os; "
-                "import codeask; "
-                "print(os.environ.get('LITELLM_LOCAL_MODEL_COST_MAP'))"
-            ),
+            ("import os; import codeask; print(os.environ.get('LITELLM_LOCAL_MODEL_COST_MAP'))"),
         ],
         cwd=ROOT,
         env=env,

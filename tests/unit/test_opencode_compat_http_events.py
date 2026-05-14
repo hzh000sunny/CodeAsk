@@ -81,15 +81,13 @@ async def test_http_client_streams_global_event_sse(httpx_mock) -> None:
         url="http://opencode.test/global/event?directory=%2Ftmp%2Fworkspace",
         text=(
             'data: {"directory":"/tmp/workspace","payload":{"type":"sync"}}\n\n'
-            ': keepalive\n\n'
+            ": keepalive\n\n"
             'data: {"directory":"/tmp/workspace","payload":{"type":"session.status"}}\n\n'
         ),
         headers={"content-type": "text/event-stream"},
     )
 
-    events = [
-        event async for event in client.stream_global_events(directory="/tmp/workspace")
-    ]
+    events = [event async for event in client.stream_global_events(directory="/tmp/workspace")]
 
     assert events == [
         {"directory": "/tmp/workspace", "payload": {"type": "sync"}},

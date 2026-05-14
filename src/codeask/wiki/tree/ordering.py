@@ -117,15 +117,19 @@ class WikiTreeOrderingService:
         old_path = node.path
         new_path = join_node_path(target_parent_path, node.name)
         descendants = (
-            await session.execute(
-                select(WikiNode)
-                .where(
-                    WikiNode.space_id == node.space_id,
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode)
+                    .where(
+                        WikiNode.space_id == node.space_id,
+                        WikiNode.deleted_at.is_(None),
+                    )
+                    .order_by(WikiNode.path.asc(), WikiNode.id.asc())
                 )
-                .order_by(WikiNode.path.asc(), WikiNode.id.asc())
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         subtree = [
             row
             for row in descendants
@@ -171,16 +175,20 @@ class WikiTreeOrderingService:
         parent_id: int | None,
     ) -> list[WikiNode]:
         return (
-            await session.execute(
-                select(WikiNode)
-                .where(
-                    WikiNode.space_id == space_id,
-                    WikiNode.parent_id.is_(parent_id),
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode)
+                    .where(
+                        WikiNode.space_id == space_id,
+                        WikiNode.parent_id.is_(parent_id),
+                        WikiNode.deleted_at.is_(None),
+                    )
+                    .order_by(WikiNode.sort_order.asc(), WikiNode.name.asc(), WikiNode.id.asc())
                 )
-                .order_by(WikiNode.sort_order.asc(), WikiNode.name.asc(), WikiNode.id.asc())
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     async def _assert_path_available(
         self,
@@ -191,14 +199,18 @@ class WikiTreeOrderingService:
         exclude_ids: set[int] | None = None,
     ) -> None:
         rows = (
-            await session.execute(
-                select(WikiNode.id).where(
-                    WikiNode.space_id == space_id,
-                    WikiNode.path == path,
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode.id).where(
+                        WikiNode.space_id == space_id,
+                        WikiNode.path == path,
+                        WikiNode.deleted_at.is_(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         excluded = exclude_ids or set()
         if any(row_id not in excluded for row_id in rows):
             raise HTTPException(

@@ -173,7 +173,7 @@ export function SessionWorkspace({
     setDeleteCandidate(null);
     setDeleteError("");
     setMenuSessionId(null);
-  }, [subjectQueryKey]);
+  }, [queryClient, subjectQueryKey]);
 
   const deleteMutation = useMutation({
     mutationFn: (sessionId: string) => deleteSession(sessionId),

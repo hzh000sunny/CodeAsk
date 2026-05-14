@@ -10,7 +10,6 @@ from sqlalchemy.exc import NoResultFound
 from codeask.api.schemas.llm_config import LLMConfigCreate, LLMConfigResponse, LLMConfigUpdate
 from codeask.identity import require_admin
 from codeask.llm.api_service import (
-    Scope,
     create_scoped_config,
     delete_scoped_config,
     require_member_personal_scope,
@@ -20,6 +19,7 @@ from codeask.llm.api_service import (
 from codeask.llm.repo import LLMConfigRepo
 
 router = APIRouter()
+
 
 async def _repo(request: Request) -> LLMConfigRepo:
     return request.app.state.llm_config_repo

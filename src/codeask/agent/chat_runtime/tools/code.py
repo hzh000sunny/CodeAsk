@@ -199,9 +199,7 @@ def register_code_tools(
             match
             for match in matches
             if normalized_query
-            in str(match.get("snippet", "")).lower()
-            + " "
-            + str(match.get("path", "")).lower()
+            in str(match.get("snippet", "")).lower() + " " + str(match.get("path", "")).lower()
         ]
         items = filtered[args.offset : args.offset + args.limit]
         return ToolResult.ok(
@@ -239,8 +237,7 @@ def register_code_tools(
         start_index = max(args.start_line - 1, 0)
         selected = lines[start_index : start_index + args.line_count]
         numbered = [
-            f"{line_no}: {line}"
-            for line_no, line in enumerate(selected, start=start_index + 1)
+            f"{line_no}: {line}" for line_no, line in enumerate(selected, start=start_index + 1)
         ]
         return ToolResult.ok(
             tool="read_code_file",

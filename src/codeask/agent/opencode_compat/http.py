@@ -90,11 +90,14 @@ class OpenCodeHttpClient:
             response.raise_for_status()
 
     async def stream_global_events(self, *, directory: str) -> AsyncIterator[dict[str, Any]]:
-        async with self._stream_client() as client, client.stream(
-            "GET",
-            "/global/event",
-            params={"directory": directory},
-        ) as response:
+        async with (
+            self._stream_client() as client,
+            client.stream(
+                "GET",
+                "/global/event",
+                params={"directory": directory},
+            ) as response,
+        ):
             response.raise_for_status()
             async for line in response.aiter_lines():
                 event = _parse_sse_line(line)

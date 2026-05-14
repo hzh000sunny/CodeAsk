@@ -21,9 +21,7 @@ def test_openai_content_becomes_text_delta() -> None:
 
 
 def test_openai_same_delta_can_emit_reasoning_and_text() -> None:
-    events = normalize_openai_delta(
-        {"reasoning_content": "内部思考", "content": "正式回答"}
-    )
+    events = normalize_openai_delta({"reasoning_content": "内部思考", "content": "正式回答"})
 
     assert events == [
         (

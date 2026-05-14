@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import unicodedata
+from pathlib import Path
 
 
 def normalize_node_name(value: str) -> str:

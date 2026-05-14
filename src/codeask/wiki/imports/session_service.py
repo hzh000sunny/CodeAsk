@@ -96,10 +96,14 @@ class WikiImportSessionService:
         feature = await self._load_feature_for_space(session, space_id=import_session.space_id)
         self._require_write(actor, feature)
         await session.execute(
-            delete(WikiImportSessionItem).where(WikiImportSessionItem.session_id == import_session.id)
+            delete(WikiImportSessionItem).where(
+                WikiImportSessionItem.session_id == import_session.id
+            )
         )
 
-        root_strip_segments = int((import_session.metadata_json or {}).get("root_strip_segments", 0))
+        root_strip_segments = int(
+            (import_session.metadata_json or {}).get("root_strip_segments", 0)
+        )
         base_path = (import_session.metadata_json or {}).get("base_path")
         if base_path is not None and not isinstance(base_path, str):
             base_path = None
@@ -273,7 +277,9 @@ class WikiImportSessionService:
             )
         if import_session.status != "cancelled":
             import_session.status = "cancelled"
-            import_session.summary_json = await self._recalculate_summary(session, import_session.id)
+            import_session.summary_json = await self._recalculate_summary(
+                session, import_session.id
+            )
             await session.flush()
         return self._serialize_session(import_session)
 
@@ -549,15 +555,19 @@ class WikiImportSessionService:
         session_id: int,
     ) -> list[WikiImportSessionItem]:
         return (
-            await session.execute(
-                select(WikiImportSessionItem)
-                .where(WikiImportSessionItem.session_id == session_id)
-                .order_by(
-                    WikiImportSessionItem.sort_order.asc(),
-                    WikiImportSessionItem.id.asc(),
+            (
+                await session.execute(
+                    select(WikiImportSessionItem)
+                    .where(WikiImportSessionItem.session_id == session_id)
+                    .order_by(
+                        WikiImportSessionItem.sort_order.asc(),
+                        WikiImportSessionItem.id.asc(),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     async def _load_item(
         self,
@@ -810,7 +820,9 @@ class WikiImportSessionService:
         reusable = await self._find_reusable_import_source(
             session,
             space_id=import_session.space_id,
-            base_path=metadata.get("base_path") if isinstance(metadata.get("base_path"), str) else None,
+            base_path=metadata.get("base_path")
+            if isinstance(metadata.get("base_path"), str)
+            else None,
             root_label=root_label,
             mode=import_session.mode,
         )
@@ -849,13 +861,17 @@ class WikiImportSessionService:
         space_id: int,
     ) -> dict[str, WikiNode]:
         rows = (
-            await session.execute(
-                select(WikiNode).where(
-                    WikiNode.space_id == space_id,
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode).where(
+                        WikiNode.space_id == space_id,
+                        WikiNode.deleted_at.is_(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         return {row.path: row for row in rows}
 
     async def _find_reusable_import_source(
@@ -870,15 +886,19 @@ class WikiImportSessionService:
         if not root_label:
             return None
         sources = (
-            await session.execute(
-                select(WikiSource)
-                .where(
-                    WikiSource.space_id == space_id,
-                    WikiSource.kind == "directory_import",
+            (
+                await session.execute(
+                    select(WikiSource)
+                    .where(
+                        WikiSource.space_id == space_id,
+                        WikiSource.kind == "directory_import",
+                    )
+                    .order_by(WikiSource.id.asc())
                 )
-                .order_by(WikiSource.id.asc())
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for source in sources:
             metadata = source.metadata_json if isinstance(source.metadata_json, dict) else {}
             if metadata.get("root_label") != root_label:
@@ -940,7 +960,9 @@ class WikiImportSessionService:
             await session.execute(select(WikiSpace).where(WikiSpace.id == space_id))
         ).scalar_one_or_none()
         if space is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wiki space not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="wiki space not found"
+            )
         return space
 
     async def _ensure_parent_folders(
@@ -1009,7 +1031,8 @@ class WikiImportSessionService:
                 original_name=Path(source_path).name,
                 file_name=storage_name,
                 storage_path=str(stored_path),
-                mime_type=mimetypes.guess_type(Path(source_path).name)[0] or "application/octet-stream",
+                mime_type=mimetypes.guess_type(Path(source_path).name)[0]
+                or "application/octet-stream",
                 size_bytes=stored_path.stat().st_size,
                 provenance_json={
                     "source": "directory_import",
@@ -1042,7 +1065,9 @@ class WikiImportSessionService:
         import_session: WikiImportSession,
         items: list[WikiImportSessionItem],
     ) -> str | None:
-        metadata = import_session.metadata_json if isinstance(import_session.metadata_json, dict) else {}
+        metadata = (
+            import_session.metadata_json if isinstance(import_session.metadata_json, dict) else {}
+        )
         root_label = metadata.get("root_label")
         if isinstance(root_label, str) and root_label.strip():
             return root_label.strip()
@@ -1080,13 +1105,17 @@ class WikiImportSessionService:
         target_path: str,
     ) -> None:
         rows = (
-            await session.execute(
-                select(WikiNode).where(
-                    WikiNode.space_id == space_id,
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode).where(
+                        WikiNode.space_id == space_id,
+                        WikiNode.deleted_at.is_(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         now = datetime.now(UTC)
         for row in rows:
             if row.path == target_path or is_descendant_path(row.path, target_path):

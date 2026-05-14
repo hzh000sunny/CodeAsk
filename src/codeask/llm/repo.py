@@ -275,31 +275,39 @@ class LLMConfigRepo:
     async def list_runtime_user_configs(self, subject_id: str) -> list[LLMConfigWithSecret]:
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(LLMConfig)
-                    .where(
-                        LLMConfig.scope == "user",
-                        LLMConfig.owner_subject_id == subject_id,
-                        LLMConfig.enabled.is_(True),
+                (
+                    await session.execute(
+                        select(LLMConfig)
+                        .where(
+                            LLMConfig.scope == "user",
+                            LLMConfig.owner_subject_id == subject_id,
+                            LLMConfig.enabled.is_(True),
+                        )
+                        .order_by(LLMConfig.is_default.desc(), LLMConfig.created_at)
                     )
-                    .order_by(LLMConfig.is_default.desc(), LLMConfig.created_at)
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         return [_to_secret(row, self._crypto) for row in rows]
 
     async def list_runtime_global_configs(self) -> list[LLMConfigWithSecret]:
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(LLMConfig)
-                    .where(
-                        LLMConfig.scope == "global",
-                        LLMConfig.owner_subject_id.is_(None),
-                        LLMConfig.enabled.is_(True),
+                (
+                    await session.execute(
+                        select(LLMConfig)
+                        .where(
+                            LLMConfig.scope == "global",
+                            LLMConfig.owner_subject_id.is_(None),
+                            LLMConfig.enabled.is_(True),
+                        )
+                        .order_by(LLMConfig.created_at)
                     )
-                    .order_by(LLMConfig.created_at)
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         return [_to_secret(row, self._crypto) for row in rows]
 
     async def get_default_or(

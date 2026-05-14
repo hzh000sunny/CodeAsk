@@ -17,7 +17,6 @@ from codeask.wiki.documents.markdown_refs import parse_markdown_references, reso
 from codeask.wiki.paths import normalize_asset_name, normalize_node_name
 from codeask.wiki.permissions import can_write_feature
 
-
 IssueSeverity = Literal["error", "warning"]
 ImportItemKind = Literal["document", "asset"]
 
@@ -131,9 +130,7 @@ class WikiImportPreflightService:
         self._apply_existing_conflicts(items, existing_nodes)
         self._apply_reference_warnings(items, existing_nodes)
 
-        error_count = sum(
-            1 for item in items for issue in item.issues if issue.severity == "error"
-        )
+        error_count = sum(1 for item in items for issue in item.issues if issue.severity == "error")
         warning_count = sum(
             1 for item in items for issue in item.issues if issue.severity == "warning"
         )
@@ -165,13 +162,17 @@ class WikiImportPreflightService:
         space_id: int,
     ) -> dict[str, WikiNode]:
         rows = (
-            await session.execute(
-                select(WikiNode).where(
-                    WikiNode.space_id == space_id,
-                    WikiNode.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(WikiNode).where(
+                        WikiNode.space_id == space_id,
+                        WikiNode.deleted_at.is_(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         return {row.path: row for row in rows}
 
     def _validate_parent(self, *, space: WikiSpace, parent: WikiNode | None) -> None:
@@ -241,7 +242,9 @@ class WikiImportPreflightService:
                 counter[folder_path] += 1
         return counter
 
-    def _apply_internal_conflicts(self, items: list[PreflightItem], folder_claims: Counter[str]) -> None:
+    def _apply_internal_conflicts(
+        self, items: list[PreflightItem], folder_claims: Counter[str]
+    ) -> None:
         target_counts = Counter(item.target_path for item in items)
         for item in items:
             if target_counts[item.target_path] > 1:
@@ -249,7 +252,10 @@ class WikiImportPreflightService:
                     PreflightIssue(
                         severity="error",
                         code="path_conflict",
-                        message=f"import target path conflicts with another uploaded item: {item.target_path}",
+                        message=(
+                            "import target path conflicts with another uploaded item: "
+                            f"{item.target_path}"
+                        ),
                     )
                 )
             if folder_claims[item.target_path] > 0:
@@ -257,7 +263,10 @@ class WikiImportPreflightService:
                     PreflightIssue(
                         severity="error",
                         code="path_conflict",
-                        message=f"import target path conflicts with an uploaded folder path: {item.target_path}",
+                        message=(
+                            "import target path conflicts with an uploaded folder path: "
+                            f"{item.target_path}"
+                        ),
                     )
                 )
 
@@ -336,7 +345,7 @@ class WikiImportPreflightService:
                         target=ref.target,
                         resolved_path=resolved_path,
                     )
-                    )
+                )
 
     def _ancestor_paths(self, path: str) -> list[str]:
         parts = path.split("/")

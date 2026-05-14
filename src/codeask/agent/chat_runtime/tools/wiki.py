@@ -391,8 +391,7 @@ def _ordered_unique(values: list[int]) -> list[int]:
 
 def _fallback_search_terms(query: str) -> list[str]:
     parts = [
-        part.strip("，。？！?!.、：:；;（）()[]【】\"'")
-        for part in re.split(r"\s+", query.strip())
+        part.strip("，。？！?!.、：:；;（）()[]【】\"'") for part in re.split(r"\s+", query.strip())
     ]
     terms = [part for part in parts if len(part) >= 2]
     compact_cjk = "".join(re.findall(r"[\u4e00-\u9fff]+", query))
