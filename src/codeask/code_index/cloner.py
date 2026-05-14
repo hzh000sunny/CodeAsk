@@ -59,6 +59,11 @@ class RepoCloner:
 
         try:
             self._refresh_local_source_if_possible(repo)
+            if self._is_plain_local_dir(repo):
+                self._sync_plain_local_dir_snapshot(repo, bare_path)
+                self._set_status(repo_id, Repo.STATUS_READY, error=None, mark_synced=True)
+                log.info("clone_succeeded", repo_id=repo_id, bare_path=str(bare_path))
+                return
             if self._is_valid_bare_repo(bare_path):
                 self._update_existing_bare_repo(repo, bare_path)
             else:
@@ -134,6 +139,64 @@ class RepoCloner:
         self._exec_git(["git", "-C", str(source_path), "fetch", "origin"])
         self._exec_git(["git", "-C", str(source_path), "pull", "--ff-only"])
 
+    def _is_plain_local_dir(self, repo: Repo) -> bool:
+        if repo.source != Repo.SOURCE_LOCAL_DIR or not repo.local_path:
+            return False
+        source_path = Path(repo.local_path)
+        if not source_path.is_dir():
+            return False
+        return not self._is_worktree_git_repo(source_path)
+
+    def _sync_plain_local_dir_snapshot(self, repo: Repo, bare_path: Path) -> None:
+        if not repo.local_path:
+            raise CloneFailedError("local_dir source requires non-empty local_path")
+        source_path = Path(repo.local_path)
+        if not source_path.is_dir():
+            raise CloneFailedError(f"local_dir path is not a directory: {source_path}")
+
+        if not self._is_valid_bare_repo(bare_path):
+            if bare_path.exists():
+                shutil.rmtree(bare_path, ignore_errors=True)
+            bare_path.parent.mkdir(parents=True, exist_ok=True)
+            self._exec_git(["git", "init", "--bare", "--initial-branch=main", str(bare_path)])
+
+        self._exec_git(
+            ["git", "--git-dir", str(bare_path), "config", "user.email", "codeask@local"]
+        )
+        self._exec_git(
+            ["git", "--git-dir", str(bare_path), "config", "user.name", "CodeAsk"]
+        )
+        self._exec_git(
+            [
+                "git",
+                "--git-dir",
+                str(bare_path),
+                "--work-tree",
+                str(source_path),
+                "add",
+                "-A",
+                "--",
+                ".",
+            ]
+        )
+
+        if self._has_head(bare_path) and not self._has_staged_changes(bare_path):
+            return
+
+        commit_argv = [
+            "git",
+            "--git-dir",
+            str(bare_path),
+            "--work-tree",
+            str(source_path),
+            "commit",
+            "-m",
+            "Snapshot local_dir source",
+        ]
+        if not self._has_head(bare_path):
+            commit_argv.append("--allow-empty")
+        self._exec_git(commit_argv)
+
     def _ensure_origin(self, bare_path: Path, location: str) -> None:
         get_url = subprocess.run(
             ["git", "--git-dir", str(bare_path), "remote", "get-url", "origin"],
@@ -182,14 +245,41 @@ class RepoCloner:
 
     def _is_worktree_git_repo(self, source_path: Path) -> bool:
         proc = subprocess.run(
-            ["git", "-C", str(source_path), "rev-parse", "--is-inside-work-tree"],
+            ["git", "-C", str(source_path), "rev-parse", "--show-toplevel"],
             shell=False,
             check=False,
             capture_output=True,
             text=True,
             timeout=self._timeout,
         )
-        return proc.returncode == 0 and proc.stdout.strip() == "true"
+        if proc.returncode != 0:
+            return False
+        try:
+            return Path(proc.stdout.strip()).resolve() == source_path.resolve()
+        except OSError:
+            return False
+
+    def _has_head(self, bare_path: Path) -> bool:
+        proc = subprocess.run(
+            ["git", "--git-dir", str(bare_path), "rev-parse", "--verify", "HEAD"],
+            shell=False,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=self._timeout,
+        )
+        return proc.returncode == 0
+
+    def _has_staged_changes(self, bare_path: Path) -> bool:
+        proc = subprocess.run(
+            ["git", "--git-dir", str(bare_path), "diff", "--cached", "--quiet", "--exit-code"],
+            shell=False,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=self._timeout,
+        )
+        return proc.returncode == 1
 
     def _has_origin(self, source_path: Path) -> bool:
         proc = subprocess.run(

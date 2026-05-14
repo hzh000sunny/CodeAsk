@@ -190,3 +190,39 @@ def _unique_non_empty(values: list[str | None]) -> list[str]:
         seen.add(cleaned)
         result.append(cleaned)
     return result
+
+
+class ExternalAgentSession(Base, TimestampMixin):
+    """Binding between a CodeAsk session and an external agent session."""
+
+    __tablename__ = "external_agent_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "backend_type IN ('opencode')",
+            name="ck_external_agent_sessions_backend_type",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'error', 'cleaned')",
+            name="ck_external_agent_sessions_status",
+        ),
+        Index("ix_external_agent_sessions_session", "session_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    backend_type: Mapped[str] = mapped_column(String(32), nullable=False, default="opencode")
+    external_session_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    session_dir: Mapped[str] = mapped_column(String(1024), nullable=False)
+    workspace_dir: Mapped[str] = mapped_column(String(1024), nullable=False)
+    server_url: Mapped[str] = mapped_column(String(256), nullable=False)
+    port: Mapped[int] = mapped_column(Integer, nullable=False)
+    pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    config_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    config_json: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)

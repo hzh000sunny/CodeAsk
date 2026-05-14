@@ -8,6 +8,7 @@ export type ActionTraceKind =
   | "evidence"
   | "clarification"
   | "assistant_action"
+  | "runtime_status"
   | "diagnostic"
   | "warning"
   | "error";
@@ -153,6 +154,12 @@ export function actionTraceFromAgentEvent(
   }
 
   if (event.type === "reasoning_observed") {
+    const reasoningLength =
+      typeof event.data.length === "number"
+        ? event.data.length
+        : typeof event.data.content_length === "number"
+          ? event.data.content_length
+          : null;
     return {
       id: `reasoning_observed_${Date.now()}`,
       kind: "diagnostic",
@@ -160,7 +167,7 @@ export function actionTraceFromAgentEvent(
       detail:
         [
           stringValue(event.data.field) ? `字段 ${stringValue(event.data.field)}` : null,
-          typeof event.data.length === "number" ? `长度 ${event.data.length}` : null,
+          reasoningLength !== null ? `长度 ${reasoningLength}` : null,
           typeof event.data.chunks === "number" ? `分片 ${event.data.chunks}` : null,
           event.data.redacted === true ? "redacted" : null,
         ]
@@ -169,7 +176,7 @@ export function actionTraceFromAgentEvent(
       status: "info",
       data: {
         field: event.data.field,
-        length: event.data.length,
+        length: reasoningLength,
         chunks: event.data.chunks,
         redacted: event.data.redacted,
         raw_reasoning_used: false,
@@ -199,6 +206,17 @@ export function actionTraceFromAgentEvent(
   }
 
   if (event.type === "assistant_action") {
+    if (stringValue(event.data.action) === "opencode_busy") {
+      return {
+        id: "opencode_running",
+        kind: "runtime_status",
+        title: "opencode running",
+        detail: "opencode 正在处理当前请求",
+        status: "running",
+        data: event.data,
+        evidenceRefs: [],
+      };
+    }
     return {
       id: `assistant_action_${Date.now()}`,
       kind: "assistant_action",
@@ -216,7 +234,10 @@ export function actionTraceFromAgentEvent(
       id: `error_${Date.now()}`,
       kind: "error",
       title: stringValue(event.data.code) ?? "运行失败",
-      detail: stringValue(event.data.message) ?? "Agent 运行失败",
+      detail:
+        stringValue(event.data.message) ??
+        stringValue(event.data.error) ??
+        "Agent 运行失败",
       status: "error",
       data: event.data,
       evidenceRefs: [],
@@ -247,6 +268,9 @@ export function actionTraceKindLabel(kind: ActionTraceKind | string) {
   }
   if (kind === "assistant_action") {
     return "建议";
+  }
+  if (kind === "runtime_status") {
+    return "状态";
   }
   if (kind === "diagnostic") {
     return "诊断";

@@ -3,6 +3,7 @@
 # pyright: reportMissingTypeStubs=false, reportUnusedFunction=false
 
 import asyncio
+import ipaddress
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,6 +23,20 @@ from codeask.agent.chat_runtime.tools.live_code import register_live_code_tools
 from codeask.agent.chat_runtime.tools.reports import register_report_tools
 from codeask.agent.chat_runtime.tools.wiki import register_wiki_tools
 from codeask.agent.code_tools import AgentCodeSearchService
+from codeask.agent.opencode_compat.backend import OpenCodeCompat
+from codeask.agent.opencode_compat.http import OpenCodeHttpClient
+from codeask.agent.opencode_compat.mcp.auth import make_session_mcp_token
+from codeask.agent.opencode_compat.mcp.server import OpenCodeMCPServer
+from codeask.agent.opencode_compat.mcp.tools import (
+    build_feature_tools,
+    build_session_tools,
+    build_worktree_tools,
+)
+from codeask.agent.opencode_compat.process import OpenCodeProcessManager
+from codeask.agent.opencode_compat.sessions import ExternalAgentSessionStore
+from codeask.agent.opencode_compat.wiki_workspace import WikiWorkspaceExporter
+from codeask.agent.opencode_compat.workspace import OpenCodeWorkspaceManager
+from codeask.agent.opencode_compat.worktrees import OpenCodeWorktreeManager
 from codeask.agent.orchestrator import AgentOrchestrator
 from codeask.agent.tools import ToolRegistry
 from codeask.agent.trace import AgentTraceLogger
@@ -32,6 +47,7 @@ from codeask.api.feature_admins import router as feature_admins_router
 from codeask.api.healthz import router as healthz_router
 from codeask.api.llm_configs import router as llm_configs_router
 from codeask.api.metrics import router as metrics_router
+from codeask.api.opencode_mcp import router as opencode_mcp_router
 from codeask.api.sessions import router as sessions_router
 from codeask.api.skills import router as skills_router
 from codeask.api.system_settings import router as system_settings_router
@@ -95,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repo_cloner = RepoCloner(factory)
         repo_root = Path(settings.data_dir) / "repos"
         worktree_manager = WorktreeManager(repo_root=repo_root)
+        opencode_worktree_manager = OpenCodeWorktreeManager(worktree_manager=worktree_manager)
         agent_code_search = AgentCodeSearchService(
             factory,
             worktree_manager,
@@ -103,6 +120,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tool_registry = ToolRegistry.bootstrap(
             wiki_search_service=agent_wiki_search,
             code_search_service=agent_code_search,
+        )
+        opencode_process_manager = OpenCodeProcessManager(
+            opencode_bin=settings.opencode_bin,
+            data_dir=Path(settings.data_dir),
+            port_range=settings.opencode_port_range,
+            username=settings.opencode_server_username,
+            password=settings.opencode_server_password,
+        )
+        opencode_workspace_manager = OpenCodeWorkspaceManager(
+            data_dir=Path(settings.data_dir),
+            wiki_workspace_root=Path(settings.data_dir) / "wiki_workspace" / "current",
+        )
+        opencode_wiki_workspace_exporter = WikiWorkspaceExporter(
+            session_factory=factory,
+            workspace_root=Path(settings.data_dir) / "wiki_workspace" / "current",
+        )
+        opencode_session_store = ExternalAgentSessionStore(factory)
+        opencode_compat = OpenCodeCompat(
+            workspace_manager=opencode_workspace_manager,
+            process_manager=opencode_process_manager,
+            http_client_factory=lambda server: OpenCodeHttpClient(
+                base_url=server.base_url,
+                username=settings.opencode_server_username,
+                password=settings.opencode_server_password,
+                timeout=settings.opencode_http_timeout_seconds,
+            ),
+            session_store=opencode_session_store,
+            mcp_base_url=_opencode_mcp_base_url(settings),
+            mcp_token_resolver=lambda session_id: make_session_mcp_token(
+                settings.data_key,
+                session_id,
+            ),
+            wiki_workspace_exporter=opencode_wiki_workspace_exporter,
+            data_dir=Path(settings.data_dir),
         )
         agent_orchestrator = AgentOrchestrator(
             gateway=llm_gateway,
@@ -134,6 +185,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             llm=GatewayStreamingLLM(llm_gateway),
             tool_registry=chat_tool_registry,
             retrieval_service=DatabaseRetrievalService(factory),
+        )
+        opencode_mcp_server = OpenCodeMCPServer(
+            token_resolver=lambda session_id: make_session_mcp_token(settings.data_key, session_id),
+            tools=[
+                *build_feature_tools(factory),
+                *build_session_tools(factory),
+                *build_worktree_tools(factory, opencode_worktree_manager),
+            ],
         )
         cleanup_job = build_cleanup_job(worktree_manager, repo_root)
         scheduler.add_job(
@@ -173,13 +232,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.tool_registry = tool_registry
         app.state.agent_orchestrator = agent_orchestrator
         app.state.chat_runtime = chat_runtime
+        app.state.opencode_mcp_server = opencode_mcp_server
         app.state.scheduler = scheduler
         app.state.repo_cloner = repo_cloner
         app.state.worktree_manager = worktree_manager
+        app.state.opencode_worktree_manager = opencode_worktree_manager
+        app.state.opencode_process_manager = opencode_process_manager
+        app.state.opencode_workspace_manager = opencode_workspace_manager
+        app.state.opencode_session_store = opencode_session_store
+        app.state.opencode_compat = opencode_compat
         log.info("app_ready", host=settings.host, port=settings.port)
         try:
             yield
         finally:
+            opencode_process_manager.shutdown()
             scheduler.shutdown(wait=True)
             await engine.dispose()
             log.info("app_shutdown")
@@ -217,6 +283,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(skills_router, prefix="/api")
     app.include_router(system_settings_router, prefix="/api")
     app.include_router(sessions_router, prefix="/api")
+    app.include_router(opencode_mcp_router, prefix="/api")
 
     from fastapi.staticfiles import StaticFiles
 
@@ -234,3 +301,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
         )
     return app
+
+
+def _opencode_mcp_base_url(settings: Settings) -> str:
+    if settings.opencode_mcp_base_url:
+        return settings.opencode_mcp_base_url.rstrip("/")
+    host = settings.host
+    try:
+        if ipaddress.ip_address(host).is_unspecified:
+            host = "127.0.0.1"
+    except ValueError:
+        pass
+    return f"http://{host}:{settings.port}/api/agent-mcp"

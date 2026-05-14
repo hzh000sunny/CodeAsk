@@ -91,6 +91,10 @@ def parse_prepared_report_payload(raw_text: str) -> dict[str, Any]:
         value = _extract_json_like_report_payload(candidate)
         if value is not None:
             return value
+    for candidate in candidates:
+        value = _extract_partial_json_like_report_payload(candidate)
+        if value is not None:
+            return value
     return {"title_description": "", "body_markdown": text}
 
 
@@ -192,6 +196,46 @@ def _extract_json_like_report_payload(text: str) -> dict[str, str] | None:
     }
 
 
+def _extract_partial_json_like_report_payload(text: str) -> dict[str, str] | None:
+    """Recover the fixed report schema when generation was cut off mid-JSON."""
+
+    title_match = re.search(
+        r'"title_description"\s*:\s*"(?P<title>.*?)"',
+        text,
+        flags=re.DOTALL,
+    )
+    body_key_match = re.search(r'"body_markdown"\s*:\s*"', text, flags=re.DOTALL)
+    if title_match is None and body_key_match is None:
+        return None
+
+    title = (
+        _decode_json_like_string(title_match.group("title")).strip()
+        if title_match is not None
+        else ""
+    )
+    body = ""
+    if body_key_match is not None:
+        body_text = text[body_key_match.end() :]
+        body_text = _strip_trailing_json_fence(body_text)
+        body_text = body_text.rstrip()
+        if body_text.endswith('"'):
+            body_text = body_text[:-1]
+        body = _decode_json_like_string(body_text).strip()
+    if not title and not body:
+        return None
+    return {
+        "title_description": title,
+        "body_markdown": body,
+    }
+
+
+def _strip_trailing_json_fence(text: str) -> str:
+    stripped = text.rstrip()
+    if stripped.endswith("```"):
+        return stripped.removesuffix("```").rstrip()
+    return text
+
+
 _JSON_LIKE_ESCAPE_RE = re.compile(r'\\([nrt"\\])')
 
 
@@ -272,6 +316,7 @@ async def prepare_session_report_draft(
         subject_id=subject_id,
         session_id=session_id,
         prompt=prompt,
+        max_tokens=12000,
     )
     payload = parse_prepared_report_payload(raw_text)
     return normalize_prepared_report_payload(payload, today=today)

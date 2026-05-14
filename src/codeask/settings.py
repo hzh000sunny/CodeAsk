@@ -1,7 +1,7 @@
 """Application settings (env-driven)."""
 
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -51,6 +51,38 @@ class Settings(BaseSettings):
         default=600,
         ge=30,
         description="Timeout applied to each outbound LLM request in seconds.",
+    )
+    opencode_bin: str = Field(
+        default="opencode",
+        description="OpenCode executable used by the v1.0.4 compatibility backend.",
+    )
+    opencode_port_range: str = Field(
+        default="4100-4199",
+        description="Local port range used by the shared opencode serve process.",
+    )
+    opencode_server_username: str = Field(
+        default="codeask",
+        description="Basic auth username for the shared opencode serve process.",
+    )
+    opencode_server_password: str = Field(
+        default="codeask",
+        description="Basic auth password for the shared opencode serve process.",
+    )
+    opencode_mcp_base_url: str | None = Field(
+        default=None,
+        description="Base URL reachable by opencode for CodeAsk MCP, without session id.",
+    )
+    opencode_http_timeout_seconds: int = Field(
+        default=60,
+        ge=10,
+        description="Timeout for CodeAsk requests to the local opencode HTTP server.",
+    )
+    agent_backend: Literal["opencode", "native"] = Field(
+        default="opencode",
+        description=(
+            "Agent backend used by /sessions/{id}/messages. Production default is opencode; "
+            "native is retained for legacy regression tests and compatibility diagnostics."
+        ),
     )
 
     @model_validator(mode="after")

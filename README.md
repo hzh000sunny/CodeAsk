@@ -13,7 +13,7 @@
   ·
   <a href="./docs/README.md">文档中心</a>
   ·
-  <a href="./docs/v1.0.3/">当前版本</a>
+  <a href="./docs/v1.0.4/">当前版本</a>
   ·
   <a href="./docs/future/">未来规划</a>
 </p>
@@ -158,13 +158,14 @@ CodeAsk 暂时不适合作为：
 
 ## 当前状态
 
-当前主线是 v1.0.3，重点是鉴权、访问控制和部署后的基础治理：
+当前主线是 v1.0.4，重点是引入 opencode 作为默认会话的外部 Agent 执行引擎：
 
 - v1.0.2 已把默认会话调整为正常聊天优先，Wiki、报告、附件和代码工具由模型基于上下文决定是否使用。
 - LLM Wiki 工作台已具备独立页面、目录树、导入、编辑、版本历史、相对资源渲染和特性页预览。
-- 问题报告生成已从“聊天记录整理”调整为 AI 按报告规则生成正式 Markdown 草稿。
+- 问题报告生成已从“聊天记录整理”调整为 AI 按报告规则生成正式 Markdown 草稿，并具备长报告 JSON-like 输出截断恢复能力。
 - v1.0.3 已补齐统一登录、用户自动注册、admin、特性管理员、全局附件开关、审计日志和真实浏览器 E2E。
 - 未登录访客仍可直接使用会话、查看特性和 Wiki；写操作由服务端权限守卫强制校验。
+- v1.0.4 已新增独立 `src/codeask/agent/opencode_compat/` 模块，默认会话接入 shared `opencode serve`、会话级 workspace、Wiki 零复制挂载、remote MCP、opencode 事件流和真实浏览器 live E2E 通道。
 
 仍在规划或后续专项中的能力：
 
@@ -174,7 +175,7 @@ CodeAsk 暂时不适合作为：
 - Docker / compose / 镜像发布。
 - 更成熟的模型上下文压缩和长期记忆。
 
-详细版本状态见 [docs/v1.0.3/README.md](./docs/v1.0.3/README.md) 和 [docs/future/](./docs/future/)。
+详细版本状态见 [docs/v1.0.4/README.md](./docs/v1.0.4/README.md) 和 [docs/future/](./docs/future/)。
 
 ## 快速启动
 
@@ -237,6 +238,7 @@ CodeAsk/
 - [docs/v1.0.1/](./docs/v1.0.1/)：LLM Wiki 专项。
 - [docs/v1.0.2/](./docs/v1.0.2/)：Agent 会话运行时优化。
 - [docs/v1.0.3/](./docs/v1.0.3/)：鉴权、访问控制和特性管理员。
+- [docs/v1.0.4/](./docs/v1.0.4/)：OpenCode Agent Backend 对接。
 
 ## 开源参考
 
@@ -247,6 +249,7 @@ CodeAsk 的实现是面向自身产品定位的独立设计，但在部分版本
 | v1.0.2 | [anthropics/claude-code](https://github.com/anthropics/claude-code) | 参考了 Claude Code 在工具调用、长上下文处理、行动轨迹和面向代码任务的 Agent 运行时组织方式。 |
 | v1.0.2 | [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | 参考了社区对 Claude Code 架构和使用模式的整理，用于辅助理解工具编排、权限边界和交互体验。 |
 | v1.0.3 | [anomalyco/opencode](https://github.com/anomalyco/opencode) | 参考了 opencode 在多模型 provider、OpenAI / Anthropic 消息协议、结构化 reasoning、provider options 和上下文压缩边界上的分层思路。 |
+| v1.0.4 | [anomalyco/opencode](https://github.com/anomalyco/opencode) | 基于 opencode 1.14.48 实测接入 shared server、workspace 级配置、remote MCP、事件流和工具权限边界。 |
 
 ## License
 

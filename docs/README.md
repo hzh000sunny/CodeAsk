@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-[**v1.0.2**](./v1.0.2/) — LLM Agent 会话运行时优化（Active；默认会话已切换为正常聊天优先、RAG 增强、工具调用由模型决策的统一运行时，当前仍有资源繁忙 UI 与网关可观测性收尾项）
+[**v1.0.4**](./v1.0.4/) — OpenCode Agent Backend 对接（Active；引入 opencode 作为新会话默认 Agent 执行引擎，CodeAsk 负责知识、权限、审计、workspace 和 MCP 适配）
 
 进入版本目录后请先读该目录下的 `README.md`。
 
@@ -17,6 +17,10 @@
 ## 已完成专项版本
 
 [**v1.0.1**](./v1.0.1/) — LLM Wiki 专项（Completed；独立 Wiki 工作台、导入会话、报告投影、全局搜索、目录树排序和特性页轻量预览已收口）
+
+[**v1.0.2**](./v1.0.2/) — LLM Agent 会话运行时优化（Completed；默认会话切换为正常聊天优先、RAG 增强、工具调用由模型决策的统一运行时）
+
+[**v1.0.3**](./v1.0.3/) — 鉴权与访问控制（Completed；匿名会话、登录注册、admin、特性管理员、全局配置权限和真实数据升级验收已收口）
 
 ## 历史版本
 
@@ -44,7 +48,9 @@ docs/
 │   ├── plans/         ← 实现计划（拆 SDD → 可执行 task）
 │   └── specs/         ← 早期草稿 / 过程性产物
 ├── v1.0.1/            ← LLM Wiki 专项（Completed）
-├── v1.0.2/            ← 当前版本：LLM Agent 会话运行时优化（Active）
+├── v1.0.2/            ← LLM Agent 会话运行时优化（Completed）
+├── v1.0.3/            ← 鉴权与访问控制（Completed）
+├── v1.0.4/            ← 当前版本：OpenCode Agent Backend 对接（Active）
 ├── v1.1/              ← 未来 minor 演进（尚未创建）
 └── v2.0/              ← 未来 major 演进（尚未创建）
 ```

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  appendRuntimeInsight,
   createInitialStages,
   runtimeInsightFromEvent,
   runtimeStateFromEvent,
 } from "../src/components/session/session-model";
+import { insightsFromSessionHistory } from "../src/components/session/session-history";
+import type { AgentTraceResponse } from "../src/types/api";
 
 describe("session runtime stage model", () => {
   it("orders knowledge retrieval before evidence sufficiency and code investigation", () => {
@@ -127,6 +130,134 @@ describe("session runtime stage model", () => {
     expect(String(insight)).not.toContain("内部思考");
   });
 
+  it("maps opencode reasoning diagnostics using content_length", () => {
+    const insight = runtimeInsightFromEvent({
+      type: "reasoning_observed",
+      data: {
+        source: "opencode",
+        part_id: "prt_reasoning",
+        content_length: 42,
+        redacted: true,
+      },
+    });
+
+    expect(insight).not.toBeNull();
+    expect(insight?.title).toBe("模型推理已隔离");
+    expect(insight?.detail).toContain("长度 42");
+    expect(insight?.data?.length).toBe(42);
+  });
+
+  it("maps opencode error payloads into readable messages", () => {
+    const insight = runtimeInsightFromEvent({
+      type: "error",
+      data: {
+        backend: "opencode",
+        error: "opencode unavailable",
+      },
+    });
+
+    expect(insight).not.toBeNull();
+    expect(insight?.title).toBe("运行失败");
+    expect(insight?.detail).toBe("opencode unavailable");
+  });
+
+  it("maps opencode busy into a running status insight", () => {
+    const insight = runtimeInsightFromEvent({
+      type: "assistant_action",
+      data: {
+        action: "opencode_busy",
+        summary: "opencode session status: busy",
+      },
+    });
+
+    expect(insight).not.toBeNull();
+    expect(insight?.kind).toBe("runtime_status");
+    expect(insight?.title).toBe("opencode running");
+    expect(insight?.status).toBe("running");
+  });
+
+  it("deduplicates opencode running and removes it when real events arrive", () => {
+    const running = runtimeInsightFromEvent({
+      type: "assistant_action",
+      data: { action: "opencode_busy" },
+    });
+    const toolCall = runtimeInsightFromEvent({
+      type: "tool_call",
+      data: {
+        tool_call_id: "call_1",
+        tool_name: "codeask_list_features",
+        arguments_summary: {},
+      },
+    });
+
+    expect(running).not.toBeNull();
+    expect(toolCall).not.toBeNull();
+
+    const withOneRunning = appendRuntimeInsight([], {
+      ...running!,
+      turnId: "turn_1",
+    });
+    const stillOneRunning = appendRuntimeInsight(withOneRunning, {
+      ...running!,
+      id: "runtime_status_2",
+      turnId: "turn_1",
+    });
+    const withRealEvent = appendRuntimeInsight(stillOneRunning, {
+      ...toolCall!,
+      turnId: "turn_1",
+    });
+
+    expect(withOneRunning).toHaveLength(1);
+    expect(stillOneRunning).toHaveLength(1);
+    expect(withRealEvent).toHaveLength(1);
+    expect(withRealEvent[0].kind).toBe("tool_call");
+  });
+
+  it("does not restore persisted opencode busy events as history insights", () => {
+    const traces: AgentTraceResponse[] = [
+      trace("tr_busy_1", "turn_1", "assistant_action", {
+        action: "opencode_busy",
+      }),
+      trace("tr_busy_2", "turn_1", "assistant_action", {
+        action: "opencode_busy",
+      }),
+      trace("tr_tool", "turn_1", "tool_call", {
+        tool_call_id: "call_1",
+        tool_name: "codeask_list_features",
+        arguments_summary: {},
+      }),
+      trace("tr_busy_3", "turn_1", "assistant_action", {
+        action: "opencode_busy",
+      }),
+    ];
+
+    const insights = insightsFromSessionHistory([], traces);
+
+    expect(insights.map((insight) => insight.kind)).toEqual(["tool_call"]);
+  });
+
+  it("restores persisted reasoning diagnostics from session history", () => {
+    const traces: AgentTraceResponse[] = [
+      trace("tr_busy_1", "turn_1", "assistant_action", {
+        action: "opencode_busy",
+      }),
+      trace("tr_reasoning_summary", "turn_1", "reasoning_observed", {
+        field: "unknown",
+        length: 152,
+        chunks: 1,
+        redacted: true,
+        raw_reasoning_used: false,
+      }),
+    ];
+
+    const insights = insightsFromSessionHistory([], traces);
+
+    expect(insights).toHaveLength(1);
+    expect(insights[0].kind).toBe("diagnostic");
+    expect(insights[0].title).toBe("模型推理已隔离");
+    expect(insights[0].detail).toContain("长度 152");
+  });
+
   it("maps runtime state events into session header data", () => {
     const runtimeState = runtimeStateFromEvent({
       type: "runtime_state",
@@ -145,6 +276,21 @@ describe("session runtime stage model", () => {
     expect(runtimeState?.configName).toBe("火山引擎 GLM-5.1");
     expect(runtimeState?.usageLabel).toBe("32k / 200k");
     expect(runtimeState?.usageRatio).toBeGreaterThan(0);
+  });
+
+  it("renders tiny runtime usage as readable k units instead of zero", () => {
+    const runtimeState = runtimeStateFromEvent({
+      type: "runtime_state",
+      data: {
+        backend: "opencode",
+        context_size_chars: 12,
+        context_window_chars: 200000,
+        usage_label: "0k / 200k",
+      },
+    });
+
+    expect(runtimeState).not.toBeNull();
+    expect(runtimeState?.usageLabel).toBe("1k / 200k");
   });
 
   it("maps llm input audits into debug trace insights", () => {
@@ -198,3 +344,21 @@ describe("session runtime stage model", () => {
     expect(insight?.detail).toContain("已在界面遮蔽");
   });
 });
+
+function trace(
+  id: string,
+  turnId: string,
+  eventType: string,
+  payload: unknown,
+): AgentTraceResponse {
+  return {
+    id,
+    session_id: "sess_1",
+    turn_id: turnId,
+    stage: "chat_runtime",
+    event_type: eventType,
+    payload,
+    created_at: "2026-05-14T00:00:00Z",
+    updated_at: "2026-05-14T00:00:00Z",
+  };
+}

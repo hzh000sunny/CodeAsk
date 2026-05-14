@@ -162,7 +162,6 @@ export function runtimeStateFromEvent(
   }
 
   const usageLabel =
-    stringData(event, "usage_label") ??
     `${formatContextK(contextSizeChars)}k / ${formatContextK(contextWindowChars, {
       total: true,
     })}k`;
@@ -311,10 +310,52 @@ export function runtimeInsightFromEvent(
       id: `error_${Date.now()}`,
       kind: "error",
       title: stringData(event, "code") ?? "运行错误",
-      detail: stringData(event, "message") ?? "Agent 运行失败",
+      detail:
+        stringData(event, "message") ??
+        stringData(event, "error") ??
+        "Agent 运行失败",
     };
   }
   return null;
+}
+
+export function appendRuntimeInsight(
+  current: RuntimeInsight[],
+  insight: RuntimeInsight,
+): RuntimeInsight[] {
+  const targetTurnId = insight.turnId;
+  if (isOpencodeRunningInsight(insight)) {
+    const hasRunningForTurn = current.some(
+      (item) => isOpencodeRunningInsight(item) && item.turnId === targetTurnId,
+    );
+    return hasRunningForTurn ? current : [...current, insight];
+  }
+
+  return [
+    ...current.filter(
+      (item) =>
+        !isOpencodeRunningInsight(item) || item.turnId !== targetTurnId,
+    ),
+    insight,
+  ];
+}
+
+export function removeOpencodeRunningInsight(
+  current: RuntimeInsight[],
+  turnId?: string,
+): RuntimeInsight[] {
+  return current.filter(
+    (item) =>
+      !isOpencodeRunningInsight(item) ||
+      (turnId !== undefined && item.turnId !== turnId),
+  );
+}
+
+export function isOpencodeRunningInsight(insight: RuntimeInsight) {
+  return (
+    insight.kind === "runtime_status" &&
+    insight.data?.action === "opencode_busy"
+  );
 }
 
 export function askUserMessageFromEvent(event: AgentEvent) {

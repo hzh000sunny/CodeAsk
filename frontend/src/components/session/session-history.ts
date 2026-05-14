@@ -1,7 +1,9 @@
 import type { AgentTraceResponse, SessionTurnResponse } from "../../types/api";
 import type { AgentEvent } from "../../types/sse";
 import {
+  appendRuntimeInsight,
   createInitialStages,
+  isOpencodeRunningInsight,
   runtimeInsightFromEvent,
   runtimeStateFromEvent,
   type ConversationMessage,
@@ -130,12 +132,17 @@ export function insightsFromSessionHistory(
     }
     const insight = runtimeInsightFromEvent(event);
     if (insight) {
-      insights.push({
+      const normalizedInsight = {
         ...insight,
         id: trace.id,
         occurredAt: trace.created_at,
         turnId: trace.turn_id,
-      });
+      };
+      insights.splice(
+        0,
+        insights.length,
+        ...appendRuntimeInsight(insights, normalizedInsight),
+      );
     }
   }
   for (const turn of turns) {
@@ -143,7 +150,7 @@ export function insightsFromSessionHistory(
       insights.push(insight);
     }
   }
-  return insights;
+  return insights.filter((insight) => !isOpencodeRunningInsight(insight));
 }
 
 function agentEventFromTrace(trace: AgentTraceResponse): AgentEvent | null {
@@ -186,6 +193,12 @@ function agentEventFromTrace(trace: AgentTraceResponse): AgentEvent | null {
   }
   if (trace.event_type === "assistant_action") {
     return { type: "assistant_action", data: payload };
+  }
+  if (trace.event_type === "reasoning_observed") {
+    return { type: "reasoning_observed", data: payload };
+  }
+  if (trace.event_type === "reasoning_leak_detected") {
+    return { type: "reasoning_leak_detected", data: payload };
   }
   if (trace.event_type === "error") {
     return { type: "error", data: payload };

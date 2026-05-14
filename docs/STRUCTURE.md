@@ -231,6 +231,7 @@ docs/
 
 - 涉及前端交互的改动，必须至少有 Playwright 或等价浏览器 E2E 覆盖核心路径。
 - 涉及 Agent / LLM / RAG / 工具调用的改动，必须保留 live E2E 通道；默认可以跳过真实 LLM 调用，但必须能通过显式环境变量开启。
+- 每个版本收口前必须在版本级 `plans/acceptance-checklist.md` 中列出多环境 E2E 矩阵，至少覆盖临时空库、真实数据只读、真实浏览器、真实 LLM / Agent、外部工具和升级部署这些环境的执行或跳过原因。
 - 涉及 Agent / LLM / RAG / 工具调用的改动，必须有 fake / spy LLM 测试断言实际发给模型的 `messages`、`tools` 和关键参数，不能只看最终回答。
 - 涉及连续会话的改动，必须分别验证：
   - 数据库中历史 turns 是否保存；

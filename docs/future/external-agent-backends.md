@@ -233,21 +233,31 @@ OPENAI_API_KEY=<decrypted key>
 
 第一版同样只开放只读工具和 CodeAsk MCP tools，不开放自动代码修改。
 
-## 9. CodeAsk MCP Tools
+## 9. CodeAsk MCP Tools 与文件上下文
 
-无论使用 Claude Code 还是 opencode，都建议让外部 agent 通过 MCP 访问 CodeAsk 知识能力。
+外部 agent 接入时，MCP 只适合承载必须由 CodeAsk 代理的元数据、权限和环境准备能力。能够以文件形式暴露的知识内容，优先作为 workspace 文件目录提供给外部 agent，让其使用原生 `glob/grep/read` 能力自主判断，避免 CodeAsk 再封装一层不稳定的检索/读取工具。
 
-第一批 MCP tools：
+v1.0.4 opencode 路线的第一批 MCP tools：
 
 ```text
 list_features
-search_wiki
-read_wiki_node
-search_reports
-read_report
+get_feature_info
+list_feature_repos
+prepare_worktree
+bind_session_features
 list_session_attachments
 read_session_attachment
 ```
+
+Wiki 和问题报告作为文件目录挂载：
+
+```text
+./wiki/<feature_slug>/knowledge-base/
+./wiki/<feature_slug>/problem-reports/verified/
+./wiki/<feature_slug>/problem-reports/drafts/
+```
+
+已验证问题报告仅作参考，只有报错、场景、根因完全一致时，才能判断为同一问题；草稿报告只作为弱背景。未来如果引入 RAG 服务，可以新增独立 MCP 能力，但不再恢复旧的 opencode report search/read 封装作为主路径。
 
 后续可增加：
 

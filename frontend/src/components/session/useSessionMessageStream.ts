@@ -14,10 +14,12 @@ import {
 } from "./session-cache";
 import { featureIdsFromEvent } from "./session-history";
 import {
+  appendRuntimeInsight,
   askUserMessageFromEvent,
   createInitialStages,
   messageFromError,
   reduceStages,
+  removeOpencodeRunningInsight,
   runtimeInsightFromEvent,
   runtimeStateFromEvent,
   textDeltaFromEvent,
@@ -255,14 +257,11 @@ export function useSessionMessageStream({
           if (insight) {
             updateActiveStreamSnapshot(target.id, (snapshot) => ({
               ...snapshot,
-              insights: [
-                ...snapshot.insights,
-                {
-                  ...insight,
-                  occurredAt: new Date().toISOString(),
-                  turnId: liveTurnId,
-                },
-              ],
+              insights: appendRuntimeInsight(snapshot.insights, {
+                ...insight,
+                occurredAt: new Date().toISOString(),
+                turnId: liveTurnId,
+              }),
             }));
           }
           if (event.type === "scope_detection") {
@@ -278,6 +277,10 @@ export function useSessionMessageStream({
           }
           const delta = textDeltaFromEvent(event);
           if (delta) {
+            updateActiveStreamSnapshot(target.id, (snapshot) => ({
+              ...snapshot,
+              insights: removeOpencodeRunningInsight(snapshot.insights, liveTurnId),
+            }));
             const guarded = leakGuard.feed(delta);
             if (guarded.diagnostic) {
               const leakInsight = runtimeInsightFromEvent({
@@ -287,14 +290,11 @@ export function useSessionMessageStream({
               if (leakInsight) {
                 updateActiveStreamSnapshot(target.id, (snapshot) => ({
                   ...snapshot,
-                  insights: [
-                    ...snapshot.insights,
-                    {
-                      ...leakInsight,
-                      occurredAt: new Date().toISOString(),
-                      turnId: liveTurnId,
-                    },
-                  ],
+                  insights: appendRuntimeInsight(snapshot.insights, {
+                    ...leakInsight,
+                    occurredAt: new Date().toISOString(),
+                    turnId: liveTurnId,
+                  }),
                 }));
               }
             }
@@ -318,6 +318,10 @@ export function useSessionMessageStream({
           if (askUserMessage) {
             updateActiveStreamSnapshot(target.id, (snapshot) => ({
               ...snapshot,
+              insights: removeOpencodeRunningInsight(snapshot.insights, liveTurnId),
+            }));
+            updateActiveStreamSnapshot(target.id, (snapshot) => ({
+              ...snapshot,
               messages: snapshot.messages.map((message) =>
                 message.id === assistantMessageId
                   ? {
@@ -332,17 +336,27 @@ export function useSessionMessageStream({
             }));
           }
           if (event.type === "error") {
+            const errorMessage =
+              typeof event.data.message === "string"
+                ? event.data.message
+                : typeof event.data.error === "string"
+                  ? event.data.error
+                  : "未知错误";
             showActionNotice(
-              `Agent 运行失败：${String(event.data.message ?? "未知错误")}`,
+              `Agent 运行失败：${errorMessage}`,
               "error",
             );
+            updateActiveStreamSnapshot(target.id, (snapshot) => ({
+              ...snapshot,
+              insights: removeOpencodeRunningInsight(snapshot.insights, liveTurnId),
+            }));
             updateActiveStreamSnapshot(target.id, (snapshot) => ({
               ...snapshot,
               messages: snapshot.messages.map((message) =>
                 message.id === assistantMessageId
                   ? {
                       ...message,
-                      content: String(event.data.message ?? "Agent 运行失败"),
+                      content: errorMessage,
                       status: "error",
                     }
                   : message,
@@ -354,6 +368,10 @@ export function useSessionMessageStream({
               typeof event.data.turn_id === "string"
                 ? event.data.turn_id
                 : null;
+            updateActiveStreamSnapshot(target.id, (snapshot) => ({
+              ...snapshot,
+              insights: removeOpencodeRunningInsight(snapshot.insights, liveTurnId),
+            }));
             if (turnId) {
               updateActiveStreamSnapshot(target.id, (snapshot) => ({
                 ...snapshot,

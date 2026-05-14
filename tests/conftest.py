@@ -18,6 +18,7 @@ from codeask.settings import Settings
 def settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Settings:
     monkeypatch.setenv("CODEASK_DATA_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CODEASK_AGENT_BACKEND", "native")
     return Settings()  # type: ignore[call-arg]
 
 

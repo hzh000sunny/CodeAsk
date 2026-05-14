@@ -10,6 +10,7 @@ from codeask.db.models.frontend_event import FrontendEvent
 from codeask.db.models.llm import LLMConfig
 from codeask.db.models.report import Report
 from codeask.db.models.session import (
+    ExternalAgentSession,
     Session,
     SessionAttachment,
     SessionConversationSummary,
@@ -63,6 +64,7 @@ __all__ = [
     "WikiSource",
     "WikiSpace",
     "Session",
+    "ExternalAgentSession",
     "SessionAttachment",
     "SessionConversationSummary",
     "SessionFeature",

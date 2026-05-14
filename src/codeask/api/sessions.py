@@ -367,6 +367,8 @@ async def abort_session_turn(session_id: str, turn_id: str, request: Request) ->
     await _load_session(request, session_id)
     from codeask.sessions.messages import rollback_session_turn
 
+    if getattr(request.app.state.settings, "agent_backend", "opencode") == "opencode":
+        await request.app.state.opencode_compat.abort_turn(session_id)
     await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
 
 

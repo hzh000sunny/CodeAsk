@@ -9,6 +9,7 @@ import pytest_asyncio
 from sqlalchemy import select
 
 from codeask.code_index.cloner import CloneFailedError, RepoCloner
+from codeask.code_index.worktree import WorktreeManager
 from codeask.db import Base, create_engine, session_factory
 from codeask.db.models import Repo
 
@@ -96,6 +97,90 @@ async def test_clone_local_dir_success(tmp_path: Path, db_engine) -> None:  # ty
         assert repo.error_message is None
         assert repo.last_synced_at is not None
     assert (bare / "HEAD").is_file()
+
+
+@pytest.mark.asyncio
+async def test_clone_plain_local_dir_creates_readable_snapshot_worktree(
+    tmp_path: Path,
+    db_engine,
+) -> None:  # type: ignore[no-untyped-def]
+    src = tmp_path / "plain-src"
+    src.mkdir()
+    (src / "README.md").write_text("plain local source\n", encoding="utf-8")
+    (src / "server").mkdir()
+    (src / "server" / "app.js").write_text("console.log('ok')\n", encoding="utf-8")
+    bare = tmp_path / "pool" / "r-plain" / "bare"
+    factory = session_factory(db_engine)
+
+    async with factory() as s:
+        s.add(
+            Repo(
+                id="r-plain",
+                name="plain-local",
+                source=Repo.SOURCE_LOCAL_DIR,
+                url=None,
+                local_path=str(src),
+                bare_path=str(bare),
+                status=Repo.STATUS_REGISTERED,
+            )
+        )
+        await s.commit()
+
+    cloner = RepoCloner(factory, clone_timeout_seconds=30)
+    await asyncio.to_thread(cloner.run_clone, "r-plain")
+
+    async with factory() as s:
+        repo = (await s.execute(select(Repo).where(Repo.id == "r-plain"))).scalar_one()
+        assert repo.status == Repo.STATUS_READY
+        assert repo.error_message is None
+        assert repo.last_synced_at is not None
+
+    worktree = WorktreeManager(tmp_path / "pool").ensure_worktree(
+        "r-plain",
+        "sess_plain",
+        None,
+    )
+    assert (worktree / "README.md").read_text(encoding="utf-8") == "plain local source\n"
+    assert (worktree / "server" / "app.js").read_text(encoding="utf-8") == "console.log('ok')\n"
+
+
+@pytest.mark.asyncio
+async def test_clone_local_dir_inside_parent_git_repo_uses_that_subdirectory_snapshot(
+    tmp_path: Path,
+    db_engine,
+) -> None:  # type: ignore[no-untyped-def]
+    parent = _make_local_git_repo(tmp_path / "parent")
+    src = parent / "references" / "anything-llm"
+    src.mkdir(parents=True)
+    (src / "README.md").write_text("nested source only\n", encoding="utf-8")
+    (parent / "root-only.txt").write_text("must not be included\n", encoding="utf-8")
+    bare = tmp_path / "pool" / "r-nested" / "bare"
+    factory = session_factory(db_engine)
+
+    async with factory() as s:
+        s.add(
+            Repo(
+                id="r-nested",
+                name="nested-local",
+                source=Repo.SOURCE_LOCAL_DIR,
+                url=None,
+                local_path=str(src),
+                bare_path=str(bare),
+                status=Repo.STATUS_REGISTERED,
+            )
+        )
+        await s.commit()
+
+    cloner = RepoCloner(factory, clone_timeout_seconds=30)
+    await asyncio.to_thread(cloner.run_clone, "r-nested")
+
+    worktree = WorktreeManager(tmp_path / "pool").ensure_worktree(
+        "r-nested",
+        "sess_nested",
+        None,
+    )
+    assert (worktree / "README.md").read_text(encoding="utf-8") == "nested source only\n"
+    assert not (worktree / "root-only.txt").exists()
 
 
 @pytest.mark.asyncio

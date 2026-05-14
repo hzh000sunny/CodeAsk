@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 
 from codeask.agent.chat_runtime.context import SessionMessage
+from codeask.agent.chat_runtime.events import ChatRuntimeEvent
 from codeask.agent.sse import SSEMultiplexer
 from codeask.api.schemas.session import MessageCreate
 from codeask.code_index.worktree import InvalidRefError, WorktreeError
@@ -24,6 +25,7 @@ from codeask.db.models import (
     SessionRepoBinding,
     SessionTurn,
 )
+from codeask.llm.repo import LLMConfigWithSecret
 from codeask.sessions.title_generation import maybe_generate_session_title
 
 
@@ -132,6 +134,17 @@ async def stream_agent_response(
     force_code_investigation: bool,
     runtime_llm_config: dict[str, Any] | None = None,
 ) -> AsyncIterator[bytes]:
+    if getattr(request.app.state.settings, "agent_backend", "opencode") == "opencode":
+        async for chunk in stream_opencode_response(
+            request,
+            session_id,
+            turn_id,
+            content,
+            runtime_llm_config=runtime_llm_config,
+        ):
+            yield chunk
+        return
+
     runtime = request.app.state.chat_runtime
     multiplexer = SSEMultiplexer()
     assistant_chunks: list[str] = []
@@ -198,6 +211,148 @@ async def stream_agent_response(
                     assistant_content=assistant_content,
                 )
             )
+
+
+async def stream_opencode_response(
+    request: Request,
+    session_id: str,
+    turn_id: str,
+    content: str,
+    *,
+    runtime_llm_config: dict[str, Any] | None = None,
+) -> AsyncIterator[bytes]:
+    compat = request.app.state.opencode_compat
+    multiplexer = SSEMultiplexer()
+    assistant_chunks: list[str] = []
+    completed = False
+    llm_config = await _resolve_opencode_llm_config(request, runtime_llm_config)
+
+    try:
+        await compat.initialize_session(session_id, llm_config)
+        runtime_event = _opencode_runtime_state_event(llm_config, content)
+        runtime_data = _event_data_dict(runtime_event.data)
+        await persist_runtime_event_trace(
+            request,
+            session_id,
+            turn_id,
+            runtime_event.type,
+            runtime_data,
+        )
+        yield multiplexer.format(
+            runtime_event.model_copy(update={"data": {**runtime_data, "turn_id": turn_id}})
+        )
+        async for event in compat.run_turn(
+            session_id=session_id,
+            user_message=content,
+            llm_config=llm_config,
+        ):
+            event_data = _event_data_dict(event.data)
+            await persist_runtime_event_trace(request, session_id, turn_id, event.type, event_data)
+            if event.type == "text_delta":
+                delta = event_data.get("delta") or event_data.get("text")
+                if isinstance(delta, str):
+                    assistant_chunks.append(delta)
+            if event.type == "done":
+                completed = True
+            yield multiplexer.format(
+                event.model_copy(update={"data": {**event_data, "turn_id": turn_id}})
+            )
+    except asyncio.CancelledError:
+        await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
+        raise
+    except Exception as exc:
+        error_event = ChatRuntimeEvent(
+            type="error",
+            data={
+                "backend": "opencode",
+                "error": str(exc) or exc.__class__.__name__,
+            },
+        )
+        error_data = _event_data_dict(error_event.data)
+        await persist_runtime_event_trace(
+            request,
+            session_id,
+            turn_id,
+            error_event.type,
+            error_data,
+        )
+        yield multiplexer.format(
+            error_event.model_copy(update={"data": {**error_data, "turn_id": turn_id}})
+        )
+
+    if completed:
+        assistant_content = "".join(assistant_chunks).strip()
+        if assistant_content:
+            await persist_agent_turn(
+                request,
+                session_id,
+                assistant_content,
+                parent_turn_id=turn_id,
+            )
+            asyncio.create_task(
+                maybe_generate_session_title(
+                    request.app.state.session_factory,
+                    request.app.state.llm_gateway,
+                    session_id=session_id,
+                    subject_id=request.state.subject_id,
+                    user_content=content,
+                    assistant_content=assistant_content,
+                )
+            )
+
+
+async def _resolve_opencode_llm_config(
+    request: Request,
+    runtime_llm_config: dict[str, Any] | None,
+) -> LLMConfigWithSecret:
+    if runtime_llm_config is not None:
+        return LLMConfigWithSecret(
+            id="guest",
+            name=str(runtime_llm_config.get("name") or "访客 LLM"),
+            scope="guest",
+            owner_subject_id=str(getattr(request.state, "subject_id", "")) or None,
+            protocol=str(runtime_llm_config["protocol"]),
+            base_url=runtime_llm_config.get("base_url"),
+            api_key=str(runtime_llm_config["api_key"]),
+            model_name=str(runtime_llm_config["model_name"]),
+            max_tokens=int(runtime_llm_config.get("max_tokens") or 4096),
+            temperature=float(runtime_llm_config.get("temperature") or 0.0),
+            is_default=False,
+            enabled=True,
+            rpm_limit=None,
+            quota_remaining=None,
+            reasoning_profile=str(runtime_llm_config.get("reasoning_profile") or "none"),
+            reasoning_profile_json=runtime_llm_config.get("reasoning_profile_json"),
+        )
+
+    config = await request.app.state.llm_config_repo.get_default_or(
+        None,
+        subject_id=getattr(request.state, "subject_id", None),
+    )
+    return config
+
+
+def _opencode_runtime_state_event(
+    llm_config: LLMConfigWithSecret,
+    current_user_message: str,
+):
+    context_size = max(0, len(current_user_message))
+    context_window = 200_000
+    return ChatRuntimeEvent(
+        type="runtime_state",
+        data={
+            "backend": "opencode",
+            "config_id": llm_config.id,
+            "model_name": llm_config.model_name,
+            "protocol": llm_config.protocol,
+            "scope": llm_config.scope,
+            "context_size_chars": context_size,
+            "context_window_chars": context_window,
+            "usage_ratio": context_size / context_window,
+            "usage_label": f"{context_size // 1000}k / {context_window // 1000}k",
+            "is_global_pool": llm_config.scope == "global",
+        },
+    )
 
 
 async def persist_runtime_audit_payload(

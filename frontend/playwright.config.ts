@@ -8,6 +8,7 @@ const liveAgentE2eEnabled = [
   process.env.CODEASK_RUN_LIVE_FEATURE_SCOPED_CODE_E2E,
   process.env.CODEASK_RUN_LIVE_AGENT_LONG_CONTEXT_E2E,
   process.env.CODEASK_RUN_LIVE_REASONING_PROTOCOL_E2E,
+  process.env.CODEASK_RUN_LIVE_OPENCODE_E2E,
 ].some((value) => value === "1");
 
 export default defineConfig({
