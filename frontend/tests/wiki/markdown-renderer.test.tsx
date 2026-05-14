@@ -1,6 +1,16 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { vi } from "vitest";
 
 import { MarkdownRenderer } from "../../src/components/ui/MarkdownRenderer";
+
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async (id: string) => ({
+      svg: `<svg data-testid="mock-mermaid-svg" data-id="${id}" viewBox="0 0 1800 900"><text>流程图</text></svg>`,
+    })),
+  },
+}));
 
 describe("MarkdownRenderer wiki affordances", () => {
   it("maps internal markdown links to wiki hash routes", () => {
@@ -75,5 +85,30 @@ describe("MarkdownRenderer wiki affordances", () => {
 
     expect(screen.getByText("图片无法加载")).toBeInTheDocument();
     expect(screen.getByText("./later-missing.png")).toBeInTheDocument();
+  });
+
+  it("renders mermaid flowcharts as diagrams instead of plain code blocks", async () => {
+    render(
+      <MarkdownRenderer
+        content={[
+          "# 主备重建流程",
+          "",
+          "```mermaid",
+          "flowchart TD",
+          "  A[开始] --> B{是否全量 build}",
+          "  B -- 是 --> C[全量 build]",
+          "  B -- 否 --> D[增量 build]",
+          "  C --> E[拉起数据库进程]",
+          "  D --> E",
+          "```",
+        ].join("\n")}
+      />,
+    );
+
+    expect(await screen.findByTestId("mock-mermaid-svg")).toBeInTheDocument();
+    expect(
+      document.querySelector<HTMLElement>(".markdown-mermaid-svg"),
+    ).toHaveStyle({ minWidth: "1200px" });
+    expect(screen.queryByRole("button", { name: "复制代码块" })).not.toBeInTheDocument();
   });
 });

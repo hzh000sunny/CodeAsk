@@ -194,6 +194,18 @@ v1.0.4 收口前必须满足：
 - [x] 验证：`uv run pytest tests/unit/test_session_report_generation.py tests/integration/test_session_report_generation.py -q` -> `18 passed`。
 - [x] 验证：`uv run ruff check src/codeask/sessions/report_generation.py tests/unit/test_session_report_generation.py` -> `All checks passed!`。
 
+### 2.12 Wiki Mermaid 流程图渲染回归
+
+- [x] `MarkdownRenderer` 识别 fenced code block `language-mermaid`，不再作为普通代码块展示。
+- [x] Mermaid 按需动态加载，仅在文档实际包含流程图时加载渲染库，避免影响普通 Markdown 首屏。
+- [x] Mermaid 渲染失败时，在原位置显示错误提示和原始流程图文本，页面不能空白。
+- [x] 复杂大图按可读宽度展示，外层容器允许横向滚动，不挤压 Wiki / 特性页布局。
+- [x] 已在 AnythingLLM Reference 知识库创建真实验证文档：`2026-05-14 Mermaid复杂流程图渲染验证`。
+- [x] Wiki 工作台真实浏览器验证：`/#/wiki?feature=3&node=259`，SVG 1 个，Mermaid 代码块 0 个，控制台无错误。
+- [x] 特性页知识库预览真实浏览器验证：AnythingLLM Reference -> 知识库 -> `2026-05-14 Mermaid复杂流程图渲染验证`，SVG 1 个，Mermaid 代码块 0 个，控制台无错误。
+- [x] 验证截图：`/tmp/codeask-mermaid-wiki.png`、`/tmp/codeask-mermaid-feature.png`。
+- [x] 自动化测试：`corepack pnpm --dir frontend exec vitest run tests/wiki/markdown-renderer.test.tsx` -> `7 passed`。
+
 ---
 
 ## 3. 多环境 E2E 基线

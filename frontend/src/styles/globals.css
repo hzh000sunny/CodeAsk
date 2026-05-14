@@ -1500,6 +1500,63 @@ textarea:focus-visible {
   white-space: pre;
 }
 
+.markdown-mermaid-block {
+  min-width: 0;
+  max-width: 100%;
+  margin: 14px 0;
+  overflow: auto;
+  border: 1px solid #d9e1ea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.markdown-mermaid-block[data-state="loading"] {
+  background: #f8fafc;
+  color: #667085;
+}
+
+.markdown-mermaid-svg {
+  min-width: max-content;
+}
+
+.markdown-mermaid-svg svg {
+  display: block;
+  max-width: none;
+}
+
+.markdown-mermaid-loading {
+  color: #667085;
+  font-size: 13px;
+}
+
+.markdown-mermaid-error {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #fecdca;
+  border-radius: 7px;
+  background: #fffbfa;
+  color: #b42318;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.markdown-mermaid-error span {
+  color: #667085;
+}
+
+.markdown-mermaid-block pre {
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #182230;
+  padding: 10px 12px;
+  white-space: pre;
+}
+
 .markdown-code-copy {
   display: inline-grid;
   width: 28px;

@@ -88,6 +88,10 @@ export function MarkdownRenderer({
           },
           pre({ children }) {
             const code = textFromNode(children).replace(/\n$/, "");
+            const language = getCodeLanguage(children);
+            if (language === "mermaid") {
+              return <MermaidDiagram chart={code} />;
+            }
             return (
               <MarkdownCodeBlock code={code} onCopyCode={onCopyCode}>
                 {children}
@@ -100,6 +104,38 @@ export function MarkdownRenderer({
       </ReactMarkdown>
     </div>
   );
+}
+
+let mermaidRenderSeq = 0;
+let mermaidInitialized = false;
+let mermaidModulePromise: Promise<typeof import("mermaid").default> | null = null;
+
+async function loadMermaid() {
+  if (!mermaidModulePromise) {
+    mermaidModulePromise = import("mermaid").then((module) => module.default);
+  }
+  const mermaid = await mermaidModulePromise;
+  if (mermaidInitialized) {
+    return mermaid;
+  }
+
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    theme: "base",
+    themeVariables: {
+      fontFamily:
+        'Inter, "CodeAsk Sans CJK", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif',
+      primaryColor: "#eef7ff",
+      primaryTextColor: "#162033",
+      primaryBorderColor: "#7bb1d9",
+      lineColor: "#667085",
+      secondaryColor: "#f6f8fb",
+      tertiaryColor: "#fff7ed",
+    },
+  });
+  mermaidInitialized = true;
+  return mermaid;
 }
 
 const HTML_IMAGE_SRC_RE = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
@@ -170,6 +206,100 @@ function MarkdownImage({
       src={src}
     />
   );
+}
+
+function MermaidDiagram({ chart }: { chart: string }) {
+  const [svg, setSvg] = useState("");
+  const [error, setError] = useState("");
+  const [intrinsicWidth, setIntrinsicWidth] = useState<number | null>(null);
+  const blockRef = useRef<HTMLDivElement | null>(null);
+  const renderIdRef = useRef("");
+
+  if (!renderIdRef.current) {
+    mermaidRenderSeq += 1;
+    renderIdRef.current = `codeask-mermaid-${mermaidRenderSeq}`;
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function renderDiagram() {
+      setSvg("");
+      setError("");
+      setIntrinsicWidth(null);
+      try {
+        const mermaid = await loadMermaid();
+        const result = await mermaid.render(renderIdRef.current, chart);
+        if (!cancelled) {
+          setSvg(result.svg);
+          setIntrinsicWidth(readSvgViewBoxWidth(result.svg));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Mermaid 流程图渲染失败");
+        }
+      }
+    }
+
+    void renderDiagram();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chart]);
+
+  const displayWidth = intrinsicWidth ? Math.min(Math.max(intrinsicWidth, 720), 1200) : null;
+
+  useEffect(() => {
+    if (!svg || !blockRef.current) {
+      return;
+    }
+    blockRef.current.scrollLeft = Math.max(
+      0,
+      (blockRef.current.scrollWidth - blockRef.current.clientWidth) / 2,
+    );
+  }, [svg, displayWidth]);
+
+  if (error) {
+    return (
+      <div className="markdown-mermaid-block" data-state="error" ref={blockRef}>
+        <div className="markdown-mermaid-error" role="alert">
+          <strong>流程图渲染失败</strong>
+          <span>{error}</span>
+        </div>
+        <pre>{chart}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="markdown-mermaid-block"
+      data-state={svg ? "ready" : "loading"}
+      ref={blockRef}
+    >
+      {svg ? (
+        <div
+          className="markdown-mermaid-svg"
+          dangerouslySetInnerHTML={{ __html: svg }}
+          style={displayWidth ? { minWidth: `${displayWidth}px` } : undefined}
+        />
+      ) : (
+        <div className="markdown-mermaid-loading" role="status">
+          正在渲染流程图
+        </div>
+      )}
+    </div>
+  );
+}
+
+function readSvgViewBoxWidth(svg: string): number | null {
+  const match = svg.match(/\bviewBox=["']\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)/i);
+  if (!match?.[1]) {
+    return null;
+  }
+  const width = Number.parseFloat(match[1]);
+  return Number.isFinite(width) && width > 0 ? Math.ceil(width) : null;
 }
 
 function MarkdownCodeBlock({
@@ -250,6 +380,29 @@ function textFromNode(node: ReactNode): string {
   if (typeof node === "object" && "props" in node) {
     const props = node.props as { children?: ReactNode };
     return textFromNode(props.children);
+  }
+  return "";
+}
+
+function getCodeLanguage(node: ReactNode): string {
+  const className = findCodeClassName(node);
+  const match = className.match(/(?:^|\s)language-([^\s]+)/);
+  return match?.[1]?.toLowerCase() ?? "";
+}
+
+function findCodeClassName(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") {
+    return "";
+  }
+  if (Array.isArray(node)) {
+    return node.map(findCodeClassName).find(Boolean) ?? "";
+  }
+  if (typeof node === "object" && "props" in node) {
+    const props = node.props as { children?: ReactNode; className?: unknown };
+    if (typeof props.className === "string") {
+      return props.className;
+    }
+    return findCodeClassName(props.children);
   }
   return "";
 }
