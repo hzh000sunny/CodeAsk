@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { PlugZap } from "lucide-react";
 
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -26,11 +27,15 @@ export interface LlmCreatePayload {
 export function LlmConfigForm({
   disabled,
   onCancel,
+  onTest,
   onSubmit,
+  testing,
 }: {
   disabled: boolean;
   onCancel: () => void;
+  onTest: (payload: LlmCreatePayload) => void;
   onSubmit: (payload: LlmCreatePayload) => void;
+  testing: boolean;
 }) {
   const [configName, setConfigName] = useState("");
   const [protocol, setProtocol] = useState<LlmProtocol>("openai");
@@ -51,9 +56,7 @@ export function LlmConfigForm({
     setOpencodeProviderProfile("default");
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    onSubmit({
+  const payload = {
       name: configName.trim(),
       protocol,
       base_url: baseUrl.trim() || null,
@@ -63,7 +66,12 @@ export function LlmConfigForm({
       reasoning_profile: "none",
       reasoning_profile_json: null,
       opencode_provider_profile: opencodeProviderProfile,
-    });
+    } satisfies LlmCreatePayload;
+  const canSubmit = Boolean(configName.trim() && apiKey && modelName.trim());
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit(payload);
   }
 
   return (
@@ -133,7 +141,16 @@ export function LlmConfigForm({
       </div>
       <div className="form-actions">
         <Button
-          disabled={!configName.trim() || !apiKey || !modelName.trim() || disabled}
+          disabled={!canSubmit || disabled || testing}
+          icon={<PlugZap size={15} />}
+          onClick={() => onTest(payload)}
+          type="button"
+          variant="secondary"
+        >
+          {testing ? "测试中" : "测试连接"}
+        </Button>
+        <Button
+          disabled={!canSubmit || disabled}
           type="submit"
           variant="primary"
         >

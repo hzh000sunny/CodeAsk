@@ -688,6 +688,18 @@ textarea:focus-visible {
   color: #b42318;
 }
 
+.inline-alert[data-tone="ok"] {
+  border-color: #abefc6;
+  background: #f6fef9;
+  color: #067647;
+}
+
+.inline-alert[data-tone="failed"] {
+  border-color: #fecdca;
+  background: #fffbfa;
+  color: #b42318;
+}
+
 .inline-alert.in-dialog {
   margin: 0;
 }
@@ -1142,6 +1154,8 @@ textarea:focus-visible {
 
 .app-feedback-error-dialog {
   width: min(436px, 100%);
+  max-height: min(520px, calc(100vh - 40px));
+  overflow: hidden;
 }
 
 .dialog-icon {
@@ -1193,6 +1207,14 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.app-feedback-error-dialog .dialog-content p {
+  max-height: 320px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .dialog-actions {
@@ -3212,6 +3234,7 @@ textarea:focus-visible {
 
 .config-summary {
   display: grid;
+  flex: 1 1 auto;
   gap: 4px;
   min-width: 0;
 }
@@ -3223,7 +3246,14 @@ textarea:focus-visible {
 
 .config-summary small {
   color: var(--muted);
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.provider-status-text {
+  display: inline;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .policy-row-content {
@@ -3303,6 +3333,7 @@ textarea:focus-visible {
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
+  flex: 0 0 auto;
   gap: 7px;
   min-width: 132px;
 }

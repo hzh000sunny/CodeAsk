@@ -93,7 +93,11 @@ CodeAsk 不在 LLM 配置新增或修改时自动联网测试，也不根据厂�
 1. 用户保存 LLM 配置时选择一个 OpenCode Provider，默认值为 `default`。
 2. `default` 走 opencode native provider：OpenAI 协议使用 `@ai-sdk/openai`，Anthropic 协议使用 `@ai-sdk/anthropic`。
 3. 用户可以显式选择 `openai-compatible`、`anthropic-compatible-bearer`、`anthropic-compatible-v1-bearer`、`openrouter` 等通用 profile。
-4. 手动“测试连接”只测试当前选中的 provider，不做隐式轮转；成功或失败写入 `llm_configs.opencode_provider_*` 供用户查看。
+4. 手动“测试连接”只测试当前选中的 provider，不做隐式轮转。
+   - 在配置列表行点击“测试连接”时，测试对象是数据库中已保存配置，成功或失败立即写入 `llm_configs.opencode_provider_*`。
+   - 在新增表单中点击“测试连接”时，测试对象是尚未保存的表单草稿；由于没有配置 ID，测试结果只用于弹窗反馈，不落库。
+   - 在编辑表单中点击“测试连接”时，测试对象是当前表单草稿；测试成功或失败只进入该表单隐藏状态，不提前保存配置。只有用户点击“保存修改”时，表单字段和 `opencode_provider_status` / `opencode_provider_tested_at` / `opencode_provider_error` / `opencode_provider_test_result_json` 一起提交并落库。
+   - 编辑表单内任一影响连接的字段再次变化后，前端必须丢弃上一次草稿测试结果，避免旧状态污染新配置。
 5. 会话启动时直接使用当前显式选择的 provider 生成 `opencode.json`；如果配置错误，返回明确错误，不自动切换其它 provider。
 6. 当前会话绑定记录中保留 `provider_profile_id`，用于审计本轮实际使用的 provider。
 

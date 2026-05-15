@@ -10,7 +10,11 @@ import {
   listAdminLlmConfigs,
   listUserLlmConfigs,
   testAdminLlmConfig,
+  testAdminLlmConfigDraft,
+  testAdminLlmConfigUpdateDraft,
   testUserLlmConfig,
+  testUserLlmConfigDraft,
+  testUserLlmConfigUpdateDraft,
   updateAdminLlmConfig,
   updateUserLlmConfig,
 } from "../../../lib/api";
@@ -92,6 +96,43 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
       showError(`LLM 连接测试失败：${messageFromApiError(error)}`);
     },
   });
+  const testDraftMutation = useMutation({
+    mutationFn: (payload: LlmCreatePayload) =>
+      scope === "global"
+        ? testAdminLlmConfigDraft(payload)
+        : testUserLlmConfigDraft(payload),
+    onSuccess: showTestResult,
+    onError: (error) => {
+      showError(`LLM 连接测试失败：${messageFromApiError(error)}`);
+    },
+  });
+  const testUpdateDraftMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: LlmUpdatePayload }) =>
+      scope === "global"
+        ? testAdminLlmConfigUpdateDraft(id, payload)
+        : testUserLlmConfigUpdateDraft(id, payload),
+    onSuccess: showTestResult,
+    onError: (error) => {
+      showError(`LLM 连接测试失败：${messageFromApiError(error)}`);
+    },
+  });
+
+  function showTestResult(result: {
+    status: string;
+    profile_id: string | null;
+    text_preview: string | null;
+    error: string | null;
+  }) {
+    if (result.status === "ok") {
+      showSuccess(
+        `LLM 连接测试通过：${result.profile_id ?? "default"}${
+          result.text_preview ? ` · ${result.text_preview}` : ""
+        }`,
+      );
+      return;
+    }
+    showError(`LLM 连接测试失败：${result.error ?? "未知错误"}`);
+  }
 
   return (
     <section className="surface">
@@ -116,9 +157,11 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
       </div>
       {showForm ? (
         <LlmConfigForm
-          disabled={createMutation.isPending}
+          disabled={createMutation.isPending || testDraftMutation.isPending}
           onCancel={() => setShowForm(false)}
+          onTest={(payload) => testDraftMutation.mutate(payload)}
           onSubmit={(payload) => createMutation.mutate(payload)}
+          testing={testDraftMutation.isPending}
         />
       ) : null}
       <LlmConfigList
@@ -129,6 +172,9 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
         onEditCancel={() => setEditingId(null)}
         onEditStart={(id) => setEditingId(id)}
         onTest={(id) => testMutation.mutate(id)}
+        onTestUpdateDraft={(id, payload) =>
+          testUpdateDraftMutation.mutateAsync({ id, payload })
+        }
         onUpdate={(id, payload) => updateMutation.mutate({ id, payload })}
         onToggleEnabled={(config) =>
           updateMutation.mutate({
@@ -141,7 +187,13 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
             ? testMutation.variables
             : null
         }
-        updating={updateMutation.isPending}
+        testingUpdateDraftId={
+          testUpdateDraftMutation.isPending
+          && typeof testUpdateDraftMutation.variables?.id === "string"
+            ? testUpdateDraftMutation.variables.id
+            : null
+        }
+        updating={updateMutation.isPending || testUpdateDraftMutation.isPending}
       />
     </section>
   );

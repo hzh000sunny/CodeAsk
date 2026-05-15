@@ -46,6 +46,10 @@ class LLMConfigUpdate(BaseModel):
     reasoning_profile: str | None = Field(default=None, max_length=64)
     reasoning_profile_json: str | None = Field(default=None, max_length=4096)
     opencode_provider_profile: str | None = Field(default=None, max_length=128)
+    opencode_provider_status: str | None = Field(default=None, max_length=16)
+    opencode_provider_tested_at: datetime | None = None
+    opencode_provider_error: str | None = Field(default=None, max_length=2000)
+    opencode_provider_test_result_json: object | None = None
 
 
 class LLMConfigResponse(BaseModel):

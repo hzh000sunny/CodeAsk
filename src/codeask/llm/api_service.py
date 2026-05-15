@@ -129,6 +129,11 @@ async def update_scoped_config(
             row.opencode_provider_tested_at = None
             row.opencode_provider_error = None
             row.opencode_provider_test_result_json = None
+        if "opencode_provider_status" in fields and payload.opencode_provider_status is not None:
+            row.opencode_provider_status = payload.opencode_provider_status
+            row.opencode_provider_tested_at = payload.opencode_provider_tested_at
+            row.opencode_provider_error = payload.opencode_provider_error
+            row.opencode_provider_test_result_json = payload.opencode_provider_test_result_json
         await record_audit_log(
             session,
             entity_type="llm_config",

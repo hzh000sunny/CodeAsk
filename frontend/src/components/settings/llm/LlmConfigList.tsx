@@ -1,6 +1,6 @@
 import { Pencil, PlugZap, Trash2 } from "lucide-react";
 
-import type { LLMConfigResponse } from "../../../types/api";
+import type { LLMConfigResponse, LLMConfigTestResponse } from "../../../types/api";
 import { Button } from "../../ui/button";
 import { SwitchControl } from "../SwitchControl";
 import type { LlmUpdatePayload } from "../settings-types";
@@ -15,9 +15,11 @@ export function LlmConfigList({
   onEditCancel,
   onEditStart,
   onTest,
+  onTestUpdateDraft,
   onUpdate,
   onToggleEnabled,
   testingId,
+  testingUpdateDraftId,
   updating,
 }: {
   configs: LLMConfigResponse[];
@@ -27,9 +29,14 @@ export function LlmConfigList({
   onEditCancel: () => void;
   onEditStart: (id: string) => void;
   onTest: (id: string) => void;
+  onTestUpdateDraft: (
+    id: string,
+    payload: LlmUpdatePayload,
+  ) => Promise<LLMConfigTestResponse>;
   onUpdate: (id: string, payload: LlmUpdatePayload) => void;
   onToggleEnabled: (config: LLMConfigResponse) => void;
   testingId: string | null;
+  testingUpdateDraftId: string | null;
   updating: boolean;
 }) {
   if (configs.length === 0) {
@@ -55,7 +62,12 @@ export function LlmConfigList({
                 <small>
                   OpenCode Provider:{" "}
                   {opencodeProviderLabel(config.opencode_provider_profile)} ·{" "}
-                  {providerStatusLabel(config)}
+                  <span
+                    className="provider-status-text"
+                    title={providerStatusFullText(config)}
+                  >
+                    {providerStatusLabel(config)}
+                  </span>
                 </small>
               </div>
               <div className="row-actions">
@@ -101,7 +113,9 @@ export function LlmConfigList({
                 config={config}
                 disabled={updating}
                 onCancel={onEditCancel}
+                onTest={(payload) => onTestUpdateDraft(config.id, payload)}
                 onSubmit={(payload) => onUpdate(config.id, payload)}
+                testing={testingUpdateDraftId === config.id}
               />
             ) : null}
           </li>
@@ -116,7 +130,25 @@ function providerStatusLabel(config: LLMConfigResponse) {
     return "连接正常";
   }
   if (config.opencode_provider_status === "failed") {
+    return `连接失败${config.opencode_provider_error ? `：${previewText(config.opencode_provider_error)}` : ""}`;
+  }
+  return "未测试";
+}
+
+function providerStatusFullText(config: LLMConfigResponse) {
+  if (config.opencode_provider_status === "ok") {
+    return "连接正常";
+  }
+  if (config.opencode_provider_status === "failed") {
     return `连接失败${config.opencode_provider_error ? `：${config.opencode_provider_error}` : ""}`;
   }
   return "未测试";
+}
+
+function previewText(value: string, limit = 150) {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  if (cleaned.length <= limit) {
+    return cleaned;
+  }
+  return `${cleaned.slice(0, limit - 3)}...`;
 }

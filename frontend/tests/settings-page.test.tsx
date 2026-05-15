@@ -62,6 +62,11 @@ function llm(overrides: Partial<Record<string, unknown>> = {}) {
     enabled: true,
     rpm_limit: null,
     quota_remaining: null,
+    opencode_provider_profile: "default",
+    opencode_provider_status: "unknown",
+    opencode_provider_tested_at: null,
+    opencode_provider_error: null,
+    opencode_provider_test_result_json: null,
     ...overrides,
   };
 }
@@ -528,6 +533,17 @@ describe("SettingsPage LLM configuration", () => {
           userConfigs = [created];
           return jsonResponse(created, 201);
         }
+        if (path === "/api/me/llm-configs/test-draft" && init?.method === "POST") {
+          return jsonResponse({
+            status: "ok",
+            profile_id: "openai-compatible",
+            provider_npm: "@ai-sdk/openai-compatible",
+            text_preview: "OK",
+            error: null,
+            tested_at: "2026-05-15T10:00:00Z",
+            result: {},
+          });
+        }
         if (path === "/api/me/llm-configs") {
           return jsonResponse(userConfigs);
         }
@@ -570,6 +586,21 @@ describe("SettingsPage LLM configuration", () => {
     });
     fireEvent.change(screen.getByLabelText("模型名称"), {
       target: { value: "qwen3-coder" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+    await screen.findByText(/LLM 连接测试通过/);
+    const [, draftInit] = fetchMock.mock.calls.find(
+      ([path, options]) =>
+        path === "/api/me/llm-configs/test-draft" &&
+        (options as RequestInit | undefined)?.method === "POST",
+    ) as unknown as [string, RequestInit];
+    expect(JSON.parse(String(draftInit.body))).toMatchObject({
+      name: "个人模型",
+      protocol: "openai",
+      base_url: "http://llm.internal/v1",
+      api_key: "sk-test-abc",
+      model_name: "qwen3-coder",
+      enabled: true,
     });
     fireEvent.click(screen.getByRole("button", { name: "保存 LLM 配置" }));
 
@@ -648,6 +679,12 @@ describe("SettingsPage LLM configuration", () => {
   });
 
   it("edits, toggles, and deletes existing global LLM configs as admin without default controls", async () => {
+    let storedLlm = llm({
+      protocol: "openai_compatible",
+      opencode_provider_profile: "default",
+      opencode_provider_status: "unknown",
+      opencode_provider_error: null,
+    });
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input);
@@ -664,19 +701,48 @@ describe("SettingsPage LLM configuration", () => {
           return jsonResponse([]);
         }
         if (path === "/api/admin/llm-configs" && !init?.method) {
-          return jsonResponse([llm({ protocol: "openai_compatible" })]);
+          return jsonResponse([storedLlm]);
         }
         if (
           path === "/api/admin/llm-configs/llm_2" &&
           init?.method === "PATCH"
         ) {
           const payload = JSON.parse(String(init.body));
-          return jsonResponse(
-            llm({
-              ...payload,
-              enabled: payload.enabled ?? false,
-            }),
-          );
+          storedLlm = {
+            ...storedLlm,
+            ...payload,
+            enabled: payload.enabled ?? storedLlm.enabled,
+            opencode_provider_status:
+              payload.opencode_provider_status ??
+              (payload.protocol ||
+              payload.base_url ||
+              payload.api_key ||
+              payload.model_name ||
+              payload.opencode_provider_profile
+                ? "unknown"
+                : storedLlm.opencode_provider_status),
+            opencode_provider_error: payload.opencode_provider_error ?? null,
+            opencode_provider_tested_at:
+              payload.opencode_provider_tested_at ?? storedLlm.opencode_provider_tested_at,
+            opencode_provider_test_result_json:
+              payload.opencode_provider_test_result_json ??
+              storedLlm.opencode_provider_test_result_json,
+          };
+          return jsonResponse(storedLlm);
+        }
+        if (
+          path === "/api/admin/llm-configs/llm_2/test-draft" &&
+          init?.method === "POST"
+        ) {
+          return jsonResponse({
+            status: "ok",
+            profile_id: "anthropic-compatible-v1-bearer",
+            provider_npm: "@ai-sdk/anthropic",
+            text_preview: "OK",
+            error: null,
+            tested_at: "2026-05-15T10:00:00Z",
+            result: {},
+          });
         }
         if (
           path === "/api/admin/llm-configs/llm_2" &&
@@ -764,7 +830,51 @@ describe("SettingsPage LLM configuration", () => {
     fireEvent.change(screen.getByLabelText("编辑模型名称"), {
       target: { value: "claude-test" },
     });
+    const editForm = screen.getByLabelText("编辑配置名称").closest("form");
+    expect(editForm).not.toBeNull();
+    fireEvent.click(
+      within(editForm as HTMLElement).getByRole("button", { name: "测试连接" }),
+    );
+    await screen.findByText(/LLM 连接测试通过/);
+    expect(screen.queryByText(/当前表单测试通过/)).not.toBeInTheDocument();
+    const draftEditCall = fetchMock.mock.calls.find(([path, options]) => {
+      return (
+        path === "/api/admin/llm-configs/llm_2/test-draft" &&
+        (options as RequestInit | undefined)?.method === "POST"
+      );
+    }) as unknown as [string, RequestInit] | undefined;
+    expect(draftEditCall).toBeDefined();
+    expect(JSON.parse(String(draftEditCall?.[1].body))).toMatchObject({
+      name: "主力模型",
+      protocol: "anthropic",
+      base_url: "http://llm.new/v1",
+      api_key: "sk-new-key",
+      model_name: "claude-test",
+    });
+    expect(screen.queryByText("连接正常")).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([path, options]) => {
+        if (
+          path !== "/api/admin/llm-configs/llm_2" ||
+          (options as RequestInit | undefined)?.method !== "PATCH"
+        ) {
+          return false;
+        }
+        const body = JSON.parse(String((options as RequestInit).body));
+        return body.name === "主力模型";
+      }),
+    ).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(
+        ([path, options]) =>
+          path === "/api/admin/llm-configs/llm_2/test" &&
+          (options as RequestInit | undefined)?.method === "POST",
+      ),
+    ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "保存修改" }));
+    await waitFor(() =>
+      expect(screen.getByText("连接正常")).toBeInTheDocument(),
+    );
     await waitFor(() => {
       const editCall = fetchMock.mock.calls.find(([path, options]) => {
         if (path !== "/api/admin/llm-configs/llm_2") {
@@ -782,6 +892,10 @@ describe("SettingsPage LLM configuration", () => {
         base_url: "http://llm.new/v1",
         api_key: "sk-new-key",
         model_name: "claude-test",
+        opencode_provider_status: "ok",
+        opencode_provider_tested_at: "2026-05-15T10:00:00Z",
+        opencode_provider_error: null,
+        opencode_provider_test_result_json: {},
       });
       expect(JSON.parse(String(editCall?.[1].body))).not.toHaveProperty(
         "reasoning_profile",

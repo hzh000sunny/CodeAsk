@@ -83,6 +83,108 @@ async def test_admin_can_test_explicit_opencode_provider(
 
 
 @pytest.mark.asyncio
+async def test_admin_can_test_unsaved_llm_config_draft(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    fake = FakeOpenCodeCompat()
+    app.state.opencode_compat = fake
+    await client.post("/api/auth/admin/login", json={"password": "admin"})
+
+    tested = await client.post(
+        "/api/admin/llm-configs/test-draft",
+        json={
+            "name": "draft-provider-test",
+            "protocol": "anthropic",
+            "base_url": "https://gateway.example.test",
+            "api_key": "sk-draft",
+            "model_name": "model-draft",
+            "opencode_provider_profile": "anthropic-compatible-bearer",
+        },
+    )
+
+    assert tested.status_code == 200, tested.text
+    body = tested.json()
+    assert body["status"] == "ok"
+    assert body["profile_id"] == "anthropic-compatible-bearer"
+    assert fake.tested[0][0].id == "draft"
+    assert fake.tested[0][0].api_key == "sk-draft"
+    assert fake.tested[0][0].model_name == "model-draft"
+    listed = await client.get("/api/admin/llm-configs")
+    assert listed.json() == []
+
+
+@pytest.mark.asyncio
+async def test_admin_can_test_update_draft_then_save_result(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    fake = FakeOpenCodeCompat()
+    app.state.opencode_compat = fake
+    await client.post("/api/auth/admin/login", json={"password": "admin"})
+    created = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "stored-provider-test",
+            "protocol": "openai",
+            "base_url": "https://old.example.test/v1",
+            "api_key": "sk-stored",
+            "model_name": "old-model",
+            "opencode_provider_profile": "openai-native",
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    tested = await client.post(
+        f"/api/admin/llm-configs/{created.json()['id']}/test-draft",
+        json={
+            "protocol": "anthropic",
+            "base_url": "https://new.example.test",
+            "model_name": "new-model",
+            "opencode_provider_profile": "anthropic-compatible-v1-bearer",
+        },
+    )
+    assert tested.status_code == 200, tested.text
+    config_under_test = fake.tested[0][0]
+    assert config_under_test.id == created.json()["id"]
+    assert config_under_test.api_key == "sk-stored"
+    assert config_under_test.protocol == "anthropic"
+    assert config_under_test.base_url == "https://new.example.test"
+    assert config_under_test.model_name == "new-model"
+    assert config_under_test.opencode_provider_profile == "anthropic-compatible-v1-bearer"
+    listed_after_test = await client.get("/api/admin/llm-configs")
+    stored_after_test = next(
+        item for item in listed_after_test.json() if item["id"] == created.json()["id"]
+    )
+    assert stored_after_test["protocol"] == "openai"
+    assert stored_after_test["model_name"] == "old-model"
+    assert stored_after_test["opencode_provider_status"] == "unknown"
+
+    body = tested.json()
+    updated = await client.patch(
+        f"/api/admin/llm-configs/{created.json()['id']}",
+        json={
+            "protocol": "anthropic",
+            "base_url": "https://new.example.test",
+            "model_name": "new-model",
+            "opencode_provider_profile": "anthropic-compatible-v1-bearer",
+            "opencode_provider_status": body["status"],
+            "opencode_provider_tested_at": body["tested_at"],
+            "opencode_provider_error": body["error"],
+            "opencode_provider_test_result_json": body["result"],
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["opencode_provider_status"] == "ok"
+
+    listed = await client.get("/api/admin/llm-configs")
+    stored = next(item for item in listed.json() if item["id"] == created.json()["id"])
+    assert stored["protocol"] == "anthropic"
+    assert stored["model_name"] == "new-model"
+    assert stored["opencode_provider_status"] == "ok"
+
+
+@pytest.mark.asyncio
 async def test_create_list_default_flip_and_delete_llm_config(client: AsyncClient) -> None:
     created = await client.post(
         "/api/admin/llm-configs",

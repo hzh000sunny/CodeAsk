@@ -33,6 +33,10 @@ type LlmCreatePayload = {
 type LlmUpdatePayload = Partial<
   Omit<LlmCreatePayload, "api_key"> & {
     api_key: string;
+    opencode_provider_status: "unknown" | "ok" | "failed";
+    opencode_provider_tested_at: string | null;
+    opencode_provider_error: string | null;
+    opencode_provider_test_result_json: unknown | null;
   }
 >;
 
@@ -66,6 +70,20 @@ export function testUserLlmConfig(id: string) {
   });
 }
 
+export function testUserLlmConfigDraft(payload: LlmCreatePayload) {
+  return apiRequest<LLMConfigTestResponse>("/api/me/llm-configs/test-draft", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function testUserLlmConfigUpdateDraft(id: string, payload: LlmUpdatePayload) {
+  return apiRequest<LLMConfigTestResponse>(`/api/me/llm-configs/${id}/test-draft`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
 export function listAdminLlmConfigs() {
   return apiRequest<LLMConfigResponse[]>("/api/admin/llm-configs");
 }
@@ -94,4 +112,21 @@ export function testAdminLlmConfig(id: string) {
   return apiRequest<LLMConfigTestResponse>(`/api/admin/llm-configs/${id}/test`, {
     method: "POST",
   });
+}
+
+export function testAdminLlmConfigDraft(payload: LlmCreatePayload) {
+  return apiRequest<LLMConfigTestResponse>("/api/admin/llm-configs/test-draft", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function testAdminLlmConfigUpdateDraft(id: string, payload: LlmUpdatePayload) {
+  return apiRequest<LLMConfigTestResponse>(
+    `/api/admin/llm-configs/${id}/test-draft`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
 }
