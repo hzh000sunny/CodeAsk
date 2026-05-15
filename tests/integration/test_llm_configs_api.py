@@ -1,7 +1,22 @@
 """End-to-end /api/llm-configs tests."""
 
 import pytest
+from fastapi import FastAPI
 from httpx import AsyncClient
+
+
+class FakeOpenCodeCompat:
+    def __init__(self) -> None:
+        self.tested = []
+
+    async def test_llm_config(self, config, *, timeout_seconds: float = 90.0):  # type: ignore[no-untyped-def]
+        self.tested.append((config, timeout_seconds))
+        return {
+            "profile_id": config.opencode_provider_profile,
+            "provider_npm": "@ai-sdk/openai-compatible",
+            "text_preview": "OK",
+            "retries": [],
+        }
 
 
 @pytest.mark.asyncio
@@ -29,6 +44,42 @@ async def test_create_llm_config_uses_runtime_defaults(client: AsyncClient) -> N
     assert body["quota_remaining"] is None
     assert body["reasoning_profile"] == "none"
     assert body["reasoning_profile_json"] is None
+    assert body["opencode_provider_profile"] == "default"
+    assert body["opencode_provider_status"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_admin_can_test_explicit_opencode_provider(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    fake = FakeOpenCodeCompat()
+    app.state.opencode_compat = fake
+    await client.post("/api/auth/admin/login", json={"password": "admin"})
+    created = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "provider-test",
+            "protocol": "openai",
+            "base_url": "https://gateway.example.test/v1",
+            "api_key": "sk-provider",
+            "model_name": "model-a",
+            "opencode_provider_profile": "openai-compatible",
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    tested = await client.post(f"/api/admin/llm-configs/{created.json()['id']}/test")
+
+    assert tested.status_code == 200, tested.text
+    body = tested.json()
+    assert body["status"] == "ok"
+    assert body["profile_id"] == "openai-compatible"
+    assert fake.tested[0][0].opencode_provider_profile == "openai-compatible"
+    listed = await client.get("/api/admin/llm-configs")
+    item = next(row for row in listed.json() if row["id"] == created.json()["id"])
+    assert item["opencode_provider_status"] == "ok"
+    assert item["opencode_provider_error"] is None
 
 
 @pytest.mark.asyncio

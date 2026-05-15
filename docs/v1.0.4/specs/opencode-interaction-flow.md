@@ -65,7 +65,7 @@ opencode 进程                                        CodeAsk FastAPI
       "npm": "@ai-sdk/openai-compatible",
       "name": "CodeAsk Session Provider",
       "options": {
-        "baseURL": "https://user-configured-url/v1",
+        "baseURL": "https://user-configured-url",
         "apiKey": "${OPENAI_API_KEY}"
       },
       "models": {
@@ -85,6 +85,29 @@ opencode 进程                                        CodeAsk FastAPI
   }
 }
 ```
+
+### 0.2 LLM provider profile 选择
+
+CodeAsk 不在 LLM 配置新增或修改时自动联网测试，也不根据厂商名、模型名、URL 域名做后端特判。配置页面提供 OpenCode Provider 下拉框和“测试连接”按钮：
+
+1. 用户保存 LLM 配置时选择一个 OpenCode Provider，默认值为 `default`。
+2. `default` 走 opencode native provider：OpenAI 协议使用 `@ai-sdk/openai`，Anthropic 协议使用 `@ai-sdk/anthropic`。
+3. 用户可以显式选择 `openai-compatible`、`anthropic-compatible-bearer`、`anthropic-compatible-v1-bearer`、`openrouter` 等通用 profile。
+4. 手动“测试连接”只测试当前选中的 provider，不做隐式轮转；成功或失败写入 `llm_configs.opencode_provider_*` 供用户查看。
+5. 会话启动时直接使用当前显式选择的 provider 生成 `opencode.json`；如果配置错误，返回明确错误，不自动切换其它 provider。
+6. 当前会话绑定记录中保留 `provider_profile_id`，用于审计本轮实际使用的 provider。
+
+当前可选列表保持少量且通用：
+
+| profile | 语义 |
+|---|---|
+| `default` | opencode native provider |
+| `openai-native` | `@ai-sdk/openai` |
+| `openai-compatible` | `@ai-sdk/openai-compatible` |
+| `anthropic-native` | `@ai-sdk/anthropic` |
+| `anthropic-compatible-bearer` | `@ai-sdk/anthropic` + 原始 Base URL + Bearer header |
+| `anthropic-compatible-v1-bearer` | `@ai-sdk/anthropic` + Base URL `/v1` + Bearer header |
+| `openrouter` | `@openrouter/ai-sdk-provider` |
 
 ---
 
@@ -156,7 +179,7 @@ opencode 进程                                        CodeAsk FastAPI
          "npm": "@ai-sdk/openai-compatible",
          "name": "CodeAsk Session Provider",
          "options": {
-           "baseURL": "https://user-configured-url/v1",
+           "baseURL": "https://user-configured-url",
            "apiKey": "${OPENAI_API_KEY}"
          },
          "models": {

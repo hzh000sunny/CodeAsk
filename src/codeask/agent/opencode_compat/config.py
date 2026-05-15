@@ -7,6 +7,7 @@ from pathlib import Path
 
 from codeask.agent.opencode_compat.profiles import (
     LLMConfigLike,
+    OpenCodeProviderProfile,
     select_provider_profile,
 )
 
@@ -28,12 +29,13 @@ class OpenCodeConfigInput:
     session_id: str
     external_directory_allowlist: tuple[str, ...] = ()
     mcp_timeout_ms: int = 30000
+    provider_profile: OpenCodeProviderProfile | None = None
 
 
 def build_opencode_config(input_data: OpenCodeConfigInput) -> dict[str, object]:
     """Build the per-workspace ``opencode.json`` content."""
 
-    profile = select_provider_profile(input_data.llm_config)
+    profile = input_data.provider_profile or select_provider_profile(input_data.llm_config)
     provider_id = profile.provider_id(input_data.llm_config.id)
     model_name = input_data.llm_config.model_name
 

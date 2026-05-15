@@ -50,8 +50,11 @@ class FakeHttpClient:
         self.created_directories: list[str] = []
         self.prompts: list[dict[str, str | None]] = []
         self.events: list[dict[str, object]] = []
+        self.event_batches: list[list[dict[str, object]]] = []
         self.aborts: list[dict[str, str]] = []
         self.health_calls = 0
+        self.fail_abort = False
+        self.session_ids: list[str] = []
 
     async def health(self) -> dict[str, object]:
         self.health_calls += 1
@@ -59,6 +62,8 @@ class FakeHttpClient:
 
     async def create_session(self, *, directory: str) -> str:
         self.created_directories.append(directory)
+        if self.session_ids:
+            return self.session_ids.pop(0)
         return "ses_open"
 
     async def prompt_async(
@@ -83,10 +88,13 @@ class FakeHttpClient:
         )
 
     async def stream_global_events(self, *, directory: str):  # type: ignore[no-untyped-def]
-        for event in self.events:
+        events = self.event_batches.pop(0) if self.event_batches else self.events
+        for event in events:
             yield event
 
     async def abort_session(self, *, session_id: str, directory: str) -> None:
+        if self.fail_abort:
+            raise RuntimeError("abort failed")
         self.aborts.append({"session_id": session_id, "directory": directory})
 
 
@@ -160,6 +168,130 @@ async def test_initialize_session_writes_workspace_config_and_external_binding(
     assert store.items[0].server_url == "http://127.0.0.1:4100"
     assert result.external_session_key == "ses_open"
     assert http_client.health_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_uses_explicit_provider_without_probe(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    llm_config = LLMConfigWithSecret(
+        **{
+            **_llm_config().__dict__,
+            "protocol": "anthropic",
+            "base_url": "https://gateway.example.test/api/coding",
+            "opencode_provider_profile": "anthropic-compatible-v1-bearer",
+        }
+    )
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    await compat.initialize_session("sess_1", llm_config)
+
+    workspace = tmp_path / "data" / "agent_sessions" / "opencode" / "sess_1" / "workspace"
+    config = json.loads((workspace / "opencode.json").read_text(encoding="utf-8"))
+    provider = config["provider"]["codeask_cfg_1"]
+    assert provider["options"]["baseURL"] == "https://gateway.example.test/api/coding/v1"
+    assert store.items[0].provider_profile_id == "anthropic-compatible-v1-bearer"
+    assert http_client.created_directories == [str(workspace)]
+    assert http_client.prompts == []
+
+
+@pytest.mark.asyncio
+async def test_test_llm_config_smokes_only_selected_provider(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    http_client.session_ids = ["ses_test"]
+    llm_config = LLMConfigWithSecret(
+        **{
+            **_llm_config().__dict__,
+            "protocol": "anthropic",
+            "base_url": "https://gateway.example.test/api/coding",
+            "opencode_provider_profile": "anthropic-compatible-v1-bearer",
+        }
+    )
+    test_workspace = (
+        tmp_path
+        / "data"
+        / "agent_sessions"
+        / "opencode_provider_tests"
+        / "cfg_1"
+        / "anthropic-compatible-v1-bearer"
+    )
+    http_client.event_batches = [
+        [
+            {
+                "directory": str(test_workspace),
+                "payload": {
+                    "type": "message.part.updated",
+                    "properties": {
+                        "sessionID": "ses_test",
+                        "part": {
+                            "id": "text_1",
+                            "messageID": "msg_1",
+                            "type": "text",
+                            "text": "OK",
+                        },
+                    },
+                },
+            },
+            {
+                "directory": str(test_workspace),
+                "payload": {
+                    "type": "session.status",
+                    "properties": {
+                        "sessionID": "ses_test",
+                        "status": {"type": "idle"},
+                    },
+                },
+            },
+        ]
+    ]
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=FakeStore(),
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+        data_dir=tmp_path / "data",
+    )
+
+    result = await compat.test_llm_config(llm_config)
+
+    config = json.loads((test_workspace / "opencode.json").read_text(encoding="utf-8"))
+    provider = config["provider"]["codeask_cfg_1"]
+    assert provider["options"]["baseURL"] == "https://gateway.example.test/api/coding/v1"
+    assert http_client.created_directories == [str(test_workspace)]
+    assert http_client.prompts[0]["provider_id"] == "codeask_cfg_1"
+    assert result["profile_id"] == "anthropic-compatible-v1-bearer"
+    assert result["text_preview"] == "OK"
 
 
 @pytest.mark.asyncio
@@ -543,6 +675,118 @@ async def test_run_turn_does_not_emit_reasoning_delta_as_text(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_run_turn_masks_late_think_tag_snapshot_without_reemitting_text(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    workspace = workspace_manager.prepare_workspace("sess_1")
+    store.items.append(
+        ExternalAgentSessionCreate(
+            session_id="sess_1",
+            external_session_key="ses_open",
+            session_dir=str(workspace.session_dir),
+            workspace_dir=str(workspace.workspace_dir),
+            server_url="http://127.0.0.1:4100",
+            port=4100,
+            pid=123,
+            config_hash="hash",
+            config_json={},
+        )
+    )
+    http_client.events = [
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        "id": "text_1",
+                        "messageID": "msg_1",
+                        "type": "text",
+                        "text": "",
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.delta",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "messageID": "msg_1",
+                    "partID": "text_1",
+                    "field": "text",
+                    "delta": "正式回答",
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        "id": "text_1",
+                        "messageID": "msg_1",
+                        "type": "text",
+                        "text": "<think>内部分析</think>正式回答",
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "session.status",
+                "properties": {"sessionID": "ses_open", "status": {"type": "idle"}},
+            },
+        },
+    ]
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    events = [
+        event
+        async for event in compat.run_turn(
+            session_id="sess_1",
+            user_message="hi",
+            llm_config=_llm_config(),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "text_delta",
+        "reasoning_observed",
+        "done",
+    ]
+    assert events[0].data == {"delta": "正式回答"}
+    visible_text = "".join(
+        str(event.data.get("delta", "")) for event in events if event.type == "text_delta"
+    )
+    assert visible_text == "正式回答"
+    assert "<think>" not in visible_text
+
+
+@pytest.mark.asyncio
 async def test_run_turn_emits_runtime_state_from_opencode_token_usage(tmp_path: Path) -> None:
     wiki_root = tmp_path / "wiki"
     wiki_root.mkdir()
@@ -735,3 +979,30 @@ async def test_abort_turn_delegates_to_opencode_and_rolls_back_turn(tmp_path: Pa
     assert http_client.aborts == [
         {"session_id": "ses_open", "directory": str(workspace.workspace_dir)}
     ]
+
+
+@pytest.mark.asyncio
+async def test_abort_turn_is_noop_before_opencode_binding_exists(tmp_path: Path) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=FakeStore(),
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    await compat.abort_turn("sess_missing")
+
+    assert http_client.aborts == []
+    assert process_manager.calls == 0

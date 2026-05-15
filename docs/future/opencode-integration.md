@@ -428,7 +428,7 @@ async def start_opencode_server(session_id: str, config: OpenCodeBackendConfig) 
 
 根据 CodeAsk 的 LLM 配置，生成 OpenCode 能识别的 provider 配置。
 
-> v1.0.4 Phase 0 已证明 provider 映射不能只按厂商名或固定 URL 特判。后续实现应使用少量、通用、可测试的 provider profile：OpenAI/OpenAI-compatible 优先 `@ai-sdk/openai-compatible`；Anthropic 优先使用当前真实配置全部通过的 `anthropic-compatible-v1-bearer`，`anthropic-default` 仅作为 fallback 或显式兼容项。每个协议候选尽量 1 个，确有真实失败样本时最多保留 2 个。profile 测试结果持久化先列为遗留增强项，主功能阶段先打通完整流程。
+> v1.0.4 Phase 0 已证明 provider 映射不能只按厂商名或固定 URL 特判。当前实现采用少量、通用、用户可见的 OpenCode Provider profile：`default` 走 opencode native provider，用户也可以显式选择 `openai-compatible`、`anthropic-compatible-bearer`、`anthropic-compatible-v1-bearer` 或 `openrouter`。保存配置时不自动联网测试，管理页提供手动“测试连接”按钮；会话启动不做隐式轮转。
 
 ```python
 def build_opencode_config(llm_config: LLMConfig) -> dict:
@@ -444,7 +444,7 @@ def build_opencode_config(llm_config: LLMConfig) -> dict:
       - max_tokens: int | None
       - temperature: float | None
     """
-    profile = select_or_smoke_profile(llm_config)
+    profile = select_provider_profile(llm_config)
     provider_id = profile.provider_id
     return {
         "$schema": "https://opencode.ai/config.json",
@@ -460,23 +460,28 @@ def build_opencode_config(llm_config: LLMConfig) -> dict:
         }
     }
 
-def select_or_smoke_profile(llm_config: LLMConfig) -> ProviderProfile:
+def select_provider_profile(llm_config: LLMConfig) -> ProviderProfile:
     """
-    主功能第一阶段按协议选择当前已验证的少量 profile。
-    - openai/openai_compatible: 优先 openai-compatible
-    - anthropic: 优先 anthropic-compatible-v1-bearer，anthropic-default 仅作 fallback
+    v1.0.4 使用显式选择策略：
+    - default + openai/openai_compatible: @ai-sdk/openai
+    - default + anthropic: @ai-sdk/anthropic
+    - 显式选择 openai-compatible / anthropic-compatible-bearer / anthropic-compatible-v1-bearer / openrouter 时按用户选择生成配置
+    - 保存配置时不自动联网测试；手动测试只测试当前选择的 profile
 
-    遗留增强项：在配置测试入口记录最近一次 opencode smoke 状态、错误摘要和成功 profile。
+    遗留增强项：后台定期重测和更完整的诊断面板。
     """
-    return select_default_profile(llm_config.protocol)
+    return selected_profile(llm_config)
 ```
 
 **映射规则**：
 
 | CodeAsk protocol | OpenCode providerID | OpenCode npm 包 |
 |-----------------|--------------------|-----------------|
-| `openai` / `openai_compatible` | `codeask-openai-compatible` | `@ai-sdk/openai-compatible` |
-| `anthropic` | `codeask-anthropic-compatible` | `@ai-sdk/anthropic`，默认优先 `baseURL=<base_url>/v1` + `Authorization: Bearer <api_key>` |
+| `openai` / `openai_compatible` + `default` | `codeask-<cfg_id>` | `@ai-sdk/openai` |
+| `anthropic` + `default` | `codeask-<cfg_id>` | `@ai-sdk/anthropic` |
+| 显式 `openai-compatible` | `codeask-<cfg_id>` | `@ai-sdk/openai-compatible` |
+| 显式 `anthropic-compatible-bearer` | `codeask-<cfg_id>` | `@ai-sdk/anthropic` + Bearer header |
+| 显式 `anthropic-compatible-v1-bearer` | `codeask-<cfg_id>` | `@ai-sdk/anthropic` + `baseURL=<base_url>/v1` + Bearer header |
 | `google` | `google` | (内置) |
 
 profile 的选择规则以 `docs/v1.0.4/specs/opencode-1.14.48-phase0-spike.md` 和 `docs/v1.0.4/design/opencode-backend.md` 为准；此处伪代码只表达配置生成边界，不再代表最终 provider profile。

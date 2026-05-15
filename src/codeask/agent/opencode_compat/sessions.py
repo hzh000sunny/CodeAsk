@@ -24,6 +24,7 @@ class ExternalAgentSessionCreate:
     pid: int | None
     config_hash: str
     config_json: dict[str, Any]
+    provider_profile_id: str | None = None
 
 
 class ExternalAgentSessionStore:
@@ -75,6 +76,7 @@ class ExternalAgentSessionStore:
                     status="active",
                     config_hash=data.config_hash,
                     config_json=data.config_json,
+                    provider_profile_id=data.provider_profile_id,
                     error_summary=None,
                 )
                 session.add(row)
@@ -88,6 +90,7 @@ class ExternalAgentSessionStore:
                 row.status = "active"
                 row.config_hash = data.config_hash
                 row.config_json = data.config_json
+                row.provider_profile_id = data.provider_profile_id
                 row.error_summary = None
             await session.commit()
             await session.refresh(row)

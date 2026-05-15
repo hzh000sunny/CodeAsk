@@ -37,8 +37,9 @@ v1.0.4 收口前必须满足：
 - [x] 主发送路径使用 `POST /session/:id/prompt_async`，返回 `204`。
 - [x] 消息读取路径是 `GET /session/:id/message`，不是 `/messages`。
 - [x] `/global/event` 带 `directory`，适合 shared server 多 workspace 归属。
-- [x] 真实 LLM 配置矩阵已验证：OpenAI-compatible 通过，Anthropic 使用 `anthropic-compatible-v1-bearer` 通过。
-- [x] provider profile 缓存不进入第一版，已列为遗留增强项。
+- [x] 真实 LLM 配置矩阵已验证：OpenAI-compatible、Anthropic Bearer、Anthropic `/v1` Bearer 等显式 provider 可通过对应配置。
+- [x] 同 URL 双协议网关回归：OpenAI 和 Anthropic 均不得由 CodeAsk 改写用户配置的 `base_url`。
+- [x] provider profile 手动测试结果写入配置；保存配置时不自动联网测试。
 - [x] shared server 三会话并发真实 LLM smoke 通过。
 - [x] shared server 下 workspace 级 provider 配置隔离通过。
 - [x] shared server 下 workspace 级 remote MCP endpoint/token 隔离通过。
@@ -51,6 +52,14 @@ v1.0.4 收口前必须满足：
 - [x] deny Bash/Edit/Write 时，模型尝试 Bash 会得到 `invalid` tool 事件，不会静默失败。
 
 证据文档：`../specs/opencode-1.14.48-phase0-spike.md`。
+
+### 1.1 2026-05-15 显式 OpenCode Provider 回归记录
+
+- [x] 迁移后所有旧 LLM 配置默认值为 `default`，按新策略不会隐式轮转。
+- [x] 使用 live smoke 验证当前 `default` 真实行为：DeepSeek Anthropic native 通过；DeepSeek/火山 OpenAI-compatible 与火山 Anthropic-compatible 需要用户显式选择对应 provider。
+- [x] 本地真实配置已按显式选择更新：OpenAI-compatible 网关使用 `openai-compatible`；火山 Anthropic 使用 `anthropic-compatible-v1-bearer`；DeepSeek Anthropic 保持 `default`。
+- [x] `CODEASK_LIVE_LLM_CONFIG_SMOKE=1 CODEASK_LIVE_LLM_SMOKE_TIMEOUT=180 uv run pytest tests/live/test_live_opencode_llm_configs.py -q -s` 已覆盖 9 条真实 LLM 配置，包括 disabled 配置，全部通过。
+- [x] 真实浏览器 E2E 已验证：管理员登录、设置页展示 OpenCode Provider、点击“测试连接”、发送一轮真实会话；成功会话 `sess_600c127c5732b621`，模型 `glm-5.1`，provider `anthropic-compatible-v1-bearer`，落库 2 个 turn、7 条 Agent trace。
 
 ---
 
@@ -85,14 +94,16 @@ v1.0.4 收口前必须满足：
 ### 2.3 `config.py` / `profiles.py`
 
 - [x] 生成 workspace 级 `opencode.json`。
-- [x] OpenAI/OpenAI-compatible 协议使用 `@ai-sdk/openai-compatible`。
-- [x] Anthropic 协议默认使用 `anthropic-compatible-v1-bearer`。
-- [x] `anthropic-default` 只作为 fallback 或显式兼容项。
+- [x] `default` 使用 opencode native provider：OpenAI -> `@ai-sdk/openai`，Anthropic -> `@ai-sdk/anthropic`。
+- [x] 支持显式选择 `openai-compatible`、`anthropic-compatible-bearer`、`anthropic-compatible-v1-bearer`、`openrouter`。
+- [x] `anthropic-compatible-v1-bearer` 只有在用户显式选择时追加 `/v1`，不作为默认无条件 URL 改写。
 - [x] 不根据厂商名、模型名、URL 域名做业务特判。
-- [x] 不做 provider profile 成功结果缓存。
+- [x] 会话启动只使用当前显式选择的 provider，不做隐式轮转或 fallback。
+- [x] 配置新增/修改时不自动联网测试；协议、URL、API Key、模型名、provider 变化时清理旧测试状态。
+- [x] LLM 配置管理页提供“测试连接”按钮，只测试当前显式 provider，并写入成功/失败状态。
 - [x] `permission` 默认 deny Bash/Edit/Write，allow read/grep/glob。
 - [x] remote MCP 配置包含会话级 Bearer token 和 session header。
-- [x] 测试：OpenAI/Anthropic 配置快照、permission 快照、MCP 快照、未知协议错误。
+- [x] 测试：OpenAI/Anthropic 配置快照、permission 快照、MCP 快照、未知 provider 错误、手动测试接口。
 
 ### 2.4 `process.py`
 
@@ -258,6 +269,10 @@ v1.0.4 收口前必须满足：
 - [x] 验证回答文本不泄漏 raw reasoning。
 - [x] 验证行动轨迹可见 reasoning 观察事件，但不展示 raw reasoning 原文。
 - [x] 验证 `/global/event` 事件能归属到正确 session。
+- [x] 新增可重复执行的全量真实 LLM 配置 smoke：
+  - `CODEASK_LIVE_LLM_CONFIG_SMOKE=1 CODEASK_LIVE_LLM_SMOKE_TIMEOUT=180 uv run pytest tests/live/test_live_opencode_llm_configs.py -q -s`
+  - 覆盖范围：当前 CodeAsk DB 中所有 LLM 配置，包括 disabled 配置。
+  - 当前实测结果：9 条配置全部通过；DeepSeek Anthropic 使用 `anthropic-compatible-bearer`，火山 Anthropic 使用 `anthropic-compatible-v1-bearer`，OpenAI 协议使用 `openai-compatible`。
 - [x] 执行记录：
   - `CODEASK_RUN_LIVE_OPENCODE_E2E=1 CODEASK_REAL_DATA_DIR=/home/hzh/.codeask corepack pnpm --dir frontend exec playwright test -c playwright.realdata.config.ts e2e/opencode-backend-live.spec.ts --project=chromium`
   - 结果：`1 passed`。
@@ -300,10 +315,10 @@ v1.0.4 收口前必须满足：
 
 ## 4. 自动化测试门禁
 
-- [ ] `uv run pytest tests/unit -q`
-- [ ] `uv run pytest tests/integration -q`
+- [x] `uv run pytest -q` (全量后端测试通过；live LLM 测试默认跳过)
 - [x] `uv run pytest tests/unit/test_opencode_compat*.py tests/integration/test_opencode_compat*.py -q`
 - [x] `uv run pytest tests/unit/test_opencode_compat_*.py tests/integration/test_opencode_external_sessions.py tests/integration/test_opencode_mcp_app_integration.py -q` (38 passed)
+- [x] `CODEASK_LIVE_LLM_CONFIG_SMOKE=1 CODEASK_LIVE_LLM_SMOKE_TIMEOUT=180 uv run pytest tests/live/test_live_opencode_llm_configs.py -q -s` (9 passed)
 - [x] `uv run pytest tests/unit/test_session_report_generation.py tests/integration/test_session_report_generation.py -q` (18 passed)
 - [x] `uv run ruff check src/codeask/sessions/report_generation.py tests/unit/test_session_report_generation.py`
 - [ ] `corepack pnpm --dir frontend test:run`

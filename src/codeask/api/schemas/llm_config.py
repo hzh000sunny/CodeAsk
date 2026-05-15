@@ -1,11 +1,14 @@
 """Schemas for LLM configuration APIs."""
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from codeask.llm.types import ProviderProtocol
 
 DEFAULT_LLM_MAX_TOKENS = 8192
 DEFAULT_LLM_TEMPERATURE = 0.2
+DEFAULT_OPENCODE_PROVIDER_PROFILE = "default"
 
 
 class LLMConfigCreate(BaseModel):
@@ -22,6 +25,10 @@ class LLMConfigCreate(BaseModel):
     quota_remaining: float | None = Field(default=None, ge=0.0)
     reasoning_profile: str = Field(default="none", max_length=64)
     reasoning_profile_json: str | None = Field(default=None, max_length=4096)
+    opencode_provider_profile: str = Field(
+        default=DEFAULT_OPENCODE_PROVIDER_PROFILE,
+        max_length=128,
+    )
 
 
 class LLMConfigUpdate(BaseModel):
@@ -38,6 +45,7 @@ class LLMConfigUpdate(BaseModel):
     quota_remaining: float | None = Field(default=None, ge=0.0)
     reasoning_profile: str | None = Field(default=None, max_length=64)
     reasoning_profile_json: str | None = Field(default=None, max_length=4096)
+    opencode_provider_profile: str | None = Field(default=None, max_length=128)
 
 
 class LLMConfigResponse(BaseModel):
@@ -59,3 +67,18 @@ class LLMConfigResponse(BaseModel):
     quota_remaining: float | None
     reasoning_profile: str
     reasoning_profile_json: str | None
+    opencode_provider_profile: str | None
+    opencode_provider_status: str
+    opencode_provider_tested_at: datetime | None
+    opencode_provider_error: str | None
+    opencode_provider_test_result_json: object | None
+
+
+class LLMConfigTestResponse(BaseModel):
+    status: str
+    profile_id: str | None = None
+    provider_npm: str | None = None
+    text_preview: str | None = None
+    error: str | None = None
+    tested_at: datetime
+    result: object | None = None

@@ -1,12 +1,17 @@
 """LLM provider configuration models."""
 
+from datetime import datetime
+
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
+    DateTime,
     Float,
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -57,3 +62,21 @@ class LLMConfig(Base, TimestampMixin):
         server_default="none",
     )
     reasoning_profile_json: Mapped[str | None] = mapped_column(String(4096), nullable=True)
+    opencode_provider_profile: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        default="default",
+        server_default="default",
+    )
+    opencode_provider_status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="unknown",
+        server_default="unknown",
+    )
+    opencode_provider_tested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    opencode_provider_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    opencode_provider_test_result_json: Mapped[object | None] = mapped_column(JSON, nullable=True)

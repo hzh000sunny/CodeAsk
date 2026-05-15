@@ -386,6 +386,7 @@ def _runtime_config_from_metadata(raw: Any) -> LLMConfigWithSecret | LLMEvent | 
         quota_remaining=None,
         reasoning_profile=_optional_string(raw, "reasoning_profile") or "none",
         reasoning_profile_json=_optional_string(raw, "reasoning_profile_json"),
+        opencode_provider_profile=_optional_string(raw, "opencode_provider_profile") or "default",
     )
 
 

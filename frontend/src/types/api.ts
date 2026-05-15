@@ -174,6 +174,21 @@ export interface LLMConfigResponse {
   quota_remaining: number | null;
   reasoning_profile: string;
   reasoning_profile_json: string | null;
+  opencode_provider_profile: string | null;
+  opencode_provider_status: string;
+  opencode_provider_tested_at: string | null;
+  opencode_provider_error: string | null;
+  opencode_provider_test_result_json: unknown | null;
+}
+
+export interface LLMConfigTestResponse {
+  status: "ok" | "failed";
+  profile_id: string | null;
+  provider_npm: string | null;
+  text_preview: string | null;
+  error: string | null;
+  tested_at: string;
+  result: unknown | null;
 }
 
 export interface AuthMeResponse {

@@ -225,4 +225,5 @@ class ExternalAgentSession(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     config_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     config_json: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)
+    provider_profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)

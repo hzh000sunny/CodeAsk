@@ -3,6 +3,14 @@ const NICKNAME_KEY = "codeask.nickname";
 const GUEST_LLM_CONFIG_KEY = "codeask.guest_llm_config";
 
 export type GuestLlmProtocol = "openai" | "anthropic";
+export type GuestOpenCodeProviderProfile =
+  | "default"
+  | "openai-native"
+  | "openai-compatible"
+  | "anthropic-native"
+  | "anthropic-compatible-bearer"
+  | "anthropic-compatible-v1-bearer"
+  | "openrouter";
 export type GuestLlmReasoningProfile =
   | "none"
   | "volcengine_thinking"
@@ -20,6 +28,7 @@ export interface GuestLlmConfig {
   temperature: number;
   reasoning_profile: GuestLlmReasoningProfile;
   reasoning_profile_json: string | null;
+  opencode_provider_profile: GuestOpenCodeProviderProfile;
 }
 
 function createClientId() {
@@ -88,6 +97,9 @@ function sanitizeGuestLlmConfig(value: unknown): GuestLlmConfig {
     temperature: numberValue(data.temperature, 0),
     reasoning_profile: reasoningProfileValue(data.reasoning_profile),
     reasoning_profile_json: nullableStringValue(data.reasoning_profile_json),
+    opencode_provider_profile: opencodeProviderProfileValue(
+      data.opencode_provider_profile,
+    ),
   };
 }
 
@@ -118,4 +130,19 @@ function reasoningProfileValue(value: unknown): GuestLlmReasoningProfile {
   return allowed.includes(value as GuestLlmReasoningProfile)
     ? (value as GuestLlmReasoningProfile)
     : "none";
+}
+
+function opencodeProviderProfileValue(value: unknown): GuestOpenCodeProviderProfile {
+  const allowed: GuestOpenCodeProviderProfile[] = [
+    "default",
+    "openai-native",
+    "openai-compatible",
+    "anthropic-native",
+    "anthropic-compatible-bearer",
+    "anthropic-compatible-v1-bearer",
+    "openrouter",
+  ];
+  return allowed.includes(value as GuestOpenCodeProviderProfile)
+    ? (value as GuestOpenCodeProviderProfile)
+    : "default";
 }

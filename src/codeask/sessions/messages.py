@@ -228,6 +228,26 @@ async def stream_opencode_response(
     llm_config = await _resolve_opencode_llm_config(request, runtime_llm_config)
 
     try:
+        initializing_event = ChatRuntimeEvent(
+            type="assistant_action",
+            data={
+                "action": "opencode_busy",
+                "summary": "opencode 正在初始化当前会话",
+            },
+        )
+        initializing_data = _event_data_dict(initializing_event.data)
+        await persist_runtime_event_trace(
+            request,
+            session_id,
+            turn_id,
+            initializing_event.type,
+            initializing_data,
+        )
+        yield multiplexer.format(
+            initializing_event.model_copy(
+                update={"data": {**initializing_data, "turn_id": turn_id}}
+            )
+        )
         await compat.initialize_session(session_id, llm_config)
         runtime_event = _opencode_runtime_state_event(llm_config, content)
         runtime_data = _event_data_dict(runtime_event.data)
@@ -323,6 +343,9 @@ async def _resolve_opencode_llm_config(
             quota_remaining=None,
             reasoning_profile=str(runtime_llm_config.get("reasoning_profile") or "none"),
             reasoning_profile_json=runtime_llm_config.get("reasoning_profile_json"),
+            opencode_provider_profile=str(
+                runtime_llm_config.get("opencode_provider_profile") or "default"
+            ),
         )
 
     config = await request.app.state.llm_config_repo.get_default_or(

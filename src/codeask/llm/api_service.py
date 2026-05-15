@@ -42,6 +42,7 @@ async def create_scoped_config(
                 quota_remaining=payload.quota_remaining,
                 reasoning_profile=payload.reasoning_profile,
                 reasoning_profile_json=payload.reasoning_profile_json,
+                opencode_provider_profile=payload.opencode_provider_profile,
             )
         )
     except IntegrityError as exc:
@@ -119,6 +120,15 @@ async def update_scoped_config(
             row.reasoning_profile = payload.reasoning_profile
         if "reasoning_profile_json" in fields:
             row.reasoning_profile_json = payload.reasoning_profile_json
+        if "opencode_provider_profile" in fields and payload.opencode_provider_profile is not None:
+            row.opencode_provider_profile = payload.opencode_provider_profile
+        if fields.intersection(
+            {"protocol", "base_url", "api_key", "model_name", "opencode_provider_profile"}
+        ):
+            row.opencode_provider_status = "unknown"
+            row.opencode_provider_tested_at = None
+            row.opencode_provider_error = None
+            row.opencode_provider_test_result_json = None
         await record_audit_log(
             session,
             entity_type="llm_config",
@@ -205,6 +215,11 @@ def to_response(config: LLMConfigWithSecret) -> LLMConfigResponse:
         quota_remaining=config.quota_remaining,
         reasoning_profile=config.reasoning_profile,
         reasoning_profile_json=config.reasoning_profile_json,
+        opencode_provider_profile=config.opencode_provider_profile,
+        opencode_provider_status=config.opencode_provider_status,
+        opencode_provider_tested_at=config.opencode_provider_tested_at,
+        opencode_provider_error=config.opencode_provider_error,
+        opencode_provider_test_result_json=config.opencode_provider_test_result_json,
     )
 
 
@@ -226,6 +241,11 @@ def to_response_from_row(row: LLMConfig, plain_key: str) -> LLMConfigResponse:
         quota_remaining=row.quota_remaining,
         reasoning_profile=row.reasoning_profile,
         reasoning_profile_json=row.reasoning_profile_json,
+        opencode_provider_profile=row.opencode_provider_profile,
+        opencode_provider_status=row.opencode_provider_status,
+        opencode_provider_tested_at=row.opencode_provider_tested_at,
+        opencode_provider_error=row.opencode_provider_error,
+        opencode_provider_test_result_json=row.opencode_provider_test_result_json,
     )
 
 

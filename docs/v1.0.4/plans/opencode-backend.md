@@ -16,7 +16,7 @@ v1.0.4 的开发只在 `src/codeask/agent/opencode_compat/` 下新增 opencode �
 | `sessions.py` | `ExternalAgentSession` CRUD、CodeAsk session 到 opencode session 的绑定、状态、端口、workspace、config hash、错误摘要 | DB 集成测试覆盖创建、恢复、更新、删除 |
 | `workspace.py` | 创建会话 workspace、附件目录、Wiki symlink、配置目录、日志目录；`workspace/wiki` 被删后可恢复 | 单元测试 + Phase 0 symlink 删除恢复记录 |
 | `config.py` | 生成 `opencode.json`：provider、model、MCP remote、permission deny Bash/Edit/Write、headers、timeout；生成 `AGENTS.md` 注入 CodeAsk 使用规则 | 快照测试覆盖 OpenAI、Anthropic、MCP token、permission |
-| `profiles.py` | 仅保留少量已验证 profile：`openai-compatible`、`anthropic-compatible-v1-bearer`、`anthropic-default`；不做 provider profile 缓存 | 真实配置矩阵映射测试；未知协议明确失败 |
+| `profiles.py` | 提供少量用户可见 OpenCode Provider：`default`、`openai-native`、`openai-compatible`、`anthropic-native`、`anthropic-compatible-bearer`、`anthropic-compatible-v1-bearer`、`openrouter`；`default` 走 opencode native provider；会话只使用用户显式选择，不做隐式轮转 | 真实配置矩阵映射测试；同 URL 双协议回归；显式 provider 测试按钮；未知 provider 明确失败 |
 | `process.py` | 一个 shared `opencode serve` 常驻进程、Basic Auth、健康检查、端口分配、崩溃重启、换端口恢复 | fake process 单测 + live health smoke |
 | `http.py` | opencode HTTP client：`/global/health`、`/session`、`/session/:id/prompt_async`、`/session/:id/message`、`/global/event`、`abort/revert` | fake opencode HTTP server 集成测试 |
 | `events.py` | 读取 `/global/event`，按 `directory + sessionID` 归属事件，归档 raw JSONL，映射前端事件，折叠 `sync` | event mapper 单测 + MCP tool event 样本回放 |
@@ -28,7 +28,7 @@ v1.0.4 的开发只在 `src/codeask/agent/opencode_compat/` 下新增 opencode �
 
 ### 遗留增强项，不进入第一版主线
 
-- provider profile 成功结果持久化、最近 smoke 状态缓存和自动重测。
+- provider profile 后台定期重测和更完整诊断面板。
 - `abort + revert` 深度上下文回滚的完整产品化；第一版先保证停止输出、状态清理和审计事件。
 - ACP 接入。
 - 外部 RAG MCP。
@@ -53,10 +53,10 @@ v1.0.4 的开发只在 `src/codeask/agent/opencode_compat/` 下新增 opencode �
 | 0.9 | 验证 opencode SQLite 跨进程重启后的 session history | 恢复验证记录 | 0.3 |
 | 0.10 | 使用 CodeAsk DB 中真实 LLM 配置做 opencode provider smoke matrix | provider 映射记录 | 0.2 |
 | 0.11 | 验证 shared server 下不同 workspace 独立 `opencode.json` 是否能隔离 provider | shared server 配置隔离记录 | 0.8 |
-| 0.12 | 验证少量 Anthropic provider profiles：默认、`/v1` + Bearer 等通用候选，优先选择真实配置全部通过的 profile | provider profile 决策 | 0.10 |
+| 0.12 | 验证少量 Anthropic provider profiles：原始 URL + Bearer、`/v1` + Bearer 等通用选项；默认不改写用户配置 URL | provider profile 决策 | 0.10 |
 | 0.13 | 验证 `workspace/wiki` 零复制挂载被删除后可恢复 | Wiki 恢复记录 | 0.3 |
 | 0.14 | 验证现有 WorktreeManager 可为 opencode 会话准备独立 worktree | worktree 准备记录 | 0.3 |
-| 0.15 | 记录 provider profile 测试结果持久化为遗留增强项 | 遗留项记录 | 0.10 |
+| 0.15 | 记录显式 OpenCode Provider 选择策略；保存配置时不自动测试，提供管理页手动测试按钮 | 决策记录 | 0.10 |
 | 0.16 | 验证 remote StreamableHTTP MCP URL、headers、tools/list、tools/call | MCP 主路径记录 | 0.5 |
 | 0.17 | 验证 `/global/event` 中 MCP 工具调用、reasoning、sync 噪声样本 | 事件映射输入样本 | 0.16 |
 | 0.18 | 验证 shared server 重启后原 session 可读取并继续 | 恢复策略记录 | 0.9 |
@@ -92,6 +92,7 @@ Phase 0 主路径已经完成，实测记录见 `../specs/opencode-1.14.48-phase
 | 2.3 | 实现 `http.py` | opencode HTTP API 封装 | — |
 | 2.4 | 实现 `backend.py` 的 `initialize_session` | 阶段 0 完整流程 | 1.2, 2.2, 2.3 |
 | 2.5 | 实现 opencode 版本记录和兼容性 warning | 后台日志和管理诊断 | Phase 0 |
+| 2.6 | 实现显式 OpenCode Provider 选择、手动测试接口、测试状态记录和会话 provider 绑定 | LLM 兼容验证能力 | 2.1, 2.3, 2.4 |
 
 ### Phase 3：opencode 事件流与前端行动轨迹 (streaming)
 
@@ -160,6 +161,7 @@ Phase 0 主路径已经完成，实测记录见 `../specs/opencode-1.14.48-phase
 | 6.14 | 端到端：E2E 场景 6 (空闲清理 + 会话恢复) | Playwright live test | 6.9 |
 | 6.15 | 多环境 E2E：临时空库、真实数据只读、真实数据可写沙箱、真实浏览器、真实 LLM/opencode、升级部署 | `acceptance-checklist.md` 记录 | Phase 5 |
 | 6.16 | 外部工具 E2E：shared opencode server、remote MCP、worktree、Wiki symlink | Playwright live + 后端 live smoke | Phase 5 |
+| 6.17 | Live LLM 配置全量 smoke：读取 DB 中所有 LLM 配置，包括 disabled 配置，只测试当前显式选择的 OpenCode Provider | `tests/live/test_live_opencode_llm_configs.py` | 2.6 |
 
 ### Phase 7：文档与收口 (closure)
 

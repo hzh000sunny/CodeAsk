@@ -54,7 +54,7 @@ def map_global_event(
                 type="assistant_action",
                 data={
                     "action": f"opencode_{status_type}",
-                    "summary": f"opencode session status: {status_type}",
+                    "summary": _status_summary(status_type, status),
                     "metadata": {"status": status},
                 },
             )
@@ -71,6 +71,21 @@ def map_global_event(
         return ChatRuntimeEvent(type="error", data={"backend": "opencode", "error": error})
 
     return None
+
+
+def _status_summary(status_type: str, status: object) -> str:
+    if not isinstance(status, dict):
+        return f"opencode session status: {status_type}"
+
+    if status_type == "retry":
+        attempt = status.get("attempt")
+        message = status.get("message")
+        attempt_label = f" #{attempt}" if isinstance(attempt, int) and attempt > 0 else ""
+        if isinstance(message, str) and message:
+            return f"opencode retry{attempt_label}: {message}"
+        return f"opencode retry{attempt_label}"
+
+    return f"opencode session status: {status_type}"
 
 
 def _map_part_updated(part: dict[str, Any]) -> ChatRuntimeEvent | None:

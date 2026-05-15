@@ -9,6 +9,8 @@ import {
   deleteUserLlmConfig,
   listAdminLlmConfigs,
   listUserLlmConfigs,
+  testAdminLlmConfig,
+  testUserLlmConfig,
   updateAdminLlmConfig,
   updateUserLlmConfig,
 } from "../../../lib/api";
@@ -71,6 +73,25 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
       showError(`删除 LLM 配置失败：${messageFromApiError(error)}`);
     },
   });
+  const testMutation = useMutation({
+    mutationFn: (id: string) =>
+      scope === "global" ? testAdminLlmConfig(id) : testUserLlmConfig(id),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey });
+      if (result.status === "ok") {
+        showSuccess(
+          `LLM 连接测试通过：${result.profile_id ?? "default"}${
+            result.text_preview ? ` · ${result.text_preview}` : ""
+          }`,
+        );
+        return;
+      }
+      showError(`LLM 连接测试失败：${result.error ?? "未知错误"}`);
+    },
+    onError: (error) => {
+      showError(`LLM 连接测试失败：${messageFromApiError(error)}`);
+    },
+  });
 
   return (
     <section className="surface">
@@ -107,12 +128,18 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
         onDelete={(id) => deleteMutation.mutate(id)}
         onEditCancel={() => setEditingId(null)}
         onEditStart={(id) => setEditingId(id)}
+        onTest={(id) => testMutation.mutate(id)}
         onUpdate={(id, payload) => updateMutation.mutate({ id, payload })}
         onToggleEnabled={(config) =>
           updateMutation.mutate({
             id: config.id,
             payload: { enabled: !config.enabled },
           })
+        }
+        testingId={
+          typeof testMutation.variables === "string" && testMutation.isPending
+            ? testMutation.variables
+            : null
         }
         updating={updateMutation.isPending}
       />

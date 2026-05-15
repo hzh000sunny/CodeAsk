@@ -4,7 +4,12 @@ import type { FormEvent } from "react";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { SwitchControl } from "../SwitchControl";
-import type { LlmProtocol, LlmReasoningProfile } from "../settings-types";
+import type {
+  LlmOpenCodeProviderProfile,
+  LlmProtocol,
+  LlmReasoningProfile,
+} from "../settings-types";
+import { OPENCODE_PROVIDER_PROFILE_OPTIONS } from "../settings-utils";
 
 export interface LlmCreatePayload {
   name: string;
@@ -15,6 +20,7 @@ export interface LlmCreatePayload {
   enabled: boolean;
   reasoning_profile: LlmReasoningProfile;
   reasoning_profile_json: string | null;
+  opencode_provider_profile: LlmOpenCodeProviderProfile;
 }
 
 export function LlmConfigForm({
@@ -32,6 +38,8 @@ export function LlmConfigForm({
   const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState("");
   const [enabled, setEnabled] = useState(true);
+  const [opencodeProviderProfile, setOpencodeProviderProfile] =
+    useState<LlmOpenCodeProviderProfile>("default");
 
   function resetCreateForm() {
     setConfigName("");
@@ -40,6 +48,7 @@ export function LlmConfigForm({
     setApiKey("");
     setModelName("");
     setEnabled(true);
+    setOpencodeProviderProfile("default");
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -53,6 +62,7 @@ export function LlmConfigForm({
       enabled,
       reasoning_profile: "none",
       reasoning_profile_json: null,
+      opencode_provider_profile: opencodeProviderProfile,
     });
   }
 
@@ -94,6 +104,24 @@ export function LlmConfigForm({
           onChange={(event) => setModelName(event.target.value)}
           value={modelName}
         />
+      </label>
+      <label className="field-label compact">
+        OpenCode Provider
+        <select
+          className="input"
+          onChange={(event) =>
+            setOpencodeProviderProfile(
+              event.target.value as LlmOpenCodeProviderProfile,
+            )
+          }
+          value={opencodeProviderProfile}
+        >
+          {OPENCODE_PROVIDER_PROFILE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </label>
       <div className="form-switches">
         <SwitchControl

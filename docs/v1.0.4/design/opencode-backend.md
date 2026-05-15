@@ -20,7 +20,7 @@ src/codeask/agent/opencode_compat/
 ├── backend.py                  # OpenCodeCompat 主入口，连接 sessions/workspace/process/http/events
 ├── sessions.py                 # opencode 会话绑定、状态、恢复
 ├── config.py                   # opencode.json + AGENTS.md 生成
-├── profiles.py                 # 少量 provider profile；不做 provider profile 缓存
+├── profiles.py                 # 少量用户可见 OpenCode Provider profile
 ├── process.py                  # opencode shared server 生命周期
 ├── http.py                     # opencode HTTP API 客户端
 ├── events.py                   # opencode 原始事件归档与前端事件映射
@@ -85,8 +85,8 @@ v1.0.4 实现前先固定每个模块的职责和验收边界，避免开发过�
 | `backend.py` | 串联 sessions、workspace、config、process、http、events，提供 `initialize_session/run_turn/cleanup_session/ensure_running` | `OpenCodeCompat`, `OpenCodeTurnContext` | 不实现通用 AgentBackend；不回退 native runtime | app lifespan + fake opencode 完整 run 集成 |
 | `sessions.py` | 管理 CodeAsk session 与 opencode session/workspace 的绑定 | `ExternalAgentSession`, `get_by_session_id`, `upsert`, `mark_running`, `mark_error` | 不保存 opencode message 正文全文；正文仍由会话 turn 管理 | DB CRUD、恢复、删除级联 |
 | `workspace.py` | 创建会话 workspace、附件目录、Wiki symlink，恢复被删 symlink | `prepare_workspace(session_id)`, `ensure_wiki_link`, `resolve_workspace_path` | 不复制整份 Wiki；不直接管理 git worktree | symlink 创建、删除恢复、路径越界拒绝 |
-| `config.py` | 生成 workspace 级 `opencode.json` 和 `AGENTS.md` | provider 配置、MCP remote 配置、permission 配置、模型上下文提示 | 不从 URL / 模型名猜协议；不写 provider 缓存 | JSON schema 快照、OpenAI/Anthropic profile 生成 |
-| `profiles.py` | 根据 CodeAsk LLM 协议选择少量已验证 profile | `openai-compatible`, `anthropic-compatible-v1-bearer`, `anthropic-default` | 不做厂商特判；不做成功 profile 持久化缓存 | 9 条真实配置映射回归、未知协议失败 |
+| `config.py` | 生成 workspace 级 `opencode.json` 和 `AGENTS.md` | provider 配置、MCP remote 配置、permission 配置、模型上下文提示、已选 provider profile | 不从 URL / 模型名猜协议；不在保存配置时联网测试 | JSON schema 快照、OpenAI/Anthropic profile 生成 |
+| `profiles.py` | 提供少量用户可见 OpenCode Provider profile | `default`, `openai-native`, `openai-compatible`, `anthropic-native`, `anthropic-compatible-bearer`, `anthropic-compatible-v1-bearer`, `openrouter` | 不做厂商/URL/模型名特判；不在会话启动时隐式轮转；默认不改写用户配置 URL | 真实配置映射回归、同 URL 双协议回归、显式 provider 手动测试、未知 provider 失败 |
 | `process.py` | 管理一个 shared `opencode serve` 常驻进程 | `ensure_server`, `restart`, `shutdown`, `healthcheck` | 不为每个会话默认起进程；per-session 只作为排障模式 | 端口分配、健康检查、换端口恢复 |
 | `http.py` | 封装 opencode HTTP API | `POST /session`, `POST /session/:id/prompt_async`, `GET /session/:id/message`, `/global/event`, `abort/revert` | 不按 REST 直觉拼 `/messages` | fake server 集成 + 路径快照 |
 | `events.py` | 归档 opencode 原始事件并映射前端事件 | raw JSONL、normalized event、tool/reasoning/status/error | 不复用旧 `scope_detection` 阶段事件 | event mapper 单测、sync 折叠、高频去噪 |
@@ -776,33 +776,35 @@ v1.0.4 不建立通用后端路由。会话发送主路径在确认使用 v1.0.4
 
 ### 9.1 LLM provider 映射要求
 
-Phase 0 使用 CodeAsk DB 中 9 条真实 LLM 配置做 opencode provider smoke matrix，结论如下：
+Phase 0 和实现阶段使用 CodeAsk DB 中真实 LLM 配置做 opencode provider smoke matrix，结论是：不能只按厂商、模型名或 URL 做后端特判；同一个私有网关 URL 可能同时支持 OpenAI 与 Anthropic 两种消息协议，且是否需要 `/v1` 取决于网关入口。v1.0.4 因此采用“用户显式选择 OpenCode Provider + 手动连接测试”的策略。
 
-- `openai` / `openai_compatible` 使用 `@ai-sdk/openai-compatible` 可通过。
-- DeepSeek 的 `anthropic` endpoint 使用 `@ai-sdk/anthropic` 可通过。
-- 火山的 `anthropic` endpoint 在 `@ai-sdk/anthropic` 映射下失败，错误为 401，实际请求 URL 为 `.../api/coding/messages`，网关提示缺少或错误 Authorization。
-- 进一步测试发现：`@ai-sdk/anthropic` + `baseURL=<用户配置URL>/v1` + `headers.Authorization=Bearer <api_key>` 在火山 Anthropic GLM、火山 Anthropic MiniMax、DeepSeek Anthropic、DeepSeek Anthropic Pro 上均通过。
-
-因此 `opencode_compat/config.py` 不应把 provider 映射写成不可调整的简单分支。第一版至少需要：
+`opencode_compat/config.py` 不应把 provider 映射写成不可调整的简单分支。第一版要求：
 
 - 生成配置时保留 provider npm/baseURL/header 的 profile 扩展点。
-- 会话启动失败时给出清晰错误，不能只暴露底层 401。
-- “记录每个 LLM 配置最近一次 opencode smoke 状态和成功 profile”列为遗留增强项；主功能阶段先固定使用当前已验证的少量 profile 打通流程。
+- 新增/修改 LLM 配置时不自动联网测试，避免保存表单变慢和普通用户配置被后台阻塞。
+- LLM 配置页面提供 OpenCode Provider 下拉框和“测试连接”按钮；测试只验证当前选中的 provider，不做隐式轮转。
+- 会话开始时直接使用当前显式选择的 provider 生成 workspace 级 `opencode.json`；如果用户选错，向用户返回明确错误，不自动换其它 provider。
+- 测试结果写入 `llm_configs.opencode_provider_*`，会话绑定仍记录 `external_agent_sessions.provider_profile_id` 以便审计。
+- `default` 表示 opencode native provider 行为：OpenAI 协议使用 `@ai-sdk/openai`，Anthropic 协议使用 `@ai-sdk/anthropic`。
 
-推荐初版 profile：
+初版用户可选 provider：
 
 | profile | 适用 | opencode provider |
 |---|---|---|
-| `openai-compatible` | OpenAI 协议和 OpenAI-compatible 协议 | `@ai-sdk/openai-compatible`，使用用户原始 `base_url` |
-| `anthropic-compatible-v1-bearer` | Anthropic 协议默认优先候选；已在当前火山、DeepSeek 真实 Anthropic 配置中全部通过 | `@ai-sdk/anthropic`，`baseURL=<base_url>/v1`，`Authorization: Bearer <api_key>` |
-| `anthropic-default` | 标准 Anthropic-compatible endpoint，仅作为 fallback 或显式兼容项 | `@ai-sdk/anthropic`，使用用户原始 `base_url` |
+| `default` | 走 opencode native provider，适合官方或完全兼容 native provider 的入口 | OpenAI -> `@ai-sdk/openai`；Anthropic -> `@ai-sdk/anthropic` |
+| `openai-native` | 明确使用 OpenAI native provider | `@ai-sdk/openai`，使用用户原始配置 |
+| `openai-compatible` | OpenAI-compatible 网关 | `@ai-sdk/openai-compatible`，使用用户原始 `base_url` |
+| `anthropic-native` | 标准 Anthropic provider | `@ai-sdk/anthropic`，使用用户原始配置 |
+| `anthropic-compatible-bearer` | Anthropic-compatible 网关，入口已经是完整 messages 兼容路径 | `@ai-sdk/anthropic`，使用用户原始 `base_url`，`Authorization: Bearer <api_key>` |
+| `anthropic-compatible-v1-bearer` | Anthropic-compatible 网关，需要在配置 URL 后补 `/v1` | `@ai-sdk/anthropic`，`baseURL=<base_url>/v1`，`Authorization: Bearer <api_key>` |
+| `openrouter` | OpenRouter provider | `@openrouter/ai-sdk-provider` |
 
 profile 的选择不应通过厂商名硬编码，也不应把候选列表做成大量枚举。v1.0.4 初版原则：
 
-- 每个协议候选尽量保持 1 个，确有实测差异时最多保留 2 个。
-- 候选优先级由真实配置 smoke matrix 决定，优先选择“当前测试全部通过”的 profile。
+- 列表保持少量且通用，覆盖 native、compatible、Bearer、`/v1` Bearer 和 OpenRouter。
+- 默认不得改写用户填写的 `base_url`；只有用户显式选择 `/v1` profile 时才追加 `/v1`。
 - 除非有新的真实失败样本和通用抽象名称，否则不新增 provider/vendor 专属 profile。
-- provider profile 测试结果持久化暂不进入主功能第一阶段，作为遗留增强项；后续可在配置测试入口中记录最近一次 opencode smoke 状态和错误摘要。
+- provider profile 成功结果和失败摘要只由手动测试接口写入；遗留增强项保留“后台定期重测和更丰富的诊断面板”。
 
 ---
 

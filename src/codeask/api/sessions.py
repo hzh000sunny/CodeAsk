@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from datetime import date
 from pathlib import Path
 from secrets import token_hex
@@ -368,7 +369,8 @@ async def abort_session_turn(session_id: str, turn_id: str, request: Request) ->
     from codeask.sessions.messages import rollback_session_turn
 
     if getattr(request.app.state.settings, "agent_backend", "opencode") == "opencode":
-        await request.app.state.opencode_compat.abort_turn(session_id)
+        with suppress(Exception):
+            await request.app.state.opencode_compat.abort_turn(session_id)
     await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
 
 

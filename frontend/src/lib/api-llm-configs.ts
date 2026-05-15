@@ -1,7 +1,15 @@
-import type { LLMConfigResponse } from "../types/api";
+import type { LLMConfigResponse, LLMConfigTestResponse } from "../types/api";
 import { apiRequest } from "./api-client";
 
 type LlmProtocol = "openai" | "openai_compatible" | "anthropic";
+type LlmOpenCodeProviderProfile =
+  | "default"
+  | "openai-native"
+  | "openai-compatible"
+  | "anthropic-native"
+  | "anthropic-compatible-bearer"
+  | "anthropic-compatible-v1-bearer"
+  | "openrouter";
 type LlmReasoningProfile =
   | "none"
   | "request_patch"
@@ -20,6 +28,7 @@ type LlmCreatePayload = {
   enabled?: boolean;
   reasoning_profile?: LlmReasoningProfile;
   reasoning_profile_json?: string | null;
+  opencode_provider_profile?: LlmOpenCodeProviderProfile;
 };
 type LlmUpdatePayload = Partial<
   Omit<LlmCreatePayload, "api_key"> & {
@@ -51,6 +60,12 @@ export function deleteUserLlmConfig(id: string) {
   });
 }
 
+export function testUserLlmConfig(id: string) {
+  return apiRequest<LLMConfigTestResponse>(`/api/me/llm-configs/${id}/test`, {
+    method: "POST",
+  });
+}
+
 export function listAdminLlmConfigs() {
   return apiRequest<LLMConfigResponse[]>("/api/admin/llm-configs");
 }
@@ -72,5 +87,11 @@ export function updateAdminLlmConfig(id: string, payload: LlmUpdatePayload) {
 export function deleteAdminLlmConfig(id: string) {
   return apiRequest<void>(`/api/admin/llm-configs/${id}`, {
     method: "DELETE",
+  });
+}
+
+export function testAdminLlmConfig(id: string) {
+  return apiRequest<LLMConfigTestResponse>(`/api/admin/llm-configs/${id}/test`, {
+    method: "POST",
   });
 }

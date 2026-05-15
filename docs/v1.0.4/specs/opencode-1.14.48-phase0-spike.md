@@ -247,11 +247,13 @@ provider 映射策略：
 1. OpenAI 兼容协议在 opencode 1.14.48 中通过 `@ai-sdk/openai-compatible` 可稳定工作。
 2. DeepSeek 的 Anthropic endpoint 可以通过 `@ai-sdk/anthropic` 工作。
 3. 火山的 Anthropic endpoint 在当前映射下失败。错误不是模型回答失败，而是请求认证头或 endpoint 形态不匹配。
-4. v1.0.4 不能简单假设“CodeAsk 协议字段为 anthropic，就必然可用 `@ai-sdk/anthropic`”。至少需要：
-   - 在配置测试入口中显示 opencode provider smoke 结果；
-   - 对失败配置给出明确提示，而不是进入会话后才失败；
-   - 对 provider 映射保留扩展点，不能写死不可修改。
-   - 保存最近一次 opencode smoke 错误摘要和成功 profile 可作为遗留增强项，不阻塞主流程。
+4. v1.0.4 不能简单假设“CodeAsk 协议字段为 anthropic，就必然只有一种 `@ai-sdk/anthropic` 配置方式”。最终策略调整为：
+   - 新增/修改 LLM 配置时不联网测试。
+   - 配置页面提供显式 OpenCode Provider 选择和手动“测试连接”按钮。
+   - 会话开始时只使用当前显式选择的 provider，不做隐式轮转。
+   - 对失败配置给出明确提示，不能持续 retry 或自动 fallback。
+   - 对 provider 映射保留扩展点，不能写死厂商、URL 或模型名。
+   - 保存最近一次手动测试的错误摘要和结果明细。
 
 ### 4.1 Anthropic provider profile 补充测试
 
@@ -279,9 +281,10 @@ provider 映射策略：
 
 - 火山 Anthropic 不是不能用 Anthropic provider factory，而是需要 `baseURL` 指向 `/v1` 层，并使用 Bearer 鉴权。
 - `anthropic-base-v1-auth` 在本轮测试的火山和 DeepSeek Anthropic 配置上均通过，可以抽象为 `anthropic-compatible-v1-bearer` profile。
-- 这不应写成厂商特判，也不应无限扩展候选 profile。推荐实现为：每个协议只保留少量通用候选，优先选择真实配置矩阵中全部通过的 profile。
-- 成功 profile 持久化和自动重测先列为遗留增强项；主功能阶段先使用当前实测通过的 profile 打通完整流程。
-- v1.0.4 初版 Anthropic 候选应优先使用 `anthropic-compatible-v1-bearer`，因为它覆盖了当前实测的火山和 DeepSeek Anthropic 配置；`anthropic-default` 仅作为 fallback 或显式兼容项保留。
+- 这不应写成厂商特判，也不应无限扩展 profile。最终实现为：配置页面提供少量通用 profile，由用户显式选择，并提供手动测试按钮。
+- 成功 profile 持久化进入 v1.0.4 主线：手动测试成功后写入配置级测试状态；会话启动只读取当前显式选择，不重复探测。
+- 私有网关补充样本显示：同一个 URL 可以同时支持 OpenAI 与 Anthropic 两种协议。默认 profile 如果无条件追加 `/v1`，会破坏该类配置并触发 opencode retry。
+- v1.0.4 的 `default` 走 opencode native provider；`anthropic-compatible-bearer` 和 `anthropic-compatible-v1-bearer` 作为用户可显式选择的兼容 profile，不能作为默认无条件改写。
 
 ---
 
@@ -845,8 +848,8 @@ v1.0.4 第一版建议：
 | Message API 路径 | 使用 `/session/:id/message`，不是 `/messages` |
 | workspace 路由 | 所有 session/message/revert 请求必须带 directory 或等价 header |
 | provider 映射 | 不能假设 anthropic 都能走 `@ai-sdk/anthropic`；火山 Anthropic 已失败 |
-| Anthropic profile | 候选必须少量且通用；当前优先 `anthropic-compatible-v1-bearer`，因为真实 Anthropic 配置均通过；`anthropic-default` 仅作 fallback |
-| provider profile 缓存 | 不进入 v1.0.4 第一版主线；先用当前已实测通过的少量 profile 打通流程，成功 profile 持久化和 smoke 结果缓存列为遗留增强项 |
+| Anthropic profile | profile 必须少量且通用；`default` 走 native；`anthropic-compatible-bearer` 不改写用户 URL；`anthropic-compatible-v1-bearer` 仅在用户显式选择时追加 `/v1` |
+| provider profile 测试状态 | 进入 v1.0.4 主线：手动测试写配置状态、失败写错误摘要、会话绑定已选 profile；保存配置时不自动测试 |
 | 真实配置测试 | v1.0.4 必须保留“opencode provider smoke test”入口 |
 | reasoning | opencode 已结构化保存 reasoning part，前端应基于结构化事件展示，不做 `<think>` 字符串过滤 |
 | 事件流 | 需要折叠 `sync`、高频 `message.part.updated`，否则行动轨迹会噪声过大 |
@@ -865,6 +868,7 @@ v1.0.4 第一版建议：
 - [x] MCP tool 调用事件在 `/global/event` 和 message parts 中的样本。
 - [x] 权限规则中 deny Bash/Edit/Write 时，模型触发对应工具后的事件和错误形态。
 - [x] 火山 Anthropic 配置失败的兼容策略：通过 `anthropic-compatible-v1-bearer` profile 实测通过。
+- [x] 同 URL 双协议私有网关兼容策略：默认 `anthropic-compatible-bearer` 不追加 `/v1`，避免改写用户配置 URL。
 - [x] Wiki symlink 被删除后真实 Wiki 文件仍存在，重新创建 symlink 后可恢复读取。
 - [x] 使用真实 repo `e35077cf009f4fdc` 验证现有 WorktreeManager 可创建并清理 session worktree。
 - [x] shared server 重启恢复测试：同一数据目录和 workspace 下，换端口重启后可读取原 session message，并继续第二轮 prompt。

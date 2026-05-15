@@ -5,10 +5,15 @@ import type { LLMConfigResponse } from "../../../types/api";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import type {
+  LlmOpenCodeProviderProfile,
   LlmProtocol,
   LlmUpdatePayload,
 } from "../settings-types";
-import { safeEditableProtocol } from "../settings-utils";
+import {
+  OPENCODE_PROVIDER_PROFILE_OPTIONS,
+  safeEditableProtocol,
+  safeOpenCodeProviderProfile,
+} from "../settings-utils";
 
 export function LlmConfigEditForm({
   config,
@@ -28,6 +33,10 @@ export function LlmConfigEditForm({
   const [baseUrl, setBaseUrl] = useState(config.base_url ?? "");
   const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState(config.model_name);
+  const [opencodeProviderProfile, setOpencodeProviderProfile] =
+    useState<LlmOpenCodeProviderProfile>(
+      safeOpenCodeProviderProfile(config.opencode_provider_profile),
+    );
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const payload: LlmUpdatePayload = {
@@ -35,6 +44,7 @@ export function LlmConfigEditForm({
       protocol,
       base_url: baseUrl.trim() || null,
       model_name: modelName.trim(),
+      opencode_provider_profile: opencodeProviderProfile,
     };
     if (apiKey) {
       payload.api_key = apiKey;
@@ -81,6 +91,24 @@ export function LlmConfigEditForm({
           onChange={(event) => setModelName(event.target.value)}
           value={modelName}
         />
+      </label>
+      <label className="field-label compact">
+        编辑 OpenCode Provider
+        <select
+          className="input"
+          onChange={(event) =>
+            setOpencodeProviderProfile(
+              event.target.value as LlmOpenCodeProviderProfile,
+            )
+          }
+          value={opencodeProviderProfile}
+        >
+          {OPENCODE_PROVIDER_PROFILE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </label>
       <div className="form-actions llm-edit-actions">
         <Button

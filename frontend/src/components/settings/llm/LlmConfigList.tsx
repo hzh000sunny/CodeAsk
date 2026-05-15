@@ -1,10 +1,10 @@
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, PlugZap, Trash2 } from "lucide-react";
 
 import type { LLMConfigResponse } from "../../../types/api";
 import { Button } from "../../ui/button";
 import { SwitchControl } from "../SwitchControl";
 import type { LlmUpdatePayload } from "../settings-types";
-import { protocolLabel } from "../settings-utils";
+import { opencodeProviderLabel, protocolLabel } from "../settings-utils";
 import { LlmConfigEditForm } from "./LlmConfigEditForm";
 
 export function LlmConfigList({
@@ -14,8 +14,10 @@ export function LlmConfigList({
   onDelete,
   onEditCancel,
   onEditStart,
+  onTest,
   onUpdate,
   onToggleEnabled,
+  testingId,
   updating,
 }: {
   configs: LLMConfigResponse[];
@@ -24,8 +26,10 @@ export function LlmConfigList({
   onDelete: (id: string) => void;
   onEditCancel: () => void;
   onEditStart: (id: string) => void;
+  onTest: (id: string) => void;
   onUpdate: (id: string, payload: LlmUpdatePayload) => void;
   onToggleEnabled: (config: LLMConfigResponse) => void;
+  testingId: string | null;
   updating: boolean;
 }) {
   if (configs.length === 0) {
@@ -48,6 +52,11 @@ export function LlmConfigList({
                   {protocolLabel(config.protocol)} · {config.model_name} ·{" "}
                   {config.api_key_masked}
                 </small>
+                <small>
+                  OpenCode Provider:{" "}
+                  {opencodeProviderLabel(config.opencode_provider_profile)} ·{" "}
+                  {providerStatusLabel(config)}
+                </small>
               </div>
               <div className="row-actions">
                 <SwitchControl
@@ -66,6 +75,15 @@ export function LlmConfigList({
                   variant="quiet"
                 >
                   编辑
+                </Button>
+                <Button
+                  disabled={testingId === config.id}
+                  icon={<PlugZap size={15} />}
+                  onClick={() => onTest(config.id)}
+                  type="button"
+                  variant="quiet"
+                >
+                  {testingId === config.id ? "测试中" : "测试连接"}
                 </Button>
                 <Button
                   disabled={deleting}
@@ -91,4 +109,14 @@ export function LlmConfigList({
       })}
     </ul>
   );
+}
+
+function providerStatusLabel(config: LLMConfigResponse) {
+  if (config.opencode_provider_status === "ok") {
+    return "连接正常";
+  }
+  if (config.opencode_provider_status === "failed") {
+    return `连接失败${config.opencode_provider_error ? `：${config.opencode_provider_error}` : ""}`;
+  }
+  return "未测试";
 }

@@ -166,6 +166,32 @@ def test_map_global_event_text_delta_and_done() -> None:
     assert done.type == "done"
 
 
+def test_map_global_event_retry_status_includes_retry_details() -> None:
+    retry = map_global_event(
+        {
+            "directory": "/tmp/workspace",
+            "payload": {
+                "type": "session.status",
+                "properties": {
+                    "sessionID": "ses_1",
+                    "status": {
+                        "type": "retry",
+                        "attempt": 2,
+                        "message": "404 Not Found",
+                    },
+                },
+            },
+        },
+        directory="/tmp/workspace",
+        session_id="ses_1",
+    )
+
+    assert retry is not None
+    assert retry.type == "assistant_action"
+    assert retry.data["action"] == "opencode_retry"
+    assert retry.data["summary"] == "opencode retry #2: 404 Not Found"
+
+
 def test_map_global_event_tool_and_reasoning_without_raw_reasoning() -> None:
     tool_call = map_global_event(
         {

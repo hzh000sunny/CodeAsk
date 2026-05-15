@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from secrets import token_hex
+from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import Select, select, update
@@ -30,6 +32,7 @@ class LLMConfigInput(BaseModel):
     quota_remaining: float | None = None
     reasoning_profile: str = "none"
     reasoning_profile_json: str | None = None
+    opencode_provider_profile: str = "default"
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,11 @@ class LLMConfigPublic:
     quota_remaining: float | None
     reasoning_profile: str
     reasoning_profile_json: str | None
+    opencode_provider_profile: str | None = None
+    opencode_provider_status: str = "unknown"
+    opencode_provider_tested_at: datetime | None = None
+    opencode_provider_error: str | None = None
+    opencode_provider_test_result_json: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +78,11 @@ class LLMConfigWithSecret:
     quota_remaining: float | None
     reasoning_profile: str
     reasoning_profile_json: str | None
+    opencode_provider_profile: str | None = None
+    opencode_provider_status: str = "unknown"
+    opencode_provider_tested_at: datetime | None = None
+    opencode_provider_error: str | None = None
+    opencode_provider_test_result_json: Any | None = None
 
 
 def _mask_key(key: str) -> str:
@@ -96,6 +109,11 @@ def _to_secret(row: LLMConfig, crypto: Crypto) -> LLMConfigWithSecret:
         quota_remaining=row.quota_remaining,
         reasoning_profile=row.reasoning_profile,
         reasoning_profile_json=row.reasoning_profile_json,
+        opencode_provider_profile=row.opencode_provider_profile,
+        opencode_provider_status=row.opencode_provider_status,
+        opencode_provider_tested_at=row.opencode_provider_tested_at,
+        opencode_provider_error=row.opencode_provider_error,
+        opencode_provider_test_result_json=row.opencode_provider_test_result_json,
     )
 
 
@@ -157,6 +175,7 @@ class LLMConfigRepo:
                     quota_remaining=data.quota_remaining,
                     reasoning_profile=data.reasoning_profile,
                     reasoning_profile_json=data.reasoning_profile_json,
+                    opencode_provider_profile=data.opencode_provider_profile,
                 )
             )
             await session.commit()
@@ -197,6 +216,11 @@ class LLMConfigRepo:
                     quota_remaining=row.quota_remaining,
                     reasoning_profile=row.reasoning_profile,
                     reasoning_profile_json=row.reasoning_profile_json,
+                    opencode_provider_profile=row.opencode_provider_profile,
+                    opencode_provider_status=row.opencode_provider_status,
+                    opencode_provider_tested_at=row.opencode_provider_tested_at,
+                    opencode_provider_error=row.opencode_provider_error,
+                    opencode_provider_test_result_json=row.opencode_provider_test_result_json,
                 )
             )
         return items
@@ -329,4 +353,41 @@ class LLMConfigRepo:
                 await session.execute(select(LLMConfig).where(LLMConfig.id == cfg_id))
             ).scalar_one()
             await session.delete(row)
+            await session.commit()
+
+    async def mark_opencode_provider_test_success(
+        self,
+        cfg_id: str,
+        *,
+        result: dict[str, object],
+    ) -> None:
+        async with self._session_factory() as session:
+            row = (
+                await session.execute(select(LLMConfig).where(LLMConfig.id == cfg_id))
+            ).scalar_one_or_none()
+            if row is None:
+                return
+            row.opencode_provider_status = "ok"
+            row.opencode_provider_tested_at = datetime.now(UTC)
+            row.opencode_provider_error = None
+            row.opencode_provider_test_result_json = result
+            await session.commit()
+
+    async def mark_opencode_provider_test_failure(
+        self,
+        cfg_id: str,
+        *,
+        error_summary: str,
+        result: dict[str, object],
+    ) -> None:
+        async with self._session_factory() as session:
+            row = (
+                await session.execute(select(LLMConfig).where(LLMConfig.id == cfg_id))
+            ).scalar_one_or_none()
+            if row is None:
+                return
+            row.opencode_provider_status = "failed"
+            row.opencode_provider_tested_at = datetime.now(UTC)
+            row.opencode_provider_error = error_summary
+            row.opencode_provider_test_result_json = result
             await session.commit()

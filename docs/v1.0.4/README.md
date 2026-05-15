@@ -75,6 +75,7 @@ v1.0.3 完成了用户认证、特性权限和会话基础设施。v1.0.4 在此
 - 已新增 `src/codeask/agent/opencode_compat/` 独立模块，默认会话后端切到 opencode，旧 native runtime 仅保留为回归测试和诊断路径。
 - 已实现 shared `opencode serve` 进程管理、启动健康等待、崩溃后重新取当前 handle、CodeAsk session 与 opencode session 绑定。
 - 已实现每个会话独立 workspace、`opencode.json`、`AGENTS.md`、MCP token、raw opencode event JSONL。
+- 已实现 LLM OpenCode Provider 显式选择：保存配置时不联网测试，会话按用户选择的 provider 生成 `opencode.json`，不在会话启动时隐式轮转；管理页提供手动“测试连接”按钮用于验证当前选择。
 - 已实现持久化 Wiki 文件工作区导出：`<CODEASK_DATA_DIR>/wiki_workspace/current/<feature-slug>/...`，会话通过 `workspace/wiki` symlink 零复制挂载。
 - 已实现 opencode 专用 MCP endpoint 与工具：特性列表/详情、特性仓库、worktree 准备、会话附件、会话特性绑定；Wiki 和历史报告以文件目录暴露，由 opencode 自己 `glob/grep/read`。
 - 已接入 `/api/sessions/{id}/messages` 主发送链路，opencode 异常会返回 SSE `error` 事件，前端使用居中错误弹窗展示。

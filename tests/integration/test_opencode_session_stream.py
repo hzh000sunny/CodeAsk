@@ -15,6 +15,7 @@ class FakeOpenCodeCompat:
     calls: list[dict[str, object]]
     fail_run: bool = False
     fail_initialize: bool = False
+    fail_abort: bool = False
 
     async def initialize_session(self, session_id, llm_config):  # type: ignore[no-untyped-def]
         if self.fail_initialize:
@@ -55,6 +56,8 @@ class FakeOpenCodeCompat:
         yield ChatRuntimeEvent(type="done", data={"backend": "opencode"})
 
     async def abort_turn(self, session_id):  # type: ignore[no-untyped-def]
+        if self.fail_abort:
+            raise RuntimeError("opencode abort failed")
         self.calls.append({"method": "abort_turn", "session_id": session_id})
 
 
@@ -95,6 +98,7 @@ async def test_post_message_stream_uses_opencode_backend_by_setting(
     )
 
     assert response.status_code == 200, response.text
+    assert "event: assistant_action" in response.text
     assert "event: runtime_state" in response.text
     assert "gpt-test" in response.text
     assert "event: text_delta" in response.text
@@ -259,6 +263,42 @@ async def test_abort_session_turn_calls_opencode_before_rollback(
     assert fake.calls == [{"method": "abort_turn", "session_id": session_id}]
     async with app.state.session_factory() as session:
         turn = await session.get(SessionTurn, "turn_abort")
+    assert turn is None
+
+
+@pytest.mark.asyncio
+async def test_abort_session_turn_rolls_back_even_when_opencode_abort_fails(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    app.state.settings.agent_backend = "opencode"
+    app.state.opencode_compat = FakeOpenCodeCompat(calls=[], fail_abort=True)
+
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "OpenCode"}, headers=headers)
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+    async with app.state.session_factory() as session:
+        session.add(
+            SessionTurn(
+                id="turn_abort_failed_upstream",
+                session_id=session_id,
+                turn_index=0,
+                role="user",
+                content="abort me",
+                evidence=None,
+            )
+        )
+        await session.commit()
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/turns/turn_abort_failed_upstream/abort",
+        headers=headers,
+    )
+
+    assert response.status_code == 204, response.text
+    async with app.state.session_factory() as session:
+        turn = await session.get(SessionTurn, "turn_abort_failed_upstream")
     assert turn is None
 
 

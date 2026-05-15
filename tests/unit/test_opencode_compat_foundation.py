@@ -12,6 +12,7 @@ from codeask.agent.opencode_compat.config import (
 )
 from codeask.agent.opencode_compat.profiles import (
     UnsupportedOpenCodeProtocolError,
+    provider_profile_options,
     select_provider_profile,
 )
 from codeask.agent.opencode_compat.prompts import build_codeask_system_prompt
@@ -46,11 +47,11 @@ def _llm_config(
     )
 
 
-def test_select_provider_profile_uses_openai_compatible_for_openai() -> None:
+def test_default_provider_profile_uses_opencode_native_openai() -> None:
     profile = select_provider_profile(_llm_config(protocol="openai"))
 
-    assert profile.id == "openai-compatible"
-    assert profile.provider_npm == "@ai-sdk/openai-compatible"
+    assert profile.id == "openai-native"
+    assert profile.provider_npm == "@ai-sdk/openai"
     assert profile.provider_id("cfg_test") == "codeask_cfg_test"
     assert profile.build_options(_llm_config(protocol="openai")) == {
         "baseURL": "https://gateway.example.test/api",
@@ -58,18 +59,55 @@ def test_select_provider_profile_uses_openai_compatible_for_openai() -> None:
     }
 
 
-def test_select_provider_profile_uses_v1_bearer_for_anthropic_without_vendor_match() -> None:
+def test_default_provider_profile_uses_opencode_native_anthropic() -> None:
     profile = select_provider_profile(
         _llm_config(protocol="anthropic", base_url="https://gateway.example.test/api/coding/")
     )
 
-    assert profile.id == "anthropic-compatible-v1-bearer"
+    assert profile.id == "anthropic-native"
     assert profile.provider_npm == "@ai-sdk/anthropic"
     assert profile.build_options(_llm_config(protocol="anthropic")) == {
-        "baseURL": "https://gateway.example.test/api/v1",
+        "baseURL": "https://gateway.example.test/api",
         "apiKey": "secret-key",
-        "headers": {"Authorization": "Bearer secret-key"},
     }
+
+
+def test_explicit_compatible_profiles_are_not_selected_by_default() -> None:
+    base_url = "https://gateway.example.test/api/coding"
+
+    openai_profile = select_provider_profile(
+        _llm_config(protocol="openai", base_url=base_url),
+        profile_id="openai-compatible",
+    )
+    anthropic_profile = select_provider_profile(
+        _llm_config(protocol="anthropic", base_url=base_url),
+        profile_id="anthropic-compatible-v1-bearer",
+    )
+
+    assert openai_profile.provider_npm == "@ai-sdk/openai-compatible"
+    assert (
+        anthropic_profile.build_options(_llm_config(protocol="anthropic", base_url=base_url))[
+            "baseURL"
+        ]
+        == f"{base_url}/v1"
+    )
+    assert anthropic_profile.build_options(_llm_config(protocol="anthropic", base_url=base_url))[
+        "headers"
+    ] == {"Authorization": "Bearer secret-key"}
+
+
+def test_provider_profile_options_are_small_user_visible_list() -> None:
+    profiles = provider_profile_options()
+
+    assert [profile.id for profile in profiles] == [
+        "default",
+        "openai-native",
+        "openai-compatible",
+        "anthropic-native",
+        "anthropic-compatible-bearer",
+        "anthropic-compatible-v1-bearer",
+        "openrouter",
+    ]
 
 
 def test_select_provider_profile_rejects_unknown_protocol() -> None:
@@ -88,7 +126,7 @@ def test_build_opencode_config_contains_provider_mcp_and_readonly_permissions() 
     )
 
     provider = cfg["provider"]["codeask_cfg_test"]
-    assert provider["npm"] == "@ai-sdk/openai-compatible"
+    assert provider["npm"] == "@ai-sdk/openai"
     assert provider["models"] == {"MiniMax-M2.7": {"name": "MiniMax-M2.7", "tool_call": True}}
     assert cfg["mcp"]["codeask"]["type"] == "remote"
     assert cfg["mcp"]["codeask"]["headers"] == {
