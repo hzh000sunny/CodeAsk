@@ -115,6 +115,55 @@ async def test_admin_can_test_unsaved_llm_config_draft(
 
 
 @pytest.mark.asyncio
+async def test_admin_can_create_config_with_draft_test_result(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    fake = FakeOpenCodeCompat()
+    app.state.opencode_compat = fake
+    await client.post("/api/auth/admin/login", json={"password": "admin"})
+    tested = await client.post(
+        "/api/admin/llm-configs/test-draft",
+        json={
+            "name": "new-tested-provider",
+            "protocol": "anthropic",
+            "base_url": "https://gateway.example.test",
+            "api_key": "sk-new-tested",
+            "model_name": "model-new",
+            "opencode_provider_profile": "anthropic-compatible-v1-bearer",
+        },
+    )
+    assert tested.status_code == 200, tested.text
+    body = tested.json()
+
+    created = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "new-tested-provider",
+            "protocol": "anthropic",
+            "base_url": "https://gateway.example.test",
+            "api_key": "sk-new-tested",
+            "model_name": "model-new",
+            "opencode_provider_profile": "anthropic-compatible-v1-bearer",
+            "opencode_provider_status": body["status"],
+            "opencode_provider_tested_at": body["tested_at"],
+            "opencode_provider_error": body["error"],
+            "opencode_provider_test_result_json": body["result"],
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    assert created.json()["opencode_provider_status"] == "ok"
+    listed = await client.get("/api/admin/llm-configs")
+    stored = next(item for item in listed.json() if item["id"] == created.json()["id"])
+    assert stored["opencode_provider_status"] == "ok"
+    assert stored["opencode_provider_error"] is None
+    assert stored["opencode_provider_test_result_json"]["profile_id"] == (
+        "anthropic-compatible-v1-bearer"
+    )
+
+
+@pytest.mark.asyncio
 async def test_admin_can_test_update_draft_then_save_result(
     app: FastAPI,
     client: AsyncClient,

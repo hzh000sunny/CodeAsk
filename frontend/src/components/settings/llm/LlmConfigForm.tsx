@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { PlugZap } from "lucide-react";
 
+import type { LLMConfigTestResponse } from "../../../types/api";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { SwitchControl } from "../SwitchControl";
@@ -22,6 +23,10 @@ export interface LlmCreatePayload {
   reasoning_profile: LlmReasoningProfile;
   reasoning_profile_json: string | null;
   opencode_provider_profile: LlmOpenCodeProviderProfile;
+  opencode_provider_status?: "unknown" | "ok" | "failed";
+  opencode_provider_tested_at?: string | null;
+  opencode_provider_error?: string | null;
+  opencode_provider_test_result_json?: unknown | null;
 }
 
 export function LlmConfigForm({
@@ -33,7 +38,7 @@ export function LlmConfigForm({
 }: {
   disabled: boolean;
   onCancel: () => void;
-  onTest: (payload: LlmCreatePayload) => void;
+  onTest: (payload: LlmCreatePayload) => Promise<LLMConfigTestResponse>;
   onSubmit: (payload: LlmCreatePayload) => void;
   testing: boolean;
 }) {
@@ -45,6 +50,11 @@ export function LlmConfigForm({
   const [enabled, setEnabled] = useState(true);
   const [opencodeProviderProfile, setOpencodeProviderProfile] =
     useState<LlmOpenCodeProviderProfile>("default");
+  const [testResult, setTestResult] = useState<LLMConfigTestResponse | null>(null);
+
+  function clearTestResult() {
+    setTestResult(null);
+  }
 
   function resetCreateForm() {
     setConfigName("");
@@ -54,9 +64,10 @@ export function LlmConfigForm({
     setModelName("");
     setEnabled(true);
     setOpencodeProviderProfile("default");
+    setTestResult(null);
   }
 
-  const payload = {
+  const payload: LlmCreatePayload = {
       name: configName.trim(),
       protocol,
       base_url: baseUrl.trim() || null,
@@ -66,7 +77,13 @@ export function LlmConfigForm({
       reasoning_profile: "none",
       reasoning_profile_json: null,
       opencode_provider_profile: opencodeProviderProfile,
-    } satisfies LlmCreatePayload;
+    };
+  if (testResult) {
+    payload.opencode_provider_status = testResult.status;
+    payload.opencode_provider_tested_at = testResult.tested_at;
+    payload.opencode_provider_error = testResult.error;
+    payload.opencode_provider_test_result_json = testResult.result;
+  }
   const canSubmit = Boolean(configName.trim() && apiKey && modelName.trim());
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -74,12 +91,20 @@ export function LlmConfigForm({
     onSubmit(payload);
   }
 
+  async function testCurrentForm() {
+    const result = await onTest(payload);
+    setTestResult(result);
+  }
+
   return (
     <form className="inline-form llm-form llm-create-form" onSubmit={submit}>
       <label className="field-label compact">
         配置名称
         <Input
-          onChange={(event) => setConfigName(event.target.value)}
+          onChange={(event) => {
+            setConfigName(event.target.value);
+            clearTestResult();
+          }}
           value={configName}
         />
       </label>
@@ -87,7 +112,10 @@ export function LlmConfigForm({
         消息接口协议
         <select
           className="input"
-          onChange={(event) => setProtocol(event.target.value as LlmProtocol)}
+          onChange={(event) => {
+            setProtocol(event.target.value as LlmProtocol);
+            clearTestResult();
+          }}
           value={protocol}
         >
           <option value="openai">OpenAI</option>
@@ -96,12 +124,21 @@ export function LlmConfigForm({
       </label>
       <label className="field-label compact">
         Base URL
-        <Input onChange={(event) => setBaseUrl(event.target.value)} value={baseUrl} />
+        <Input
+          onChange={(event) => {
+            setBaseUrl(event.target.value);
+            clearTestResult();
+          }}
+          value={baseUrl}
+        />
       </label>
       <label className="field-label compact">
         API Key
         <Input
-          onChange={(event) => setApiKey(event.target.value)}
+          onChange={(event) => {
+            setApiKey(event.target.value);
+            clearTestResult();
+          }}
           type="password"
           value={apiKey}
         />
@@ -109,7 +146,10 @@ export function LlmConfigForm({
       <label className="field-label compact">
         模型名称
         <Input
-          onChange={(event) => setModelName(event.target.value)}
+          onChange={(event) => {
+            setModelName(event.target.value);
+            clearTestResult();
+          }}
           value={modelName}
         />
       </label>
@@ -117,11 +157,12 @@ export function LlmConfigForm({
         OpenCode Provider
         <select
           className="input"
-          onChange={(event) =>
+          onChange={(event) => {
             setOpencodeProviderProfile(
               event.target.value as LlmOpenCodeProviderProfile,
-            )
-          }
+            );
+            clearTestResult();
+          }}
           value={opencodeProviderProfile}
         >
           {OPENCODE_PROVIDER_PROFILE_OPTIONS.map((option) => (
@@ -143,7 +184,7 @@ export function LlmConfigForm({
         <Button
           disabled={!canSubmit || disabled || testing}
           icon={<PlugZap size={15} />}
-          onClick={() => onTest(payload)}
+          onClick={() => void testCurrentForm()}
           type="button"
           variant="secondary"
         >

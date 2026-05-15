@@ -75,13 +75,13 @@ v1.0.3 完成了用户认证、特性权限和会话基础设施。v1.0.4 在此
 - 已新增 `src/codeask/agent/opencode_compat/` 独立模块，默认会话后端切到 opencode，旧 native runtime 仅保留为回归测试和诊断路径。
 - 已实现 shared `opencode serve` 进程管理：CodeAsk 服务启动时 best-effort 拉起 opencode，后台 keepalive 定时检测并在进程退出后重新拉起；会话运行时仍会取当前 handle 并等待健康。
 - 已实现每个会话独立 workspace、`opencode.json`、`AGENTS.md`、MCP token、raw opencode event JSONL。
-- 已实现 LLM OpenCode Provider 显式选择：保存配置时不联网测试，会话按用户选择的 provider 生成 `opencode.json`，不在会话启动时隐式轮转；管理页提供“测试连接”按钮用于验证当前选择。列表行测试直接写入配置级连接状态；编辑表单内测试只验证当前表单草稿，测试结果作为隐藏表单状态，必须在用户点击“保存修改”后才随配置一起落库。
+- 已实现 LLM OpenCode Provider 显式选择：保存配置时不联网测试，会话按用户选择的 provider 生成 `opencode.json`，不在会话启动时隐式轮转；管理页提供“测试连接”按钮用于验证当前选择。列表行测试直接写入配置级连接状态；新增/编辑表单内测试只验证当前表单草稿，测试结果作为隐藏表单状态，必须在用户点击保存后才随配置一起落库。
 - 已实现持久化 Wiki 文件工作区导出：`<CODEASK_DATA_DIR>/wiki_workspace/current/<feature-slug>/...`，会话通过 `workspace/wiki` symlink 零复制挂载。
 - 已实现 opencode 专用 MCP endpoint 与工具：特性列表/详情、特性仓库、worktree 准备、会话附件、会话特性绑定；Wiki 和历史报告以文件目录暴露，由 opencode 自己 `glob/grep/read`。
 - 已接入 `/api/sessions/{id}/messages` 主发送链路，opencode 异常会返回 SSE `error` 事件，前端使用居中错误弹窗展示。
 - 已新增 live E2E 通道：`frontend/e2e/opencode-backend-live.spec.ts`，覆盖真实浏览器、真实数据、真实 LLM/opencode、workspace 文件与 wiki symlink。
 - 已修复报告草稿生成的长输出解析问题：当模型返回固定 JSON schema 但输出被截断时，后端会从可恢复的 `title_description` / `body_markdown` 中生成正式报告标题和正文，避免保存为 `YYYY-MM-DD 未命名问题` 或 raw JSON。
-- 已修复 LLM 配置编辑态连接测试状态不落库问题：编辑表单测试不再显示“当前表单测试通过”等临时列表状态，也不提前保存 provider；只有保存表单后，`opencode_provider_status` / `opencode_provider_tested_at` / `opencode_provider_error` / `opencode_provider_test_result_json` 才会写入数据库，刷新后列表继续显示真实状态。
+- 已修复 LLM 配置新增/编辑态连接测试状态不落库问题：表单测试不再显示“当前表单测试通过”等临时列表状态，也不提前保存 provider；只有保存表单后，`opencode_provider_status` / `opencode_provider_tested_at` / `opencode_provider_error` / `opencode_provider_test_result_json` 才会写入数据库，刷新后列表继续显示真实状态。
 
 仍需收口的内容以 `plans/acceptance-checklist.md` 为准，主要集中在更完整的多环境 E2E、长期清理任务、opencode 不可用诊断和后续增强项记录。
 

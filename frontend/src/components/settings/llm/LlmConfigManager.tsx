@@ -159,7 +159,7 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
         <LlmConfigForm
           disabled={createMutation.isPending || testDraftMutation.isPending}
           onCancel={() => setShowForm(false)}
-          onTest={(payload) => testDraftMutation.mutate(payload)}
+          onTest={(payload) => testDraftMutation.mutateAsync(payload)}
           onSubmit={(payload) => createMutation.mutate(payload)}
           testing={testDraftMutation.isPending}
         />

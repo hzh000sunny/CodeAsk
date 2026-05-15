@@ -43,6 +43,10 @@ async def create_scoped_config(
                 reasoning_profile=payload.reasoning_profile,
                 reasoning_profile_json=payload.reasoning_profile_json,
                 opencode_provider_profile=payload.opencode_provider_profile,
+                opencode_provider_status=payload.opencode_provider_status or "unknown",
+                opencode_provider_tested_at=payload.opencode_provider_tested_at,
+                opencode_provider_error=payload.opencode_provider_error,
+                opencode_provider_test_result_json=payload.opencode_provider_test_result_json,
             )
         )
     except IntegrityError as exc:

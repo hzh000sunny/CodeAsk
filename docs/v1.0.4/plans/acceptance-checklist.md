@@ -74,16 +74,16 @@ v1.0.4 收口前必须满足：
 - [x] 真实会话 API E2E：会话 `sess_0fb72d2fb7d6912c`，turn `turn_gateway_e2e_001`，经全局池选择 `cfg_24bc87bc49e75ed9` / `minimax-m2.7` / `anthropic`，成功返回 `done`，未再出现多行配置查询错误。
 - [x] 真实浏览器 E2E：`CODEASK_RUN_LIVE_OPENCODE_E2E=1 CODEASK_REALDATA_BASE_URL=http://127.0.0.1:5173 corepack pnpm --dir frontend exec playwright test -c playwright.realdata.config.ts e2e/opencode-backend-live.spec.ts --project=chromium` -> 通过；会话 `sess_45de5ee331161238`。测试已按全局池随机选择更新为“命中任一启用配置”，不再假设第一条启用配置。
 
-### 1.3 2026-05-15 LLM 配置编辑态测试状态回归
+### 1.3 2026-05-15 LLM 配置新增/编辑态测试状态回归
 
-- [x] 根因确认：编辑表单“测试连接”曾只产生前端临时提示或草稿测试结果，没有把 `opencode_provider_status` 写入数据库；刷新后列表会回到 `未测试`。后续临时修正又把“测试连接”做成先保存再测试，违反表单语义。
-- [x] 最终数据流：列表行“测试连接”测试已保存配置并立即落库；编辑表单“测试连接”只测试当前表单草稿，不提前保存 provider；测试结果作为隐藏表单状态，用户点击“保存修改”时和表单字段一起提交落库。
-- [x] 状态字段：保存时允许提交 `opencode_provider_status`、`opencode_provider_tested_at`、`opencode_provider_error`、`opencode_provider_test_result_json`；后端在连接字段变化时默认重置为 `unknown`，但如果本次 PATCH 同时携带测试状态，则以表单测试状态为准。
-- [x] 前端边界：编辑表单内协议、Base URL、API Key、模型名称、OpenCode Provider 或配置名称变化时，清空上一次草稿测试结果，避免旧测试状态污染新配置。
+- [x] 根因确认：新增/编辑表单“测试连接”曾只产生前端临时提示或草稿测试结果，没有把 `opencode_provider_status` 写入数据库；刷新后列表会回到 `未测试`。后续临时修正又把编辑态“测试连接”做成先保存再测试，违反表单语义。
+- [x] 最终数据流：列表行“测试连接”测试已保存配置并立即落库；新增/编辑表单“测试连接”只测试当前表单草稿，不提前保存 provider；测试结果作为隐藏表单状态，用户点击保存时和表单字段一起提交落库。
+- [x] 状态字段：新增和更新保存时允许提交 `opencode_provider_status`、`opencode_provider_tested_at`、`opencode_provider_error`、`opencode_provider_test_result_json`；后端创建时直接写入，更新时在连接字段变化后如果本次 PATCH 同时携带测试状态，则以表单测试状态为准。
+- [x] 前端边界：新增/编辑表单内协议、Base URL、API Key、模型名称、OpenCode Provider 或配置名称变化时，清空上一次草稿测试结果，避免旧测试状态污染新配置。
 - [x] UI 约束：列表只展示数据库返回的真实状态 `连接正常` / `连接失败` / `未测试`；不再展示“当前表单测试通过”这类非持久化状态。
-- [x] 自动化回归：`uv run pytest tests/integration/test_llm_configs_api.py -q` -> `7 passed`；`corepack pnpm --dir frontend exec vitest run tests/settings-page.test.tsx` -> `13 passed`。
+- [x] 自动化回归：`uv run pytest tests/integration/test_llm_configs_api.py -q` -> `8 passed`；`corepack pnpm --dir frontend exec vitest run tests/settings-page.test.tsx` -> `13 passed`。
 - [x] 静态检查：`uv run ruff check ...`、`uv run ruff format --check ...`、`corepack pnpm --dir frontend exec eslint ...`、`corepack pnpm --dir frontend exec tsc --noEmit` 均通过。
-- [x] 真实浏览器验证：管理员登录设置页，配置 `火山-Anthropic-minimax-m2.7` 初始显示 `未测试`；编辑表单点击“测试连接”命中 `/test-draft` 并返回 `ok`，列表仍显示 `未测试`；点击“保存修改”后数据库写入 `opencode_provider_status=ok`；刷新后列表显示 `连接正常`。
+- [x] 真实浏览器验证：管理员登录设置页，配置 `火山-Anthropic-minimax-m2.7` 初始显示 `未测试`；编辑表单点击“测试连接”命中 `/test-draft` 并返回 `ok`，列表仍显示 `未测试`；点击“保存修改”后数据库写入 `opencode_provider_status=ok`；刷新后列表显示 `连接正常`。新增表单已补自动化回归，要求测试后保存请求携带并落库同一组状态字段。
 
 ---
 
@@ -124,7 +124,7 @@ v1.0.4 收口前必须满足：
 - [x] 不根据厂商名、模型名、URL 域名做业务特判。
 - [x] 会话启动只使用当前显式选择的 provider，不做隐式轮转或 fallback。
 - [x] 配置新增/修改时不自动联网测试；协议、URL、API Key、模型名、provider 变化时清理旧测试状态。
-- [x] LLM 配置管理页提供“测试连接”按钮，只测试当前显式 provider；列表行测试直接写入成功/失败状态，编辑表单测试只写入表单隐藏状态并在保存时落库。
+- [x] LLM 配置管理页提供“测试连接”按钮，只测试当前显式 provider；列表行测试直接写入成功/失败状态，新增/编辑表单测试只写入表单隐藏状态并在保存时落库。
 - [x] `permission` 默认 deny Bash/Edit/Write，allow read/grep/glob。
 - [x] remote MCP 配置包含会话级 Bearer token 和 session header。
 - [x] 测试：OpenAI/Anthropic 配置快照、permission 快照、MCP 快照、未知 provider 错误、手动测试接口。

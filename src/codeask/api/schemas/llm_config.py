@@ -29,6 +29,10 @@ class LLMConfigCreate(BaseModel):
         default=DEFAULT_OPENCODE_PROVIDER_PROFILE,
         max_length=128,
     )
+    opencode_provider_status: str | None = Field(default=None, max_length=16)
+    opencode_provider_tested_at: datetime | None = None
+    opencode_provider_error: str | None = Field(default=None, max_length=2000)
+    opencode_provider_test_result_json: object | None = None
 
 
 class LLMConfigUpdate(BaseModel):

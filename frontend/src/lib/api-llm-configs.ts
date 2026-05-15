@@ -29,6 +29,10 @@ type LlmCreatePayload = {
   reasoning_profile?: LlmReasoningProfile;
   reasoning_profile_json?: string | null;
   opencode_provider_profile?: LlmOpenCodeProviderProfile;
+  opencode_provider_status?: "unknown" | "ok" | "failed";
+  opencode_provider_tested_at?: string | null;
+  opencode_provider_error?: string | null;
+  opencode_provider_test_result_json?: unknown | null;
 };
 type LlmUpdatePayload = Partial<
   Omit<LlmCreatePayload, "api_key"> & {

@@ -804,8 +804,9 @@ Phase 0 和实现阶段使用 CodeAsk DB 中真实 LLM 配置做 opencode provid
 - 新增/修改 LLM 配置时不自动联网测试，避免保存表单变慢和普通用户配置被后台阻塞。
 - LLM 配置页面提供 OpenCode Provider 下拉框和“测试连接”按钮；测试只验证当前选中的 provider，不做隐式轮转。
 - 已保存配置的列表行“测试连接”可以直接测试当前数据库配置，并把成功/失败写入 `llm_configs.opencode_provider_*`。
+- 新增表单内的“测试连接”必须使用当前表单字段调用草稿测试接口；测试结果只作为该新增表单的隐藏状态，用户点击“保存 LLM 配置”后才随配置字段一起创建并落库。
 - 编辑表单内的“测试连接”必须按表单语义处理：使用当前表单字段调用草稿测试接口，不提前保存 provider、baseURL、模型名或 API Key；测试结果只作为该编辑表单的隐藏状态，用户点击“保存修改”后才随配置字段一起落库。
-- 如果用户测试成功后继续修改协议、Base URL、API Key、模型名或 OpenCode Provider，前端必须清空该表单内的测试结果，避免把旧测试状态绑定到新配置。
+- 如果用户测试成功后继续修改配置名称、协议、Base URL、API Key、模型名或 OpenCode Provider，前端必须清空该表单内的测试结果，避免把旧测试状态绑定到新配置。
 - 会话开始时直接使用当前显式选择的 provider 生成 workspace 级 `opencode.json`；如果用户选错，向用户返回明确错误，不自动换其它 provider。
 - 持久化后的测试结果写入 `llm_configs.opencode_provider_*`，会话绑定仍记录 `external_agent_sessions.provider_profile_id` 以便审计。
 - `default` 表示 opencode native provider 行为：OpenAI 协议使用 `@ai-sdk/openai`，Anthropic 协议使用 `@ai-sdk/anthropic`。

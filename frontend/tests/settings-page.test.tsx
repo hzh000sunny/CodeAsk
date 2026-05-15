@@ -522,13 +522,12 @@ describe("SettingsPage LLM configuration", () => {
           return jsonResponse([]);
         }
         if (path === "/api/me/llm-configs" && init?.method === "POST") {
+          const payload = JSON.parse(String(init.body));
           const created = llm({
             id: "llm_user_1",
-            name: "个人模型",
+            ...payload,
             scope: "user",
             owner_subject_id: "client_test",
-            model_name: "qwen3-coder",
-            protocol: "anthropic",
           });
           userConfigs = [created];
           return jsonResponse(created, 201);
@@ -619,12 +618,17 @@ describe("SettingsPage LLM configuration", () => {
       enabled: true,
       reasoning_profile: "none",
       reasoning_profile_json: null,
+      opencode_provider_status: "ok",
+      opencode_provider_tested_at: "2026-05-15T10:00:00Z",
+      opencode_provider_error: null,
+      opencode_provider_test_result_json: {},
     });
     expect(JSON.parse(String(init.body))).not.toHaveProperty("max_tokens");
     expect(JSON.parse(String(init.body))).not.toHaveProperty("temperature");
     expect(JSON.parse(String(init.body))).not.toHaveProperty("is_default");
     expect(JSON.parse(String(init.body))).not.toHaveProperty("rpm_limit");
     expect(JSON.parse(String(init.body))).not.toHaveProperty("quota_remaining");
+    expect(await screen.findByText("连接正常")).toBeInTheDocument();
   });
 
   it("shows a visible message when creating a LLM config fails", async () => {

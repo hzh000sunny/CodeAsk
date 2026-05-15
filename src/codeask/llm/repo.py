@@ -33,6 +33,10 @@ class LLMConfigInput(BaseModel):
     reasoning_profile: str = "none"
     reasoning_profile_json: str | None = None
     opencode_provider_profile: str = "default"
+    opencode_provider_status: str = "unknown"
+    opencode_provider_tested_at: datetime | None = None
+    opencode_provider_error: str | None = None
+    opencode_provider_test_result_json: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -176,6 +180,10 @@ class LLMConfigRepo:
                     reasoning_profile=data.reasoning_profile,
                     reasoning_profile_json=data.reasoning_profile_json,
                     opencode_provider_profile=data.opencode_provider_profile,
+                    opencode_provider_status=data.opencode_provider_status,
+                    opencode_provider_tested_at=data.opencode_provider_tested_at,
+                    opencode_provider_error=data.opencode_provider_error,
+                    opencode_provider_test_result_json=data.opencode_provider_test_result_json,
                 )
             )
             await session.commit()
