@@ -774,6 +774,26 @@ class OpenCodeEventMapper:
 
 v1.0.4 不建立通用后端路由。会话发送主路径在确认使用 v1.0.4 opencode runtime 时，直接调用 `src/codeask/agent/opencode_compat/`。如果 LLM 配置协议暂不支持 opencode，直接返回明确错误，不回退旧 native runtime。
 
+LLM 配置选择仍复用 CodeAsk 统一的 `LLMGateway` 调度能力，但只复用“选择配置和记录健康状态”这一层，不复用旧 native LLM 请求执行链路。opencode 会话路径必须保持：
+
+```text
+CodeAsk session
+  -> LLMGateway.select_runtime_config(...)
+      -> 用户个人配置优先
+      -> 无个人配置时从启用全局池随机选择
+      -> 会话粘性 / 最大连接数 / 失败冷却 / 资源繁忙
+  -> opencode_compat.initialize_session(session_id, selected_config)
+  -> opencode_compat.run_turn(session_id, selected_config)
+```
+
+边界要求：
+
+- 不允许在 opencode 会话路径直接调用 `llm_config_repo.get_default_or(None, ...)` 选择运行时配置；该方法不承担多条全局启用配置的随机调度。
+- 不允许把多条启用配置退化成“取第一条”；全局配置池必须随机选择，并受最大连接数、粘性和失败冷却约束。
+- `LLMGateway` 不生成 opencode provider 配置，不根据 URL、厂商或模型名做 provider 特判。
+- 选中的 `LLMConfigWithSecret` 必须原样传给 `opencode_compat`，包括 `protocol`、`base_url`、`model_name`、`reasoning_profile` 和 `opencode_provider_profile`。
+- opencode provider profile 的配置生成和请求执行仍完全由 `src/codeask/agent/opencode_compat/` 负责。
+
 ### 9.1 LLM provider 映射要求
 
 Phase 0 和实现阶段使用 CodeAsk DB 中真实 LLM 配置做 opencode provider smoke matrix，结论是：不能只按厂商、模型名或 URL 做后端特判；同一个私有网关 URL 可能同时支持 OpenAI 与 Anthropic 两种消息协议，且是否需要 `/v1` 取决于网关入口。v1.0.4 因此采用“用户显式选择 OpenCode Provider + 手动连接测试”的策略。
@@ -845,7 +865,7 @@ async def periodic_cleanup(interval: int = 300):
             await opencode_backend.cleanup_session_resources(session.session_id)
 ```
 
-shared server 是常驻资源，不因为单个会话闲置而关闭。定时清理只处理会话级临时资源：worktree、过期附件临时文件、事件缓冲和已删除会话目录。shared server 只有在 CodeAsk 退出、健康检查失败或管理员显式重启时关闭。
+shared server 是常驻资源，不因为单个会话闲置而关闭。CodeAsk 服务启动时会 best-effort 拉起 shared `opencode serve`，并注册 keepalive 定时任务检测进程是否仍在；如果进程退出，keepalive 会重新拉起并记录新的端口和 pid。定时清理只处理会话级临时资源：worktree、过期附件临时文件、事件缓冲和已删除会话目录。shared server 只有在 CodeAsk 退出、健康检查失败或管理员显式重启时关闭。
 
 ### 10.3 会话删除时
 
@@ -900,6 +920,7 @@ class Settings:
     opencode_bin: str = "opencode"                    # opencode 可执行文件路径
     opencode_port_range: str = "4200-4299"            # 端口范围
     opencode_idle_timeout_minutes: int = 30           # 空闲超时
+    opencode_keepalive_interval_seconds: int = 30     # shared server 保活检测间隔
     opencode_startup_timeout_seconds: int = 15        # 启动超时
     opencode_graceful_shutdown_seconds: int = 5       # 优雅终止等待
     opencode_verified_version: str | None = None      # 已验证 opencode 版本

@@ -21,4 +21,16 @@ async def healthz(request: Request) -> dict[str, Any]:
         "version": __version__,
         "db": "ok" if db_ok else "fail",
         "subject_id": request.state.subject_id,
+        "agent_backend": getattr(request.app.state.settings, "agent_backend", None),
+        "opencode": _opencode_status(request),
     }
+
+
+def _opencode_status(request: Request) -> dict[str, Any] | None:
+    process_manager = getattr(request.app.state, "opencode_process_manager", None)
+    if process_manager is None:
+        return None
+    describe = getattr(process_manager, "describe", None)
+    if not callable(describe):
+        return None
+    return dict(describe())

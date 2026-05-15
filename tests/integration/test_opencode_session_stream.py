@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
+from codeask.api import sessions as sessions_api
+from codeask.api.schemas.session import MessageCreate
 from codeask.db.models import SessionTurn
 
 
@@ -25,6 +28,7 @@ class FakeOpenCodeCompat:
                 "method": "initialize_session",
                 "session_id": session_id,
                 "model": llm_config.model_name,
+                "opencode_provider_profile": llm_config.opencode_provider_profile,
             }
         )
         return object()
@@ -49,6 +53,7 @@ class FakeOpenCodeCompat:
                 "session_id": session_id,
                 "user_message": user_message,
                 "model": llm_config.model_name,
+                "opencode_provider_profile": llm_config.opencode_provider_profile,
                 "system": system,
             }
         )
@@ -59,6 +64,60 @@ class FakeOpenCodeCompat:
         if self.fail_abort:
             raise RuntimeError("opencode abort failed")
         self.calls.append({"method": "abort_turn", "session_id": session_id})
+
+
+class FakeProcessManager:
+    def __init__(self, events: list[str]) -> None:
+        self.calls = 0
+        self.events = events
+
+    def ensure_server(self):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        self.events.append("ensure_server")
+        return object()
+
+
+@pytest.mark.asyncio
+async def test_message_stream_emits_received_event_before_session_preflight(
+    app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app.state.settings.agent_backend = "opencode"
+    preflight_started = False
+    events: list[str] = []
+
+    async def blocked_load_session(request, session_id):  # type: ignore[no-untyped-def]
+        nonlocal preflight_started
+        preflight_started = True
+        events.append("preflight")
+        raise AssertionError("preflight should not run before the first SSE event")
+
+    monkeypatch.setattr(sessions_api, "_load_session", blocked_load_session)
+    fake_process_manager = FakeProcessManager(events)
+    app.state.opencode_process_manager = fake_process_manager
+    request = SimpleNamespace(
+        app=app,
+        state=SimpleNamespace(subject_id="alice@dev-1", authenticated=False),
+    )
+    payload = MessageCreate(content="hello opencode", client_turn_id="turn_preflight")
+
+    stream = sessions_api._stream_post_message_response(  # type: ignore[attr-defined]
+        request,
+        "sess_preflight",
+        "turn_preflight",
+        payload,
+    )
+    first_chunk = await anext(stream)
+    second_chunk = await anext(stream)
+    await stream.aclose()
+
+    assert preflight_started is True
+    assert fake_process_manager.calls == 1
+    assert events == ["ensure_server", "preflight"]
+    assert b"event: assistant_action" in first_chunk
+    assert b"agent_request_received" in first_chunk
+    assert b"turn_preflight" in first_chunk
+    assert b"event: error" in second_chunk
 
 
 @pytest.mark.asyncio
@@ -120,6 +179,72 @@ async def test_post_message_stream_uses_opencode_backend_by_setting(
         )
     assert [turn["role"] for turn in turns] == ["user", "agent"]
     assert turns[1]["content"] == "opencode answer"
+
+
+@pytest.mark.asyncio
+async def test_post_message_stream_uses_gateway_global_pool_for_opencode_configs(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    app.state.settings.agent_backend = "opencode"
+    fake = FakeOpenCodeCompat(calls=[])
+    app.state.opencode_compat = fake
+    app.state.llm_gateway._random_choice = lambda configs: configs[1]  # pyright: ignore[reportPrivateUsage]
+
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    first = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "opencode-pool-a",
+            "protocol": "openai",
+            "base_url": "http://llm-a.test/v1",
+            "api_key": "sk-a",
+            "model_name": "model-a",
+            "enabled": True,
+            "is_default": False,
+        },
+    )
+    assert first.status_code == 201, first.text
+    second = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "opencode-pool-b",
+            "protocol": "anthropic",
+            "base_url": "http://llm-b.test",
+            "api_key": "sk-b",
+            "model_name": "model-b",
+            "enabled": True,
+            "is_default": False,
+            "opencode_provider_profile": "anthropic-compatible-bearer",
+        },
+    )
+    assert second.status_code == 201, second.text
+    await client.post("/api/auth/logout")
+
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "OpenCode"}, headers=headers)
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "hello opencode", "client_turn_id": "turn_opencode_pool"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert "Multiple rows were found" not in response.text
+    assert "event: runtime_state" in response.text
+    assert "model-b" in response.text
+    init_call = fake.calls[0]
+    run_call = fake.calls[1]
+    assert init_call["method"] == "initialize_session"
+    assert init_call["model"] == "model-b"
+    assert init_call["opencode_provider_profile"] == "anthropic-compatible-bearer"
+    assert run_call["method"] == "run_turn"
+    assert run_call["model"] == "model-b"
+    assert run_call["opencode_provider_profile"] == "anthropic-compatible-bearer"
 
 
 @pytest.mark.asyncio

@@ -31,8 +31,9 @@ test("frontend session sends one turn through opencode backend", async ({ page }
       protocol?: string;
     }>;
   });
-  const enabledConfig = llmConfigs.find((config) => config.enabled);
-  test.skip(!enabledConfig, "No enabled real LLM config is available in CodeAsk.");
+  const enabledConfigs = llmConfigs.filter((config) => config.enabled);
+  test.skip(enabledConfigs.length === 0, "No enabled real LLM config is available in CodeAsk.");
+  const enabledModelNames = new Set(enabledConfigs.map((config) => config.model_name));
 
   const sessionTitle = `OpenCode live smoke ${Date.now()}`;
   const sessionId = await page.evaluate(async (title) => {
@@ -102,7 +103,7 @@ test("frontend session sends one turn through opencode backend", async ({ page }
       (trace) =>
         trace.event_type === "runtime_state" &&
         trace.payload.backend === "opencode" &&
-        trace.payload.model_name === enabledConfig?.model_name,
+        enabledModelNames.has(String(trace.payload.model_name)),
     ),
   ).toBe(true);
 

@@ -61,6 +61,19 @@ v1.0.4 收口前必须满足：
 - [x] `CODEASK_LIVE_LLM_CONFIG_SMOKE=1 CODEASK_LIVE_LLM_SMOKE_TIMEOUT=180 uv run pytest tests/live/test_live_opencode_llm_configs.py -q -s` 已覆盖 9 条真实 LLM 配置，包括 disabled 配置，全部通过。
 - [x] 真实浏览器 E2E 已验证：管理员登录、设置页展示 OpenCode Provider、点击“测试连接”、发送一轮真实会话；成功会话 `sess_600c127c5732b621`，模型 `glm-5.1`，provider `anthropic-compatible-v1-bearer`，落库 2 个 turn、7 条 Agent trace。
 
+### 1.2 2026-05-15 opencode 会话 LLMGateway 调度回归
+
+- [x] 根因确认：opencode 会话路径曾直接调用 `llm_config_repo.get_default_or(None, ...)`，当多条全局 LLM 配置同时启用且没有默认配置时，会触发 `Multiple rows were found when one or none was required`。
+- [x] 修复边界：opencode 路径只复用 `LLMGateway` 的配置选择、全局池随机选择、会话粘性、最大连接数和失败冷却能力，不复用旧 native LLM 请求执行链路。
+- [x] `opencode_provider_profile`、`protocol`、`base_url`、`model_name` 等配置字段由网关选中后原样传给 `opencode_compat`，provider 配置生成仍由 opencode 兼容模块独立负责。
+- [x] 禁止“多条启用配置取第一条”的兜底；没有个人配置时必须从启用全局池随机选择。
+- [x] 自动化回归：`uv run pytest tests/unit/test_llm_gateway.py tests/integration/test_opencode_session_stream.py tests/integration/test_llm_config_repo.py -q` -> `32 passed`。
+- [x] 全量后端回归：`uv run pytest -q` -> 通过，live LLM smoke 按默认跳过。
+- [x] 格式和 lint：`uv run ruff format --check src tests`、`uv run ruff check src tests` -> 通过。
+- [x] 真实 LLM 配置 E2E：`CODEASK_LIVE_LLM_CONFIG_SMOKE=1 CODEASK_LIVE_LLM_SMOKE_TIMEOUT=180 uv run pytest tests/live/test_live_opencode_llm_configs.py -q -s` -> 当前数据库 9 条配置全部通过。
+- [x] 真实会话 API E2E：会话 `sess_0fb72d2fb7d6912c`，turn `turn_gateway_e2e_001`，经全局池选择 `cfg_24bc87bc49e75ed9` / `minimax-m2.7` / `anthropic`，成功返回 `done`，未再出现多行配置查询错误。
+- [x] 真实浏览器 E2E：`CODEASK_RUN_LIVE_OPENCODE_E2E=1 CODEASK_REALDATA_BASE_URL=http://127.0.0.1:5173 corepack pnpm --dir frontend exec playwright test -c playwright.realdata.config.ts e2e/opencode-backend-live.spec.ts --project=chromium` -> 通过；会话 `sess_45de5ee331161238`。测试已按全局池随机选择更新为“命中任一启用配置”，不再假设第一条启用配置。
+
 ---
 
 ## 2. 模块验收清单
@@ -161,10 +174,11 @@ v1.0.4 收口前必须满足：
 ### 2.8.1 FastAPI 生命周期接入
 
 - [x] app lifespan 注册 `opencode_mcp_server`。
-- [x] app lifespan 注册 `opencode_compat`，但保持 opencode 进程懒启动。
+- [x] app lifespan 注册 `opencode_compat`。
+- [x] app lifespan 在 `agent_backend=opencode` 时 best-effort 拉起 shared `opencode serve`，并注册 `opencode_keepalive` 定时任务；失败只记录错误，不阻塞 CodeAsk 主服务启动。
 - [x] app shutdown 调用 shared opencode process manager 清理。
 - [x] 默认 MCP base URL 使用后端本机地址，可通过 `CODEASK_OPENCODE_MCP_BASE_URL` 覆盖。
-- [x] 测试：app 集成测试覆盖 MCP server、工具列表和 `opencode_compat` 状态注册。
+- [x] 测试：app 集成测试覆盖 MCP server、工具列表、`opencode_compat` 状态注册、启动即拉起 opencode 和 keepalive job。
 
 ### 2.9 `mcp/tools/*`
 

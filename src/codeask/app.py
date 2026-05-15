@@ -220,6 +220,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             coalesce=True,
             max_instances=1,
         )
+        opencode_handle_state: dict[str, int | None] = {"pid": None}
+        if settings.agent_backend == "opencode":
+            _ensure_opencode_server(
+                log,
+                opencode_process_manager,
+                reason="startup",
+                handle_state=opencode_handle_state,
+            )
+            scheduler.add_job(
+                lambda: _ensure_opencode_server(
+                    log,
+                    opencode_process_manager,
+                    reason="keepalive",
+                    handle_state=opencode_handle_state,
+                ),
+                "interval",
+                seconds=settings.opencode_keepalive_interval_seconds,
+                id="opencode_keepalive",
+                misfire_grace_time=settings.opencode_keepalive_interval_seconds,
+                coalesce=True,
+                max_instances=1,
+            )
         scheduler.start()
 
         app.state.engine = engine
@@ -313,3 +335,34 @@ def _opencode_mcp_base_url(settings: Settings) -> str:
     except ValueError:
         pass
     return f"http://{host}:{settings.port}/api/agent-mcp"
+
+
+def _ensure_opencode_server(
+    log: structlog.BoundLogger,
+    process_manager: OpenCodeProcessManager,
+    *,
+    reason: str,
+    handle_state: dict[str, int | None] | None = None,
+) -> None:
+    try:
+        handle = process_manager.ensure_server()
+    except Exception:
+        log.exception("opencode_server_ensure_failed", reason=reason)
+        return
+    previous_pid = handle_state.get("pid") if handle_state is not None else None
+    if handle_state is not None:
+        handle_state["pid"] = handle.pid
+    if reason == "startup" or previous_pid != handle.pid:
+        log.info(
+            "opencode_server_ensure_ok",
+            reason=reason,
+            port=handle.port,
+            pid=handle.pid,
+        )
+    else:
+        log.debug(
+            "opencode_server_ensure_unchanged",
+            reason=reason,
+            port=handle.port,
+            pid=handle.pid,
+        )

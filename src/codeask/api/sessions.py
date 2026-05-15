@@ -25,6 +25,8 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
+from codeask.agent.chat_runtime.events import ChatRuntimeEvent
+from codeask.agent.sse import SSEMultiplexer
 from codeask.api.schemas.session import (
     AgentTraceResponse,
     AttachmentResponse,
@@ -341,11 +343,68 @@ async def post_message(
     payload: MessageCreate,
     request: Request,
 ) -> StreamingResponse:
-    await _load_session(request, session_id)
     turn_id = payload.client_turn_id or f"turn_{token_hex(8)}"
-    await create_user_turn_and_bindings(request, session_id, turn_id, payload)
     return StreamingResponse(
-        stream_agent_response(
+        _stream_post_message_response(
+            request,
+            session_id,
+            turn_id,
+            payload,
+        ),
+        media_type="text/event-stream",
+        headers={"X-CodeAsk-Turn-Id": turn_id},
+    )
+
+
+async def _stream_post_message_response(
+    request: Request,
+    session_id: str,
+    turn_id: str,
+    payload: MessageCreate,
+):
+    started_at = perf_counter()
+    multiplexer = SSEMultiplexer()
+    log.info(
+        "session_message_stream_received",
+        session_id=session_id,
+        turn_id=turn_id,
+        subject_id=getattr(request.state, "subject_id", None),
+    )
+    received_event = ChatRuntimeEvent(
+        type="assistant_action",
+        data={
+            "action": "agent_request_received",
+            "summary": "后端已收到会话请求，正在准备运行环境",
+            "turn_id": turn_id,
+        },
+    )
+    yield multiplexer.format(received_event)
+    try:
+        log.info("session_message_opencode_prestart_start", session_id=session_id, turn_id=turn_id)
+        _start_opencode_server_if_configured(request)
+        log.info(
+            "session_message_opencode_prestart_done",
+            session_id=session_id,
+            turn_id=turn_id,
+            elapsed_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
+        log.info("session_message_preflight_start", session_id=session_id, turn_id=turn_id)
+        await _load_session(request, session_id)
+        log.info(
+            "session_message_preflight_done",
+            session_id=session_id,
+            turn_id=turn_id,
+            elapsed_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
+        log.info("session_message_user_turn_start", session_id=session_id, turn_id=turn_id)
+        await create_user_turn_and_bindings(request, session_id, turn_id, payload)
+        log.info(
+            "session_message_user_turn_done",
+            session_id=session_id,
+            turn_id=turn_id,
+            elapsed_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
+        async for chunk in stream_agent_response(
             request,
             session_id,
             turn_id,
@@ -357,10 +416,53 @@ async def post_message(
                 and not bool(getattr(request.state, "authenticated", False))
                 else None
             ),
-        ),
-        media_type="text/event-stream",
-        headers={"X-CodeAsk-Turn-Id": turn_id},
-    )
+        ):
+            yield chunk
+        log.info(
+            "session_message_stream_done",
+            session_id=session_id,
+            turn_id=turn_id,
+            elapsed_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        log.exception(
+            "session_message_stream_failed",
+            session_id=session_id,
+            turn_id=turn_id,
+            elapsed_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
+        error_event = ChatRuntimeEvent(
+            type="error",
+            data={
+                "turn_id": turn_id,
+                "backend": "codeask",
+                "error": _stream_error_message(exc),
+            },
+        )
+        yield multiplexer.format(error_event)
+
+
+def _start_opencode_server_if_configured(request: Request) -> None:
+    if getattr(request.app.state.settings, "agent_backend", "opencode") != "opencode":
+        return
+    process_manager = getattr(request.app.state, "opencode_process_manager", None)
+    if process_manager is not None:
+        handle = process_manager.ensure_server()
+        log.info(
+            "opencode_server_ensure_requested",
+            port=getattr(handle, "port", None),
+            pid=getattr(handle, "pid", None),
+        )
+
+
+def _stream_error_message(exc: Exception) -> str:
+    detail = getattr(exc, "detail", None)
+    if detail is not None:
+        return str(detail)
+    message = str(exc).strip()
+    return message or exc.__class__.__name__
 
 
 @router.post("/sessions/{session_id}/turns/{turn_id}/abort", status_code=status.HTTP_204_NO_CONTENT)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
 
 from codeask.agent.opencode_compat.process import OpenCodeProcessManager
@@ -87,3 +88,55 @@ def test_process_manager_restarts_exited_server_on_next_port(tmp_path: Path) -> 
     assert first.port == 4100
     assert second.port == 4101
     assert first.pid != second.pid
+
+
+def test_process_manager_describe_reports_running_server(tmp_path: Path) -> None:
+    def fake_popen(cmd, env):  # type: ignore[no-untyped-def]
+        return FakeProcess()
+
+    manager = OpenCodeProcessManager(
+        opencode_bin="opencode",
+        data_dir=tmp_path,
+        port_range="4100",
+        username="codeask",
+        password="secret",
+        popen_factory=fake_popen,
+    )
+
+    handle = manager.ensure_server()
+    status = manager.describe()
+
+    assert status["running"] is True
+    assert status["base_url"] == handle.base_url
+    assert status["port"] == handle.port
+    assert status["pid"] == handle.pid
+    assert status["returncode"] is None
+    assert status["configured_bin"] == "opencode"
+    assert status["last_error"] is None
+
+
+def test_process_manager_describe_records_start_failure(tmp_path: Path) -> None:
+    def fake_popen(cmd, env):  # type: ignore[no-untyped-def]
+        raise FileNotFoundError("opencode missing")
+
+    manager = OpenCodeProcessManager(
+        opencode_bin="opencode-missing",
+        data_dir=tmp_path,
+        port_range="4100",
+        username="codeask",
+        password="secret",
+        popen_factory=fake_popen,
+    )
+
+    with suppress(FileNotFoundError):
+        manager.ensure_server()
+
+    status = manager.describe()
+
+    assert status["running"] is False
+    assert status["base_url"] is None
+    assert status["port"] is None
+    assert status["pid"] is None
+    assert status["configured_bin"] == "opencode-missing"
+    assert status["resolved_bin"] is None
+    assert status["last_error"] == "opencode missing"

@@ -330,6 +330,7 @@ CODEASK_API_PROXY_TARGET=http://127.0.0.1:8010 corepack pnpm --dir frontend dev 
 | `CODEASK_ADMIN_USERNAME` | 否 | `admin` | 内置管理员用户名 |
 | `CODEASK_ADMIN_PASSWORD` | 否 | `admin` | 内置管理员密码，正式部署必须覆盖 |
 | `CODEASK_ADMIN_SESSION_TTL_HOURS` | 否 | `12` | 管理员 cookie 有效期 |
+| `CODEASK_OPENCODE_KEEPALIVE_INTERVAL_SECONDS` | 否 | `30` | opencode backend 启用时，shared `opencode serve` 进程保活检测间隔；进程退出后会自动重新拉起 |
 | `LITELLM_LOCAL_MODEL_COST_MAP` | 否 | `True` | CodeAsk 启动时强制设为 `True`，禁用 LiteLLM 启动联网拉取模型价格表 |
 
 ## 本地数据目录
@@ -555,6 +556,35 @@ export CODEASK_DATA_KEY="$(uv run python -c 'from cryptography.fernet import Fer
 ```bash
 CODEASK_HOST=0.0.0.0 CODEASK_PORT=8000 uv run codeask
 corepack pnpm --dir frontend dev --host 0.0.0.0 --port 5173
+```
+
+### 后台看不到 opencode 进程
+
+v1.0.4 默认使用 opencode backend。CodeAsk 服务启动时会 best-effort 拉起 shared `opencode serve`，并通过 keepalive 定时检测。如果进程表里看不到 opencode，先查询健康检查接口确认后端实际状态：
+
+```bash
+curl -fsS http://127.0.0.1:8000/api/healthz | python -m json.tool
+```
+
+重点查看：
+
+- `agent_backend`：应为 `opencode`。如果是 `native`，说明当前环境变量或启动配置关闭了 opencode backend。
+- `opencode.running`：`true` 表示后端认为 shared server 正在运行。
+- `opencode.resolved_bin`：如果是 `null`，说明启动 CodeAsk 的进程 PATH 中找不到 `opencode`。可以设置 `CODEASK_OPENCODE_BIN` 为绝对路径。
+- `opencode.last_error`：最近一次启动失败原因，例如命令不存在、权限不足或端口不可用。
+
+如果 `resolved_bin` 是 `null`，先在启动 CodeAsk 的同一个 shell 中执行：
+
+```bash
+command -v opencode
+opencode --version
+```
+
+如果命令存在但服务里仍解析不到，通常是 systemd、nohup、docker 或远程脚本启动时 PATH 和交互 shell 不一致。此时建议显式配置：
+
+```bash
+export CODEASK_OPENCODE_BIN="/absolute/path/to/opencode"
+./start.sh
 ```
 
 ### 代码检索能力不完整

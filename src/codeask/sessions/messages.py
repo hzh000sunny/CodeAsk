@@ -25,7 +25,8 @@ from codeask.db.models import (
     SessionRepoBinding,
     SessionTurn,
 )
-from codeask.llm.repo import LLMConfigWithSecret
+from codeask.llm.gateway import LLMConfigSelection
+from codeask.llm.types import LLMEvent
 from codeask.sessions.title_generation import maybe_generate_session_title
 
 
@@ -225,9 +226,34 @@ async def stream_opencode_response(
     multiplexer = SSEMultiplexer()
     assistant_chunks: list[str] = []
     completed = False
-    llm_config = await _resolve_opencode_llm_config(request, runtime_llm_config)
+    excluded_global_config_ids: set[str] = set()
+    attempt = 0
+    last_initial_error: ChatRuntimeEvent | None = None
 
-    try:
+    while True:
+        selection = await _resolve_opencode_llm_config(
+            request,
+            session_id,
+            runtime_llm_config,
+            excluded_global_config_ids=excluded_global_config_ids,
+        )
+        if isinstance(selection, ChatRuntimeEvent):
+            if last_initial_error is not None:
+                selection = last_initial_error
+            event_data = _event_data_dict(selection.data)
+            await persist_runtime_event_trace(
+                request,
+                session_id,
+                turn_id,
+                selection.type,
+                event_data,
+            )
+            yield multiplexer.format(
+                selection.model_copy(update={"data": {**event_data, "turn_id": turn_id}})
+            )
+            return
+
+        llm_config = selection.config
         initializing_event = ChatRuntimeEvent(
             type="assistant_action",
             data={
@@ -248,57 +274,105 @@ async def stream_opencode_response(
                 update={"data": {**initializing_data, "turn_id": turn_id}}
             )
         )
-        await compat.initialize_session(session_id, llm_config)
-        runtime_event = _opencode_runtime_state_event(llm_config, content)
-        runtime_data = _event_data_dict(runtime_event.data)
-        await persist_runtime_event_trace(
-            request,
-            session_id,
-            turn_id,
-            runtime_event.type,
-            runtime_data,
-        )
-        yield multiplexer.format(
-            runtime_event.model_copy(update={"data": {**runtime_data, "turn_id": turn_id}})
-        )
-        async for event in compat.run_turn(
-            session_id=session_id,
-            user_message=content,
-            llm_config=llm_config,
-        ):
-            event_data = _event_data_dict(event.data)
-            await persist_runtime_event_trace(request, session_id, turn_id, event.type, event_data)
-            if event.type == "text_delta":
-                delta = event_data.get("delta") or event_data.get("text")
-                if isinstance(delta, str):
-                    assistant_chunks.append(delta)
-            if event.type == "done":
-                completed = True
-            yield multiplexer.format(
-                event.model_copy(update={"data": {**event_data, "turn_id": turn_id}})
+
+        try:
+            await compat.initialize_session(session_id, llm_config)
+            runtime_event = _opencode_runtime_state_event(selection, content)
+            runtime_data = _event_data_dict(runtime_event.data)
+            await persist_runtime_event_trace(
+                request,
+                session_id,
+                turn_id,
+                runtime_event.type,
+                runtime_data,
             )
-    except asyncio.CancelledError:
-        await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
-        raise
-    except Exception as exc:
-        error_event = ChatRuntimeEvent(
-            type="error",
-            data={
-                "backend": "opencode",
-                "error": str(exc) or exc.__class__.__name__,
-            },
-        )
-        error_data = _event_data_dict(error_event.data)
-        await persist_runtime_event_trace(
-            request,
-            session_id,
-            turn_id,
-            error_event.type,
-            error_data,
-        )
-        yield multiplexer.format(
-            error_event.model_copy(update={"data": {**error_data, "turn_id": turn_id}})
-        )
+            yield multiplexer.format(
+                runtime_event.model_copy(update={"data": {**runtime_data, "turn_id": turn_id}})
+            )
+            emitted_text = False
+            retrying_with_next_config = False
+            async for event in compat.run_turn(
+                session_id=session_id,
+                user_message=content,
+                llm_config=llm_config,
+            ):
+                event_data = _event_data_dict(event.data)
+                if event.type == "error" and not emitted_text:
+                    last_initial_error = event
+                    if _retry_next_opencode_global_config(
+                        request,
+                        selection,
+                        event_data,
+                        session_id=session_id,
+                        attempt=attempt,
+                        excluded_global_config_ids=excluded_global_config_ids,
+                    ):
+                        attempt += 1
+                        assistant_chunks.clear()
+                        retrying_with_next_config = True
+                        break
+                    await persist_runtime_event_trace(
+                        request,
+                        session_id,
+                        turn_id,
+                        event.type,
+                        event_data,
+                    )
+                    yield multiplexer.format(
+                        event.model_copy(update={"data": {**event_data, "turn_id": turn_id}})
+                    )
+                    return
+
+                await persist_runtime_event_trace(
+                    request,
+                    session_id,
+                    turn_id,
+                    event.type,
+                    event_data,
+                )
+                if event.type == "text_delta":
+                    delta = event_data.get("delta") or event_data.get("text")
+                    if isinstance(delta, str):
+                        assistant_chunks.append(delta)
+                        emitted_text = True
+                if event.type == "done":
+                    completed = True
+                    request.app.state.llm_gateway.record_runtime_config_success(selection)
+                yield multiplexer.format(
+                    event.model_copy(update={"data": {**event_data, "turn_id": turn_id}})
+                )
+                if event.type == "done":
+                    break
+                if event.type == "error":
+                    return
+            if completed:
+                break
+            if retrying_with_next_config:
+                continue
+            return
+        except asyncio.CancelledError:
+            await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
+            raise
+        except Exception as exc:
+            error_event = ChatRuntimeEvent(
+                type="error",
+                data={
+                    "backend": "opencode",
+                    "error": str(exc) or exc.__class__.__name__,
+                },
+            )
+            error_data = _event_data_dict(error_event.data)
+            await persist_runtime_event_trace(
+                request,
+                session_id,
+                turn_id,
+                error_event.type,
+                error_data,
+            )
+            yield multiplexer.format(
+                error_event.model_copy(update={"data": {**error_data, "turn_id": turn_id}})
+            )
+            return
 
     if completed:
         assistant_content = "".join(assistant_chunks).strip()
@@ -323,42 +397,28 @@ async def stream_opencode_response(
 
 async def _resolve_opencode_llm_config(
     request: Request,
+    session_id: str,
     runtime_llm_config: dict[str, Any] | None,
-) -> LLMConfigWithSecret:
-    if runtime_llm_config is not None:
-        return LLMConfigWithSecret(
-            id="guest",
-            name=str(runtime_llm_config.get("name") or "访客 LLM"),
-            scope="guest",
-            owner_subject_id=str(getattr(request.state, "subject_id", "")) or None,
-            protocol=str(runtime_llm_config["protocol"]),
-            base_url=runtime_llm_config.get("base_url"),
-            api_key=str(runtime_llm_config["api_key"]),
-            model_name=str(runtime_llm_config["model_name"]),
-            max_tokens=int(runtime_llm_config.get("max_tokens") or 4096),
-            temperature=float(runtime_llm_config.get("temperature") or 0.0),
-            is_default=False,
-            enabled=True,
-            rpm_limit=None,
-            quota_remaining=None,
-            reasoning_profile=str(runtime_llm_config.get("reasoning_profile") or "none"),
-            reasoning_profile_json=runtime_llm_config.get("reasoning_profile_json"),
-            opencode_provider_profile=str(
-                runtime_llm_config.get("opencode_provider_profile") or "default"
-            ),
-        )
-
-    config = await request.app.state.llm_config_repo.get_default_or(
-        None,
+    *,
+    excluded_global_config_ids: set[str] | None = None,
+) -> LLMConfigSelection | ChatRuntimeEvent:
+    selection = await request.app.state.llm_gateway.select_runtime_config(
+        config_id=None,
         subject_id=getattr(request.state, "subject_id", None),
+        session_id=session_id,
+        runtime_llm_config=runtime_llm_config,
+        excluded_global_config_ids=excluded_global_config_ids,
     )
-    return config
+    if isinstance(selection, LLMEvent):
+        return _llm_error_to_chat_error(selection)
+    return selection
 
 
 def _opencode_runtime_state_event(
-    llm_config: LLMConfigWithSecret,
+    selection: LLMConfigSelection,
     current_user_message: str,
 ):
+    llm_config = selection.config
     context_size = max(0, len(current_user_message))
     context_window = 200_000
     return ChatRuntimeEvent(
@@ -373,7 +433,40 @@ def _opencode_runtime_state_event(
             "context_window_chars": context_window,
             "usage_ratio": context_size / context_window,
             "usage_label": f"{context_size // 1000}k / {context_window // 1000}k",
-            "is_global_pool": llm_config.scope == "global",
+            "is_global_pool": selection.pooled_global,
+        },
+    )
+
+
+def _retry_next_opencode_global_config(
+    request: Request,
+    selection: LLMConfigSelection,
+    error_data: dict[str, Any],
+    *,
+    session_id: str,
+    attempt: int,
+    excluded_global_config_ids: set[str],
+) -> bool:
+    counted = request.app.state.llm_gateway.record_runtime_config_failure(
+        selection,
+        error_data,
+        session_id=session_id,
+        clear_sticky=True,
+    )
+    if not counted:
+        return False
+    excluded_global_config_ids.add(selection.config.id)
+    return attempt < request.app.state.llm_gateway.max_runtime_retries
+
+
+def _llm_error_to_chat_error(event: LLMEvent) -> ChatRuntimeEvent:
+    return ChatRuntimeEvent(
+        type="error",
+        data={
+            "backend": "opencode",
+            "error": str(event.data.get("message") or "LLM config selection failed"),
+            "error_code": event.data.get("error_code"),
+            "retryable": event.data.get("retryable"),
         },
     )
 

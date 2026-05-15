@@ -175,7 +175,7 @@ v1.0.4 前端需要适配 opencode 原生事件，不保留旧 CodeAsk Agent 事
 ### 7.1 功能验收
 
 - [ ] opencode 不可用时不会回退 native，而是弹出明确错误提示
-- [ ] CodeAsk 后端启动或首次使用时拉起一个 shared `opencode serve` 常驻进程
+- [ ] CodeAsk 后端启动时 best-effort 拉起一个 shared `opencode serve` 常驻进程，并通过 keepalive 定时检测；如果进程退出，后台自动重新拉起
 - [ ] 会话创建后，生成独立 workspace、`opencode.json`、opencode session 和 MCP token
 - [ ] 所有 opencode 请求都携带 `directory=<workspace>`，不能依赖 server 当前工作目录
 - [ ] 会话数据目录结构正确（workspace/wiki, attachments, config, logs, state）

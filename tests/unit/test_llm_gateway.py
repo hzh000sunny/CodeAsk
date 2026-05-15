@@ -723,3 +723,62 @@ async def test_gateway_returns_last_error_when_all_global_candidates_fail() -> N
     assert selected_models == ["model-a", "model-b"]
     assert out[-1].type == "error"
     assert "b failed" in str(out[-1].data["message"])
+
+
+@pytest.mark.asyncio
+async def test_gateway_select_runtime_config_uses_global_pool_random_choice() -> None:
+    repo = _FakeRepo(
+        global_configs=[
+            _Config(id="cfg_a", model_name="model-a"),
+            _Config(
+                id="cfg_b",
+                model_name="model-b",
+                reasoning_profile="custom_json",
+                reasoning_profile_json='{"x":true}',
+            ),
+        ]
+    )
+    gateway = LLMGateway(
+        repo,
+        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+        random_choice=lambda configs: configs[1],
+    )  # type: ignore[arg-type]
+
+    selection = await gateway.select_runtime_config(
+        config_id=None,
+        subject_id="alice@dev",
+        session_id="sess_opencode_select",
+    )
+
+    assert not isinstance(selection, LLMEvent)
+    assert selection.config.id == "cfg_b"
+    assert selection.config.model_name == "model-b"
+    assert selection.config.reasoning_profile == "custom_json"
+    assert selection.pooled_global is True
+
+
+@pytest.mark.asyncio
+async def test_gateway_select_runtime_config_returns_resource_busy_when_pool_full() -> None:
+    repo = _FakeRepo(global_configs=[_Config(id="cfg_a", model_name="model-a")])
+    gateway = LLMGateway(
+        repo,
+        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+    )  # type: ignore[arg-type]
+
+    for session_id in ["sess_1", "sess_2", "sess_3"]:
+        selection = await gateway.select_runtime_config(
+            config_id=None,
+            subject_id="alice@dev",
+            session_id=session_id,
+        )
+        assert not isinstance(selection, LLMEvent)
+
+    busy = await gateway.select_runtime_config(
+        config_id=None,
+        subject_id="alice@dev",
+        session_id="sess_4",
+    )
+
+    assert isinstance(busy, LLMEvent)
+    assert busy.type == "error"
+    assert busy.data["error_code"] == "resource_busy"

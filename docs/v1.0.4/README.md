@@ -73,7 +73,7 @@ v1.0.3 完成了用户认证、特性权限和会话基础设施。v1.0.4 在此
 截至 2026-05-14，本版本已经进入集成验证阶段：
 
 - 已新增 `src/codeask/agent/opencode_compat/` 独立模块，默认会话后端切到 opencode，旧 native runtime 仅保留为回归测试和诊断路径。
-- 已实现 shared `opencode serve` 进程管理、启动健康等待、崩溃后重新取当前 handle、CodeAsk session 与 opencode session 绑定。
+- 已实现 shared `opencode serve` 进程管理：CodeAsk 服务启动时 best-effort 拉起 opencode，后台 keepalive 定时检测并在进程退出后重新拉起；会话运行时仍会取当前 handle 并等待健康。
 - 已实现每个会话独立 workspace、`opencode.json`、`AGENTS.md`、MCP token、raw opencode event JSONL。
 - 已实现 LLM OpenCode Provider 显式选择：保存配置时不联网测试，会话按用户选择的 provider 生成 `opencode.json`，不在会话启动时隐式轮转；管理页提供手动“测试连接”按钮用于验证当前选择。
 - 已实现持久化 Wiki 文件工作区导出：`<CODEASK_DATA_DIR>/wiki_workspace/current/<feature-slug>/...`，会话通过 `workspace/wiki` symlink 零复制挂载。

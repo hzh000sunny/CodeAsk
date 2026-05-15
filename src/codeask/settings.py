@@ -77,6 +77,11 @@ class Settings(BaseSettings):
         ge=10,
         description="Timeout for CodeAsk requests to the local opencode HTTP server.",
     )
+    opencode_keepalive_interval_seconds: int = Field(
+        default=30,
+        ge=5,
+        description="Interval for checking and restarting the shared opencode serve process.",
+    )
     agent_backend: Literal["opencode", "native"] = Field(
         default="opencode",
         description=(

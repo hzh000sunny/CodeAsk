@@ -124,6 +124,12 @@ class ClientFactory:
         )
 
 
+@dataclass(frozen=True)
+class LLMConfigSelection:
+    config: Any
+    pooled_global: bool
+
+
 class LLMGateway:
     def __init__(
         self,
@@ -160,6 +166,55 @@ class LLMGateway:
     @property
     def client_factory(self) -> ClientFactory:
         return self._factory
+
+    @property
+    def max_runtime_retries(self) -> int:
+        return self._max_retries
+
+    async def select_runtime_config(
+        self,
+        *,
+        config_id: str | None,
+        subject_id: str | None,
+        session_id: str | None,
+        runtime_llm_config: dict[str, Any] | None = None,
+        excluded_global_config_ids: set[str] | None = None,
+    ) -> LLMConfigSelection | LLMEvent:
+        runtime_config = _runtime_config_from_metadata(runtime_llm_config)
+        if isinstance(runtime_config, LLMEvent):
+            return runtime_config
+        if runtime_config is not None:
+            return LLMConfigSelection(config=runtime_config, pooled_global=False)
+
+        selected = await self._select_config(
+            config_id,
+            subject_id=subject_id,
+            session_id=session_id,
+            excluded_global_config_ids=excluded_global_config_ids,
+        )
+        if selected is None:
+            return _resource_busy_event()
+        config, pooled_global = selected
+        return LLMConfigSelection(config=config, pooled_global=pooled_global)
+
+    def record_runtime_config_success(self, selection: LLMConfigSelection) -> None:
+        if selection.pooled_global:
+            self._global_usage.record_success(selection.config.id)
+
+    def record_runtime_config_failure(
+        self,
+        selection: LLMConfigSelection,
+        error_data: dict[str, Any],
+        *,
+        session_id: str | None = None,
+        clear_sticky: bool = False,
+    ) -> bool:
+        if not selection.pooled_global or not _counts_against_config_health(error_data):
+            return False
+        self._global_usage.record_failure(selection.config.id)
+        if clear_sticky and session_id is not None:
+            self._global_usage.clear_sticky_session(session_id, selection.config.id)
+        return True
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[LLMEvent]:
         subject_id = request.metadata.get("subject_id")

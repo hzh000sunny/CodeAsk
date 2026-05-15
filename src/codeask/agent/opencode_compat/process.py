@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Protocol
 
 
@@ -54,39 +56,71 @@ class OpenCodeProcessManager:
         self._process: ProcessLike | None = None
         self._handle: OpenCodeServerHandle | None = None
         self._next_port_index = 0
+        self._lock = Lock()
+        self._last_error: str | None = None
 
     def ensure_server(self) -> OpenCodeServerHandle:
-        if self._process is not None and self._process.poll() is None and self._handle is not None:
-            return self._handle
+        with self._lock:
+            if (
+                self._process is not None
+                and self._process.poll() is None
+                and self._handle is not None
+            ):
+                self._last_error = None
+                return self._handle
 
-        port = self._next_port()
-        env = self._build_env()
-        cmd = [
-            self._opencode_bin,
-            "serve",
-            "--hostname",
-            self._hostname,
-            "--port",
-            str(port),
-            "--pure",
-            "--log-level",
-            self._log_level,
-        ]
-        proc = self._popen_factory(cmd, env)
-        handle = OpenCodeServerHandle(
-            base_url=f"http://{self._hostname}:{port}",
-            port=port,
-            pid=proc.pid,
-        )
-        self._process = proc
-        self._handle = handle
-        return handle
+            port = self._next_port()
+            env = self._build_env()
+            cmd = [
+                self._opencode_bin,
+                "serve",
+                "--hostname",
+                self._hostname,
+                "--port",
+                str(port),
+                "--pure",
+                "--log-level",
+                self._log_level,
+            ]
+            try:
+                proc = self._popen_factory(cmd, env)
+            except Exception as exc:
+                self._last_error = str(exc).strip() or exc.__class__.__name__
+                raise
+            handle = OpenCodeServerHandle(
+                base_url=f"http://{self._hostname}:{port}",
+                port=port,
+                pid=proc.pid,
+            )
+            self._process = proc
+            self._handle = handle
+            self._last_error = None
+            return handle
 
     def shutdown(self) -> None:
-        if self._process is None or self._process.poll() is not None:
-            return
-        self._process.terminate()
-        self._process.wait(timeout=5)
+        with self._lock:
+            if self._process is None or self._process.poll() is not None:
+                return
+            self._process.terminate()
+            self._process.wait(timeout=5)
+
+    def describe(self) -> dict[str, object]:
+        with self._lock:
+            returncode = self._process.poll() if self._process is not None else None
+            running = self._process is not None and returncode is None
+            last_error = self._last_error
+            if self._process is not None and returncode is not None:
+                last_error = last_error or f"opencode process exited with code {returncode}"
+            return {
+                "running": running,
+                "base_url": self._handle.base_url if self._handle is not None else None,
+                "port": self._handle.port if self._handle is not None else None,
+                "pid": self._handle.pid if self._handle is not None else None,
+                "returncode": returncode,
+                "configured_bin": self._opencode_bin,
+                "resolved_bin": shutil.which(self._opencode_bin),
+                "last_error": last_error,
+            }
 
     def _next_port(self) -> int:
         if not self._ports:
