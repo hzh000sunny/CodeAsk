@@ -62,6 +62,13 @@ function llm(overrides: Partial<Record<string, unknown>> = {}) {
     enabled: true,
     rpm_limit: null,
     quota_remaining: null,
+    agent_runtime_backend: "opencode",
+    agent_runtime_profile: overrides.opencode_provider_profile ?? "default",
+    agent_runtime_status: overrides.opencode_provider_status ?? "unknown",
+    agent_runtime_tested_at: overrides.opencode_provider_tested_at ?? null,
+    agent_runtime_error: overrides.opencode_provider_error ?? null,
+    agent_runtime_test_result_json:
+      overrides.opencode_provider_test_result_json ?? null,
     opencode_provider_profile: "default",
     opencode_provider_status: "unknown",
     opencode_provider_tested_at: null,
@@ -96,7 +103,118 @@ const globalPolicy = {
   prompt_template: "回答必须引用证据 ID。",
 };
 
+const opencodeStatus = {
+  running: true,
+  base_url: "http://127.0.0.1:4100",
+  port: 4100,
+  pid: 2468,
+  configured_bin: "opencode",
+  resolved_bin:
+    "/home/hzh/.nvm/versions/node/v24.15.0/bin/opencode",
+  version: "1.14.48",
+  last_error: null,
+  last_error_code: null,
+  last_health_at: "2026-05-16T08:00:00Z",
+  log_file:
+    "/home/hzh/.local/share/codeask/runtime/logs/opencode/opencode-server.log",
+  active_session_count: 2,
+};
+
+const runtimeProfiles = {
+  backend: "opencode",
+  profiles: [
+    {
+      id: "default",
+      label: "Default",
+      description: "Use opencode native provider.",
+    },
+    {
+      id: "openai-native",
+      label: "OpenAI Native",
+      description: "Use @ai-sdk/openai.",
+    },
+    {
+      id: "openai-compatible",
+      label: "OpenAI Compatible",
+      description: "Use @ai-sdk/openai-compatible.",
+    },
+    {
+      id: "anthropic-native",
+      label: "Anthropic Native",
+      description: "Use @ai-sdk/anthropic.",
+    },
+    {
+      id: "anthropic-compatible-bearer",
+      label: "Anthropic Compatible Bearer",
+      description: "Use @ai-sdk/anthropic with Bearer auth.",
+    },
+    {
+      id: "anthropic-compatible-v1-bearer",
+      label: "Anthropic Compatible /v1 Bearer",
+      description: "Use @ai-sdk/anthropic with /v1 and Bearer auth.",
+    },
+    {
+      id: "openrouter",
+      label: "OpenRouter",
+      description: "Use @openrouter/ai-sdk-provider.",
+    },
+  ],
+};
+
 describe("SettingsPage LLM configuration", () => {
+  it("keeps the selected admin settings page in the URL across reloads", async () => {
+    window.history.replaceState(null, "", "/#/settings?page=repos");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/auth/me") {
+        return jsonResponse(adminMe);
+      }
+      if (path === "/api/sessions") {
+        return jsonResponse([]);
+      }
+      if (path === "/api/admin/opencode/status") {
+        return jsonResponse(opencodeStatus);
+      }
+      if (path === "/api/repos") {
+        return jsonResponse({ repos: [repo] });
+      }
+      if (path === "/api/skills") {
+        return jsonResponse([]);
+      }
+      if (path === "/api/llm-runtime-profiles?backend=opencode") {
+        return jsonResponse(runtimeProfiles);
+      }
+      if (path === "/api/admin/llm-configs") {
+        return jsonResponse([llm()]);
+      }
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { unmount } = render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "仓库管理" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "运行状态" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "LLM 配置" }));
+    expect(window.location.hash).toBe("#/settings?page=llm");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "LLM 配置" }),
+    ).toBeInTheDocument();
+
+    unmount();
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "LLM 配置" }),
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe("#/settings?page=llm");
+  });
+
   it("shows only login in the anonymous account menu and opens the admin login page", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
@@ -255,6 +373,9 @@ describe("SettingsPage LLM configuration", () => {
         }
         if (path === "/api/admin/llm-configs") {
           return jsonResponse([]);
+        }
+        if (path === "/api/admin/opencode/status") {
+          return jsonResponse(opencodeStatus);
         }
         if (path === "/api/repos") {
           return jsonResponse({ repos: [] });
@@ -521,6 +642,9 @@ describe("SettingsPage LLM configuration", () => {
         if (path === "/api/sessions") {
           return jsonResponse([]);
         }
+        if (path === "/api/llm-runtime-profiles?backend=opencode") {
+          return jsonResponse(runtimeProfiles);
+        }
         if (path === "/api/me/llm-configs" && init?.method === "POST") {
           const payload = JSON.parse(String(init.body));
           const created = llm({
@@ -600,6 +724,7 @@ describe("SettingsPage LLM configuration", () => {
       api_key: "sk-test-abc",
       model_name: "qwen3-coder",
       enabled: true,
+      agent_runtime_profile: "default",
     });
     fireEvent.click(screen.getByRole("button", { name: "保存 LLM 配置" }));
 
@@ -618,6 +743,7 @@ describe("SettingsPage LLM configuration", () => {
       enabled: true,
       reasoning_profile: "none",
       reasoning_profile_json: null,
+      agent_runtime_profile: "default",
       opencode_provider_status: "ok",
       opencode_provider_tested_at: "2026-05-15T10:00:00Z",
       opencode_provider_error: null,
@@ -704,6 +830,12 @@ describe("SettingsPage LLM configuration", () => {
         if (path === "/api/skills") {
           return jsonResponse([]);
         }
+        if (path === "/api/admin/opencode/status") {
+          return jsonResponse(opencodeStatus);
+        }
+        if (path === "/api/llm-runtime-profiles?backend=opencode") {
+          return jsonResponse(runtimeProfiles);
+        }
         if (path === "/api/admin/llm-configs" && !init?.method) {
           return jsonResponse([storedLlm]);
         }
@@ -722,9 +854,31 @@ describe("SettingsPage LLM configuration", () => {
               payload.base_url ||
               payload.api_key ||
               payload.model_name ||
+              payload.agent_runtime_profile ||
               payload.opencode_provider_profile
                 ? "unknown"
                 : storedLlm.opencode_provider_status),
+            agent_runtime_profile:
+              payload.agent_runtime_profile ??
+              payload.opencode_provider_profile ??
+              storedLlm.agent_runtime_profile,
+            agent_runtime_status:
+              payload.opencode_provider_status ??
+              (payload.protocol ||
+              payload.base_url ||
+              payload.api_key ||
+              payload.model_name ||
+              payload.agent_runtime_profile ||
+              payload.opencode_provider_profile
+                ? "unknown"
+                : storedLlm.agent_runtime_status),
+            agent_runtime_error: payload.opencode_provider_error ?? null,
+            agent_runtime_tested_at:
+              payload.opencode_provider_tested_at ??
+              storedLlm.agent_runtime_tested_at,
+            agent_runtime_test_result_json:
+              payload.opencode_provider_test_result_json ??
+              storedLlm.agent_runtime_test_result_json,
             opencode_provider_error: payload.opencode_provider_error ?? null,
             opencode_provider_tested_at:
               payload.opencode_provider_tested_at ?? storedLlm.opencode_provider_tested_at,
@@ -768,12 +922,31 @@ describe("SettingsPage LLM configuration", () => {
       screen.queryByRole("heading", { name: "个人 LLM 配置" }),
     ).not.toBeInTheDocument();
     expect(
-      await screen.findByRole("button", { name: "全局配置" }),
+      await screen.findByRole("button", { name: "运行状态" }),
     ).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "全局配置" }));
+    expect(
+      await screen.findByRole("region", { name: "opencode 后端状态" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("1.14.48")).toBeInTheDocument();
+    expect(screen.getByText("活动会话")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(
+      screen.getByText("/home/hzh/.nvm/versions/node/v24.15.0/bin/opencode"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "/home/hzh/.local/share/codeask/runtime/logs/opencode/opencode-server.log",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "复制 可执行文件" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "复制 日志文件" }),
+    ).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "LLM 配置" }));
     expect(await screen.findByText("备用模型")).toBeInTheDocument();
-    expect(screen.getByText(/OpenAI · qwen3/)).toBeInTheDocument();
-    expect(screen.queryByText(/OpenAI Compatible/)).not.toBeInTheDocument();
+    expect(screen.getByText(/OpenAI Compatible · qwen3/)).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([path]) => path === "/api/me/llm-configs")).toBe(
       false,
     );
@@ -894,9 +1067,9 @@ describe("SettingsPage LLM configuration", () => {
         name: "主力模型",
         protocol: "anthropic",
         base_url: "http://llm.new/v1",
-        api_key: "sk-new-key",
-        model_name: "claude-test",
-        opencode_provider_status: "ok",
+      api_key: "sk-new-key",
+      model_name: "claude-test",
+      opencode_provider_status: "ok",
         opencode_provider_tested_at: "2026-05-15T10:00:00Z",
         opencode_provider_error: null,
         opencode_provider_test_result_json: {},
@@ -922,6 +1095,81 @@ describe("SettingsPage LLM configuration", () => {
     });
   });
 
+  it("saves only changed LLM edit fields and keeps legacy openai compatible protocol intact", async () => {
+    const testedConfig = llm({
+      id: "llm_compat",
+      name: "兼容模型",
+      protocol: "openai_compatible",
+      base_url: "http://compatible.internal/v1",
+      model_name: "compat-model",
+      opencode_provider_profile: "openai-compatible",
+      opencode_provider_status: "ok",
+      opencode_provider_tested_at: "2026-05-15T10:00:00Z",
+      opencode_provider_error: null,
+      opencode_provider_test_result_json: { text_preview: "OK" },
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/auth/me") {
+        return jsonResponse(adminMe);
+      }
+      if (path === "/api/sessions") {
+        return jsonResponse([]);
+      }
+      if (path === "/api/repos") {
+        return jsonResponse({ repos: [] });
+      }
+      if (path === "/api/skills") {
+        return jsonResponse([]);
+      }
+      if (path === "/api/admin/opencode/status") {
+        return jsonResponse(opencodeStatus);
+      }
+      if (path === "/api/llm-runtime-profiles?backend=opencode") {
+        return jsonResponse(runtimeProfiles);
+      }
+      if (path === "/api/admin/llm-configs" && !init?.method) {
+        return jsonResponse([testedConfig]);
+      }
+      if (
+        path === "/api/admin/llm-configs/llm_compat" &&
+        init?.method === "PATCH"
+      ) {
+        return jsonResponse({
+          ...testedConfig,
+          ...JSON.parse(String(init.body)),
+        });
+      }
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    fireEvent.click(await screen.findByRole("button", { name: "LLM 配置" }));
+    expect(await screen.findByText("连接正常")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "编辑 兼容模型" }));
+    expect(screen.getByLabelText("编辑消息接口协议")).toHaveValue(
+      "openai_compatible",
+    );
+    fireEvent.change(screen.getByLabelText("编辑配置名称"), {
+      target: { value: "兼容模型重命名" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存修改" }));
+
+    await waitFor(() => {
+      const editCall = fetchMock.mock.calls.find(
+        ([path, options]) =>
+          path === "/api/admin/llm-configs/llm_compat" &&
+          (options as RequestInit | undefined)?.method === "PATCH",
+      ) as unknown as [string, RequestInit] | undefined;
+      expect(editCall).toBeDefined();
+      expect(JSON.parse(String(editCall?.[1].body))).toEqual({
+        name: "兼容模型重命名",
+      });
+    });
+  });
+
   it("edits repositories and manages global analysis policies as admin", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -934,6 +1182,9 @@ describe("SettingsPage LLM configuration", () => {
         }
         if (path === "/api/admin/llm-configs") {
           return jsonResponse([]);
+        }
+        if (path === "/api/admin/opencode/status") {
+          return jsonResponse(opencodeStatus);
         }
         if (path === "/api/repos" && !init?.method) {
           return jsonResponse({ repos: [repo] });
@@ -981,17 +1232,18 @@ describe("SettingsPage LLM configuration", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
     expect(
-      await screen.findByRole("button", { name: "全局配置" }),
+      await screen.findByRole("button", { name: "运行状态" }),
     ).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([path]) => path === "/api/me/llm-configs")).toBe(
       false,
     );
 
+    fireEvent.click(await screen.findByRole("button", { name: "仓库管理" }));
     expect(
-      await screen.findByRole("heading", { name: "仓库管理" }),
+      await screen.findByRole("heading", { level: 2, name: "仓库管理" }),
     ).toBeInTheDocument();
     const repoSection = screen
-      .getByRole("heading", { name: "仓库管理" })
+      .getByRole("heading", { level: 2, name: "仓库管理" })
       .closest("section") as HTMLElement;
     expect(
       within(repoSection).getByText(
@@ -1017,7 +1269,7 @@ describe("SettingsPage LLM configuration", () => {
       ),
     ).toEqual(["仓库名称", "类型", "本地路径"]);
     const settingsContent = screen
-      .getByRole("heading", { name: "仓库管理" })
+      .getByRole("heading", { level: 2, name: "仓库管理" })
       .closest(".settings-content");
     expect(settingsContent).not.toBeNull();
     expect(settingsContent).toHaveAttribute("data-scroll-region", "true");
@@ -1069,10 +1321,11 @@ describe("SettingsPage LLM configuration", () => {
       );
     });
 
+    fireEvent.click(await screen.findByRole("button", { name: "全局分析策略" }));
     expect(
-      await screen.findByRole("heading", { name: "全局分析策略" }),
+      await screen.findByRole("heading", { level: 2, name: "全局分析策略" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("证据引用规范")).toBeInTheDocument();
+    expect(await screen.findByText("证据引用规范")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "添加分析策略" }));
     const createPolicyForm = screen
       .getByLabelText("策略名称")

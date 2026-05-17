@@ -18,7 +18,7 @@ describe("guest llm config storage", () => {
       temperature: 0.2,
       reasoning_profile: "none",
       reasoning_profile_json: "",
-      opencode_provider_profile: "openai-compatible",
+      agent_runtime_profile: "openai-compatible",
     });
 
     expect(getGuestLlmConfig()).toEqual({
@@ -31,7 +31,7 @@ describe("guest llm config storage", () => {
       temperature: 0.2,
       reasoning_profile: "none",
       reasoning_profile_json: null,
-      opencode_provider_profile: "openai-compatible",
+      agent_runtime_profile: "openai-compatible",
     });
   });
 
@@ -49,10 +49,27 @@ describe("guest llm config storage", () => {
       temperature: 0,
       reasoning_profile: "none",
       reasoning_profile_json: null,
-      opencode_provider_profile: "default",
+      agent_runtime_profile: "default",
     });
     clearGuestLlmConfig();
 
     expect(getGuestLlmConfig()).toBeNull();
+  });
+
+  it("migrates legacy opencode guest runtime profile to the generic field", () => {
+    localStorage.setItem(
+      "codeask.guest_llm_config",
+      JSON.stringify({
+        name: "legacy",
+        protocol: "openai",
+        api_key: "sk",
+        model_name: "model",
+        opencode_provider_profile: "openai-compatible",
+      }),
+    );
+
+    expect(getGuestLlmConfig()).toMatchObject({
+      agent_runtime_profile: "openai-compatible",
+    });
   });
 });

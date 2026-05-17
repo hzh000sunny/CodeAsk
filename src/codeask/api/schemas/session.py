@@ -119,7 +119,8 @@ class GuestLLMConfigIn(BaseModel):
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     reasoning_profile: str = Field(default="none", max_length=128)
     reasoning_profile_json: str | None = Field(default=None, max_length=20000)
-    opencode_provider_profile: str = Field(default="default", max_length=128)
+    agent_runtime_profile: str | None = Field(default=None, max_length=128)
+    opencode_provider_profile: str | None = Field(default=None, max_length=128)
 
 
 class MessageCreate(BaseModel):

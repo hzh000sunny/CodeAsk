@@ -8,11 +8,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import NoResultFound
 
+from codeask.agent.opencode_compat.profiles import provider_profile_options
 from codeask.api.schemas.llm_config import (
     LLMConfigCreate,
     LLMConfigResponse,
     LLMConfigTestResponse,
     LLMConfigUpdate,
+    LLMRuntimeProfileResponse,
+    LLMRuntimeProfilesResponse,
 )
 from codeask.identity import require_admin
 from codeask.llm.api_service import (
@@ -33,6 +36,26 @@ async def _repo(request: Request) -> LLMConfigRepo:
 
 RepoDep = Annotated[LLMConfigRepo, Depends(_repo)]
 AdminDep = Annotated[None, Depends(require_admin)]
+
+
+@router.get("/llm-runtime-profiles", response_model=LLMRuntimeProfilesResponse)
+async def list_llm_runtime_profiles(backend: str = "opencode") -> LLMRuntimeProfilesResponse:
+    if backend != "opencode":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"unknown llm runtime backend: {backend}",
+        )
+    return LLMRuntimeProfilesResponse(
+        backend="opencode",
+        profiles=[
+            LLMRuntimeProfileResponse(
+                id=profile.id,
+                label=profile.label,
+                description=profile.description,
+            )
+            for profile in provider_profile_options()
+        ],
+    )
 
 
 @router.post(
@@ -390,6 +413,7 @@ def _draft_config_from_create(
     scope: str,
     owner_subject_id: str | None,
 ) -> LLMConfigWithSecret:
+    agent_runtime_profile = payload.agent_runtime_profile or payload.opencode_provider_profile
     return LLMConfigWithSecret(
         id="draft",
         name=payload.name,
@@ -407,7 +431,9 @@ def _draft_config_from_create(
         quota_remaining=payload.quota_remaining,
         reasoning_profile=payload.reasoning_profile,
         reasoning_profile_json=payload.reasoning_profile_json,
-        opencode_provider_profile=payload.opencode_provider_profile,
+        agent_runtime_backend="opencode",
+        agent_runtime_profile=agent_runtime_profile,
+        opencode_provider_profile=agent_runtime_profile,
     )
 
 
@@ -487,12 +513,9 @@ async def _draft_config_from_update(
             if "reasoning_profile_json" in fields
             else existing.reasoning_profile_json
         ),
-        opencode_provider_profile=(
-            payload.opencode_provider_profile
-            if "opencode_provider_profile" in fields
-            and payload.opencode_provider_profile is not None
-            else existing.opencode_provider_profile
-        ),
+        agent_runtime_backend="opencode",
+        agent_runtime_profile=_resolve_agent_runtime_profile(payload, fields, existing),
+        opencode_provider_profile=_resolve_agent_runtime_profile(payload, fields, existing),
         opencode_provider_status=existing.opencode_provider_status,
         opencode_provider_tested_at=existing.opencode_provider_tested_at,
         opencode_provider_error=existing.opencode_provider_error,
@@ -503,6 +526,18 @@ async def _draft_config_from_update(
 def _optional_result_string(result: dict[str, object], key: str) -> str | None:
     value = result.get(key)
     return str(value) if value is not None else None
+
+
+def _resolve_agent_runtime_profile(
+    payload: LLMConfigUpdate,
+    fields: set[str],
+    existing: LLMConfigWithSecret,
+) -> str | None:
+    if "agent_runtime_profile" in fields and payload.agent_runtime_profile is not None:
+        return payload.agent_runtime_profile
+    if "opencode_provider_profile" in fields and payload.opencode_provider_profile is not None:
+        return payload.opencode_provider_profile
+    return existing.agent_runtime_profile or existing.opencode_provider_profile
 
 
 def _summarize_error(exc: Exception) -> str:

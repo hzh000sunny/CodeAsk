@@ -862,7 +862,7 @@ v1.0.4 第一版建议：
 ### 9.3 后续待测清单
 
 - [x] remote StreamableHTTP MCP 最小连通测试：opencode 可连接 URL 根路径、传递 headers、完成 `tools/list` 和 `tools/call`。
-- [ ] 停止生成主功能：先实现停止输出和状态清理；`abort + revert` 深度上下文回滚单独作为遗留增强验证。
+- [x] 停止生成主功能：已完成停止输出和状态清理验收；`abort + revert` 深度上下文回滚单独作为遗留增强验证。
 - [x] 一个 opencode server 多 session、多 workspace、多 LLM 配置隔离测试。
 - [x] shared server 下每 workspace 独立 MCP server、MCP token 和工具列表隔离测试。
 - [x] MCP tool 调用事件在 `/global/event` 和 message parts 中的样本。

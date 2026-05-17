@@ -7,6 +7,7 @@ import {
   createUserLlmConfig,
   deleteAdminLlmConfig,
   deleteUserLlmConfig,
+  listLlmRuntimeProfiles,
   listAdminLlmConfigs,
   listUserLlmConfigs,
   testAdminLlmConfig,
@@ -22,7 +23,10 @@ import type { LLMConfigResponse } from "../../../types/api";
 import { useAppFeedback } from "../../feedback/AppFeedback";
 import { Button } from "../../ui/button";
 import type { LlmScope, LlmUpdatePayload } from "../settings-types";
-import { messageFromApiError } from "../settings-utils";
+import {
+  FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS,
+  messageFromApiError,
+} from "../settings-utils";
 import { LlmConfigForm, type LlmCreatePayload } from "./LlmConfigForm";
 import { LlmConfigList } from "./LlmConfigList";
 
@@ -37,6 +41,17 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
     queryKey,
     queryFn: scope === "global" ? listAdminLlmConfigs : listUserLlmConfigs,
   });
+  const { data: runtimeProfiles } = useQuery({
+    queryKey: ["llm-runtime-profiles", "opencode"],
+    queryFn: () => listLlmRuntimeProfiles("opencode"),
+    staleTime: 5 * 60_000,
+  });
+  const runtimeProfileOptions =
+    runtimeProfiles?.profiles.map((profile) => ({
+      value: profile.id,
+      label: profile.label,
+      description: profile.description,
+    })) ?? FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS;
 
   const createMutation = useMutation({
     mutationFn: (payload: LlmCreatePayload) =>
@@ -161,6 +176,7 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
           onCancel={() => setShowForm(false)}
           onTest={(payload) => testDraftMutation.mutateAsync(payload)}
           onSubmit={(payload) => createMutation.mutate(payload)}
+          runtimeProfileOptions={runtimeProfileOptions}
           testing={testDraftMutation.isPending}
         />
       ) : null}
@@ -176,6 +192,7 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
           testUpdateDraftMutation.mutateAsync({ id, payload })
         }
         onUpdate={(id, payload) => updateMutation.mutate({ id, payload })}
+        runtimeProfileOptions={runtimeProfileOptions}
         onToggleEnabled={(config) =>
           updateMutation.mutate({
             id: config.id,

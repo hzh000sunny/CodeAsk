@@ -8,9 +8,11 @@ from typing import Protocol
 
 class LLMConfigLike(Protocol):
     id: str
+    name: str
     protocol: str
     base_url: str | None
     api_key: str
+    model_name: str
 
 
 class UnsupportedOpenCodeProtocolError(ValueError):

@@ -320,7 +320,7 @@ textarea:focus-visible {
 .source-nav-item,
 .settings-index-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   width: 100%;
   border: 0;
@@ -332,6 +332,37 @@ textarea:focus-visible {
   transition:
     background-color 160ms ease,
     color 160ms ease;
+}
+
+.settings-index-item {
+  min-height: 50px;
+}
+
+.settings-index-item svg {
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
+.settings-index-item-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-index-item-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-index-item-copy small {
+  overflow: hidden;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .source-nav-link {
@@ -349,6 +380,10 @@ textarea:focus-visible {
   background: #eef4ff;
   color: #111827;
   font-weight: 650;
+}
+
+.settings-index-item[data-active="true"] small {
+  color: #344054;
 }
 
 .source-sidebar[data-collapsed="true"] .source-nav-item {
@@ -3409,6 +3444,241 @@ textarea:focus-visible {
   padding-bottom: 40px;
 }
 
+.settings-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 18px 20px;
+}
+
+.settings-page-heading {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-page-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settings-page-heading h1 {
+  margin: 0;
+  color: #101828;
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.settings-page-heading p,
+.settings-page-copy {
+  margin: 0;
+  max-width: 760px;
+  color: #667085;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.settings-diagnostic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.settings-diagnostic-item {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.settings-diagnostic-item span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #697586;
+  font-size: 12px;
+}
+
+.settings-diagnostic-item strong {
+  overflow: hidden;
+  color: #182230;
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-runtime-summary {
+  display: grid;
+  grid-template-columns: minmax(220px, max-content) minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #d1fadf;
+  border-radius: 8px;
+  background: #f6fef9;
+}
+
+.settings-runtime-summary[data-running="false"] {
+  border-color: #fee4e2;
+  background: #fffbfa;
+}
+
+.settings-runtime-status {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.settings-runtime-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: #067647;
+  background: #dcfae6;
+}
+
+.settings-runtime-summary[data-running="false"] .settings-runtime-status-icon {
+  color: #b42318;
+  background: #fee4e2;
+}
+
+.settings-runtime-status div {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-runtime-status span {
+  color: #475467;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settings-runtime-status strong {
+  color: #101828;
+  font-size: 18px;
+  font-weight: 750;
+  line-height: 1.15;
+}
+
+.settings-runtime-summary p {
+  margin: 0;
+  color: #475467;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.settings-runtime-paths {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.settings-runtime-path-item {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+  padding: 10px;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.settings-runtime-path-label {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-runtime-path-item code {
+  display: block;
+  min-width: 0;
+  max-height: 92px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid #e4e9f2;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #182230;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.settings-runtime-path-action {
+  display: flex;
+  align-items: flex-start;
+}
+
+.settings-runtime-copy-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #d0d5dd;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #344054;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settings-runtime-copy-button:hover:not(:disabled) {
+  border-color: #98a2b3;
+  background: #f9fafb;
+}
+
+.settings-runtime-copy-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.settings-status-ok,
+.settings-status-error {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.settings-status-ok {
+  color: #067647;
+}
+
+.settings-status-error {
+  color: #b42318;
+}
+
 .inline-form.horizontal {
   grid-template-columns: minmax(160px, 1fr) 140px minmax(220px, 1.4fr) auto;
   align-items: end;
@@ -3416,11 +3686,33 @@ textarea:focus-visible {
 
 .settings-index {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   padding: 14px;
 }
 
 .settings-index[data-collapsed="true"] {
   padding: 10px 0;
+}
+
+.settings-index-section-label {
+  margin: 4px 8px 6px;
+  color: #667085;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 920px) {
+  .settings-runtime-summary,
+  .settings-runtime-path-item {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-runtime-path-action {
+    justify-content: flex-start;
+  }
 }
 
 .wiki-workspace {

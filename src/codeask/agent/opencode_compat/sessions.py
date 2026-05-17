@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from secrets import token_hex
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -131,6 +132,48 @@ class ExternalAgentSessionStore:
             row.port = port
             row.pid = pid
             row.status = "active"
+            row.error_summary = None
+            await session.commit()
+            await session.refresh(row)
+            return row
+
+    async def list_idle_session_ids(self, *, before: datetime, limit: int = 100) -> list[str]:
+        async with self._session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(ExternalAgentSession.session_id)
+                    .where(
+                        ExternalAgentSession.status == "active",
+                        ExternalAgentSession.updated_at < before,
+                    )
+                    .order_by(ExternalAgentSession.updated_at.asc())
+                    .limit(limit)
+                )
+            ).scalars()
+            return list(rows)
+
+    async def count_active(self) -> int:
+        async with self._session_factory() as session:
+            value = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(ExternalAgentSession)
+                    .where(ExternalAgentSession.status == "active")
+                )
+            ).scalar_one()
+            return int(value)
+
+    async def mark_cleaned(self, session_id: str) -> ExternalAgentSession:
+        async with self._session_factory() as session:
+            row = (
+                await session.execute(
+                    select(ExternalAgentSession).where(
+                        ExternalAgentSession.session_id == session_id
+                    )
+                )
+            ).scalar_one()
+            row.status = "cleaned"
+            row.pid = None
             row.error_summary = None
             await session.commit()
             await session.refresh(row)

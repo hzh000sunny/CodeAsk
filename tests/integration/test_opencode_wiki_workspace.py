@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -99,6 +100,23 @@ async def test_wiki_workspace_exporter_materializes_current_wiki_and_reports(
     assert result.feature_count == 1
     assert result.document_count == 1
     assert result.report_count == 1
+    manifest = json.loads((result.root / "_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == 1
+    assert manifest["view_mode"] == "live"
+    assert manifest["exported_at"]
+    assert manifest["feature_count"] == 1
+    assert manifest["document_count"] == 1
+    assert manifest["report_count"] == 1
+    assert manifest["features"] == [
+        {
+            "feature_id": feature.id,
+            "name": "小米",
+            "slug": "xiaomi",
+            "path": "./wiki/xiaomi",
+            "document_count": 1,
+            "report_count": 1,
+        }
+    ]
     feature_dir = result.root / "xiaomi"
     assert (feature_dir / "README.md").read_text(encoding="utf-8").startswith("# 小米")
     doc_text = (feature_dir / "knowledge-base" / "小米病历.md").read_text(encoding="utf-8")

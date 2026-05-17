@@ -1,9 +1,10 @@
-import type { LlmOpenCodeProviderProfile, LlmProtocol } from "./settings-types";
+import type {
+  LlmAgentRuntimeProfile,
+  LlmProtocol,
+  LlmRuntimeProfileOption,
+} from "./settings-types";
 
-export const OPENCODE_PROVIDER_PROFILE_OPTIONS: Array<{
-  value: LlmOpenCodeProviderProfile;
-  label: string;
-}> = [
+export const FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS: LlmRuntimeProfileOption[] = [
   { value: "default", label: "Default" },
   { value: "openai-native", label: "OpenAI Native" },
   { value: "openai-compatible", label: "OpenAI Compatible" },
@@ -14,11 +15,14 @@ export const OPENCODE_PROVIDER_PROFILE_OPTIONS: Array<{
     label: "Anthropic Compatible /v1 Bearer",
   },
   { value: "openrouter", label: "OpenRouter" },
-];
+].map((option) => ({ ...option, description: "" }));
 
 export function safeEditableProtocol(protocol: string): LlmProtocol {
   if (protocol === "anthropic") {
     return "anthropic";
+  }
+  if (protocol === "openai_compatible") {
+    return "openai_compatible";
   }
   return "openai";
 }
@@ -27,24 +31,34 @@ export function protocolLabel(protocol: string) {
   if (protocol === "anthropic") {
     return "Anthropic";
   }
+  if (protocol === "openai_compatible") {
+    return "OpenAI Compatible";
+  }
   return "OpenAI";
 }
 
-export function opencodeProviderLabel(profile: string | null | undefined) {
+export function agentRuntimeProfileLabel(
+  profile: string | null | undefined,
+  options: LlmRuntimeProfileOption[] = FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS,
+) {
   const value = profile || "default";
-  return (
-    OPENCODE_PROVIDER_PROFILE_OPTIONS.find((option) => option.value === value)?.label ??
-    value
-  );
+  return options.find((option) => option.value === value)?.label ?? value;
 }
 
-export function safeOpenCodeProviderProfile(
+export function opencodeProviderLabel(profile: string | null | undefined) {
+  return agentRuntimeProfileLabel(profile);
+}
+
+export function safeAgentRuntimeProfile(
   profile: string | null | undefined,
-): LlmOpenCodeProviderProfile {
+  options: LlmRuntimeProfileOption[] = FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS,
+): LlmAgentRuntimeProfile {
   const value = profile || "default";
-  const option = OPENCODE_PROVIDER_PROFILE_OPTIONS.find((item) => item.value === value);
+  const option = options.find((item) => item.value === value);
   return option?.value ?? "default";
 }
+
+export const safeOpenCodeProviderProfile = safeAgentRuntimeProfile;
 
 export function messageFromApiError(error: unknown) {
   if (typeof error === "object" && error !== null && "detail" in error) {

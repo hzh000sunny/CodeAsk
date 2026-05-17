@@ -23,7 +23,12 @@ def build_session_tools(session_factory: SessionFactory) -> list[MCPTool]:
 
 def bind_session_features_tool(session_factory: SessionFactory) -> MCPTool:
     async def handler(arguments: dict[str, Any], ctx: MCPRequestContext) -> dict[str, Any]:
-        feature_ids = _int_list(arguments.get("feature_ids"))
+        try:
+            feature_ids = _int_list(arguments.get("feature_ids"))
+        except ValueError as exc:
+            return _invalid_arguments(
+                str(exc), "Call bind_session_features with feature_ids as an array of integers."
+            )
         source = arguments.get("source")
         bind_source = source if source in {"auto", "manual"} else "auto"
         async with session_factory() as session:
@@ -123,7 +128,11 @@ def read_session_attachment_tool(session_factory: SessionFactory) -> MCPTool:
     async def handler(arguments: dict[str, Any], ctx: MCPRequestContext) -> dict[str, Any]:
         attachment_id = arguments.get("attachment_id")
         if not isinstance(attachment_id, str) or not attachment_id.strip():
-            raise ValueError("attachment_id must be a non-empty string")
+            return _invalid_arguments(
+                "attachment_id must be a non-empty string",
+                "Call list_session_attachments first, then call read_session_attachment "
+                "with one returned attachment_id.",
+            )
         max_chars = _limit(arguments.get("max_chars"), default=12000, maximum=60000)
         async with session_factory() as session:
             attachment = await session.get(SessionAttachment, attachment_id)
@@ -193,6 +202,15 @@ def _int_list(value: object) -> list[int]:
         if item not in result:
             result.append(item)
     return result
+
+
+def _invalid_arguments(message: str, recovery_hint: str) -> dict[str, Any]:
+    return {
+        "summary": f"invalid tool arguments: {message}",
+        "error": "invalid_arguments",
+        "detail": message,
+        "recovery_hint": recovery_hint,
+    }
 
 
 def _limit(value: object, *, default: int, maximum: int) -> int:

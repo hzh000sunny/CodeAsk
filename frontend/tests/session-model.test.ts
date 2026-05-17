@@ -343,6 +343,22 @@ describe("session runtime stage model", () => {
     expect(insight?.title).toBe("检测到推理泄漏");
     expect(insight?.detail).toContain("已在界面遮蔽");
   });
+
+  it("maps backend reasoning leak diagnostics separately from structured reasoning", () => {
+    const insight = runtimeInsightFromEvent({
+      type: "reasoning_leak_detected",
+      data: {
+        source: "content_reasoning_leak_guard",
+        mode: "backend_content_guard",
+        leakedLength: 18,
+        masked: true,
+      },
+    });
+
+    expect(insight).not.toBeNull();
+    expect(insight?.kind).toBe("warning");
+    expect(insight?.detail).toContain("后端异常防线");
+  });
 });
 
 function trace(

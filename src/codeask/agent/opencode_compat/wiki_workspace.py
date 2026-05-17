@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +73,7 @@ class WikiWorkspaceExporter:
             feature_count = 0
             document_count = 0
             report_count = 0
+            manifest_features: list[dict[str, Any]] = []
             for feature, space in rows:
                 feature_count += 1
                 feature_dir = tmp_root / _safe_segment(feature.slug)
@@ -83,6 +86,16 @@ class WikiWorkspaceExporter:
                 feature_report_count = await self._export_reports(session, space.id, feature_dir)
                 document_count += feature_document_count
                 report_count += feature_report_count
+                manifest_features.append(
+                    {
+                        "feature_id": int(feature.id),
+                        "name": feature.name,
+                        "slug": feature.slug,
+                        "path": f"./wiki/{_safe_segment(feature.slug)}",
+                        "document_count": feature_document_count,
+                        "report_count": feature_report_count,
+                    }
+                )
                 self._write_feature_index(
                     feature_dir,
                     feature=feature,
@@ -90,6 +103,13 @@ class WikiWorkspaceExporter:
                     document_count=feature_document_count,
                     report_count=feature_report_count,
                 )
+            self._write_manifest(
+                tmp_root,
+                feature_count=feature_count,
+                document_count=document_count,
+                report_count=report_count,
+                features=manifest_features,
+            )
 
         if self._workspace_root.exists():
             shutil.rmtree(self._workspace_root)
@@ -220,6 +240,29 @@ class WikiWorkspaceExporter:
         if feature.summary_text:
             lines.extend(["", "## Summary", "", feature.summary_text])
         (feature_dir / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _write_manifest(
+        self,
+        root: Path,
+        *,
+        feature_count: int,
+        document_count: int,
+        report_count: int,
+        features: list[dict[str, Any]],
+    ) -> None:
+        manifest = {
+            "schema_version": 1,
+            "view_mode": "live",
+            "exported_at": datetime.now(UTC).isoformat(),
+            "feature_count": feature_count,
+            "document_count": document_count,
+            "report_count": report_count,
+            "features": features,
+        }
+        (root / "_manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 def _document_relpath(value: str) -> Path:

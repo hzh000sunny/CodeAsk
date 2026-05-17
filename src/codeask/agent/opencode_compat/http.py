@@ -109,6 +109,7 @@ class OpenCodeHttpClient:
             base_url=self._base_url,
             auth=self._auth,
             timeout=self._timeout,
+            trust_env=False,
         )
 
     def _stream_client(self) -> httpx.AsyncClient:
@@ -121,6 +122,7 @@ class OpenCodeHttpClient:
                 write=self._timeout,
                 pool=self._timeout,
             ),
+            trust_env=False,
         )
 
 

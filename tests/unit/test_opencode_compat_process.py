@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import subprocess
 from contextlib import suppress
 from pathlib import Path
 
-from codeask.agent.opencode_compat.process import OpenCodeProcessManager
+import pytest
+
+from codeask.agent.opencode_compat.process import OpenCodeProcessError, OpenCodeProcessManager
 
 
 class FakeProcess:
@@ -115,6 +118,44 @@ def test_process_manager_describe_reports_running_server(tmp_path: Path) -> None
     assert status["last_error"] is None
 
 
+def test_process_manager_describe_reports_resolved_version(tmp_path: Path) -> None:
+    def fake_popen(cmd, env):  # type: ignore[no-untyped-def]
+        return FakeProcess()
+
+    manager = OpenCodeProcessManager(
+        opencode_bin="opencode",
+        data_dir=tmp_path,
+        port_range="4100",
+        username="codeask",
+        password="secret",
+        popen_factory=fake_popen,
+        version_resolver=lambda _bin: "1.14.48",
+    )
+
+    manager.ensure_server()
+
+    assert manager.describe()["version"] == "1.14.48"
+
+
+def test_process_manager_describe_reports_last_health_at(tmp_path: Path) -> None:
+    def fake_popen(cmd, env):  # type: ignore[no-untyped-def]
+        return FakeProcess()
+
+    manager = OpenCodeProcessManager(
+        opencode_bin="opencode",
+        data_dir=tmp_path,
+        port_range="4100",
+        username="codeask",
+        password="secret",
+        popen_factory=fake_popen,
+    )
+
+    manager.ensure_server()
+    manager.record_health_ok()
+
+    assert isinstance(manager.describe()["last_health_at"], str)
+
+
 def test_process_manager_describe_records_start_failure(tmp_path: Path) -> None:
     def fake_popen(cmd, env):  # type: ignore[no-untyped-def]
         raise FileNotFoundError("opencode missing")
@@ -128,7 +169,7 @@ def test_process_manager_describe_records_start_failure(tmp_path: Path) -> None:
         popen_factory=fake_popen,
     )
 
-    with suppress(FileNotFoundError):
+    with suppress(OpenCodeProcessError):
         manager.ensure_server()
 
     status = manager.describe()
@@ -140,3 +181,55 @@ def test_process_manager_describe_records_start_failure(tmp_path: Path) -> None:
     assert status["configured_bin"] == "opencode-missing"
     assert status["resolved_bin"] is None
     assert status["last_error"] == "opencode missing"
+    assert status["last_error_code"] == "opencode_bin_missing"
+
+
+def test_process_manager_writes_default_process_output_to_log_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    popen_kwargs = {}
+
+    def fake_popen(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        popen_kwargs.update(kwargs)
+        return FakeProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    manager = OpenCodeProcessManager(
+        opencode_bin="opencode",
+        data_dir=tmp_path,
+        port_range="4100",
+        username="codeask",
+        password="secret",
+    )
+
+    manager.ensure_server()
+
+    stdout = popen_kwargs["stdout"]
+    assert stdout.name.endswith("agent_sessions/opencode/logs/opencode-server.log")
+    assert popen_kwargs["stderr"] == subprocess.STDOUT
+    assert stdout.closed is False
+    manager.shutdown()
+    assert stdout.closed is True
+
+
+def test_process_manager_raises_classified_start_error(tmp_path: Path) -> None:
+    def fake_popen(cmd, env):  # type: ignore[no-untyped-def]
+        raise RuntimeError("boom")
+
+    manager = OpenCodeProcessManager(
+        opencode_bin="opencode",
+        data_dir=tmp_path,
+        port_range="4100",
+        username="codeask",
+        password="secret",
+        popen_factory=fake_popen,
+    )
+
+    with pytest.raises(OpenCodeProcessError) as exc_info:
+        manager.ensure_server()
+
+    assert exc_info.value.code == "opencode_start_failed"
+    assert "boom" in str(exc_info.value)
+    assert manager.describe()["last_error_code"] == "opencode_start_failed"

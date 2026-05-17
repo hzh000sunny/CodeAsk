@@ -186,17 +186,24 @@ export function actionTraceFromAgentEvent(
   }
 
   if (event.type === "reasoning_leak_detected") {
+    const source = stringValue(event.data.source);
+    const mode = stringValue(event.data.mode);
+    const isBackendGuard =
+      source === "content_reasoning_leak_guard" || mode === "backend_content_guard";
     return {
       id: `reasoning_leak_detected_${Date.now()}`,
       kind: "warning",
       title: "检测到推理泄漏",
       detail:
-        event.data.masked === true
+        isBackendGuard
+          ? "后端异常防线已隔离内容中的推理片段，需检查上游模型服务是否输出结构化 reasoning"
+          : event.data.masked === true
           ? "疑似推理文本已在界面遮蔽，需检查上游模型服务是否输出结构化 reasoning"
           : "疑似推理文本已记录诊断，当前模式未遮蔽显示",
       status: "info",
       data: {
         marker: event.data.marker,
+        source: event.data.source,
         mode: event.data.mode,
         leakedLength: event.data.leakedLength,
         masked: event.data.masked,

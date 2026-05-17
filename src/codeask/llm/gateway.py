@@ -424,6 +424,11 @@ def _runtime_config_from_metadata(raw: Any) -> LLMConfigWithSecret | LLMEvent | 
         return _invalid_runtime_config_event("runtime LLM config is incomplete")
     if protocol not in {"openai", "openai_compatible", "anthropic"}:
         return _invalid_runtime_config_event("runtime LLM config protocol is not supported")
+    agent_runtime_profile = (
+        _optional_string(raw, "agent_runtime_profile")
+        or _optional_string(raw, "opencode_provider_profile")
+        or "default"
+    )
     return LLMConfigWithSecret(
         id="runtime_guest",
         name=_optional_string(raw, "name") or "访客 LLM",
@@ -441,7 +446,9 @@ def _runtime_config_from_metadata(raw: Any) -> LLMConfigWithSecret | LLMEvent | 
         quota_remaining=None,
         reasoning_profile=_optional_string(raw, "reasoning_profile") or "none",
         reasoning_profile_json=_optional_string(raw, "reasoning_profile_json"),
-        opencode_provider_profile=_optional_string(raw, "opencode_provider_profile") or "default",
+        agent_runtime_backend="opencode",
+        agent_runtime_profile=agent_runtime_profile,
+        opencode_provider_profile=agent_runtime_profile,
     )
 
 

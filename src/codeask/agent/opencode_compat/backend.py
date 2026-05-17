@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
-from collections.abc import AsyncIterator, Callable
+import shutil
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Protocol
 
@@ -13,10 +15,11 @@ from codeask.agent.chat_runtime.events import ChatRuntimeEvent
 from codeask.agent.opencode_compat.config import (
     OpenCodeConfigInput,
     build_opencode_config,
+    build_opencode_provider_entry,
     build_session_external_directory_allowlist,
 )
 from codeask.agent.opencode_compat.events import map_global_event
-from codeask.agent.opencode_compat.process import OpenCodeServerHandle
+from codeask.agent.opencode_compat.process import OpenCodeProcessError, OpenCodeServerHandle
 from codeask.agent.opencode_compat.profiles import (
     OpenCodeProviderProfile,
     select_provider_profile,
@@ -70,6 +73,10 @@ class WikiWorkspaceExporterLike(Protocol):
     async def export_current(self): ...  # type: ignore[no-untyped-def]
 
 
+ContextBuilder = Callable[[str, Path], str | Awaitable[str]]
+SUPPORTED_OPENCODE_VERSIONS = {"1.14.48"}
+
+
 class OpenCodeCompat:
     """Entrypoint for CodeAsk's isolated opencode integration."""
 
@@ -84,6 +91,7 @@ class OpenCodeCompat:
         mcp_token_resolver: Callable[[str], str],
         wiki_workspace_exporter: WikiWorkspaceExporterLike | None = None,
         data_dir: Path | None = None,
+        context_builder: ContextBuilder | None = None,
     ) -> None:
         self._workspace_manager = workspace_manager
         self._process_manager = process_manager
@@ -93,6 +101,7 @@ class OpenCodeCompat:
         self._mcp_token_resolver = mcp_token_resolver
         self._wiki_workspace_exporter = wiki_workspace_exporter
         self._data_dir = data_dir
+        self._context_builder = context_builder
 
     async def initialize_session(
         self,
@@ -106,6 +115,7 @@ class OpenCodeCompat:
         server = self._process_manager.ensure_server()
         client = self._http_client_factory(server)
         await _wait_for_health(client)
+        _record_process_health_ok(self._process_manager)
         existing = await self._session_store.get_by_session_id_or_none(session_id)
         config_input = _config_input(
             llm_config=llm_config,
@@ -122,6 +132,7 @@ class OpenCodeCompat:
         _write_workspace_files(workspace.workspace_dir, config)
         if (
             existing is not None
+            and getattr(existing, "status", "active") == "active"
             and existing.config_hash == config_hash
             and existing.workspace_dir == str(workspace.workspace_dir)
         ):
@@ -160,6 +171,7 @@ class OpenCodeCompat:
         server = self._process_manager.ensure_server()
         client = self._http_client_factory(server)
         await _wait_for_health(client)
+        _record_process_health_ok(self._process_manager)
         workspace_dir = _provider_test_workspace_dir(self._data_dir, llm_config.id, profile.id)
         workspace_dir.mkdir(parents=True, exist_ok=True)
         _write_provider_test_config(workspace_dir, llm_config, profile)
@@ -195,11 +207,13 @@ class OpenCodeCompat:
         user_message: str,
         llm_config: LLMConfigWithSecret,
         system: str | None = None,
+        context_window_tokens: int = 200_000,
     ) -> AsyncIterator[ChatRuntimeEvent]:
         binding = await self._session_store.get_by_session_id(session_id)
         server = self._process_manager.ensure_server()
         client = self._http_client_factory(server)
         await _wait_for_health(client)
+        _record_process_health_ok(self._process_manager)
         profile = select_provider_profile(llm_config)
         provider_id = profile.provider_id(llm_config.id)
         workspace_dir = str(binding.workspace_dir)
@@ -210,13 +224,25 @@ class OpenCodeCompat:
         text_part_ids: set[str] = set()
         last_usage_total: int | None = None
 
+        system_prompt = await self._build_turn_system_prompt(
+            session_id=session_id,
+            workspace_dir=Path(workspace_dir),
+            system=system,
+        )
+        context_snapshot = _context_snapshot_event(
+            workspace_dir=Path(workspace_dir),
+            prompt=system_prompt,
+        )
+        if context_snapshot is not None:
+            yield context_snapshot
+
         await client.prompt_async(
             session_id=str(binding.external_session_key),
             directory=workspace_dir,
             provider_id=provider_id,
             model_id=llm_config.model_name,
             text=user_message,
-            system=system or build_codeask_system_prompt(),
+            system=system_prompt,
         )
 
         async for raw_event in client.stream_global_events(directory=workspace_dir):
@@ -286,6 +312,7 @@ class OpenCodeCompat:
                 raw_event,
                 session_id=str(binding.external_session_key),
                 llm_config=llm_config,
+                context_window_tokens=context_window_tokens,
             )
             if usage_event is not None:
                 usage_total = usage_event.data.get("context_size_chars")
@@ -335,6 +362,46 @@ class OpenCodeCompat:
             directory=str(binding.workspace_dir),
         )
 
+    async def cleanup_session(self, session_id: str) -> dict[str, object]:
+        """Clean CodeAsk-owned opencode session resources without stopping the shared server."""
+
+        removed: list[str] = []
+        if self._data_dir is None:
+            return {"session_id": session_id, "removed": removed}
+
+        session_dir = self._data_dir / "agent_sessions" / "opencode" / session_id
+        if session_dir.exists():
+            shutil.rmtree(session_dir, ignore_errors=True)
+            removed.append(str(session_dir))
+
+        repos_root = self._data_dir / "repos"
+        if repos_root.exists():
+            for worktree_dir in repos_root.glob(f"*/worktrees/{session_id}"):
+                if worktree_dir.exists():
+                    shutil.rmtree(worktree_dir, ignore_errors=True)
+                    removed.append(str(worktree_dir))
+
+        return {"session_id": session_id, "removed": removed}
+
+    async def _build_turn_system_prompt(
+        self,
+        *,
+        session_id: str,
+        workspace_dir: Path,
+        system: str | None,
+    ) -> str:
+        base = system or build_codeask_system_prompt()
+        if self._context_builder is None:
+            return base
+        context = self._context_builder(session_id, workspace_dir)
+        if inspect.isawaitable(context):
+            context = await context  # type: ignore[assignment]
+        context_text = str(context).strip()
+        if not context_text:
+            return base
+        _write_dynamic_context_file(workspace_dir, context_text)
+        return f"{base.rstrip()}\n\n{context_text}"
+
 
 def _write_workspace_files(workspace_dir, config: dict[str, object]) -> None:  # type: ignore[no-untyped-def]
     (workspace_dir / "opencode.json").write_text(
@@ -347,6 +414,8 @@ def _write_workspace_files(workspace_dir, config: dict[str, object]) -> None:  #
         "boundaries from tools and files.\n"
         "- Use `./wiki/` for CodeAsk Wiki files. Prefer wiki evidence before code "
         "investigation.\n"
+        "- Read `./CODEASK_CONTEXT.md` when you need the current CodeAsk feature, "
+        "repository, attachment, or workspace facts.\n"
         "- Wiki layout: `./wiki/<feature_slug>/README.md`, `knowledge-base/` for "
         "primary knowledge, and `problem-reports/verified/` for verified issue "
         "reports. Use opencode glob/grep/read on these files directly.\n"
@@ -372,6 +441,60 @@ def _write_workspace_files(workspace_dir, config: dict[str, object]) -> None:  #
         "- Do not use Bash/Edit/Write unless CodeAsk explicitly enables them.\n",
         encoding="utf-8",
     )
+
+
+def _write_dynamic_context_file(workspace_dir: Path, context_text: str) -> None:
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    (workspace_dir / "CODEASK_CONTEXT.md").write_text(
+        f"{context_text.rstrip()}\n",
+        encoding="utf-8",
+    )
+
+
+def _context_snapshot_event(*, workspace_dir: Path, prompt: str) -> ChatRuntimeEvent | None:
+    context_file = workspace_dir / "CODEASK_CONTEXT.md"
+    if not context_file.is_file():
+        return None
+
+    metadata: dict[str, object] = {
+        "prompt_char_count": len(prompt),
+        "context_char_count": context_file.stat().st_size,
+    }
+    manifest = _read_wiki_manifest(workspace_dir / "wiki" / "_manifest.json")
+    if manifest:
+        metadata.update(
+            {
+                "wiki_manifest_schema_version": manifest.get("schema_version"),
+                "wiki_manifest_view_mode": manifest.get("view_mode"),
+                "wiki_manifest_exported_at": manifest.get("exported_at"),
+                "wiki_manifest_feature_count": manifest.get("feature_count"),
+                "wiki_manifest_document_count": manifest.get("document_count"),
+                "wiki_manifest_report_count": manifest.get("report_count"),
+            }
+        )
+
+    return ChatRuntimeEvent(
+        type="assistant_action",
+        data={
+            "action": "codeask_context_snapshot",
+            "summary": "CodeAsk 已注入本轮动态上下文摘要",
+            "metadata": metadata,
+        },
+    )
+
+
+def _read_wiki_manifest(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _record_process_health_ok(process_manager: ProcessManagerLike) -> None:
+    record = getattr(process_manager, "record_health_ok", None)
+    if callable(record):
+        record()
 
 
 class OpenCodeProviderTestError(RuntimeError):
@@ -437,17 +560,12 @@ def _write_provider_test_config(
     config = {
         "$schema": "https://opencode.ai/config.json",
         "provider": {
-            provider_id: {
-                "npm": profile.provider_npm,
-                "name": f"CodeAsk Provider Test {llm_config.name}",
-                "options": profile.build_options(llm_config),
-                "models": {
-                    llm_config.model_name: {
-                        "name": llm_config.model_name,
-                        "tool_call": False,
-                    }
-                },
-            }
+            provider_id: build_opencode_provider_entry(
+                llm_config,
+                profile=profile,
+                name_prefix="CodeAsk Provider Test",
+                tool_call=False,
+            )
         },
         "permission": {
             "bash": "deny",
@@ -619,12 +737,14 @@ def _think_tag_reasoning_observed(
 
 def _content_think_observed(message_id: str, length: int) -> ChatRuntimeEvent:
     return ChatRuntimeEvent(
-        type="reasoning_observed",
+        type="reasoning_leak_detected",
         data={
-            "source": "opencode",
+            "source": "content_reasoning_leak_guard",
+            "mode": "backend_content_guard",
             "part_id": f"content_think_tag:{message_id}",
             "part_type": "content_think_tag",
-            "content_length": length,
+            "leakedLength": length,
+            "masked": True,
             "raw_reasoning_used": False,
         },
     )
@@ -639,13 +759,23 @@ async def _wait_for_health(
     last_error: Exception | None = None
     for _ in range(attempts):
         try:
-            await client.health()
+            health = await client.health()
+            version = health.get("version")
+            if isinstance(version, str) and version not in SUPPORTED_OPENCODE_VERSIONS:
+                supported = ", ".join(sorted(SUPPORTED_OPENCODE_VERSIONS))
+                raise OpenCodeProcessError(
+                    "opencode_version_unsupported",
+                    f"unsupported opencode version {version}; expected {supported}",
+                )
             return
+        except OpenCodeProcessError:
+            raise
         except Exception as exc:  # pragma: no cover - exercised through fake client tests
             last_error = exc
             await asyncio.sleep(delay_seconds)
     if last_error is not None:
-        raise last_error
+        message = str(last_error).strip() or last_error.__class__.__name__
+        raise OpenCodeProcessError("opencode_health_timeout", message) from last_error
 
 
 def _should_emit_reasoning_observed(
@@ -752,6 +882,7 @@ def _opencode_usage_runtime_state(
     *,
     session_id: str,
     llm_config: LLMConfigWithSecret,
+    context_window_tokens: int = 200_000,
 ) -> ChatRuntimeEvent | None:
     properties = _opencode_properties(event, event_type="message.updated")
     if properties is None or properties.get("sessionID") != session_id:
@@ -778,7 +909,7 @@ def _opencode_usage_runtime_state(
     if total <= 0:
         return None
 
-    context_window = 200_000
+    context_window = max(1, context_window_tokens)
     return ChatRuntimeEvent(
         type="runtime_state",
         data={
@@ -790,6 +921,10 @@ def _opencode_usage_runtime_state(
             # Kept for frontend compatibility; opencode reports token counts.
             "context_size_chars": total,
             "context_window_chars": context_window,
+            "context_used": total,
+            "context_window": context_window,
+            "context_unit": "tokens",
+            "context_metric_source": "opencode_tokens",
             "usage_ratio": total / context_window,
             "usage_label": f"{total // 1000}k / {context_window // 1000}k",
             "is_global_pool": llm_config.scope == "global",

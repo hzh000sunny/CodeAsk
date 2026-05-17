@@ -1,4 +1,11 @@
 export type AppViewId = "sessions" | "features" | "wiki" | "settings" | "login";
+export type SettingsAdminPageId =
+  | "runtime"
+  | "attachments"
+  | "users"
+  | "llm"
+  | "repos"
+  | "policies";
 export type WikiMode = "view" | "edit";
 export type WikiDrawer = "detail" | "history" | "import" | "sources" | null;
 
@@ -14,6 +21,9 @@ export interface AppRouteState {
   view: AppViewId;
   sessions: {
     sessionId: string | null;
+  };
+  settings: {
+    adminPageId: SettingsAdminPageId | null;
   };
   wiki: WikiRouteState;
 }
@@ -31,6 +41,9 @@ export const defaultAppRouteState: AppRouteState = {
   sessions: {
     sessionId: null,
   },
+  settings: {
+    adminPageId: null,
+  },
   wiki: defaultWikiRouteState,
 };
 
@@ -46,6 +59,9 @@ export function readRouteStateFromLocation(): AppRouteState {
     view,
     sessions: {
       sessionId: readString(search.get("session")),
+    },
+    settings: {
+      adminPageId: readSettingsAdminPage(search.get("page")),
     },
     wiki: {
       featureId: readInt(search.get("feature")),
@@ -64,6 +80,9 @@ export function writeRouteStateToLocation(state: AppRouteState) {
   const params = new URLSearchParams();
   if (state.view === "sessions" && state.sessions.sessionId) {
     params.set("session", state.sessions.sessionId);
+  }
+  if (state.view === "settings" && state.settings.adminPageId) {
+    params.set("page", state.settings.adminPageId);
   }
   if (state.view === "wiki") {
     if (state.wiki.featureId != null) {
@@ -125,4 +144,18 @@ function readString(raw: string | null) {
 
 function isAppViewId(raw: string): raw is AppViewId {
   return raw === "sessions" || raw === "features" || raw === "wiki" || raw === "settings" || raw === "login";
+}
+
+function readSettingsAdminPage(raw: string | null): SettingsAdminPageId | null {
+  if (
+    raw === "runtime" ||
+    raw === "attachments" ||
+    raw === "users" ||
+    raw === "llm" ||
+    raw === "repos" ||
+    raw === "policies"
+  ) {
+    return raw;
+  }
+  return null;
 }

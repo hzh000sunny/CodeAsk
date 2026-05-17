@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,7 @@ from codeask.agent.opencode_compat.sessions import (
     ExternalAgentSessionCreate,
     ExternalAgentSessionStore,
 )
-from codeask.db.models import Session
+from codeask.db.models import ExternalAgentSession, Session
 from codeask.migrations import run_migrations
 
 
@@ -93,3 +94,70 @@ async def test_external_agent_session_store_upserts_and_marks_error(app) -> None
     errored = await store.mark_error("sess_opencode", "opencode exited")
     assert errored.status == "error"
     assert errored.error_summary == "opencode exited"
+
+
+@pytest.mark.asyncio
+async def test_external_agent_session_store_lists_idle_and_marks_cleaned(app) -> None:
+    store = ExternalAgentSessionStore(app.state.session_factory)
+    async with app.state.session_factory() as session:
+        session.add_all(
+            [
+                Session(id="sess_idle", title="idle", created_by_subject_id="subject-1"),
+                Session(id="sess_recent", title="recent", created_by_subject_id="subject-1"),
+                Session(id="sess_error", title="error", created_by_subject_id="subject-1"),
+            ]
+        )
+        await session.commit()
+
+    for session_id, status in [
+        ("sess_idle", "active"),
+        ("sess_recent", "active"),
+        ("sess_error", "error"),
+    ]:
+        await store.upsert(
+            ExternalAgentSessionCreate(
+                session_id=session_id,
+                external_session_key=f"ses_{session_id}",
+                session_dir=f"/tmp/{session_id}",
+                workspace_dir=f"/tmp/{session_id}/workspace",
+                server_url="http://127.0.0.1:4100",
+                port=4100,
+                pid=123,
+                config_hash="hash",
+                config_json={},
+            )
+        )
+        if status == "error":
+            await store.mark_error(session_id, "boom")
+
+    cutoff = datetime.now(UTC) - timedelta(hours=1)
+    async with app.state.session_factory() as session:
+        rows = (
+            await session.execute(
+                ExternalAgentSession.__table__.select().where(
+                    ExternalAgentSession.session_id.in_(["sess_idle", "sess_recent", "sess_error"])
+                )
+            )
+        ).mappings()
+        for row in rows:
+            if row["session_id"] == "sess_idle":
+                await session.execute(
+                    ExternalAgentSession.__table__.update()
+                    .where(ExternalAgentSession.session_id == "sess_idle")
+                    .values(updated_at=cutoff - timedelta(minutes=1))
+                )
+            elif row["session_id"] == "sess_error":
+                await session.execute(
+                    ExternalAgentSession.__table__.update()
+                    .where(ExternalAgentSession.session_id == "sess_error")
+                    .values(updated_at=cutoff - timedelta(minutes=1))
+                )
+        await session.commit()
+
+    assert await store.list_idle_session_ids(before=cutoff, limit=10) == ["sess_idle"]
+
+    cleaned = await store.mark_cleaned("sess_idle")
+    assert cleaned.status == "cleaned"
+    assert cleaned.pid is None
+    assert cleaned.error_summary is None
+    assert await store.list_idle_session_ids(before=cutoff, limit=10) == []

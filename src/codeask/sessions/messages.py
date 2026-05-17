@@ -13,6 +13,7 @@ from sqlalchemy import delete, func, select
 
 from codeask.agent.chat_runtime.context import SessionMessage
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
+from codeask.agent.opencode_compat.process import OpenCodeProcessError
 from codeask.agent.sse import SSEMultiplexer
 from codeask.api.schemas.session import MessageCreate
 from codeask.code_index.worktree import InvalidRefError, WorktreeError
@@ -28,6 +29,7 @@ from codeask.db.models import (
 from codeask.llm.gateway import LLMConfigSelection
 from codeask.llm.types import LLMEvent
 from codeask.sessions.title_generation import maybe_generate_session_title
+from codeask.sessions.trace_redaction import redact_trace_payload_for_frontend
 
 
 def _event_data_dict(data: object) -> dict[str, object]:
@@ -36,6 +38,31 @@ def _event_data_dict(data: object) -> dict[str, object]:
     if isinstance(data, dict):
         return data
     return {}
+
+
+def _frontend_event(
+    event: ChatRuntimeEvent,
+    event_data: dict[str, object],
+    *,
+    session_id: str,
+    turn_id: str,
+) -> ChatRuntimeEvent:
+    frontend_data: dict[str, object]
+    if event.type in {"text_delta", "done"}:
+        frontend_data = event_data
+    else:
+        frontend_data = redact_trace_payload_for_frontend(
+            event_data,
+            session_id=session_id,
+        )
+    return event.model_copy(
+        update={
+            "data": {
+                **frontend_data,
+                "turn_id": turn_id,
+            }
+        }
+    )
 
 
 async def create_user_turn_and_bindings(
@@ -188,7 +215,7 @@ async def stream_agent_response(
             if event.type == "done":
                 completed = True
             yield multiplexer.format(
-                event.model_copy(update={"data": {**event_data, "turn_id": turn_id}})
+                _frontend_event(event, event_data, session_id=session_id, turn_id=turn_id)
             )
     except asyncio.CancelledError:
         await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
@@ -249,7 +276,7 @@ async def stream_opencode_response(
                 event_data,
             )
             yield multiplexer.format(
-                selection.model_copy(update={"data": {**event_data, "turn_id": turn_id}})
+                _frontend_event(selection, event_data, session_id=session_id, turn_id=turn_id)
             )
             return
 
@@ -270,14 +297,20 @@ async def stream_opencode_response(
             initializing_data,
         )
         yield multiplexer.format(
-            initializing_event.model_copy(
-                update={"data": {**initializing_data, "turn_id": turn_id}}
+            _frontend_event(
+                initializing_event,
+                initializing_data,
+                session_id=session_id,
+                turn_id=turn_id,
             )
         )
 
         try:
             await compat.initialize_session(session_id, llm_config)
-            runtime_event = _opencode_runtime_state_event(selection, content)
+            context_window = int(
+                getattr(request.app.state.settings, "model_context_window_tokens", 200_000)
+            )
+            runtime_event = _opencode_runtime_state_event(selection, content, context_window)
             runtime_data = _event_data_dict(runtime_event.data)
             await persist_runtime_event_trace(
                 request,
@@ -287,7 +320,12 @@ async def stream_opencode_response(
                 runtime_data,
             )
             yield multiplexer.format(
-                runtime_event.model_copy(update={"data": {**runtime_data, "turn_id": turn_id}})
+                _frontend_event(
+                    runtime_event,
+                    runtime_data,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                )
             )
             emitted_text = False
             retrying_with_next_config = False
@@ -295,6 +333,7 @@ async def stream_opencode_response(
                 session_id=session_id,
                 user_message=content,
                 llm_config=llm_config,
+                context_window_tokens=context_window,
             ):
                 event_data = _event_data_dict(event.data)
                 if event.type == "error" and not emitted_text:
@@ -319,7 +358,12 @@ async def stream_opencode_response(
                         event_data,
                     )
                     yield multiplexer.format(
-                        event.model_copy(update={"data": {**event_data, "turn_id": turn_id}})
+                        _frontend_event(
+                            event,
+                            event_data,
+                            session_id=session_id,
+                            turn_id=turn_id,
+                        )
                     )
                     return
 
@@ -339,7 +383,7 @@ async def stream_opencode_response(
                     completed = True
                     request.app.state.llm_gateway.record_runtime_config_success(selection)
                 yield multiplexer.format(
-                    event.model_copy(update={"data": {**event_data, "turn_id": turn_id}})
+                    _frontend_event(event, event_data, session_id=session_id, turn_id=turn_id)
                 )
                 if event.type == "done":
                     break
@@ -354,11 +398,13 @@ async def stream_opencode_response(
             await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
             raise
         except Exception as exc:
+            error_code = exc.code if isinstance(exc, OpenCodeProcessError) else None
             error_event = ChatRuntimeEvent(
                 type="error",
                 data={
                     "backend": "opencode",
                     "error": str(exc) or exc.__class__.__name__,
+                    **({"code": error_code} if error_code else {}),
                 },
             )
             error_data = _event_data_dict(error_event.data)
@@ -370,7 +416,12 @@ async def stream_opencode_response(
                 error_data,
             )
             yield multiplexer.format(
-                error_event.model_copy(update={"data": {**error_data, "turn_id": turn_id}})
+                _frontend_event(
+                    error_event,
+                    error_data,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                )
             )
             return
 
@@ -417,10 +468,11 @@ async def _resolve_opencode_llm_config(
 def _opencode_runtime_state_event(
     selection: LLMConfigSelection,
     current_user_message: str,
+    context_window: int = 200_000,
 ):
     llm_config = selection.config
     context_size = max(0, len(current_user_message))
-    context_window = 200_000
+    context_window = max(1, context_window)
     return ChatRuntimeEvent(
         type="runtime_state",
         data={
@@ -431,6 +483,10 @@ def _opencode_runtime_state_event(
             "scope": llm_config.scope,
             "context_size_chars": context_size,
             "context_window_chars": context_window,
+            "context_used": context_size,
+            "context_window": context_window,
+            "context_unit": "chars_estimate",
+            "context_metric_source": "initial_estimate",
             "usage_ratio": context_size / context_window,
             "usage_label": f"{context_size // 1000}k / {context_window // 1000}k",
             "is_global_pool": selection.pooled_global,

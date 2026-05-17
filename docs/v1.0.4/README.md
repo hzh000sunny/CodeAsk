@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v1.0.4 |
 | 起始日期 | 2026-05-12 |
-| 状态 | Implementing |
+| 状态 | Manual Acceptance Completed |
 | 主题 | OpenCode Agent Backend 对接 |
 | 基线版本 | `../v1.0.3/` |
 | 目标 | 引入 opencode 作为 CodeAsk 的外部 Agent 执行引擎，CodeAsk 负责知识管理平台层（权限、审计、数据、生命周期），opencode 负责 Agent 执行层（LLM 调用、工具编排、代码分析） |
@@ -28,6 +28,7 @@ v1.0.4/
 │   └── opencode-backend.md        # 系统设计
 ├── plans/
 │   ├── opencode-backend.md        # 实施计划
+│   ├── open-issues-and-optimization-backlog.md # 设计/实现问题收敛清单
 │   └── acceptance-checklist.md    # 多环境 E2E 与收口验收清单
 └── specs/
     ├── opencode-interaction-flow.md       # 完整交互流程规格
@@ -53,7 +54,8 @@ v1.0.3 完成了用户认证、特性权限和会话基础设施。v1.0.4 在此
 3. `prd/opencode-backend.md` — 产品契约
 4. `design/opencode-backend.md` — 系统设计
 5. `plans/opencode-backend.md` — 实施计划
-6. `plans/acceptance-checklist.md` — 模块验收与多环境 E2E 门禁
+6. `plans/open-issues-and-optimization-backlog.md` — 当前审查发现的未完成项和优化清单
+7. `plans/acceptance-checklist.md` — 模块验收与多环境 E2E 门禁
 
 ## 当前硬前置
 
@@ -70,20 +72,60 @@ v1.0.3 完成了用户认证、特性权限和会话基础设施。v1.0.4 在此
 
 ## 当前实现进度
 
-截至 2026-05-15，本版本已经进入集成验证阶段：
+截至 2026-05-18，本版本已经完成自动化回归、真实浏览器验证和人工验收，当前代码已准备提交到 `main`；`v1.0.4` 分支/版本推送由后续发布步骤单独执行：
 
 - 已新增 `src/codeask/agent/opencode_compat/` 独立模块，默认会话后端切到 opencode，旧 native runtime 仅保留为回归测试和诊断路径。
 - 已实现 shared `opencode serve` 进程管理：CodeAsk 服务启动时 best-effort 拉起 opencode，后台 keepalive 定时检测并在进程退出后重新拉起；会话运行时仍会取当前 handle 并等待健康。
 - 已实现每个会话独立 workspace、`opencode.json`、`AGENTS.md`、MCP token、raw opencode event JSONL。
-- 已实现 LLM OpenCode Provider 显式选择：保存配置时不联网测试，会话按用户选择的 provider 生成 `opencode.json`，不在会话启动时隐式轮转；管理页提供“测试连接”按钮用于验证当前选择。列表行测试直接写入配置级连接状态；新增/编辑表单内测试只验证当前表单草稿，测试结果作为隐藏表单状态，必须在用户点击保存后才随配置一起落库。
+- 已实现 LLM Agent 适配方式显式选择：UI 使用通用 `Agent 适配方式` 文案，API 优先使用 `agent_runtime_*` 字段，当前 runtime backend 为 `opencode`；历史 `opencode_provider_*` 字段保留为兼容层。保存配置时不联网测试，会话按用户选择的 profile 生成 `opencode.json`，不在会话启动时隐式轮转；管理页提供“测试连接”按钮用于验证当前选择。列表行测试直接写入配置级连接状态；新增/编辑表单内测试只验证当前表单草稿，测试结果作为隐藏表单状态，必须在用户点击保存后才随配置一起落库。
 - 已实现持久化 Wiki 文件工作区导出：`<CODEASK_DATA_DIR>/wiki_workspace/current/<feature-slug>/...`，会话通过 `workspace/wiki` symlink 零复制挂载。
 - 已实现 opencode 专用 MCP endpoint 与工具：特性列表/详情、特性仓库、worktree 准备、会话附件、会话特性绑定；Wiki 和历史报告以文件目录暴露，由 opencode 自己 `glob/grep/read`。
 - 已接入 `/api/sessions/{id}/messages` 主发送链路，opencode 异常会返回 SSE `error` 事件，前端使用居中错误弹窗展示。
 - 已新增 live E2E 通道：`frontend/e2e/opencode-backend-live.spec.ts`，覆盖真实浏览器、真实数据、真实 LLM/opencode、workspace 文件与 wiki symlink。
+- 已新增 opencode 运行诊断：启动前记录 `opencode --version`，admin 接口 `GET /api/admin/opencode/status` 可读取 running、pid、port、bin、version、last_error、last_health_at、log_file。
+- 已新增设置页 admin 诊断面板：展示 opencode running、version、pid、port、active session count、last health、bin、log file 和 last error。
+- 已修复设置页子页面刷新回到“运行状态”的路由问题：admin 设置子页面写入 `#/settings?page=<page>`，浏览器刷新后仍停留在同一子页面；开发服务器和 `start.sh` 生产构建路径均已用真实浏览器验证。
 - 已修复报告草稿生成的长输出解析问题：当模型返回固定 JSON schema 但输出被截断时，后端会从可恢复的 `title_description` / `body_markdown` 中生成正式报告标题和正文，避免保存为 `YYYY-MM-DD 未命名问题` 或 raw JSON。
-- 已修复 LLM 配置新增/编辑态连接测试状态不落库问题：表单测试不再显示“当前表单测试通过”等临时列表状态，也不提前保存 provider；只有保存表单后，`opencode_provider_status` / `opencode_provider_tested_at` / `opencode_provider_error` / `opencode_provider_test_result_json` 才会写入数据库，刷新后列表继续显示真实状态。
+- 已修复 LLM 配置新增/编辑态连接测试状态不落库问题：表单测试不再显示“当前表单测试通过”等临时列表状态，也不提前保存 profile；只有保存表单后，测试状态才会写入数据库；列表接口优先读取 `llm_runtime_adapters`，并同步保留历史 `opencode_provider_status` / `opencode_provider_tested_at` / `opencode_provider_error` / `opencode_provider_test_result_json` 兼容字段，刷新后继续显示真实状态。
+- 已实现 turn 级动态 CodeAsk 上下文：每轮把当前 session、workspace、活跃特性目录、已绑定特性、仓库目录、Wiki 入口、附件摘要和 MCP 工具契约注入 system prompt，并写入 `CODEASK_CONTEXT.md`；同时记录不含原文的 `codeask_context_snapshot` 诊断摘要。
+- 已收敛 opencode 不可用分类：bin missing、start failed、process exited、health timeout、version unsupported 均返回稳定 code，并经 SSE error 事件透传给前端。
+- 已把 reasoning 主路径固定为 opencode 结构化 reasoning part；正文中 `<think>` 泄漏只作为后端异常防线 `reasoning_leak_detected` 记录，不作为正常适配方案。
+- 已为 Agent 行动轨迹返回数据增加后端出口脱敏：SSE 和 `/api/sessions/{session_id}/traces` 返回给前端前只暴露当前会话目录内相对路径，外部宿主机绝对路径显示为 `[外部绝对路径已隐藏]`；数据库 trace、opencode 工具参数、模型上下文和报告链路不改。
+- 已为 opencode MCP `tools/list` 增加契约快照，避免工具参数和文档再次漂移。
+- 已实现单会话 idle cleanup：后台定时清理超时 session workspace 和 repo worktree，并把绑定标记为 `cleaned`，不关闭 shared opencode server。
+- 已完成 v1.0.4 多环境 E2E 收口记录：临时空库 `start.sh`、真实数据只读、真实数据可写沙箱、真实 LLM/opencode、Wiki/MCP/worktree、会话连续性、停止生成和升级部署均有命令与结论。
 
-仍需收口的内容以 `plans/acceptance-checklist.md` 为准，主要集中在更完整的多环境 E2E、长期清理任务、opencode 不可用诊断和后续增强项记录。
+最终收口状态以 `plans/acceptance-checklist.md` 为准；当前未进入 v1.0.4 的增强项已在 future 或后续版本文档中保留。
+
+## 能力状态矩阵
+
+| 能力 | 当前状态 | 依据 |
+|---|---|---|
+| opencode shared server、workspace、MCP、Wiki 文件挂载、admin 诊断接口 | 已实现且已验收 | `plans/acceptance-checklist.md` 1.4、2.0-2.9 |
+| 动态 CodeAsk 上下文、context 快照日志、MCP schema 自然语言参数、可恢复工具错误 | 已实现且已验收 | `plans/open-issues-and-optimization-backlog.md` 2、3 |
+| LLM Agent 适配方式、runtime adapter 状态落库、网关调度 | 已实现且已验收 | `plans/acceptance-checklist.md` 1.1-1.3 |
+| reasoning 结构化处理与内容泄漏异常防线 | 已实现且已验收 | `plans/open-issues-and-optimization-backlog.md` 6 |
+| 前端会话切换和生成中状态恢复 | 已实现且已验收 | `plans/open-issues-and-optimization-backlog.md` 8、14 |
+| 设置页子页面路由、刷新恢复和生产构建路径 | 已实现且已验收 | `plans/acceptance-checklist.md` 1.5、3.1 |
+| 停止生成、刷新浏览器继续追问、升级部署 | 已实现且已验收 | `plans/open-issues-and-optimization-backlog.md` 13-15 |
+| idle cleanup、admin opencode 诊断面板、local_dir worktree E2E、权限 deny 可见性 | 已实现且已验收 | `plans/open-issues-and-optimization-backlog.md` 10、11、17、18 |
+| Agent 事件路径脱敏和接口返回隐私边界 | 已实现且已验收 | `plans/acceptance-checklist.md` 1.6、2.10 |
+
+## 部署收口注意
+
+`start.sh` 只在 `frontend/dist/index.html` 不存在时自动构建前端。离线拷贝代码升级时，如果目标环境已经存在旧 `frontend/dist`，必须先执行前端 build：
+
+```bash
+corepack pnpm --dir frontend build
+```
+
+如果环境没有 Corepack，可按根 README 的说明使用系统 `pnpm` 执行同等命令。否则后端会正常启动，但服务的仍可能是旧前端构建产物。
+
+> 重要：2026-05-16 的设计与实现复盘已新增
+> `plans/open-issues-and-optimization-backlog.md`。该文档记录了 v1.0.4
+> 当前所有已知设计不合理、实现不合理、测试不足和文档不一致问题。v1.0.4
+> 关闭前必须逐项关闭其中 P0 项，或由用户明确同意延期并迁移到 future /
+> 下一版本文档。
 
 ## 本轮回归修复
 

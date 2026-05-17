@@ -52,6 +52,14 @@ class Settings(BaseSettings):
         ge=30,
         description="Timeout applied to each outbound LLM request in seconds.",
     )
+    model_context_window_tokens: int = Field(
+        default=200_000,
+        ge=1_000,
+        description=(
+            "Default model context window shown in session runtime state. "
+            "Used as the fallback when provider metadata does not expose a window."
+        ),
+    )
     opencode_bin: str = Field(
         default="opencode",
         description="OpenCode executable used by the v1.0.4 compatibility backend.",
@@ -81,6 +89,16 @@ class Settings(BaseSettings):
         default=30,
         ge=5,
         description="Interval for checking and restarting the shared opencode serve process.",
+    )
+    opencode_session_idle_ttl_seconds: int = Field(
+        default=6 * 60 * 60,
+        ge=60,
+        description="Age after which inactive opencode session resources may be cleaned.",
+    )
+    opencode_session_cleanup_interval_seconds: int = Field(
+        default=60 * 60,
+        ge=60,
+        description="Interval for cleaning idle opencode session resources.",
     )
     agent_backend: Literal["opencode", "native"] = Field(
         default="opencode",

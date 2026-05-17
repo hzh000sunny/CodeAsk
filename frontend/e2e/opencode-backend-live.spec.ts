@@ -87,6 +87,14 @@ test("frontend session sends one turn through opencode backend", async ({ page }
       .last(),
   ).toBeVisible();
 
+  const followUp = await postMessage(
+    page,
+    sessionId,
+    "我刚刚问的问题和 list、tuple 有关吗？请只回答一句话。",
+  );
+  expect(followUp.text.trim()).not.toEqual("");
+  expect(followUp.eventTypes).toContain("done");
+
   const traces = await page.evaluate(async (id) => {
     const response = await fetch(`/api/sessions/${id}/traces`);
     if (!response.ok) {
@@ -115,6 +123,20 @@ test("frontend session sends one turn through opencode backend", async ({ page }
   const config = JSON.parse(readFileSync(path.join(workspaceDir, "opencode.json"), "utf-8"));
   expect(config.permission.bash).toBe("deny");
   expect(config.mcp.codeask.headers["X-CodeAsk-Session"]).toBe(sessionId);
+
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async (id) => {
+          const response = await fetch(`/api/sessions/${id}/turns`);
+          if (!response.ok) {
+            throw new Error(`list turns failed: ${response.status} ${await response.text()}`);
+          }
+          return ((await response.json()) as Array<{ role: string }>).map((turn) => turn.role);
+        }, sessionId),
+      { timeout: 180_000 },
+    )
+    .toEqual(["user", "agent", "user", "agent"]);
 });
 
 async function postMessage(

@@ -1,7 +1,7 @@
 # OpenCode Agent Backend 系统设计
 
 > 版本：v1.0.4
-> 状态：Draft
+> 状态：Manual Acceptance Completed
 > 关联：[交互流程规格](../specs/opencode-interaction-flow.md) | [产品契约](../prd/opencode-backend.md)
 
 ---
@@ -20,7 +20,7 @@ src/codeask/agent/opencode_compat/
 ├── backend.py                  # OpenCodeCompat 主入口，连接 sessions/workspace/process/http/events
 ├── sessions.py                 # opencode 会话绑定、状态、恢复
 ├── config.py                   # opencode.json + AGENTS.md 生成
-├── profiles.py                 # 少量用户可见 OpenCode Provider profile
+├── profiles.py                 # 少量用户可见 Agent 适配 profile
 ├── process.py                  # opencode shared server 生命周期
 ├── http.py                     # opencode HTTP API 客户端
 ├── events.py                   # opencode 原始事件归档与前端事件映射
@@ -86,10 +86,11 @@ v1.0.4 实现前先固定每个模块的职责和验收边界，避免开发过�
 | `sessions.py` | 管理 CodeAsk session 与 opencode session/workspace 的绑定 | `ExternalAgentSession`, `get_by_session_id`, `upsert`, `mark_running`, `mark_error` | 不保存 opencode message 正文全文；正文仍由会话 turn 管理 | DB CRUD、恢复、删除级联 |
 | `workspace.py` | 创建会话 workspace、附件目录、Wiki symlink，恢复被删 symlink | `prepare_workspace(session_id)`, `ensure_wiki_link`, `resolve_workspace_path` | 不复制整份 Wiki；不直接管理 git worktree | symlink 创建、删除恢复、路径越界拒绝 |
 | `config.py` | 生成 workspace 级 `opencode.json` 和 `AGENTS.md` | provider 配置、MCP remote 配置、permission 配置、模型上下文提示、已选 provider profile | 不从 URL / 模型名猜协议；不在保存配置时联网测试 | JSON schema 快照、OpenAI/Anthropic profile 生成 |
-| `profiles.py` | 提供少量用户可见 OpenCode Provider profile | `default`, `openai-native`, `openai-compatible`, `anthropic-native`, `anthropic-compatible-bearer`, `anthropic-compatible-v1-bearer`, `openrouter` | 不做厂商/URL/模型名特判；不在会话启动时隐式轮转；默认不改写用户配置 URL | 真实配置映射回归、同 URL 双协议回归、显式 provider 手动测试、未知 provider 失败 |
+| `profiles.py` | 提供少量用户可见 Agent 适配 profile，当前 backend 为 opencode | `default`, `openai-native`, `openai-compatible`, `anthropic-native`, `anthropic-compatible-bearer`, `anthropic-compatible-v1-bearer`, `openrouter` | 不做厂商/URL/模型名特判；不在会话启动时隐式轮转；默认不改写用户配置 URL | 真实配置映射回归、同 URL 双协议回归、显式 provider 手动测试、未知 provider 失败 |
 | `process.py` | 管理一个 shared `opencode serve` 常驻进程 | `ensure_server`, `restart`, `shutdown`, `healthcheck` | 不为每个会话默认起进程；per-session 只作为排障模式 | 端口分配、健康检查、换端口恢复 |
 | `http.py` | 封装 opencode HTTP API | `POST /session`, `POST /session/:id/prompt_async`, `GET /session/:id/message`, `/global/event`, `abort/revert` | 不按 REST 直觉拼 `/messages` | fake server 集成 + 路径快照 |
 | `events.py` | 归档 opencode 原始事件并映射前端事件 | raw JSONL、normalized event、tool/reasoning/status/error | 不复用旧 `scope_detection` 阶段事件 | event mapper 单测、sync 折叠、高频去噪 |
+| `sessions/trace_redaction.py` | 对返回给前端的 Agent 事件做出口脱敏 | SSE event data、`/traces` payload 副本 | 不修改数据库 trace、不修改 opencode 工具参数、不修改模型上下文 | 单元测试 + 前端展示兜底测试 |
 | `worktrees.py` | 调用现有 `WorktreeManager` 准备 session worktree 并暴露到 workspace | repo id/name、commit/branch、workspace relative link | 不重写 git worktree 管理；不复制仓库 | 真实 repo worktree smoke + 清理 |
 | `mcp/server.py` | 提供 opencode remote MCP StreamableHTTP endpoint | initialize、tools/list、tools/call | 不单独起 MCP 进程；复用 FastAPI | MCP initialize/list/call 集成 |
 | `mcp/auth.py` | 校验每个会话 MCP Bearer token | token/session/workspace 绑定 | 不接受无 token 调用 | token 正反例、跨会话拒绝 |
@@ -180,6 +181,19 @@ def upgrade():
     )
 ```
 
+### 3.3 LLMRuntimeAdapter
+
+v1.0.4 曾直接在 `llm_configs` 上增加 `opencode_provider_*` 字段。该方案能支撑 opencode 单 backend，但会把 LLM 配置、Agent runtime、连接测试状态耦合在同一张表里，不利于后续 Claude Code、ACP 或其它外部 Agent 接入。
+
+当前收敛方案：
+
+- `llm_configs` 继续保存 provider-neutral 的基础配置：协议、Base URL、API Key、模型名、输出参数和启用状态。
+- 新增 `llm_runtime_adapters`，按 `(llm_config_id, runtime_backend)` 保存该 LLM 配置在某个 Agent runtime 下的 `adapter_profile/status/tested_at/error/test_result_json`。
+- API 响应优先返回通用 `agent_runtime_*` 字段；历史 `opencode_provider_*` 字段保留并与 `opencode` adapter 同步，用于升级兼容和旧测试。
+- 列表接口优先读取 `llm_runtime_adapters`，避免 adapter 表和旧字段不一致时 UI 显示旧状态。
+- 新增/编辑表单提交通用 `agent_runtime_profile`；后端同时兼容旧 `opencode_provider_profile`。
+- 暂不开放自定义 JSON/高级 provider 参数，避免普通用户配置复杂化。新增 profile 必须来自真实失败样本，并抽象为少量通用选项。
+
 ---
 
 ## 4. Wiki 文件工作区
@@ -191,11 +205,13 @@ CodeAsk 维护一个持久化 Wiki 文件工作区，供所有 opencode 会话�
 ```text
 <CODEASK_DATA_DIR>/wiki_workspace/current/
 ├── _manifest.json
-├── <feature-name-or-slug>/
-│   ├── index.md
-│   ├── <wiki-dir>/
-│   ├── <wiki-doc>.md
-│   └── <wiki-doc>.assets/
+├── <feature-slug>/
+│   ├── README.md
+│   ├── knowledge-base/
+│   ├── problem-reports/
+│   │   ├── verified/
+│   │   └── drafts/
+│   └── <wiki-doc>.md
 └── ...
 ```
 
@@ -205,9 +221,9 @@ CodeAsk 维护一个持久化 Wiki 文件工作区，供所有 opencode 会话�
 - 特性下的目录和文档结构与当前特性 Wiki 树一致。
 - Markdown 文件名优先使用用户可见标题；必要时做文件系统安全转义。
 - 静态资源保持 Markdown 中可用的相对路径，例如 `Untitled.assets/image.png`。
-- 每个特性目录生成 `index.md`，汇总该特性的 Wiki 入口、描述和目录树。
-- 根目录生成 `_manifest.json`，记录 feature_id、feature_name、wiki_node_id、title、relative_path、updated_at。
-- 导出动作由 Wiki 写入、删除、排序、导入完成等事件触发；会话创建时只读取现有工作区，不做全量导出。
+- 每个特性目录生成 `README.md`，汇总该特性的 Wiki 入口、描述、文档数量、报告数量和目录使用规则。
+- 根目录生成 `_manifest.json`，记录 `schema_version`、`view_mode=live`、`exported_at`、特性/文档/报告数量，以及每个特性的 `feature_id/name/slug/path/document_count/report_count`。
+- v1.0.4 会在 opencode session 初始化前导出当前 Wiki live view；后续可以改为 Wiki 写入、删除、排序、导入完成等事件触发增量更新。
 
 ### 4.2 会话挂载
 
@@ -715,6 +731,16 @@ opencode raw SSE
 | `opencode_error` | session.error / HTTP error | 居中弹窗错误 |
 | `opencode_done` | idle + final response | 本轮完成 |
 
+### 8.1 前端出口脱敏
+
+v1.0.4 保留内部审计事实，但不把宿主机绝对路径直接返回给浏览器：
+
+- `AgentTrace.payload` 和 raw opencode JSONL 保留原始 payload，用于内部审计、上下文摘要、报告生成和问题定位。
+- SSE 返回给前端前使用脱敏副本；`GET /api/sessions/{session_id}/traces` 返回历史行动轨迹前同样使用脱敏副本。
+- 当前会话目录内路径，例如 `<CODEASK_DATA_DIR>/agent_sessions/opencode/<session_id>/workspace/repos/app/src/main.ts`，返回为 `workspace/repos/app/src/main.ts`。
+- 其它宿主机绝对路径返回为 `[外部绝对路径已隐藏]`。
+- `text_delta` / `done` 不做该路径脱敏，避免改变用户可见的模型正文；Agent 事件、工具参数摘要、工具结果摘要和错误事件走脱敏出口。
+
 ```python
 # src/codeask/agent/opencode_compat/events.py
 
@@ -791,24 +817,26 @@ CodeAsk session
 - 不允许在 opencode 会话路径直接调用 `llm_config_repo.get_default_or(None, ...)` 选择运行时配置；该方法不承担多条全局启用配置的随机调度。
 - 不允许把多条启用配置退化成“取第一条”；全局配置池必须随机选择，并受最大连接数、粘性和失败冷却约束。
 - `LLMGateway` 不生成 opencode provider 配置，不根据 URL、厂商或模型名做 provider 特判。
-- 选中的 `LLMConfigWithSecret` 必须原样传给 `opencode_compat`，包括 `protocol`、`base_url`、`model_name`、`reasoning_profile` 和 `opencode_provider_profile`。
+- 选中的 `LLMConfigWithSecret` 必须原样传给 `opencode_compat`，包括 `protocol`、`base_url`、`model_name`、`reasoning_profile` 和通用 `agent_runtime_profile`；历史 `opencode_provider_profile` 仅作为当前 backend 的兼容别名。
 - opencode provider profile 的配置生成和请求执行仍完全由 `src/codeask/agent/opencode_compat/` 负责。
 
 ### 9.1 LLM provider 映射要求
 
-Phase 0 和实现阶段使用 CodeAsk DB 中真实 LLM 配置做 opencode provider smoke matrix，结论是：不能只按厂商、模型名或 URL 做后端特判；同一个私有网关 URL 可能同时支持 OpenAI 与 Anthropic 两种消息协议，且是否需要 `/v1` 取决于网关入口。v1.0.4 因此采用“用户显式选择 OpenCode Provider + 手动连接测试”的策略。
+Phase 0 和实现阶段使用 CodeAsk DB 中真实 LLM 配置做 opencode provider smoke matrix，结论是：不能只按厂商、模型名或 URL 做后端特判；同一个私有网关 URL 可能同时支持 OpenAI 与 Anthropic 两种消息协议，且是否需要 `/v1` 取决于网关入口。v1.0.4 因此采用“用户显式选择 Agent 适配方式 + 手动连接测试”的策略。
+
+接口层使用通用 `agent_runtime_profile` / `agent_runtime_status` / `agent_runtime_*` 字段，数据库新增 `llm_runtime_adapters` 保存 runtime backend 维度的 profile 和测试状态。当前 backend 为 `opencode`，因此仍同步维护历史 `llm_configs.opencode_provider_*` 字段，保证 v1.0.3/v1.0.4 过渡数据和旧客户端不丢失。
 
 `opencode_compat/config.py` 不应把 provider 映射写成不可调整的简单分支。第一版要求：
 
 - 生成配置时保留 provider npm/baseURL/header 的 profile 扩展点。
 - 新增/修改 LLM 配置时不自动联网测试，避免保存表单变慢和普通用户配置被后台阻塞。
-- LLM 配置页面提供 OpenCode Provider 下拉框和“测试连接”按钮；测试只验证当前选中的 provider，不做隐式轮转。
-- 已保存配置的列表行“测试连接”可以直接测试当前数据库配置，并把成功/失败写入 `llm_configs.opencode_provider_*`。
+- LLM 配置页面提供 `Agent 适配方式` 下拉框和“测试连接”按钮；测试只验证当前选中的 profile，不做隐式轮转。
+- 已保存配置的列表行“测试连接”可以直接测试当前数据库配置，并把成功/失败写入 `llm_runtime_adapters`，同时同步旧 `llm_configs.opencode_provider_*`。
 - 新增表单内的“测试连接”必须使用当前表单字段调用草稿测试接口；测试结果只作为该新增表单的隐藏状态，用户点击“保存 LLM 配置”后才随配置字段一起创建并落库。
 - 编辑表单内的“测试连接”必须按表单语义处理：使用当前表单字段调用草稿测试接口，不提前保存 provider、baseURL、模型名或 API Key；测试结果只作为该编辑表单的隐藏状态，用户点击“保存修改”后才随配置字段一起落库。
-- 如果用户测试成功后继续修改配置名称、协议、Base URL、API Key、模型名或 OpenCode Provider，前端必须清空该表单内的测试结果，避免把旧测试状态绑定到新配置。
+- 如果用户测试成功后继续修改配置名称、协议、Base URL、API Key、模型名或 Agent 适配方式，前端必须清空该表单内的测试结果，避免把旧测试状态绑定到新配置。
 - 会话开始时直接使用当前显式选择的 provider 生成 workspace 级 `opencode.json`；如果用户选错，向用户返回明确错误，不自动换其它 provider。
-- 持久化后的测试结果写入 `llm_configs.opencode_provider_*`，会话绑定仍记录 `external_agent_sessions.provider_profile_id` 以便审计。
+- 持久化后的测试结果以 `llm_runtime_adapters` 为主数据源，旧 `llm_configs.opencode_provider_*` 为兼容镜像；会话绑定仍记录 `external_agent_sessions.provider_profile_id` 以便审计。
 - `default` 表示 opencode native provider 行为：OpenAI 协议使用 `@ai-sdk/openai`，Anthropic 协议使用 `@ai-sdk/anthropic`。
 
 初版用户可选 provider：

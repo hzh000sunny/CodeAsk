@@ -127,6 +127,16 @@ async def test_list_features_tool_returns_active_feature_catalog(db_factory) -> 
 
 
 @pytest.mark.asyncio
+async def test_list_features_tool_filters_by_query(db_factory) -> None:  # type: ignore[no-untyped-def]
+    result = await list_features_tool(db_factory).handler({"query": "肿瘤"}, _CTX)
+
+    assert [feature["slug"] for feature in result["features"]] == ["xiaomi"]
+
+    empty = await list_features_tool(db_factory).handler({"query": "不存在"}, _CTX)
+    assert empty["features"] == []
+
+
+@pytest.mark.asyncio
 async def test_get_feature_info_tool_returns_wiki_entries_and_repos(db_factory) -> None:  # type: ignore[no-untyped-def]
     result = await get_feature_info_tool(db_factory).handler({"feature_id": 1}, _CTX)
 
@@ -154,8 +164,20 @@ async def test_get_feature_info_tool_returns_wiki_entries_and_repos(db_factory) 
             "name": "anything-llm",
             "status": "ready",
             "source": "local_dir",
+            "feature_ids": [1],
+            "error_message": None,
+            "last_synced_at": None,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_get_feature_info_tool_accepts_slug_or_name(db_factory) -> None:  # type: ignore[no-untyped-def]
+    by_slug = await get_feature_info_tool(db_factory).handler({"slug": "xiaomi"}, _CTX)
+    by_name = await get_feature_info_tool(db_factory).handler({"name": "小米"}, _CTX)
+
+    assert by_slug["feature"]["feature_id"] == 1
+    assert by_name["feature"]["slug"] == "xiaomi"
 
 
 @pytest.mark.asyncio
@@ -170,6 +192,15 @@ async def test_list_feature_repos_can_include_unready_repos(db_factory) -> None:
         "repo_failed",
     ]
     assert result["repositories"][1]["status"] == "failed"
+    assert result["repositories"][1]["error_message"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_feature_repos_can_search_repos_without_feature(db_factory) -> None:  # type: ignore[no-untyped-def]
+    result = await list_feature_repos_tool(db_factory).handler({"query": "anything"}, _CTX)
+
+    assert [repo["repo_id"] for repo in result["repositories"]] == ["repo_ready"]
+    assert result["repositories"][0]["feature_ids"] == [1]
 
 
 def test_build_feature_tools_has_simple_json_schemas(db_factory) -> None:  # type: ignore[no-untyped-def]
@@ -181,3 +212,6 @@ def test_build_feature_tools_has_simple_json_schemas(db_factory) -> None:  # typ
         "list_feature_repos",
     ]
     assert tools[0].input_schema["type"] == "object"
+    assert "query" in tools[0].input_schema["properties"]
+    assert set(tools[1].input_schema["properties"]) == {"feature_id", "slug", "name"}
+    assert "query" in tools[2].input_schema["properties"]

@@ -10,9 +10,10 @@ from typing import Any
 from pydantic import BaseModel
 from sqlalchemy import Select, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload
 
 from codeask.crypto import Crypto
-from codeask.db.models import LLMConfig
+from codeask.db.models import LLMConfig, LLMRuntimeAdapter
 from codeask.llm.types import ProviderProtocol
 
 
@@ -57,6 +58,12 @@ class LLMConfigPublic:
     quota_remaining: float | None
     reasoning_profile: str
     reasoning_profile_json: str | None
+    agent_runtime_backend: str = "opencode"
+    agent_runtime_profile: str | None = None
+    agent_runtime_status: str = "unknown"
+    agent_runtime_tested_at: datetime | None = None
+    agent_runtime_error: str | None = None
+    agent_runtime_test_result_json: Any | None = None
     opencode_provider_profile: str | None = None
     opencode_provider_status: str = "unknown"
     opencode_provider_tested_at: datetime | None = None
@@ -82,6 +89,12 @@ class LLMConfigWithSecret:
     quota_remaining: float | None
     reasoning_profile: str
     reasoning_profile_json: str | None
+    agent_runtime_backend: str = "opencode"
+    agent_runtime_profile: str | None = None
+    agent_runtime_status: str = "unknown"
+    agent_runtime_tested_at: datetime | None = None
+    agent_runtime_error: str | None = None
+    agent_runtime_test_result_json: Any | None = None
     opencode_provider_profile: str | None = None
     opencode_provider_status: str = "unknown"
     opencode_provider_tested_at: datetime | None = None
@@ -96,6 +109,7 @@ def _mask_key(key: str) -> str:
 
 
 def _to_secret(row: LLMConfig, crypto: Crypto) -> LLMConfigWithSecret:
+    opencode_adapter = _runtime_adapter(row, "opencode")
     return LLMConfigWithSecret(
         id=row.id,
         name=row.name,
@@ -113,12 +127,53 @@ def _to_secret(row: LLMConfig, crypto: Crypto) -> LLMConfigWithSecret:
         quota_remaining=row.quota_remaining,
         reasoning_profile=row.reasoning_profile,
         reasoning_profile_json=row.reasoning_profile_json,
-        opencode_provider_profile=row.opencode_provider_profile,
-        opencode_provider_status=row.opencode_provider_status,
-        opencode_provider_tested_at=row.opencode_provider_tested_at,
-        opencode_provider_error=row.opencode_provider_error,
-        opencode_provider_test_result_json=row.opencode_provider_test_result_json,
+        agent_runtime_backend="opencode",
+        agent_runtime_profile=(
+            opencode_adapter.adapter_profile if opencode_adapter else row.opencode_provider_profile
+        ),
+        agent_runtime_status=(
+            opencode_adapter.status if opencode_adapter else row.opencode_provider_status
+        ),
+        agent_runtime_tested_at=(
+            opencode_adapter.tested_at if opencode_adapter else row.opencode_provider_tested_at
+        ),
+        agent_runtime_error=(
+            opencode_adapter.error if opencode_adapter else row.opencode_provider_error
+        ),
+        agent_runtime_test_result_json=(
+            opencode_adapter.test_result_json
+            if opencode_adapter
+            else row.opencode_provider_test_result_json
+        ),
+        opencode_provider_profile=(
+            opencode_adapter.adapter_profile if opencode_adapter else row.opencode_provider_profile
+        ),
+        opencode_provider_status=(
+            opencode_adapter.status if opencode_adapter else row.opencode_provider_status
+        ),
+        opencode_provider_tested_at=(
+            opencode_adapter.tested_at if opencode_adapter else row.opencode_provider_tested_at
+        ),
+        opencode_provider_error=(
+            opencode_adapter.error if opencode_adapter else row.opencode_provider_error
+        ),
+        opencode_provider_test_result_json=(
+            opencode_adapter.test_result_json
+            if opencode_adapter
+            else row.opencode_provider_test_result_json
+        ),
     )
+
+
+def _runtime_adapter(row: LLMConfig, runtime_backend: str) -> LLMRuntimeAdapter | None:
+    for adapter in row.runtime_adapters:
+        if adapter.runtime_backend == runtime_backend:
+            return adapter
+    return None
+
+
+def _with_runtime_adapters(stmt: Select[tuple[LLMConfig]]) -> Select[tuple[LLMConfig]]:
+    return stmt.options(selectinload(LLMConfig.runtime_adapters))
 
 
 def _scope_filter(
@@ -186,6 +241,18 @@ class LLMConfigRepo:
                     opencode_provider_test_result_json=data.opencode_provider_test_result_json,
                 )
             )
+            session.add(
+                LLMRuntimeAdapter(
+                    id=f"adapter_{token_hex(8)}",
+                    llm_config_id=cfg_id,
+                    runtime_backend="opencode",
+                    adapter_profile=data.opencode_provider_profile,
+                    status=data.opencode_provider_status,
+                    tested_at=data.opencode_provider_tested_at,
+                    error=data.opencode_provider_error,
+                    test_result_json=data.opencode_provider_test_result_json,
+                )
+            )
             await session.commit()
         return cfg_id
 
@@ -197,7 +264,7 @@ class LLMConfigRepo:
     ) -> list[LLMConfigPublic]:
         async with self._session_factory() as session:
             stmt = _scope_filter(
-                select(LLMConfig),
+                _with_runtime_adapters(select(LLMConfig)),
                 scope=scope,
                 owner_subject_id=owner_subject_id,
             )
@@ -206,6 +273,7 @@ class LLMConfigRepo:
         items: list[LLMConfigPublic] = []
         for row in rows:
             plain = self._crypto.decrypt(row.api_key_encrypted)
+            opencode_adapter = _runtime_adapter(row, "opencode")
             items.append(
                 LLMConfigPublic(
                     id=row.id,
@@ -224,11 +292,53 @@ class LLMConfigRepo:
                     quota_remaining=row.quota_remaining,
                     reasoning_profile=row.reasoning_profile,
                     reasoning_profile_json=row.reasoning_profile_json,
-                    opencode_provider_profile=row.opencode_provider_profile,
-                    opencode_provider_status=row.opencode_provider_status,
-                    opencode_provider_tested_at=row.opencode_provider_tested_at,
-                    opencode_provider_error=row.opencode_provider_error,
-                    opencode_provider_test_result_json=row.opencode_provider_test_result_json,
+                    agent_runtime_backend="opencode",
+                    agent_runtime_profile=(
+                        opencode_adapter.adapter_profile
+                        if opencode_adapter
+                        else row.opencode_provider_profile
+                    ),
+                    agent_runtime_status=(
+                        opencode_adapter.status
+                        if opencode_adapter
+                        else row.opencode_provider_status
+                    ),
+                    agent_runtime_tested_at=(
+                        opencode_adapter.tested_at
+                        if opencode_adapter
+                        else row.opencode_provider_tested_at
+                    ),
+                    agent_runtime_error=(
+                        opencode_adapter.error if opencode_adapter else row.opencode_provider_error
+                    ),
+                    agent_runtime_test_result_json=(
+                        opencode_adapter.test_result_json
+                        if opencode_adapter
+                        else row.opencode_provider_test_result_json
+                    ),
+                    opencode_provider_profile=(
+                        opencode_adapter.adapter_profile
+                        if opencode_adapter
+                        else row.opencode_provider_profile
+                    ),
+                    opencode_provider_status=(
+                        opencode_adapter.status
+                        if opencode_adapter
+                        else row.opencode_provider_status
+                    ),
+                    opencode_provider_tested_at=(
+                        opencode_adapter.tested_at
+                        if opencode_adapter
+                        else row.opencode_provider_tested_at
+                    ),
+                    opencode_provider_error=(
+                        opencode_adapter.error if opencode_adapter else row.opencode_provider_error
+                    ),
+                    opencode_provider_test_result_json=(
+                        opencode_adapter.test_result_json
+                        if opencode_adapter
+                        else row.opencode_provider_test_result_json
+                    ),
                 )
             )
         return items
@@ -242,7 +352,7 @@ class LLMConfigRepo:
     ) -> LLMConfigWithSecret:
         async with self._session_factory() as session:
             stmt = _scope_filter(
-                select(LLMConfig).where(LLMConfig.id == cfg_id),
+                _with_runtime_adapters(select(LLMConfig).where(LLMConfig.id == cfg_id)),
                 scope=scope,
                 owner_subject_id=owner_subject_id,
             )
@@ -258,7 +368,7 @@ class LLMConfigRepo:
     ) -> LLMConfigWithSecret | None:
         async with self._session_factory() as session:
             stmt = _scope_filter(
-                select(LLMConfig).where(LLMConfig.is_default.is_(True)),
+                _with_runtime_adapters(select(LLMConfig).where(LLMConfig.is_default.is_(True))),
                 scope=scope,
                 owner_subject_id=owner_subject_id,
             )
@@ -283,7 +393,7 @@ class LLMConfigRepo:
             return global_default
 
         async with self._session_factory() as session:
-            stmt = select(LLMConfig).where(LLMConfig.enabled.is_(True))
+            stmt = _with_runtime_adapters(select(LLMConfig).where(LLMConfig.enabled.is_(True)))
             if subject_id:
                 stmt = stmt.where(
                     (LLMConfig.scope == "global")
@@ -309,7 +419,7 @@ class LLMConfigRepo:
             rows = (
                 (
                     await session.execute(
-                        select(LLMConfig)
+                        _with_runtime_adapters(select(LLMConfig))
                         .where(
                             LLMConfig.scope == "user",
                             LLMConfig.owner_subject_id == subject_id,
@@ -328,7 +438,7 @@ class LLMConfigRepo:
             rows = (
                 (
                     await session.execute(
-                        select(LLMConfig)
+                        _with_runtime_adapters(select(LLMConfig))
                         .where(
                             LLMConfig.scope == "global",
                             LLMConfig.owner_subject_id.is_(None),
@@ -379,6 +489,16 @@ class LLMConfigRepo:
             row.opencode_provider_tested_at = datetime.now(UTC)
             row.opencode_provider_error = None
             row.opencode_provider_test_result_json = result
+            await _upsert_runtime_adapter(
+                session,
+                llm_config_id=cfg_id,
+                runtime_backend="opencode",
+                adapter_profile=row.opencode_provider_profile,
+                status=row.opencode_provider_status,
+                tested_at=row.opencode_provider_tested_at,
+                error=row.opencode_provider_error,
+                test_result_json=row.opencode_provider_test_result_json,
+            )
             await session.commit()
 
     async def mark_opencode_provider_test_failure(
@@ -398,4 +518,54 @@ class LLMConfigRepo:
             row.opencode_provider_tested_at = datetime.now(UTC)
             row.opencode_provider_error = error_summary
             row.opencode_provider_test_result_json = result
+            await _upsert_runtime_adapter(
+                session,
+                llm_config_id=cfg_id,
+                runtime_backend="opencode",
+                adapter_profile=row.opencode_provider_profile,
+                status=row.opencode_provider_status,
+                tested_at=row.opencode_provider_tested_at,
+                error=row.opencode_provider_error,
+                test_result_json=row.opencode_provider_test_result_json,
+            )
             await session.commit()
+
+
+async def _upsert_runtime_adapter(
+    session: AsyncSession,
+    *,
+    llm_config_id: str,
+    runtime_backend: str,
+    adapter_profile: str,
+    status: str,
+    tested_at: datetime | None,
+    error: str | None,
+    test_result_json: Any | None,
+) -> None:
+    adapter = (
+        await session.execute(
+            select(LLMRuntimeAdapter).where(
+                LLMRuntimeAdapter.llm_config_id == llm_config_id,
+                LLMRuntimeAdapter.runtime_backend == runtime_backend,
+            )
+        )
+    ).scalar_one_or_none()
+    if adapter is None:
+        session.add(
+            LLMRuntimeAdapter(
+                id=f"adapter_{token_hex(8)}",
+                llm_config_id=llm_config_id,
+                runtime_backend=runtime_backend,
+                adapter_profile=adapter_profile,
+                status=status,
+                tested_at=tested_at,
+                error=error,
+                test_result_json=test_result_json,
+            )
+        )
+        return
+    adapter.adapter_profile = adapter_profile
+    adapter.status = status
+    adapter.tested_at = tested_at
+    adapter.error = error
+    adapter.test_result_json = test_result_json

@@ -10,7 +10,7 @@ import {
 import { useAppFeedback } from "../feedback/AppFeedback";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { OPENCODE_PROVIDER_PROFILE_OPTIONS } from "./settings-utils";
+import { FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS } from "./settings-utils";
 
 const DEFAULT_GUEST_LLM_CONFIG: GuestLlmConfigValue = {
   name: "访客 LLM",
@@ -22,7 +22,7 @@ const DEFAULT_GUEST_LLM_CONFIG: GuestLlmConfigValue = {
   temperature: 0,
   reasoning_profile: "none",
   reasoning_profile_json: null,
-  opencode_provider_profile: "default",
+  agent_runtime_profile: "default",
 };
 
 export function GuestLlmConfig() {
@@ -85,19 +85,19 @@ export function GuestLlmConfig() {
           />
         </label>
         <label className="field-label compact" htmlFor="guest-opencode-provider">
-          OpenCode Provider
+          Agent 适配方式
           <select
             className="input"
             id="guest-opencode-provider"
             onChange={(event) =>
               update(
-                "opencode_provider_profile",
-                event.target.value as GuestLlmConfigValue["opencode_provider_profile"],
+                "agent_runtime_profile",
+                event.target.value as GuestLlmConfigValue["agent_runtime_profile"],
               )
             }
-            value={config.opencode_provider_profile ?? "default"}
+            value={config.agent_runtime_profile ?? "default"}
           >
-            {OPENCODE_PROVIDER_PROFILE_OPTIONS.map((option) => (
+            {FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>

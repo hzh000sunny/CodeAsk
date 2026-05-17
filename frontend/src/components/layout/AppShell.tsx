@@ -13,6 +13,7 @@ import {
   writeRouteStateToLocation,
   type AppRouteState,
   type AppViewId,
+  type SettingsAdminPageId,
 } from "../../lib/wiki/routing";
 import { Sidebar, type SectionId } from "./Sidebar";
 import { TopBar } from "./TopBar";
@@ -111,6 +112,18 @@ export function AppShell() {
     writeRouteStateToLocation(nextState);
   }
 
+  function navigateSettingsPage(adminPageId: SettingsAdminPageId) {
+    const nextState: AppRouteState = {
+      ...routeState,
+      view: "settings",
+      settings: {
+        adminPageId,
+      },
+    };
+    setRouteState(nextState);
+    writeRouteStateToLocation(nextState);
+  }
+
   function openWikiFromFeature(featureId: number, options?: FeatureWikiOpenOptions) {
     setReportTarget(null);
     navigateWiki({
@@ -197,7 +210,12 @@ export function AppShell() {
               }}
             />
           ) : null}
-          {routeState.view === "settings" ? <SettingsPage /> : null}
+          {routeState.view === "settings" ? (
+            <SettingsPage
+              routeAdminPageId={routeState.settings.adminPageId}
+              onAdminPageChange={navigateSettingsPage}
+            />
+          ) : null}
           {routeState.view === "login" ? (
             <AdminLoginPage
               onSuccess={() => {

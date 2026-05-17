@@ -3,6 +3,9 @@
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy import select
+
+from codeask.db.models import LLMRuntimeAdapter
 
 
 class FakeOpenCodeCompat:
@@ -80,6 +83,39 @@ async def test_admin_can_test_explicit_opencode_provider(
     item = next(row for row in listed.json() if row["id"] == created.json()["id"])
     assert item["opencode_provider_status"] == "ok"
     assert item["opencode_provider_error"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_llm_config_accepts_generic_agent_runtime_profile(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    fake = FakeOpenCodeCompat()
+    app.state.opencode_compat = fake
+    await client.post("/api/auth/admin/login", json={"password": "admin"})
+
+    created = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "generic-runtime-profile",
+            "protocol": "anthropic",
+            "base_url": "https://gateway.example.test",
+            "api_key": "sk-provider",
+            "model_name": "model-a",
+            "agent_runtime_profile": "anthropic-compatible-bearer",
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["agent_runtime_backend"] == "opencode"
+    assert body["agent_runtime_profile"] == "anthropic-compatible-bearer"
+    assert body["opencode_provider_profile"] == "anthropic-compatible-bearer"
+
+    tested = await client.post(f"/api/admin/llm-configs/{body['id']}/test")
+
+    assert tested.status_code == 200, tested.text
+    assert fake.tested[0][0].opencode_provider_profile == "anthropic-compatible-bearer"
 
 
 @pytest.mark.asyncio
@@ -231,6 +267,111 @@ async def test_admin_can_test_update_draft_then_save_result(
     assert stored["protocol"] == "anthropic"
     assert stored["model_name"] == "new-model"
     assert stored["opencode_provider_status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_update_with_unchanged_runtime_fields_preserves_test_status(
+    client: AsyncClient,
+) -> None:
+    await client.post("/api/auth/admin/login", json={"password": "admin"})
+    created = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "tested-unchanged-runtime",
+            "protocol": "anthropic",
+            "base_url": "https://gateway.example.test",
+            "api_key": "sk-tested",
+            "model_name": "model-tested",
+            "opencode_provider_profile": "anthropic-compatible-bearer",
+            "opencode_provider_status": "ok",
+            "opencode_provider_tested_at": "2026-05-15T10:00:00Z",
+            "opencode_provider_error": None,
+            "opencode_provider_test_result_json": {
+                "profile_id": "anthropic-compatible-bearer",
+                "text_preview": "OK",
+            },
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    updated = await client.patch(
+        f"/api/admin/llm-configs/{created.json()['id']}",
+        json={
+            "name": "renamed-tested-unchanged-runtime",
+            "protocol": "anthropic",
+            "base_url": "https://gateway.example.test",
+            "model_name": "model-tested",
+            "opencode_provider_profile": "anthropic-compatible-bearer",
+        },
+    )
+
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["name"] == "renamed-tested-unchanged-runtime"
+    assert body["opencode_provider_status"] == "ok"
+    assert body["opencode_provider_error"] is None
+    assert body["opencode_provider_test_result_json"]["text_preview"] == "OK"
+
+
+@pytest.mark.asyncio
+async def test_list_prefers_runtime_adapter_over_legacy_opencode_columns(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    await client.post("/api/auth/admin/login", json={"password": "admin"})
+    created = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "adapter-source-of-truth",
+            "protocol": "anthropic",
+            "base_url": "https://gateway.example.test",
+            "api_key": "sk-adapter",
+            "model_name": "model-adapter",
+            "opencode_provider_profile": "default",
+            "opencode_provider_status": "unknown",
+        },
+    )
+    assert created.status_code == 201, created.text
+    cfg_id = created.json()["id"]
+
+    async with app.state.session_factory() as session:
+        adapter = (
+            await session.execute(
+                select(LLMRuntimeAdapter).where(
+                    LLMRuntimeAdapter.llm_config_id == cfg_id,
+                    LLMRuntimeAdapter.runtime_backend == "opencode",
+                )
+            )
+        ).scalar_one()
+        adapter.adapter_profile = "anthropic-compatible-bearer"
+        adapter.status = "ok"
+        adapter.error = None
+        adapter.test_result_json = {"profile_id": "anthropic-compatible-bearer"}
+        await session.commit()
+
+    listed = await client.get("/api/admin/llm-configs")
+
+    assert listed.status_code == 200, listed.text
+    item = next(row for row in listed.json() if row["id"] == cfg_id)
+    assert item["opencode_provider_profile"] == "anthropic-compatible-bearer"
+    assert item["opencode_provider_status"] == "ok"
+    assert item["opencode_provider_test_result_json"]["profile_id"] == (
+        "anthropic-compatible-bearer"
+    )
+
+
+@pytest.mark.asyncio
+async def test_lists_agent_runtime_profiles(client: AsyncClient) -> None:
+    response = await client.get("/api/llm-runtime-profiles?backend=opencode")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["backend"] == "opencode"
+    ids = [item["id"] for item in body["profiles"]]
+    assert ids[:2] == ["default", "openai-native"]
+    assert "anthropic-compatible-v1-bearer" in ids
+    assert all(item["label"] for item in body["profiles"])
+    assert all("description" in item for item in body["profiles"])
 
 
 @pytest.mark.asyncio

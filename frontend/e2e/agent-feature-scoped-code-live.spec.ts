@@ -16,7 +16,7 @@ const LLM_PROTOCOL = process.env.CODEASK_LIVE_AGENT_LLM_PROTOCOL ?? "openai";
 type StreamResult = {
   text: string;
   toolNames: string[];
-  scopeSources: string[];
+  toolResultTexts: string[];
 };
 
 test.describe.configure({ timeout: 600_000 });
@@ -28,8 +28,8 @@ test.skip(
 test("agent code tools stay inside the model-selected feature repo scope", async ({ page }) => {
   const repoPath = referenceRepoPath("claude-code/claude-code");
   test.skip(
-    !existsSync(path.join(repoPath, ".git")),
-    `reference repo is not a git repository: ${repoPath}`,
+    !existsSync(repoPath),
+    `reference repo directory does not exist: ${repoPath}`,
   );
 
   await page.goto("/#/login", { waitUntil: "networkidle" });
@@ -43,10 +43,11 @@ test("agent code tools stay inside the model-selected feature repo scope", async
     name: `Feature scoped claude-code ${Date.now()}`,
     localPath: repoPath,
   });
+  const marker = `permission-mode-scope-${Date.now()}`;
   const feature = await createFeature(page, {
     name: `Claude Code 源码 ${Date.now()}`,
     description:
-      "Claude Code 源码学习特性，包含 PermissionMode、工具权限、TUI buddy 电子宠物等代码分析问题。",
+      `Claude Code 源码学习特性，唯一验证标识 ${marker}，包含 PermissionMode、工具权限、TUI buddy 电子宠物等代码分析问题。`,
   });
   await linkFeatureRepo(page, feature.id, repo.id);
 
@@ -54,14 +55,25 @@ test("agent code tools stay inside the model-selected feature repo scope", async
   const result = await postMessage(
     page,
     sessionId,
-    "Claude Code 的 PermissionMode 在哪里定义或使用？请根据候选特性判断代码范围后查询源码，并给出具体文件路径。不要把问题扩展到其它仓库。",
+    `Claude Code 的 PermissionMode 在哪里定义或使用？本次问题属于唯一验证标识 ${marker} 对应的特性，请根据候选特性判断代码范围后查询源码，并给出具体文件路径。不要把问题扩展到其它仓库。`,
   );
 
   expect(result.text.trim()).not.toEqual("");
   expect(result.text).not.toMatch(/BadRequestError|Agent 运行失败|max_tokens|Input length/i);
-  expect(result.toolNames).toContain("search_code");
-  expect(result.scopeSources).toContain("feature_scope");
-  expect(result.scopeSources).not.toContain("explicit_user_repo");
+  expect(result.toolNames).toContain("codeask_bind_session_features");
+  expect(result.toolNames).toContain("codeask_prepare_worktree");
+  expect(
+    result.toolNames.some((toolName) => ["grep", "read"].includes(toolName)),
+    `expected opencode to inspect the prepared worktree; actual tools=${JSON.stringify(
+      result.toolNames,
+    )}`,
+  ).toBe(true);
+  expect(
+    result.toolResultTexts.some((text) => text.includes(repo.name)),
+    `expected prepared worktree result to reference feature-linked repo ${repo.name}; actual results=${JSON.stringify(
+      result.toolResultTexts,
+    )}`,
+  ).toBe(true);
 });
 
 test("agent can use an AnythingLLM feature-linked repo without explicit repo scope", async ({
@@ -69,8 +81,8 @@ test("agent can use an AnythingLLM feature-linked repo without explicit repo sco
 }) => {
   const repoPath = referenceRepoPath("anything-llm");
   test.skip(
-    !existsSync(path.join(repoPath, ".git")),
-    `reference repo is not a git repository: ${repoPath}`,
+    !existsSync(repoPath),
+    `reference repo directory does not exist: ${repoPath}`,
   );
 
   await page.goto("/#/login", { waitUntil: "networkidle" });
@@ -84,10 +96,11 @@ test("agent can use an AnythingLLM feature-linked repo without explicit repo sco
     name: `Feature scoped anything-llm ${Date.now()}`,
     localPath: repoPath,
   });
+  const marker = `anything-connector-scope-${Date.now()}`;
   const feature = await createFeature(page, {
     name: `AnythingLLM 源码 ${Date.now()}`,
     description:
-      "AnythingLLM 源码学习特性，包含 DataConnectorOption、文档上传、RAG 切分和向量检索处理流程。",
+      `AnythingLLM 源码学习特性，唯一验证标识 ${marker}，包含 DataConnectorOption、文档上传、RAG 切分和向量检索处理流程。`,
   });
   await linkFeatureRepo(page, feature.id, repo.id);
 
@@ -95,14 +108,25 @@ test("agent can use an AnythingLLM feature-linked repo without explicit repo sco
   const result = await postMessage(
     page,
     sessionId,
-    "AnythingLLM 的 DataConnectorOption 在哪里定义或使用？请根据候选特性判断代码范围后查询源码，并给出具体文件路径。",
+    `AnythingLLM 的 DataConnectorOption 在哪里定义或使用？本次问题属于唯一验证标识 ${marker} 对应的特性，请根据候选特性判断代码范围后查询源码，并给出具体文件路径。`,
   );
 
   expect(result.text.trim()).not.toEqual("");
   expect(result.text).not.toMatch(/BadRequestError|Agent 运行失败|max_tokens|Input length/i);
-  expect(result.toolNames.length).toBeGreaterThan(0);
-  expect(result.scopeSources).toContain("feature_scope");
-  expect(result.scopeSources).not.toContain("explicit_user_repo");
+  expect(result.toolNames).toContain("codeask_bind_session_features");
+  expect(result.toolNames).toContain("codeask_prepare_worktree");
+  expect(
+    result.toolNames.some((toolName) => ["grep", "read"].includes(toolName)),
+    `expected opencode to inspect the prepared worktree; actual tools=${JSON.stringify(
+      result.toolNames,
+    )}`,
+  ).toBe(true);
+  expect(
+    result.toolResultTexts.some((text) => text.includes(repo.name)),
+    `expected prepared worktree result to reference feature-linked repo ${repo.name}; actual results=${JSON.stringify(
+      result.toolResultTexts,
+    )}`,
+  ).toBe(true);
 });
 
 async function ensureLlmConfig(page: import("@playwright/test").Page) {
@@ -178,7 +202,7 @@ async function registerRepo(
       { timeout: 120_000 },
     )
     .toBe("ready");
-  return repo;
+  return { ...repo, name: payload.name };
 }
 
 async function createFeature(
@@ -250,7 +274,7 @@ async function postMessage(
       let buffer = "";
       let text = "";
       const toolNames: string[] = [];
-      const scopeSources: string[] = [];
+      const toolResultTexts: string[] = [];
 
       function readEventFrames(source: string) {
         const frames: string[] = [];
@@ -303,10 +327,7 @@ async function postMessage(
             toolNames.push(String(data.tool_name ?? ""));
           }
           if (eventType === "tool_result") {
-            const scopeSource = data.version_info?.scope_source;
-            if (scopeSource) {
-              scopeSources.push(String(scopeSource));
-            }
+            toolResultTexts.push(JSON.stringify(data));
           }
           if (eventType === "error") {
             throw new Error(`agent error: ${JSON.stringify(data)}`);
@@ -323,10 +344,7 @@ async function postMessage(
           toolNames.push(String(data.tool_name ?? ""));
         }
         if (eventType === "tool_result") {
-          const scopeSource = String(data.version_info?.scope_source ?? "");
-          if (scopeSource) {
-            scopeSources.push(scopeSource);
-          }
+          toolResultTexts.push(JSON.stringify(data));
         }
         if (eventType === "error") {
           throw new Error(`agent error: ${JSON.stringify(data)}`);
@@ -335,7 +353,7 @@ async function postMessage(
       return {
         text,
         toolNames: toolNames.filter(Boolean),
-        scopeSources: scopeSources.filter(Boolean),
+        toolResultTexts: toolResultTexts.filter(Boolean),
       };
     },
     { sessionId, content },

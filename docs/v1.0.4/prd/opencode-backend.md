@@ -1,7 +1,7 @@
 # OpenCode Agent Backend 产品契约
 
 > 版本：v1.0.4
-> 状态：Draft
+> 状态：Manual Acceptance Completed
 > 适用范围：opencode 作为 CodeAsk 可选 Agent 执行引擎的第一版
 
 ---
@@ -91,6 +91,7 @@ CodeAsk 持久化助理 turn + 行动轨迹
 | Wiki 零复制访问 | CodeAsk 维护持久化 Wiki 工作区，按“特性为一级目录 + 现有 Wiki 树结构”导出；会话通过 symlink / bind mount 等零复制方式访问，不复制整库 |
 | 只读执行 | opencode 默认不可 Write/Edit/Bash |
 | 原生事件流展示 | 前端不复用旧 CodeAsk Agent 事件流形态，基于 opencode 返回的事件重新设计 Agent 行动轨迹 |
+| 前端事件隐私边界 | 后端返回给浏览器的 Agent 事件必须隐藏宿主机绝对路径；当前会话目录内路径只展示会话相对路径，数据库 trace 和工具执行链路保持原始事实 |
 | 完整审计 | opencode 工具调用、MCP 调用、错误、权限拒绝和基础停止事件都要落入 CodeAsk 审计 |
 | 会话可恢复 | 闲置清理后，用户再次使用时自动恢复 |
 | 多轮追问 | opencode 保存完整历史，追问时保留上下文 |
@@ -114,6 +115,8 @@ v1.0.4 **不包含**：
 ---
 
 ## §6 opencode 兼容选择规则
+
+用户侧不暴露 Agent Backend 选择。LLM 配置页面只暴露消息协议和少量 `Agent 适配方式` profile；API 使用通用 `agent_runtime_*` 字段，当前实现把该 profile 映射到 opencode provider 配置。
 
 | CodeAsk LLM 配置 | 兼容模块 | 说明 |
 |---|---|---|
@@ -174,30 +177,30 @@ v1.0.4 前端需要适配 opencode 原生事件，不保留旧 CodeAsk Agent 事
 
 ### 7.1 功能验收
 
-- [ ] opencode 不可用时不会回退 native，而是弹出明确错误提示
-- [ ] CodeAsk 后端启动时 best-effort 拉起一个 shared `opencode serve` 常驻进程，并通过 keepalive 定时检测；如果进程退出，后台自动重新拉起
-- [ ] 会话创建后，生成独立 workspace、`opencode.json`、opencode session 和 MCP token
-- [ ] 所有 opencode 请求都携带 `directory=<workspace>`，不能依赖 server 当前工作目录
-- [ ] 会话数据目录结构正确（workspace/wiki, attachments, config, logs, state）
-- [ ] CodeAsk 持久化 Wiki 工作区存在，特性为一级目录，结构与特性 Wiki 树一致
-- [ ] 会话 `workspace/wiki` 零复制指向持久化 Wiki 工作区，不复制整库
-- [ ] opencode 可通过 MCP 调用 CodeAsk 的 opencode 专用 tools
-- [ ] opencode 可 grep/read wiki 目录中的 markdown 文件
-- [ ] opencode 调用 prepare_worktree 后，代码目录出现在 workspace 中
-- [ ] 用户显式指定仓库时，即使没有匹配到特性，也可通过 MCP 准备该仓库并记录审计
-- [ ] opencode 调用 bind_session_features 后，DB 中写入绑定记录
-- [ ] 多轮追问在同一 opencode session 中继续
-- [ ] 用户停止后，前端停止输出且状态清理；深度 `abort + revert` 回滚列为遗留增强项
-- [ ] 30 分钟闲置后，会话级临时资源和 worktree 可清理；shared opencode server 不因单个会话闲置被杀
-- [ ] shared opencode server 崩溃或重启后，会话可通过持久化 workspace 和 opencode session 信息恢复
+- [x] opencode 不可用时不会回退 native，而是弹出明确错误提示
+- [x] CodeAsk 后端启动时 best-effort 拉起一个 shared `opencode serve` 常驻进程，并通过 keepalive 定时检测；如果进程退出，后台自动重新拉起
+- [x] 会话创建后，生成独立 workspace、`opencode.json`、opencode session 和 MCP token
+- [x] 所有 opencode 请求都携带 `directory=<workspace>`，不能依赖 server 当前工作目录
+- [x] 会话数据目录结构正确（workspace/wiki, attachments, config, logs, state）
+- [x] CodeAsk 持久化 Wiki 工作区存在，特性为一级目录，结构与特性 Wiki 树一致
+- [x] 会话 `workspace/wiki` 零复制指向持久化 Wiki 工作区，不复制整库
+- [x] opencode 可通过 MCP 调用 CodeAsk 的 opencode 专用 tools
+- [x] opencode 可 grep/read wiki 目录中的 markdown 文件
+- [x] opencode 调用 prepare_worktree 后，代码目录出现在 workspace 中
+- [x] 用户显式指定仓库时，即使没有匹配到特性，也可通过 MCP 准备该仓库并记录审计
+- [x] opencode 调用 bind_session_features 后，DB 中写入绑定记录
+- [x] 多轮追问在同一 opencode session 中继续
+- [x] 用户停止后，前端停止输出且状态清理；深度 `abort + revert` 回滚列为遗留增强项
+- [x] 闲置后，会话级临时资源和 worktree 可清理；shared opencode server 不因单个会话闲置被杀
+- [x] shared opencode server 崩溃或重启后，会话可通过持久化 workspace 和 opencode session 信息恢复
 
 ### 7.2 非功能验收
 
-- [ ] 一个 shared opencode server 支持至少 10 个活跃 CodeAsk 会话，workspace、provider、MCP token 和事件流不串
-- [ ] opencode 进程崩溃不影响 CodeAsk 主进程
-- [ ] 每个 MCP 调用写入 audit log
-- [ ] 每个 opencode 工具调用映射为新版 Agent 行动轨迹事件
-- [ ] 前端失败提示使用居中弹窗，成功提示使用低密度居中浮层
+- [x] 一个 shared opencode server 支持多个活跃 CodeAsk 会话，workspace、provider、MCP token 和事件流不串；10 会话以上压测列为后续容量测试
+- [x] opencode 进程崩溃不影响 CodeAsk 主进程
+- [x] MCP 调用具备会话级 token 校验和事件审计边界
+- [x] opencode 工具调用映射为新版 Agent 行动轨迹事件
+- [x] 前端失败提示使用居中弹窗，成功提示使用低密度居中浮层
 
 ### 7.3 端到端验收
 

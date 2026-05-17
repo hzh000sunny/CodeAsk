@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
+from codeask.agent.opencode_compat.process import OpenCodeProcessError
 from codeask.api import sessions as sessions_api
 from codeask.api.schemas.session import MessageCreate
 from codeask.db.models import SessionTurn
@@ -18,9 +19,13 @@ class FakeOpenCodeCompat:
     calls: list[dict[str, object]]
     fail_run: bool = False
     fail_initialize: bool = False
+    fail_initialize_code: str | None = None
     fail_abort: bool = False
+    scripted_run_events_by_model: dict[str, list[ChatRuntimeEvent]] = field(default_factory=dict)
 
     async def initialize_session(self, session_id, llm_config):  # type: ignore[no-untyped-def]
+        if self.fail_initialize_code is not None:
+            raise OpenCodeProcessError(self.fail_initialize_code, "classified opencode failure")
         if self.fail_initialize:
             raise RuntimeError("opencode is not reachable")
         self.calls.append(
@@ -40,6 +45,7 @@ class FakeOpenCodeCompat:
         user_message,
         llm_config,
         system=None,
+        context_window_tokens=200_000,
     ):
         if self.fail_run:
             yield ChatRuntimeEvent(
@@ -55,8 +61,14 @@ class FakeOpenCodeCompat:
                 "model": llm_config.model_name,
                 "opencode_provider_profile": llm_config.opencode_provider_profile,
                 "system": system,
+                "context_window_tokens": context_window_tokens,
             }
         )
+        scripted = self.scripted_run_events_by_model.get(llm_config.model_name)
+        if scripted is not None:
+            for event in scripted:
+                yield event
+            return
         yield ChatRuntimeEvent(type="text_delta", data={"delta": "opencode answer"})
         yield ChatRuntimeEvent(type="done", data={"backend": "opencode"})
 
@@ -64,6 +76,10 @@ class FakeOpenCodeCompat:
         if self.fail_abort:
             raise RuntimeError("opencode abort failed")
         self.calls.append({"method": "abort_turn", "session_id": session_id})
+
+    async def cleanup_session(self, session_id):  # type: ignore[no-untyped-def]
+        self.calls.append({"method": "cleanup_session", "session_id": session_id})
+        return {"session_id": session_id, "removed": []}
 
 
 class FakeProcessManager:
@@ -78,7 +94,7 @@ class FakeProcessManager:
 
 
 @pytest.mark.asyncio
-async def test_message_stream_emits_received_event_before_session_preflight(
+async def test_message_stream_emits_received_event_without_starting_opencode_before_preflight(
     app: FastAPI,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -112,8 +128,8 @@ async def test_message_stream_emits_received_event_before_session_preflight(
     await stream.aclose()
 
     assert preflight_started is True
-    assert fake_process_manager.calls == 1
-    assert events == ["ensure_server", "preflight"]
+    assert fake_process_manager.calls == 0
+    assert events == ["preflight"]
     assert b"event: assistant_action" in first_chunk
     assert b"agent_request_received" in first_chunk
     assert b"turn_preflight" in first_chunk
@@ -182,6 +198,48 @@ async def test_post_message_stream_uses_opencode_backend_by_setting(
 
 
 @pytest.mark.asyncio
+async def test_post_message_stream_passes_configured_context_window_to_opencode(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    app.state.settings.agent_backend = "opencode"
+    app.state.settings.model_context_window_tokens = 131_072
+    fake = FakeOpenCodeCompat(calls=[])
+    app.state.opencode_compat = fake
+
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    config = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "opencode-default",
+            "protocol": "openai",
+            "base_url": "http://llm.test/v1",
+            "api_key": "sk-secret",
+            "model_name": "gpt-test",
+            "is_default": True,
+        },
+    )
+    assert config.status_code == 201, config.text
+    await client.post("/api/auth/logout")
+
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "OpenCode"}, headers=headers)
+    session_id = created.json()["id"]
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "hello opencode", "client_turn_id": "turn_context_window"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    run_call = next(call for call in fake.calls if call["method"] == "run_turn")
+    assert run_call["context_window_tokens"] == 131_072
+    assert "131k" in response.text
+
+
+@pytest.mark.asyncio
 async def test_post_message_stream_uses_gateway_global_pool_for_opencode_configs(
     app: FastAPI,
     client: AsyncClient,
@@ -245,6 +303,133 @@ async def test_post_message_stream_uses_gateway_global_pool_for_opencode_configs
     assert run_call["method"] == "run_turn"
     assert run_call["model"] == "model-b"
     assert run_call["opencode_provider_profile"] == "anthropic-compatible-bearer"
+
+
+@pytest.mark.asyncio
+async def test_opencode_global_pool_retries_next_config_only_before_text(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    app.state.settings.agent_backend = "opencode"
+    fake = FakeOpenCodeCompat(
+        calls=[],
+        scripted_run_events_by_model={
+            "model-a": [
+                ChatRuntimeEvent(
+                    type="error",
+                    data={"backend": "opencode", "error": "model-a failed before text"},
+                )
+            ]
+        },
+    )
+    app.state.opencode_compat = fake
+    app.state.llm_gateway._random_choice = lambda configs: configs[0]  # pyright: ignore[reportPrivateUsage]
+
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    for suffix, model_name in [("a", "model-a"), ("b", "model-b")]:
+        created_config = await client.post(
+            "/api/admin/llm-configs",
+            json={
+                "name": f"opencode-pool-{suffix}",
+                "protocol": "openai",
+                "base_url": f"http://llm-{suffix}.test/v1",
+                "api_key": f"sk-{suffix}",
+                "model_name": model_name,
+                "enabled": True,
+                "is_default": False,
+            },
+        )
+        assert created_config.status_code == 201, created_config.text
+    await client.post("/api/auth/logout")
+
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "OpenCode"}, headers=headers)
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "hello opencode", "client_turn_id": "turn_opencode_retry"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert "model-a failed before text" not in response.text
+    assert "opencode answer" in response.text
+    assert [
+        (call["method"], call["model"])
+        for call in fake.calls
+        if call["method"] in {"initialize_session", "run_turn"}
+    ] == [
+        ("initialize_session", "model-a"),
+        ("run_turn", "model-a"),
+        ("initialize_session", "model-b"),
+        ("run_turn", "model-b"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_opencode_global_pool_does_not_switch_after_visible_text(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    app.state.settings.agent_backend = "opencode"
+    fake = FakeOpenCodeCompat(
+        calls=[],
+        scripted_run_events_by_model={
+            "model-a": [
+                ChatRuntimeEvent(type="text_delta", data={"delta": "partial answer"}),
+                ChatRuntimeEvent(
+                    type="error",
+                    data={"backend": "opencode", "error": "model-a failed after text"},
+                ),
+            ]
+        },
+    )
+    app.state.opencode_compat = fake
+    app.state.llm_gateway._random_choice = lambda configs: configs[0]  # pyright: ignore[reportPrivateUsage]
+
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    for suffix, model_name in [("a", "model-a"), ("b", "model-b")]:
+        created_config = await client.post(
+            "/api/admin/llm-configs",
+            json={
+                "name": f"opencode-pool-after-text-{suffix}",
+                "protocol": "openai",
+                "base_url": f"http://llm-{suffix}.test/v1",
+                "api_key": f"sk-{suffix}",
+                "model_name": model_name,
+                "enabled": True,
+                "is_default": False,
+            },
+        )
+        assert created_config.status_code == 201, created_config.text
+    await client.post("/api/auth/logout")
+
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "OpenCode"}, headers=headers)
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "hello opencode", "client_turn_id": "turn_opencode_no_retry"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert "partial answer" in response.text
+    assert "model-a failed after text" in response.text
+    assert [
+        (call["method"], call["model"])
+        for call in fake.calls
+        if call["method"] in {"initialize_session", "run_turn"}
+    ] == [
+        ("initialize_session", "model-a"),
+        ("run_turn", "model-a"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -354,6 +539,50 @@ async def test_post_message_stream_opencode_exception_returns_error_event(
 
 
 @pytest.mark.asyncio
+async def test_post_message_stream_preserves_classified_opencode_error_code(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    app.state.settings.agent_backend = "opencode"
+    app.state.opencode_compat = FakeOpenCodeCompat(
+        calls=[],
+        fail_initialize_code="opencode_health_timeout",
+    )
+
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    config = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "opencode-default",
+            "protocol": "openai",
+            "base_url": "http://llm.test/v1",
+            "api_key": "sk-secret",
+            "model_name": "gpt-test",
+            "is_default": True,
+        },
+    )
+    assert config.status_code == 201, config.text
+    await client.post("/api/auth/logout")
+
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "OpenCode"}, headers=headers)
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "hello opencode", "client_turn_id": "turn_opencode_classified"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert "event: error" in response.text
+    assert "classified opencode failure" in response.text
+    assert "opencode_health_timeout" in response.text
+
+
+@pytest.mark.asyncio
 async def test_abort_session_turn_calls_opencode_before_rollback(
     app: FastAPI,
     client: AsyncClient,
@@ -444,3 +673,47 @@ async def test_delete_session_removes_opencode_workspace_dir(
 
     assert response.status_code == 204, response.text
     assert not workspace_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_session_calls_opencode_cleanup(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    fake = FakeOpenCodeCompat(calls=[])
+    app.state.opencode_compat = fake
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "OpenCode"}, headers=headers)
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    response = await client.delete(f"/api/sessions/{session_id}", headers=headers)
+
+    assert response.status_code == 204, response.text
+    assert {"method": "cleanup_session", "session_id": session_id} in fake.calls
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_sessions_calls_opencode_cleanup_for_owned_sessions(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    fake = FakeOpenCodeCompat(calls=[])
+    app.state.opencode_compat = fake
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    first = await client.post("/api/sessions", json={"title": "A"}, headers=headers)
+    second = await client.post("/api/sessions", json={"title": "B"}, headers=headers)
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    session_ids = [first.json()["id"], second.json()["id"]]
+
+    response = await client.post(
+        "/api/sessions/bulk-delete",
+        json={"session_ids": session_ids},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["deleted_ids"] == session_ids
+    cleanup_ids = [call["session_id"] for call in fake.calls if call["method"] == "cleanup_session"]
+    assert cleanup_ids == session_ids

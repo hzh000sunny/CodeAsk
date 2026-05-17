@@ -3,8 +3,8 @@ import { Pencil, PlugZap, Trash2 } from "lucide-react";
 import type { LLMConfigResponse, LLMConfigTestResponse } from "../../../types/api";
 import { Button } from "../../ui/button";
 import { SwitchControl } from "../SwitchControl";
-import type { LlmUpdatePayload } from "../settings-types";
-import { opencodeProviderLabel, protocolLabel } from "../settings-utils";
+import type { LlmRuntimeProfileOption, LlmUpdatePayload } from "../settings-types";
+import { agentRuntimeProfileLabel, protocolLabel } from "../settings-utils";
 import { LlmConfigEditForm } from "./LlmConfigEditForm";
 
 export function LlmConfigList({
@@ -18,6 +18,7 @@ export function LlmConfigList({
   onTestUpdateDraft,
   onUpdate,
   onToggleEnabled,
+  runtimeProfileOptions,
   testingId,
   testingUpdateDraftId,
   updating,
@@ -35,6 +36,7 @@ export function LlmConfigList({
   ) => Promise<LLMConfigTestResponse>;
   onUpdate: (id: string, payload: LlmUpdatePayload) => void;
   onToggleEnabled: (config: LLMConfigResponse) => void;
+  runtimeProfileOptions: LlmRuntimeProfileOption[];
   testingId: string | null;
   testingUpdateDraftId: string | null;
   updating: boolean;
@@ -60,8 +62,12 @@ export function LlmConfigList({
                   {config.api_key_masked}
                 </small>
                 <small>
-                  OpenCode Provider:{" "}
-                  {opencodeProviderLabel(config.opencode_provider_profile)} ·{" "}
+                  Agent 适配方式:{" "}
+                  {agentRuntimeProfileLabel(
+                    config.agent_runtime_profile ?? config.opencode_provider_profile,
+                    runtimeProfileOptions,
+                  )}{" "}
+                  ·{" "}
                   <span
                     className="provider-status-text"
                     title={providerStatusFullText(config)}
@@ -115,6 +121,7 @@ export function LlmConfigList({
                 onCancel={onEditCancel}
                 onTest={(payload) => onTestUpdateDraft(config.id, payload)}
                 onSubmit={(payload) => onUpdate(config.id, payload)}
+                runtimeProfileOptions={runtimeProfileOptions}
                 testing={testingUpdateDraftId === config.id}
               />
             ) : null}
@@ -126,21 +133,25 @@ export function LlmConfigList({
 }
 
 function providerStatusLabel(config: LLMConfigResponse) {
-  if (config.opencode_provider_status === "ok") {
+  const status = config.agent_runtime_status || config.opencode_provider_status;
+  const error = config.agent_runtime_error ?? config.opencode_provider_error;
+  if (status === "ok") {
     return "连接正常";
   }
-  if (config.opencode_provider_status === "failed") {
-    return `连接失败${config.opencode_provider_error ? `：${previewText(config.opencode_provider_error)}` : ""}`;
+  if (status === "failed") {
+    return `连接失败${error ? `：${previewText(error)}` : ""}`;
   }
   return "未测试";
 }
 
 function providerStatusFullText(config: LLMConfigResponse) {
-  if (config.opencode_provider_status === "ok") {
+  const status = config.agent_runtime_status || config.opencode_provider_status;
+  const error = config.agent_runtime_error ?? config.opencode_provider_error;
+  if (status === "ok") {
     return "连接正常";
   }
-  if (config.opencode_provider_status === "failed") {
-    return `连接失败${config.opencode_provider_error ? `：${config.opencode_provider_error}` : ""}`;
+  if (status === "failed") {
+    return `连接失败${error ? `：${error}` : ""}`;
   }
   return "未测试";
 }

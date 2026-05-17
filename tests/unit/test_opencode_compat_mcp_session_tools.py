@@ -88,6 +88,14 @@ async def test_bind_session_features_tool_binds_active_features(db_factory) -> N
 
 
 @pytest.mark.asyncio
+async def test_bind_session_features_tool_returns_recoverable_argument_error(db_factory) -> None:  # type: ignore[no-untyped-def]
+    result = await bind_session_features_tool(db_factory).handler({"feature_ids": ["1"]}, _CTX)
+
+    assert result["error"] == "invalid_arguments"
+    assert "feature_ids" in result["recovery_hint"]
+
+
+@pytest.mark.asyncio
 async def test_list_and_read_session_attachment_tools(db_factory) -> None:  # type: ignore[no-untyped-def]
     listed = await list_session_attachments_tool(db_factory).handler({}, _CTX)
     read = await read_session_attachment_tool(db_factory).handler(
@@ -104,3 +112,11 @@ async def test_list_and_read_session_attachment_tools(db_factory) -> None:  # ty
     ]
     assert read["attachment"]["display_name"] == "客户端日志"
     assert read["content"] == "line1\nline2\n"
+
+
+@pytest.mark.asyncio
+async def test_read_session_attachment_tool_returns_recoverable_argument_error(db_factory) -> None:  # type: ignore[no-untyped-def]
+    result = await read_session_attachment_tool(db_factory).handler({}, _CTX)
+
+    assert result["error"] == "invalid_arguments"
+    assert "attachment_id" in result["recovery_hint"]

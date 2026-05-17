@@ -1,13 +1,12 @@
 export type LlmScope = "user" | "global";
 export type LlmProtocol = "openai" | "openai_compatible" | "anthropic";
-export type LlmOpenCodeProviderProfile =
-  | "default"
-  | "openai-native"
-  | "openai-compatible"
-  | "anthropic-native"
-  | "anthropic-compatible-bearer"
-  | "anthropic-compatible-v1-bearer"
-  | "openrouter";
+export type LlmAgentRuntimeProfile = string;
+export type LlmOpenCodeProviderProfile = LlmAgentRuntimeProfile;
+export interface LlmRuntimeProfileOption {
+  description: string;
+  label: string;
+  value: LlmAgentRuntimeProfile;
+}
 export type LlmReasoningProfile =
   | "none"
   | "request_patch"
@@ -27,7 +26,7 @@ export type LlmUpdatePayload = Partial<{
   enabled: boolean;
   reasoning_profile: LlmReasoningProfile;
   reasoning_profile_json: string | null;
-  opencode_provider_profile: LlmOpenCodeProviderProfile;
+  agent_runtime_profile: LlmAgentRuntimeProfile;
   opencode_provider_status: "unknown" | "ok" | "failed";
   opencode_provider_tested_at: string | null;
   opencode_provider_error: string | null;

@@ -32,6 +32,10 @@ export interface RuntimeSessionState {
   isGlobalPool: boolean;
   contextSizeChars: number;
   contextWindowChars: number;
+  contextUsed: number;
+  contextWindow: number;
+  contextUnit: string;
+  contextMetricSource: string;
   usageRatio: number;
   usageLabel: string;
 }
@@ -155,11 +159,15 @@ export function runtimeStateFromEvent(
     return null;
   }
 
-  const contextSizeChars = numberData(event, "context_size_chars");
-  const contextWindowChars = numberData(event, "context_window_chars");
-  if (contextSizeChars === null || contextWindowChars === null) {
+  const contextUsed =
+    numberData(event, "context_used") ?? numberData(event, "context_size_chars");
+  const contextWindow =
+    numberData(event, "context_window") ?? numberData(event, "context_window_chars");
+  if (contextUsed === null || contextWindow === null) {
     return null;
   }
+  const contextSizeChars = contextUsed;
+  const contextWindowChars = contextWindow;
 
   const usageLabel =
     `${formatContextK(contextSizeChars)}k / ${formatContextK(contextWindowChars, {
@@ -175,6 +183,11 @@ export function runtimeStateFromEvent(
     isGlobalPool: booleanData(event, "is_global_pool"),
     contextSizeChars,
     contextWindowChars,
+    contextUsed,
+    contextWindow,
+    contextUnit: stringData(event, "context_unit") ?? "chars_estimate",
+    contextMetricSource:
+      stringData(event, "context_metric_source") ?? "legacy_context_size_chars",
     usageRatio:
       numberData(event, "usage_ratio") ??
       contextSizeChars / Math.max(1, contextWindowChars),

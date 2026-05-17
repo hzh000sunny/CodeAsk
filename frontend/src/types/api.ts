@@ -174,6 +174,12 @@ export interface LLMConfigResponse {
   quota_remaining: number | null;
   reasoning_profile: string;
   reasoning_profile_json: string | null;
+  agent_runtime_backend: string;
+  agent_runtime_profile: string | null;
+  agent_runtime_status: string;
+  agent_runtime_tested_at: string | null;
+  agent_runtime_error: string | null;
+  agent_runtime_test_result_json: unknown | null;
   opencode_provider_profile: string | null;
   opencode_provider_status: string;
   opencode_provider_tested_at: string | null;

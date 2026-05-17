@@ -14,8 +14,10 @@ import {
   evidenceLabel,
   type ActionTraceEvent as ActionTraceEventModel,
 } from "./action-trace-model";
+import { redactActionTraceEvent } from "./path-redaction";
 
 export function ActionTraceEvent({ event }: { event: ActionTraceEventModel }) {
+  const displayEvent = redactActionTraceEvent(event);
   const [preview, setPreview] = useState<{
     left: number;
     maxHeight: number;
@@ -86,22 +88,24 @@ export function ActionTraceEvent({ event }: { event: ActionTraceEventModel }) {
   return (
     <>
       <button
-        aria-label={`${event.title} 详情`}
+        aria-label={`${displayEvent.title} 详情`}
         className="action-trace-card"
         data-status={event.status ?? "info"}
         onClick={(clickEvent) => openPreview(clickEvent.currentTarget)}
         type="button"
       >
         <span className="action-trace-card-title">
-          <strong>{event.title}</strong>
+          <strong>{displayEvent.title}</strong>
           <ChevronDown aria-hidden="true" size={14} />
         </span>
-        <span className="action-trace-card-detail">{renderEventDetail(event)}</span>
+        <span className="action-trace-card-detail">
+          {renderEventDetail(displayEvent)}
+        </span>
       </button>
       {preview
         ? createPortal(
             <ActionTracePreview
-              event={event}
+              event={displayEvent}
               left={preview.left}
               maxHeight={preview.maxHeight}
               onClose={() => setPreview(null)}

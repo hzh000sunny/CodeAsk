@@ -81,7 +81,7 @@ describe("session SSE client", () => {
       temperature: 0.1,
       reasoning_profile: "custom_json",
       reasoning_profile_json: '{"thinking":true}',
-      opencode_provider_profile: "anthropic-compatible-v1-bearer",
+      agent_runtime_profile: "anthropic-compatible-v1-bearer",
     });
     const fetchMock = vi.fn(
       async () =>
@@ -115,7 +115,7 @@ describe("session SSE client", () => {
         temperature: 0.1,
         reasoning_profile: "custom_json",
         reasoning_profile_json: '{"thinking":true}',
-        opencode_provider_profile: "anthropic-compatible-v1-bearer",
+        agent_runtime_profile: "anthropic-compatible-v1-bearer",
       },
     });
   });

@@ -25,6 +25,7 @@ class LLMConfigCreate(BaseModel):
     quota_remaining: float | None = Field(default=None, ge=0.0)
     reasoning_profile: str = Field(default="none", max_length=64)
     reasoning_profile_json: str | None = Field(default=None, max_length=4096)
+    agent_runtime_profile: str | None = Field(default=None, max_length=128)
     opencode_provider_profile: str = Field(
         default=DEFAULT_OPENCODE_PROVIDER_PROFILE,
         max_length=128,
@@ -49,6 +50,7 @@ class LLMConfigUpdate(BaseModel):
     quota_remaining: float | None = Field(default=None, ge=0.0)
     reasoning_profile: str | None = Field(default=None, max_length=64)
     reasoning_profile_json: str | None = Field(default=None, max_length=4096)
+    agent_runtime_profile: str | None = Field(default=None, max_length=128)
     opencode_provider_profile: str | None = Field(default=None, max_length=128)
     opencode_provider_status: str | None = Field(default=None, max_length=16)
     opencode_provider_tested_at: datetime | None = None
@@ -75,6 +77,12 @@ class LLMConfigResponse(BaseModel):
     quota_remaining: float | None
     reasoning_profile: str
     reasoning_profile_json: str | None
+    agent_runtime_backend: str
+    agent_runtime_profile: str | None
+    agent_runtime_status: str
+    agent_runtime_tested_at: datetime | None
+    agent_runtime_error: str | None
+    agent_runtime_test_result_json: object | None
     opencode_provider_profile: str | None
     opencode_provider_status: str
     opencode_provider_tested_at: datetime | None
@@ -90,3 +98,14 @@ class LLMConfigTestResponse(BaseModel):
     error: str | None = None
     tested_at: datetime
     result: object | None = None
+
+
+class LLMRuntimeProfileResponse(BaseModel):
+    id: str
+    label: str
+    description: str
+
+
+class LLMRuntimeProfilesResponse(BaseModel):
+    backend: str
+    profiles: list[LLMRuntimeProfileResponse]

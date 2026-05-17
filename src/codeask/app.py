@@ -6,6 +6,7 @@ import asyncio
 import ipaddress
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -24,6 +25,8 @@ from codeask.agent.chat_runtime.tools.reports import register_report_tools
 from codeask.agent.chat_runtime.tools.wiki import register_wiki_tools
 from codeask.agent.code_tools import AgentCodeSearchService
 from codeask.agent.opencode_compat.backend import OpenCodeCompat
+from codeask.agent.opencode_compat.cleanup import cleanup_idle_sessions
+from codeask.agent.opencode_compat.context import build_dynamic_codeask_context
 from codeask.agent.opencode_compat.http import OpenCodeHttpClient
 from codeask.agent.opencode_compat.mcp.auth import make_session_mcp_token
 from codeask.agent.opencode_compat.mcp.server import OpenCodeMCPServer
@@ -48,6 +51,7 @@ from codeask.api.healthz import router as healthz_router
 from codeask.api.llm_configs import router as llm_configs_router
 from codeask.api.metrics import router as metrics_router
 from codeask.api.opencode_mcp import router as opencode_mcp_router
+from codeask.api.opencode_status import router as opencode_status_router
 from codeask.api.sessions import router as sessions_router
 from codeask.api.skills import router as skills_router
 from codeask.api.system_settings import router as system_settings_router
@@ -154,6 +158,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             wiki_workspace_exporter=opencode_wiki_workspace_exporter,
             data_dir=Path(settings.data_dir),
+            context_builder=lambda session_id, workspace_dir: build_dynamic_codeask_context(
+                factory,
+                session_id=session_id,
+                workspace_dir=workspace_dir,
+            ),
         )
         agent_orchestrator = AgentOrchestrator(
             gateway=llm_gateway,
@@ -242,6 +251,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 coalesce=True,
                 max_instances=1,
             )
+            scheduler.add_job(
+                lambda: _run_opencode_idle_cleanup(
+                    log,
+                    opencode_session_store,
+                    opencode_compat,
+                    ttl_seconds=settings.opencode_session_idle_ttl_seconds,
+                ),
+                "interval",
+                seconds=settings.opencode_session_cleanup_interval_seconds,
+                id="opencode_session_idle_cleanup",
+                misfire_grace_time=settings.opencode_session_cleanup_interval_seconds,
+                coalesce=True,
+                max_instances=1,
+            )
         scheduler.start()
 
         app.state.engine = engine
@@ -306,6 +329,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(system_settings_router, prefix="/api")
     app.include_router(sessions_router, prefix="/api")
     app.include_router(opencode_mcp_router, prefix="/api")
+    app.include_router(opencode_status_router, prefix="/api")
 
     from fastapi.staticfiles import StaticFiles
 
@@ -366,3 +390,24 @@ def _ensure_opencode_server(
             port=handle.port,
             pid=handle.pid,
         )
+
+
+def _run_opencode_idle_cleanup(
+    log: structlog.BoundLogger,
+    store: ExternalAgentSessionStore,
+    compat: OpenCodeCompat,
+    *,
+    ttl_seconds: int,
+) -> None:
+    before = datetime.now(UTC) - timedelta(seconds=ttl_seconds)
+    try:
+        result = asyncio.run(cleanup_idle_sessions(store=store, compat=compat, before=before))
+    except Exception:
+        log.exception("opencode_idle_cleanup_failed")
+        return
+    log.info(
+        "opencode_idle_cleanup_completed",
+        candidate_count=result.get("candidate_count"),
+        cleaned_count=result.get("cleaned_count"),
+        failed=result.get("failed"),
+    )

@@ -69,6 +69,7 @@ from codeask.sessions.reports import (
     merge_session_report_metadata,
 )
 from codeask.sessions.title_generation import generate_session_title_from_history
+from codeask.sessions.trace_redaction import redact_trace_payload_for_frontend
 from codeask.sessions.traces import is_visible_trace, trace_event_priority
 from codeask.wiki.reports import ReportService
 from codeask.wiki.sync import LegacyWikiSyncService
@@ -152,6 +153,24 @@ def _compact_reasoning_trace_responses(rows: list[AgentTrace]) -> list[AgentTrac
     return responses
 
 
+def _redact_trace_responses_for_frontend(
+    responses: list[AgentTraceResponse],
+    *,
+    session_id: str,
+) -> list[AgentTraceResponse]:
+    return [
+        response.model_copy(
+            update={
+                "payload": redact_trace_payload_for_frontend(
+                    response.payload,
+                    session_id=session_id,
+                )
+            }
+        )
+        for response in responses
+    ]
+
+
 @router.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session(payload: SessionCreate, request: Request) -> SessionResponse:
     factory = request.app.state.session_factory
@@ -232,7 +251,10 @@ async def list_session_traces(session_id: str, request: Request) -> list[AgentTr
         )
     visible_rows = [row for row in rows if is_visible_trace(row)]
     visible_rows.sort(key=lambda row: (row.created_at, trace_event_priority(row), row.id))
-    return _compact_reasoning_trace_responses(visible_rows)
+    return _redact_trace_responses_for_frontend(
+        _compact_reasoning_trace_responses(visible_rows),
+        session_id=session_id,
+    )
 
 
 @router.patch("/sessions/{session_id}", response_model=SessionResponse)
@@ -299,6 +321,7 @@ async def delete_session(session_id: str, request: Request) -> None:
         await session.commit()
 
     remove_session_storage_dirs(storage_dirs)
+    await _cleanup_opencode_session_resources(request, [session_id])
 
 
 @router.post("/sessions/bulk-delete", response_model=SessionBulkDeleteResponse)
@@ -334,6 +357,7 @@ async def bulk_delete_sessions(
 
     deleted_ids = [session_id for session_id in requested if session_id in owned_ids]
     remove_session_storage_dirs(storage_dirs)
+    await _cleanup_opencode_session_resources(request, deleted_ids)
     return SessionBulkDeleteResponse(deleted_ids=deleted_ids)
 
 
@@ -380,14 +404,7 @@ async def _stream_post_message_response(
     )
     yield multiplexer.format(received_event)
     try:
-        log.info("session_message_opencode_prestart_start", session_id=session_id, turn_id=turn_id)
-        _start_opencode_server_if_configured(request)
-        log.info(
-            "session_message_opencode_prestart_done",
-            session_id=session_id,
-            turn_id=turn_id,
-            elapsed_ms=round((perf_counter() - started_at) * 1000, 2),
-        )
+        _record_opencode_server_status_if_configured(request)
         log.info("session_message_preflight_start", session_id=session_id, turn_id=turn_id)
         await _load_session(request, session_id)
         log.info(
@@ -441,20 +458,33 @@ async def _stream_post_message_response(
                 "error": _stream_error_message(exc),
             },
         )
-        yield multiplexer.format(error_event)
+        yield multiplexer.format(
+            error_event.model_copy(
+                update={
+                    "data": redact_trace_payload_for_frontend(
+                        error_event.data,
+                        session_id=session_id,
+                    )
+                }
+            )
+        )
 
 
-def _start_opencode_server_if_configured(request: Request) -> None:
+def _record_opencode_server_status_if_configured(request: Request) -> None:
     if getattr(request.app.state.settings, "agent_backend", "opencode") != "opencode":
         return
     process_manager = getattr(request.app.state, "opencode_process_manager", None)
-    if process_manager is not None:
-        handle = process_manager.ensure_server()
-        log.info(
-            "opencode_server_ensure_requested",
-            port=getattr(handle, "port", None),
-            pid=getattr(handle, "pid", None),
-        )
+    describe = getattr(process_manager, "describe", None)
+    if not callable(describe):
+        return
+    status = dict(describe())
+    log.info(
+        "opencode_server_status_before_request",
+        running=status.get("running"),
+        port=status.get("port"),
+        pid=status.get("pid"),
+        last_error_code=status.get("last_error_code"),
+    )
 
 
 def _stream_error_message(exc: Exception) -> str:
@@ -463,6 +493,25 @@ def _stream_error_message(exc: Exception) -> str:
         return str(detail)
     message = str(exc).strip()
     return message or exc.__class__.__name__
+
+
+async def _cleanup_opencode_session_resources(
+    request: Request,
+    session_ids: list[str],
+) -> None:
+    compat = getattr(request.app.state, "opencode_compat", None)
+    cleanup = getattr(compat, "cleanup_session", None)
+    if cleanup is None:
+        return
+    for session_id in session_ids:
+        try:
+            await cleanup(session_id)
+        except Exception as exc:  # pragma: no cover - defensive cleanup logging
+            log.warning(
+                "opencode_session_cleanup_failed",
+                session_id=session_id,
+                error=str(exc),
+            )
 
 
 @router.post("/sessions/{session_id}/turns/{turn_id}/abort", status_code=status.HTTP_204_NO_CONTENT)

@@ -61,6 +61,7 @@ async def test_lifespan_starts_and_keeps_opencode_server_alive(
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CODEASK_AGENT_BACKEND", "opencode")
     monkeypatch.setenv("CODEASK_OPENCODE_KEEPALIVE_INTERVAL_SECONDS", "17")
+    monkeypatch.setenv("CODEASK_OPENCODE_SESSION_CLEANUP_INTERVAL_SECONDS", "61")
     monkeypatch.setattr(app_module, "OpenCodeProcessManager", FakeOpenCodeProcessManager)
 
     application = app_module.create_app(Settings())  # type: ignore[call-arg]
@@ -71,6 +72,9 @@ async def test_lifespan_starts_and_keeps_opencode_server_alive(
         job = application.state.scheduler.get_job("opencode_keepalive")
         assert job is not None
         assert job.trigger.interval.total_seconds() == 17
+        cleanup_job = application.state.scheduler.get_job("opencode_session_idle_cleanup")
+        assert cleanup_job is not None
+        assert cleanup_job.trigger.interval.total_seconds() == 61
         job.func()
         assert instances[0].ensure_calls == 2
 
@@ -110,6 +114,7 @@ async def test_healthz_reports_opencode_status(
                 "configured_bin": "opencode",
                 "resolved_bin": "/usr/bin/opencode",
                 "last_error": None,
+                "version": "1.14.48",
             }
 
     monkeypatch.setenv("CODEASK_DATA_KEY", Fernet.generate_key().decode())
@@ -139,7 +144,47 @@ async def test_healthz_reports_opencode_status(
         "configured_bin": "opencode",
         "resolved_bin": "/usr/bin/opencode",
         "last_error": None,
+        "version": "1.14.48",
     }
+
+
+@pytest.mark.asyncio
+async def test_admin_opencode_status_requires_admin_and_returns_process_status(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    class FakeOpenCodeProcessManager:
+        def describe(self):  # type: ignore[no-untyped-def]
+            return {
+                "running": True,
+                "base_url": "http://127.0.0.1:4100",
+                "port": 4100,
+                "pid": 2468,
+                "configured_bin": "opencode",
+                "resolved_bin": "/usr/bin/opencode",
+                "version": "1.14.48",
+                "last_error": None,
+                "last_error_code": None,
+            }
+
+    class FakeExternalSessionStore:
+        async def count_active(self) -> int:
+            return 3
+
+    app.state.opencode_process_manager = FakeOpenCodeProcessManager()
+    app.state.opencode_session_store = FakeExternalSessionStore()
+
+    forbidden = await client.get("/api/admin/opencode/status")
+    assert forbidden.status_code == 403
+
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    response = await client.get("/api/admin/opencode/status")
+
+    assert response.status_code == 200
+    assert response.json()["version"] == "1.14.48"
+    assert response.json()["running"] is True
+    assert response.json()["active_session_count"] == 3
 
 
 @pytest.mark.asyncio

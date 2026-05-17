@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from datetime import datetime
+from secrets import token_hex
+from typing import Any, Literal
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from codeask.api.schemas.llm_config import LLMConfigCreate, LLMConfigResponse, LLMConfigUpdate
-from codeask.db.models import LLMConfig
+from codeask.db.models import LLMConfig, LLMRuntimeAdapter
 from codeask.identity import ADMIN_ROLE
 from codeask.llm.repo import LLMConfigInput, LLMConfigRepo, LLMConfigWithSecret
 from codeask.metrics.audit import record_audit_log
@@ -24,6 +26,7 @@ async def create_scoped_config(
     scope: Scope,
     owner_subject_id: str | None,
 ) -> LLMConfigResponse:
+    agent_runtime_profile = payload.agent_runtime_profile or payload.opencode_provider_profile
     try:
         cfg_id = await repo.create(
             LLMConfigInput(
@@ -42,7 +45,7 @@ async def create_scoped_config(
                 quota_remaining=payload.quota_remaining,
                 reasoning_profile=payload.reasoning_profile,
                 reasoning_profile_json=payload.reasoning_profile_json,
-                opencode_provider_profile=payload.opencode_provider_profile,
+                opencode_provider_profile=agent_runtime_profile,
                 opencode_provider_status=payload.opencode_provider_status or "unknown",
                 opencode_provider_tested_at=payload.opencode_provider_tested_at,
                 opencode_provider_error=payload.opencode_provider_error,
@@ -82,6 +85,12 @@ async def update_scoped_config(
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="config not found")
+
+        old_protocol = row.protocol
+        old_base_url = row.base_url
+        old_model_name = row.model_name
+        old_provider_profile = row.opencode_provider_profile
+        old_api_key = crypto.decrypt(row.api_key_encrypted)
 
         if payload.is_default is True:
             await session.execute(
@@ -124,11 +133,31 @@ async def update_scoped_config(
             row.reasoning_profile = payload.reasoning_profile
         if "reasoning_profile_json" in fields:
             row.reasoning_profile_json = payload.reasoning_profile_json
-        if "opencode_provider_profile" in fields and payload.opencode_provider_profile is not None:
-            row.opencode_provider_profile = payload.opencode_provider_profile
-        if fields.intersection(
-            {"protocol", "base_url", "api_key", "model_name", "opencode_provider_profile"}
+        if "agent_runtime_profile" in fields and payload.agent_runtime_profile is not None:
+            row.opencode_provider_profile = payload.agent_runtime_profile
+        elif (
+            "opencode_provider_profile" in fields and payload.opencode_provider_profile is not None
         ):
+            row.opencode_provider_profile = payload.opencode_provider_profile
+        runtime_fields_changed = (
+            ("protocol" in fields and row.protocol != old_protocol)
+            or ("base_url" in fields and row.base_url != old_base_url)
+            or (
+                "api_key" in fields
+                and payload.api_key is not None
+                and payload.api_key != old_api_key
+            )
+            or ("model_name" in fields and row.model_name != old_model_name)
+            or (
+                "opencode_provider_profile" in fields
+                and row.opencode_provider_profile != old_provider_profile
+            )
+            or (
+                "agent_runtime_profile" in fields
+                and row.opencode_provider_profile != old_provider_profile
+            )
+        )
+        if runtime_fields_changed:
             row.opencode_provider_status = "unknown"
             row.opencode_provider_tested_at = None
             row.opencode_provider_error = None
@@ -138,6 +167,16 @@ async def update_scoped_config(
             row.opencode_provider_tested_at = payload.opencode_provider_tested_at
             row.opencode_provider_error = payload.opencode_provider_error
             row.opencode_provider_test_result_json = payload.opencode_provider_test_result_json
+        await upsert_runtime_adapter(
+            session,
+            llm_config_id=cfg_id,
+            runtime_backend="opencode",
+            adapter_profile=row.opencode_provider_profile,
+            status=row.opencode_provider_status,
+            tested_at=row.opencode_provider_tested_at,
+            error=row.opencode_provider_error,
+            test_result_json=row.opencode_provider_test_result_json,
+        )
         await record_audit_log(
             session,
             entity_type="llm_config",
@@ -224,6 +263,12 @@ def to_response(config: LLMConfigWithSecret) -> LLMConfigResponse:
         quota_remaining=config.quota_remaining,
         reasoning_profile=config.reasoning_profile,
         reasoning_profile_json=config.reasoning_profile_json,
+        agent_runtime_backend=config.agent_runtime_backend,
+        agent_runtime_profile=config.agent_runtime_profile or config.opencode_provider_profile,
+        agent_runtime_status=config.agent_runtime_status,
+        agent_runtime_tested_at=config.agent_runtime_tested_at,
+        agent_runtime_error=config.agent_runtime_error,
+        agent_runtime_test_result_json=config.agent_runtime_test_result_json,
         opencode_provider_profile=config.opencode_provider_profile,
         opencode_provider_status=config.opencode_provider_status,
         opencode_provider_tested_at=config.opencode_provider_tested_at,
@@ -250,6 +295,12 @@ def to_response_from_row(row: LLMConfig, plain_key: str) -> LLMConfigResponse:
         quota_remaining=row.quota_remaining,
         reasoning_profile=row.reasoning_profile,
         reasoning_profile_json=row.reasoning_profile_json,
+        agent_runtime_backend="opencode",
+        agent_runtime_profile=row.opencode_provider_profile,
+        agent_runtime_status=row.opencode_provider_status,
+        agent_runtime_tested_at=row.opencode_provider_tested_at,
+        agent_runtime_error=row.opencode_provider_error,
+        agent_runtime_test_result_json=row.opencode_provider_test_result_json,
         opencode_provider_profile=row.opencode_provider_profile,
         opencode_provider_status=row.opencode_provider_status,
         opencode_provider_tested_at=row.opencode_provider_tested_at,
@@ -262,3 +313,43 @@ def _mask_key(key: str) -> str:
     if len(key) <= 6:
         return "***"
     return f"{key[:3]}...{key[-3:]}"
+
+
+async def upsert_runtime_adapter(
+    session,
+    *,
+    llm_config_id: str,
+    runtime_backend: str,
+    adapter_profile: str,
+    status: str,
+    tested_at: datetime | None,
+    error: str | None,
+    test_result_json: Any | None,
+) -> None:
+    adapter = (
+        await session.execute(
+            select(LLMRuntimeAdapter).where(
+                LLMRuntimeAdapter.llm_config_id == llm_config_id,
+                LLMRuntimeAdapter.runtime_backend == runtime_backend,
+            )
+        )
+    ).scalar_one_or_none()
+    if adapter is None:
+        session.add(
+            LLMRuntimeAdapter(
+                id=f"adapter_{token_hex(8)}",
+                llm_config_id=llm_config_id,
+                runtime_backend=runtime_backend,
+                adapter_profile=adapter_profile,
+                status=status,
+                tested_at=tested_at,
+                error=error,
+                test_result_json=test_result_json,
+            )
+        )
+        return
+    adapter.adapter_profile = adapter_profile
+    adapter.status = status
+    adapter.tested_at = tested_at
+    adapter.error = error
+    adapter.test_result_json = test_result_json

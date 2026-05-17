@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from codeask.agent.opencode_compat.mcp.server import MCPRequestContext, MCPTool
@@ -24,24 +24,29 @@ def build_feature_tools(session_factory: SessionFactory) -> list[MCPTool]:
 def list_features_tool(session_factory: SessionFactory) -> MCPTool:
     async def handler(arguments: dict[str, Any], _ctx: MCPRequestContext) -> dict[str, Any]:
         limit = _limit(arguments.get("limit"), default=50, maximum=100)
+        query = _optional_text(arguments.get("query"))
         async with session_factory() as session:
+            stmt = (
+                select(
+                    Feature.id,
+                    Feature.name,
+                    Feature.slug,
+                    Feature.description,
+                    Feature.summary_text,
+                    func.count(Repo.id).label("ready_repo_count"),
+                )
+                .outerjoin(FeatureRepo, FeatureRepo.feature_id == Feature.id)
+                .outerjoin(
+                    Repo,
+                    (Repo.id == FeatureRepo.repo_id) & (Repo.status == Repo.STATUS_READY),
+                )
+                .where(Feature.status == "active")
+            )
+            if query:
+                stmt = stmt.where(_feature_query_filter(query))
             rows = (
                 await session.execute(
-                    select(
-                        Feature.id,
-                        Feature.name,
-                        Feature.slug,
-                        Feature.description,
-                        Feature.summary_text,
-                        func.count(Repo.id).label("ready_repo_count"),
-                    )
-                    .outerjoin(FeatureRepo, FeatureRepo.feature_id == Feature.id)
-                    .outerjoin(
-                        Repo,
-                        (Repo.id == FeatureRepo.repo_id) & (Repo.status == Repo.STATUS_READY),
-                    )
-                    .where(Feature.status == "active")
-                    .group_by(
+                    stmt.group_by(
                         Feature.id,
                         Feature.name,
                         Feature.slug,
@@ -97,7 +102,13 @@ def list_features_tool(session_factory: SessionFactory) -> MCPTool:
                 "limit": {
                     "type": "integer",
                     "description": "Maximum feature count to return, default 50, max 100.",
-                }
+                },
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Optional fuzzy filter over feature name, slug, description, and summary."
+                    ),
+                },
             },
             "additionalProperties": False,
         },
@@ -107,9 +118,16 @@ def list_features_tool(session_factory: SessionFactory) -> MCPTool:
 
 def get_feature_info_tool(session_factory: SessionFactory) -> MCPTool:
     async def handler(arguments: dict[str, Any], _ctx: MCPRequestContext) -> dict[str, Any]:
-        feature_id = _required_int(arguments, "feature_id")
         async with session_factory() as session:
-            feature = await session.get(Feature, feature_id)
+            feature, candidates = await _resolve_feature(session, arguments)
+            if candidates:
+                return {
+                    "summary": f"feature is ambiguous: {len(candidates)} candidates",
+                    "error": "ambiguous_feature",
+                    "candidates": candidates,
+                    "recovery_hint": "Call get_feature_info again with one candidate feature_id.",
+                }
+            feature_id = feature.id if feature is not None else _feature_id_for_error(arguments)
             if feature is None or feature.status != "active":
                 return {
                     "summary": f"feature not found: {feature_id}",
@@ -156,9 +174,18 @@ def get_feature_info_tool(session_factory: SessionFactory) -> MCPTool:
                 "feature_id": {
                     "type": "integer",
                     "description": "Feature id returned by list_features.",
-                }
+                },
+                "slug": {
+                    "type": "string",
+                    "description": "Feature slug when feature_id is unknown.",
+                },
+                "name": {
+                    "type": "string",
+                    "description": (
+                        "Feature name or fuzzy name when feature_id and slug are unknown."
+                    ),
+                },
             },
-            "required": ["feature_id"],
             "additionalProperties": False,
         },
         handler=handler,
@@ -167,24 +194,33 @@ def get_feature_info_tool(session_factory: SessionFactory) -> MCPTool:
 
 def list_feature_repos_tool(session_factory: SessionFactory) -> MCPTool:
     async def handler(arguments: dict[str, Any], _ctx: MCPRequestContext) -> dict[str, Any]:
-        feature_id = _required_int(arguments, "feature_id")
+        feature_id = _optional_int(arguments.get("feature_id"))
+        query = _optional_text(arguments.get("query"))
         include_unready = bool(arguments.get("include_unready", False))
+        limit = _limit(arguments.get("limit"), default=20, maximum=100)
         async with session_factory() as session:
-            feature = await session.get(Feature, feature_id)
-            if feature is None or feature.status != "active":
-                return {
-                    "summary": f"feature not found: {feature_id}",
-                    "error": "not_found",
-                    "feature_id": feature_id,
-                    "recovery_hint": (
-                        "Call list_features and choose one of the returned active feature ids."
-                    ),
-                }
-            repositories = await _load_feature_repositories(
-                session, feature_id, include_unready=include_unready
+            feature = None
+            if feature_id is not None:
+                feature = await session.get(Feature, feature_id)
+                if feature is None or feature.status != "active":
+                    return {
+                        "summary": f"feature not found: {feature_id}",
+                        "error": "not_found",
+                        "feature_id": feature_id,
+                        "recovery_hint": (
+                            "Call list_features and choose one of the returned active feature ids."
+                        ),
+                    }
+            repositories = await _load_repositories(
+                session,
+                feature_id=feature_id,
+                query=query,
+                include_unready=include_unready,
+                limit=limit,
             )
+        feature_name = feature.name if feature is not None else "候选范围"
         return {
-            "summary": f"返回特性 {feature.name} 的 {len(repositories)} 个仓库",
+            "summary": f"返回特性 {feature_name} 的 {len(repositories)} 个仓库",
             "feature_id": feature_id,
             "repositories": repositories,
         }
@@ -206,8 +242,17 @@ def list_feature_repos_tool(session_factory: SessionFactory) -> MCPTool:
                         "Whether to include failed/cloning/registered repos. Default false."
                     ),
                 },
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Optional fuzzy filter over repository id, name, url, or local path."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum repository count to return, default 20, max 100.",
+                },
             },
-            "required": ["feature_id"],
             "additionalProperties": False,
         },
         handler=handler,
@@ -256,14 +301,54 @@ async def _load_feature_repositories(
     if not include_unready:
         stmt = stmt.where(Repo.status == Repo.STATUS_READY)
     rows = (await session.execute(stmt)).scalars()
+    repos = list(rows)
+    return await _repo_payloads(session, repos)
+
+
+async def _load_repositories(
+    session: AsyncSession,
+    *,
+    feature_id: int | None,
+    query: str | None,
+    include_unready: bool,
+    limit: int,
+) -> list[dict[str, Any]]:
+    stmt = select(Repo).order_by(Repo.name.asc(), Repo.id.asc()).limit(limit)
+    if feature_id is not None:
+        stmt = stmt.join(FeatureRepo, FeatureRepo.repo_id == Repo.id).where(
+            FeatureRepo.feature_id == feature_id
+        )
+    if not include_unready:
+        stmt = stmt.where(Repo.status == Repo.STATUS_READY)
+    if query:
+        stmt = stmt.where(_repo_query_filter(query))
+    repos = list((await session.execute(stmt)).scalars())
+    return await _repo_payloads(session, repos)
+
+
+async def _repo_payloads(session: AsyncSession, repos: list[Repo]) -> list[dict[str, Any]]:
+    feature_ids_by_repo: dict[str, list[int]] = {}
+    if repos:
+        rows = (
+            await session.execute(
+                select(FeatureRepo.repo_id, FeatureRepo.feature_id)
+                .where(FeatureRepo.repo_id.in_([repo.id for repo in repos]))
+                .order_by(FeatureRepo.repo_id.asc(), FeatureRepo.feature_id.asc())
+            )
+        ).all()
+        for row in rows:
+            feature_ids_by_repo.setdefault(str(row.repo_id), []).append(int(row.feature_id))
     return [
         {
             "repo_id": repo.id,
             "name": repo.name,
             "status": repo.status,
             "source": repo.source,
+            "feature_ids": feature_ids_by_repo.get(repo.id, []),
+            "error_message": repo.error_message,
+            "last_synced_at": repo.last_synced_at.isoformat() if repo.last_synced_at else None,
         }
-        for repo in rows
+        for repo in repos
     ]
 
 
@@ -278,14 +363,86 @@ def _feature_payload(feature: Feature) -> dict[str, Any]:
     }
 
 
-def _required_int(arguments: dict[str, Any], key: str) -> int:
-    value = arguments.get(key)
+async def _resolve_feature(
+    session: AsyncSession,
+    arguments: dict[str, Any],
+) -> tuple[Feature | None, list[dict[str, Any]]]:
+    feature_id = _optional_int(arguments.get("feature_id"))
+    if feature_id is not None:
+        return await session.get(Feature, feature_id), []
+
+    slug = _optional_text(arguments.get("slug"))
+    if slug:
+        feature = (
+            await session.execute(
+                select(Feature).where(Feature.status == "active", Feature.slug == slug)
+            )
+        ).scalar_one_or_none()
+        return feature, []
+
+    name = _optional_text(arguments.get("name"))
+    if name:
+        rows = (
+            await session.execute(
+                select(Feature)
+                .where(Feature.status == "active", _feature_name_filter(name))
+                .order_by(Feature.id.asc())
+                .limit(10)
+            )
+        ).scalars()
+        matches = list(rows)
+        if len(matches) == 1:
+            return matches[0], []
+        return None, [_feature_payload(feature) for feature in matches]
+
+    return None, []
+
+
+def _feature_id_for_error(arguments: dict[str, Any]) -> object:
+    return (
+        arguments.get("feature_id") or arguments.get("slug") or arguments.get("name") or "missing"
+    )
+
+
+def _optional_int(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{key} must be an integer")
+        return None
     return value
+
+
+def _optional_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
 
 
 def _limit(value: object, *, default: int, maximum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         return default
     return max(1, min(value, maximum))
+
+
+def _feature_query_filter(query: str):
+    pattern = f"%{query.lower()}%"
+    return or_(
+        func.lower(Feature.name).like(pattern),
+        func.lower(Feature.slug).like(pattern),
+        func.lower(func.coalesce(Feature.description, "")).like(pattern),
+        func.lower(func.coalesce(Feature.summary_text, "")).like(pattern),
+    )
+
+
+def _feature_name_filter(name: str):
+    pattern = f"%{name.lower()}%"
+    return or_(Feature.name == name, func.lower(Feature.name).like(pattern))
+
+
+def _repo_query_filter(query: str):
+    pattern = f"%{query.lower()}%"
+    return or_(
+        func.lower(Repo.id).like(pattern),
+        func.lower(Repo.name).like(pattern),
+        func.lower(func.coalesce(Repo.url, "")).like(pattern),
+        func.lower(func.coalesce(Repo.local_path, "")).like(pattern),
+    )

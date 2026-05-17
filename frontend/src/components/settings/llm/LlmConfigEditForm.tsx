@@ -8,12 +8,13 @@ import { Input } from "../../ui/input";
 import type {
   LlmOpenCodeProviderProfile,
   LlmProtocol,
+  LlmRuntimeProfileOption,
   LlmUpdatePayload,
 } from "../settings-types";
 import {
-  OPENCODE_PROVIDER_PROFILE_OPTIONS,
+  FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS,
+  safeAgentRuntimeProfile,
   safeEditableProtocol,
-  safeOpenCodeProviderProfile,
 } from "../settings-utils";
 
 export function LlmConfigEditForm({
@@ -22,6 +23,7 @@ export function LlmConfigEditForm({
   onCancel,
   onTest,
   onSubmit,
+  runtimeProfileOptions = FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS,
   testing,
 }: {
   config: LLMConfigResponse;
@@ -29,6 +31,7 @@ export function LlmConfigEditForm({
   onCancel: () => void;
   onTest: (payload: LlmUpdatePayload) => Promise<LLMConfigTestResponse>;
   onSubmit: (payload: LlmUpdatePayload) => void;
+  runtimeProfileOptions?: LlmRuntimeProfileOption[];
   testing: boolean;
 }) {
   const [name, setName] = useState(config.name);
@@ -38,9 +41,14 @@ export function LlmConfigEditForm({
   const [baseUrl, setBaseUrl] = useState(config.base_url ?? "");
   const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState(config.model_name);
-  const [opencodeProviderProfile, setOpencodeProviderProfile] =
+  const initialRuntimeProfile =
+    config.agent_runtime_profile ?? config.opencode_provider_profile;
+  const [agentRuntimeProfile, setAgentRuntimeProfile] =
     useState<LlmOpenCodeProviderProfile>(
-      safeOpenCodeProviderProfile(config.opencode_provider_profile),
+      safeAgentRuntimeProfile(
+        initialRuntimeProfile,
+        runtimeProfileOptions,
+      ),
     );
   const [testResult, setTestResult] = useState<LLMConfigTestResponse | null>(null);
 
@@ -48,13 +56,23 @@ export function LlmConfigEditForm({
     setTestResult(null);
   }
 
-  const payload: LlmUpdatePayload = {
-      name: name.trim(),
-      protocol,
-      base_url: baseUrl.trim() || null,
-      model_name: modelName.trim(),
-      opencode_provider_profile: opencodeProviderProfile,
-    };
+  const normalizedBaseUrl = baseUrl.trim() || null;
+  const payload: LlmUpdatePayload = {};
+  if (name.trim() !== config.name) {
+    payload.name = name.trim();
+  }
+  if (protocol !== config.protocol) {
+    payload.protocol = protocol;
+  }
+  if (normalizedBaseUrl !== config.base_url) {
+    payload.base_url = normalizedBaseUrl;
+  }
+  if (modelName.trim() !== config.model_name) {
+    payload.model_name = modelName.trim();
+  }
+  if (agentRuntimeProfile !== (initialRuntimeProfile || "default")) {
+    payload.agent_runtime_profile = agentRuntimeProfile;
+  }
   if (apiKey) {
     payload.api_key = apiKey;
   }
@@ -99,6 +117,9 @@ export function LlmConfigEditForm({
           value={protocol}
         >
           <option value="openai">OpenAI</option>
+          {protocol === "openai_compatible" ? (
+            <option value="openai_compatible">OpenAI Compatible (历史)</option>
+          ) : null}
           <option value="anthropic">Anthropic</option>
         </select>
       </label>
@@ -135,18 +156,18 @@ export function LlmConfigEditForm({
         />
       </label>
       <label className="field-label compact">
-        编辑 OpenCode Provider
+        编辑 Agent 适配方式
         <select
           className="input"
           onChange={(event) => {
-            setOpencodeProviderProfile(
+            setAgentRuntimeProfile(
               event.target.value as LlmOpenCodeProviderProfile,
             );
             clearTestResult();
           }}
-          value={opencodeProviderProfile}
+          value={agentRuntimeProfile}
         >
-          {OPENCODE_PROVIDER_PROFILE_OPTIONS.map((option) => (
+          {runtimeProfileOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>

@@ -7,7 +7,7 @@ from codeask.db.models.document import Document, DocumentChunk, DocumentReferenc
 from codeask.db.models.feature import Feature
 from codeask.db.models.feedback import Feedback
 from codeask.db.models.frontend_event import FrontendEvent
-from codeask.db.models.llm import LLMConfig
+from codeask.db.models.llm import LLMConfig, LLMRuntimeAdapter
 from codeask.db.models.report import Report
 from codeask.db.models.session import (
     ExternalAgentSession,
@@ -48,6 +48,7 @@ __all__ = [
     "Feedback",
     "FrontendEvent",
     "LLMConfig",
+    "LLMRuntimeAdapter",
     "Repo",
     "Report",
     "WikiAsset",

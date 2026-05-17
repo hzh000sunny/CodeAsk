@@ -10,8 +10,9 @@ import type {
   LlmOpenCodeProviderProfile,
   LlmProtocol,
   LlmReasoningProfile,
+  LlmRuntimeProfileOption,
 } from "../settings-types";
-import { OPENCODE_PROVIDER_PROFILE_OPTIONS } from "../settings-utils";
+import { FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS } from "../settings-utils";
 
 export interface LlmCreatePayload {
   name: string;
@@ -22,7 +23,7 @@ export interface LlmCreatePayload {
   enabled: boolean;
   reasoning_profile: LlmReasoningProfile;
   reasoning_profile_json: string | null;
-  opencode_provider_profile: LlmOpenCodeProviderProfile;
+  agent_runtime_profile: LlmOpenCodeProviderProfile;
   opencode_provider_status?: "unknown" | "ok" | "failed";
   opencode_provider_tested_at?: string | null;
   opencode_provider_error?: string | null;
@@ -34,12 +35,14 @@ export function LlmConfigForm({
   onCancel,
   onTest,
   onSubmit,
+  runtimeProfileOptions = FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS,
   testing,
 }: {
   disabled: boolean;
   onCancel: () => void;
   onTest: (payload: LlmCreatePayload) => Promise<LLMConfigTestResponse>;
   onSubmit: (payload: LlmCreatePayload) => void;
+  runtimeProfileOptions?: LlmRuntimeProfileOption[];
   testing: boolean;
 }) {
   const [configName, setConfigName] = useState("");
@@ -48,7 +51,7 @@ export function LlmConfigForm({
   const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState("");
   const [enabled, setEnabled] = useState(true);
-  const [opencodeProviderProfile, setOpencodeProviderProfile] =
+  const [agentRuntimeProfile, setAgentRuntimeProfile] =
     useState<LlmOpenCodeProviderProfile>("default");
   const [testResult, setTestResult] = useState<LLMConfigTestResponse | null>(null);
 
@@ -63,21 +66,21 @@ export function LlmConfigForm({
     setApiKey("");
     setModelName("");
     setEnabled(true);
-    setOpencodeProviderProfile("default");
+    setAgentRuntimeProfile("default");
     setTestResult(null);
   }
 
   const payload: LlmCreatePayload = {
-      name: configName.trim(),
-      protocol,
-      base_url: baseUrl.trim() || null,
-      api_key: apiKey,
-      model_name: modelName.trim(),
-      enabled,
-      reasoning_profile: "none",
-      reasoning_profile_json: null,
-      opencode_provider_profile: opencodeProviderProfile,
-    };
+    name: configName.trim(),
+    protocol,
+    base_url: baseUrl.trim() || null,
+    api_key: apiKey,
+    model_name: modelName.trim(),
+    enabled,
+    reasoning_profile: "none",
+    reasoning_profile_json: null,
+    agent_runtime_profile: agentRuntimeProfile,
+  };
   if (testResult) {
     payload.opencode_provider_status = testResult.status;
     payload.opencode_provider_tested_at = testResult.tested_at;
@@ -154,18 +157,18 @@ export function LlmConfigForm({
         />
       </label>
       <label className="field-label compact">
-        OpenCode Provider
+        Agent 适配方式
         <select
           className="input"
           onChange={(event) => {
-            setOpencodeProviderProfile(
+            setAgentRuntimeProfile(
               event.target.value as LlmOpenCodeProviderProfile,
             );
             clearTestResult();
           }}
-          value={opencodeProviderProfile}
+          value={agentRuntimeProfile}
         >
-          {OPENCODE_PROVIDER_PROFILE_OPTIONS.map((option) => (
+          {runtimeProfileOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>

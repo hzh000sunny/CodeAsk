@@ -8,6 +8,7 @@ import pytest
 from codeask.agent.opencode_compat.config import (
     OpenCodeConfigInput,
     build_opencode_config,
+    build_opencode_provider_entry,
     build_session_external_directory_allowlist,
 )
 from codeask.agent.opencode_compat.profiles import (
@@ -141,6 +142,32 @@ def test_build_opencode_config_contains_provider_mcp_and_readonly_permissions() 
         "grep": "allow",
         "glob": "allow",
     }
+
+
+def test_provider_entry_builder_is_shared_by_session_and_probe_configs() -> None:
+    cfg = _llm_config(protocol="anthropic")
+    profile = select_provider_profile(cfg, profile_id="anthropic-compatible-v1-bearer")
+
+    session_entry = build_opencode_config(
+        OpenCodeConfigInput(
+            llm_config=cfg,
+            mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
+            mcp_token="token",
+            session_id="sess_1",
+            provider_profile=profile,
+        )
+    )["provider"][profile.provider_id(cfg.id)]
+    probe_entry = build_opencode_provider_entry(
+        cfg,
+        profile=profile,
+        name_prefix="CodeAsk Provider Test",
+        tool_call=False,
+    )
+
+    assert probe_entry["npm"] == session_entry["npm"]
+    assert probe_entry["options"] == session_entry["options"]
+    assert probe_entry["models"][cfg.model_name]["name"] == cfg.model_name
+    assert probe_entry["models"][cfg.model_name]["tool_call"] is False
 
 
 def test_build_config_allows_codeask_external_symlink_targets(tmp_path: Path) -> None:

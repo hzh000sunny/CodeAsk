@@ -16,6 +16,10 @@ describe("InvestigationPanel runtime previews", () => {
     isGlobalPool: true,
     contextSizeChars: 32768,
     contextWindowChars: 200000,
+    contextUsed: 32768,
+    contextWindow: 200000,
+    contextUnit: "tokens",
+    contextMetricSource: "opencode_tokens",
     usageRatio: 32768 / 200000,
     usageLabel: "32k / 200k",
   };

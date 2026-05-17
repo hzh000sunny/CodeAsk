@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.orm import selectinload
 
 from codeask.agent.opencode_compat.http import OpenCodeHttpClient
 from codeask.agent.opencode_compat.process import OpenCodeProcessManager
@@ -30,7 +31,7 @@ from codeask.agent.opencode_compat.profiles import (
 )
 from codeask.crypto import Crypto
 from codeask.db.engine import create_engine
-from codeask.db.models import LLMConfig
+from codeask.db.models import LLMConfig, LLMRuntimeAdapter
 from codeask.llm.repo import LLMConfigWithSecret
 from codeask.settings import Settings
 
@@ -125,7 +126,9 @@ async def _load_all_llm_configs(settings: Settings) -> list[LLMConfigWithSecret]
             rows = (
                 (
                     await session.execute(
-                        select(LLMConfig).order_by(
+                        select(LLMConfig)
+                        .options(selectinload(LLMConfig.runtime_adapters))
+                        .order_by(
                             LLMConfig.scope,
                             LLMConfig.owner_subject_id,
                             LLMConfig.name,
@@ -135,34 +138,86 @@ async def _load_all_llm_configs(settings: Settings) -> list[LLMConfigWithSecret]
                 .scalars()
                 .all()
             )
-        return [
-            LLMConfigWithSecret(
-                id=row.id,
-                name=row.name,
-                scope=row.scope,
-                owner_subject_id=row.owner_subject_id,
-                protocol=row.protocol,
-                base_url=row.base_url,
-                api_key=crypto.decrypt(row.api_key_encrypted),
-                model_name=row.model_name,
-                max_tokens=row.max_tokens,
-                temperature=row.temperature,
-                is_default=row.is_default,
-                enabled=row.enabled,
-                rpm_limit=row.rpm_limit,
-                quota_remaining=row.quota_remaining,
-                reasoning_profile=row.reasoning_profile,
-                reasoning_profile_json=row.reasoning_profile_json,
-                opencode_provider_profile=row.opencode_provider_profile,
-                opencode_provider_status=row.opencode_provider_status,
-                opencode_provider_tested_at=row.opencode_provider_tested_at,
-                opencode_provider_error=row.opencode_provider_error,
-                opencode_provider_test_result_json=row.opencode_provider_test_result_json,
+        configs = []
+        for row in rows:
+            opencode_adapter = _runtime_adapter(row, "opencode")
+            configs.append(
+                LLMConfigWithSecret(
+                    id=row.id,
+                    name=row.name,
+                    scope=row.scope,
+                    owner_subject_id=row.owner_subject_id,
+                    protocol=row.protocol,
+                    base_url=row.base_url,
+                    api_key=crypto.decrypt(row.api_key_encrypted),
+                    model_name=row.model_name,
+                    max_tokens=row.max_tokens,
+                    temperature=row.temperature,
+                    is_default=row.is_default,
+                    enabled=row.enabled,
+                    rpm_limit=row.rpm_limit,
+                    quota_remaining=row.quota_remaining,
+                    reasoning_profile=row.reasoning_profile,
+                    reasoning_profile_json=row.reasoning_profile_json,
+                    agent_runtime_backend="opencode",
+                    agent_runtime_profile=(
+                        opencode_adapter.adapter_profile
+                        if opencode_adapter
+                        else row.opencode_provider_profile
+                    ),
+                    agent_runtime_status=(
+                        opencode_adapter.status
+                        if opencode_adapter
+                        else row.opencode_provider_status
+                    ),
+                    agent_runtime_tested_at=(
+                        opencode_adapter.tested_at
+                        if opencode_adapter
+                        else row.opencode_provider_tested_at
+                    ),
+                    agent_runtime_error=(
+                        opencode_adapter.error if opencode_adapter else row.opencode_provider_error
+                    ),
+                    agent_runtime_test_result_json=(
+                        opencode_adapter.test_result_json
+                        if opencode_adapter
+                        else row.opencode_provider_test_result_json
+                    ),
+                    opencode_provider_profile=(
+                        opencode_adapter.adapter_profile
+                        if opencode_adapter
+                        else row.opencode_provider_profile
+                    ),
+                    opencode_provider_status=(
+                        opencode_adapter.status
+                        if opencode_adapter
+                        else row.opencode_provider_status
+                    ),
+                    opencode_provider_tested_at=(
+                        opencode_adapter.tested_at
+                        if opencode_adapter
+                        else row.opencode_provider_tested_at
+                    ),
+                    opencode_provider_error=(
+                        opencode_adapter.error if opencode_adapter else row.opencode_provider_error
+                    ),
+                    opencode_provider_test_result_json=(
+                        opencode_adapter.test_result_json
+                        if opencode_adapter
+                        else row.opencode_provider_test_result_json
+                    ),
+                )
             )
-            for row in rows
-        ]
+        return configs
     finally:
         await engine.dispose()
+
+
+def _runtime_adapter(row: LLMConfig, runtime_backend: str) -> LLMRuntimeAdapter | None:
+    for adapter in row.runtime_adapters:
+        if adapter.runtime_backend == runtime_backend:
+            return adapter
+    return None
 
 
 async def _wait_for_opencode(client: OpenCodeHttpClient) -> None:

@@ -139,6 +139,44 @@ describe("action trace code scope display", () => {
     expect(dialog).toHaveTextContent('{"query":');
   });
 
+  it("redacts host absolute paths in action trace cards and popovers", async () => {
+    const absoluteWorkspacePath =
+      "/home/hzh/.codeask/agent_sessions/opencode/sess_secret/workspace/repos/claude-code/src/tools/read.ts";
+    const externalPath = "/home/hzh/.ssh/id_rsa";
+    const event = actionTraceFromAgentEvent({
+      type: "tool_call",
+      data: {
+        tool_call_id: "call_read_file",
+        tool_name: "read",
+        arguments_summary: {
+          filePath: absoluteWorkspacePath,
+          externalPath,
+        },
+        raw_arguments: JSON.stringify({
+          filePath: absoluteWorkspacePath,
+          externalPath,
+        }),
+      },
+    });
+
+    expect(event).not.toBeNull();
+    render(<ActionTraceEvent event={event as ActionTraceEventModel} />);
+
+    const card = screen.getByRole("button", { name: "准备使用 read 详情" });
+    expect(card).toHaveTextContent(
+      "workspace/repos/claude-code/src/tools/read.ts",
+    );
+    expect(card).not.toHaveTextContent("/home/hzh");
+    fireEvent.click(card);
+
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
+    expect(dialog).toHaveTextContent(
+      "workspace/repos/claude-code/src/tools/read.ts",
+    );
+    expect(dialog).toHaveTextContent("[外部绝对路径已隐藏]");
+    expect(dialog).not.toHaveTextContent("/home/hzh");
+  });
+
   it("copies long detail values from the action trace popover", async () => {
     vi.useFakeTimers();
     const writeText = vi.fn().mockResolvedValue(undefined);

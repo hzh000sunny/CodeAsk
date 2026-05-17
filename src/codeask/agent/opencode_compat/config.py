@@ -37,22 +37,16 @@ def build_opencode_config(input_data: OpenCodeConfigInput) -> dict[str, object]:
 
     profile = input_data.provider_profile or select_provider_profile(input_data.llm_config)
     provider_id = profile.provider_id(input_data.llm_config.id)
-    model_name = input_data.llm_config.model_name
 
     return {
         "$schema": "https://opencode.ai/config.json",
         "provider": {
-            provider_id: {
-                "npm": profile.provider_npm,
-                "name": f"CodeAsk {input_data.llm_config.name}",
-                "options": profile.build_options(input_data.llm_config),
-                "models": {
-                    model_name: {
-                        "name": model_name,
-                        "tool_call": True,
-                    }
-                },
-            }
+            provider_id: build_opencode_provider_entry(
+                input_data.llm_config,
+                profile=profile,
+                name_prefix="CodeAsk",
+                tool_call=True,
+            )
         },
         "mcp": {
             "codeask": {
@@ -67,6 +61,27 @@ def build_opencode_config(input_data: OpenCodeConfigInput) -> dict[str, object]:
             }
         },
         "permission": _build_permission(input_data.external_directory_allowlist),
+    }
+
+
+def build_opencode_provider_entry(
+    llm_config: LLMConfigLike,
+    *,
+    profile: OpenCodeProviderProfile,
+    name_prefix: str,
+    tool_call: bool,
+) -> dict[str, object]:
+    model_name = llm_config.model_name
+    return {
+        "npm": profile.provider_npm,
+        "name": f"{name_prefix} {llm_config.name}",
+        "options": profile.build_options(llm_config),
+        "models": {
+            model_name: {
+                "name": model_name,
+                "tool_call": tool_call,
+            }
+        },
     }
 
 

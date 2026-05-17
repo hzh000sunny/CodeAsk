@@ -31,6 +31,9 @@ describe("wiki routing heading anchors", () => {
       sessions: {
         sessionId: null,
       },
+      settings: {
+        adminPageId: null,
+      },
       wiki: {
         featureId: 7,
         nodeId: 25,
@@ -54,6 +57,9 @@ describe("wiki routing heading anchors", () => {
         view: "wiki",
         sessions: {
           sessionId: null,
+        },
+        settings: {
+          adminPageId: null,
         },
         wiki: {
           featureId: 7,

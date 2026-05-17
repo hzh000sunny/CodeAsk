@@ -3,13 +3,7 @@ import { apiRequest } from "./api-client";
 
 type LlmProtocol = "openai" | "openai_compatible" | "anthropic";
 type LlmOpenCodeProviderProfile =
-  | "default"
-  | "openai-native"
-  | "openai-compatible"
-  | "anthropic-native"
-  | "anthropic-compatible-bearer"
-  | "anthropic-compatible-v1-bearer"
-  | "openrouter";
+  string;
 type LlmReasoningProfile =
   | "none"
   | "request_patch"
@@ -28,7 +22,7 @@ type LlmCreatePayload = {
   enabled?: boolean;
   reasoning_profile?: LlmReasoningProfile;
   reasoning_profile_json?: string | null;
-  opencode_provider_profile?: LlmOpenCodeProviderProfile;
+  agent_runtime_profile?: LlmOpenCodeProviderProfile;
   opencode_provider_status?: "unknown" | "ok" | "failed";
   opencode_provider_tested_at?: string | null;
   opencode_provider_error?: string | null;
@@ -46,6 +40,23 @@ type LlmUpdatePayload = Partial<
 
 export function listUserLlmConfigs() {
   return apiRequest<LLMConfigResponse[]>("/api/me/llm-configs");
+}
+
+export interface LlmRuntimeProfileResponse {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface LlmRuntimeProfilesResponse {
+  backend: string;
+  profiles: LlmRuntimeProfileResponse[];
+}
+
+export function listLlmRuntimeProfiles(backend = "opencode") {
+  return apiRequest<LlmRuntimeProfilesResponse>(
+    `/api/llm-runtime-profiles?backend=${encodeURIComponent(backend)}`,
+  );
 }
 
 export function createUserLlmConfig(payload: LlmCreatePayload) {
