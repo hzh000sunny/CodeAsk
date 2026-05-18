@@ -218,6 +218,7 @@ class OpenCodeCompat:
         provider_id = profile.provider_id(llm_config.id)
         workspace_dir = str(binding.workspace_dir)
         reasoning_lengths: dict[str, int] = {}
+        reasoning_leak_part_ids: set[str] = set()
         raw_text_by_message: dict[str, str] = {}
         visible_text_by_message: dict[str, str] = {}
         think_filters: dict[str, ThinkTagContentFilter] = {}
@@ -281,6 +282,14 @@ class OpenCodeCompat:
                         )
                     ):
                         continue
+                    if (
+                        filtered_event.type == "reasoning_leak_detected"
+                        and not _should_emit_reasoning_leak_detected(
+                            filtered_event,
+                            reasoning_leak_part_ids,
+                        )
+                    ):
+                        continue
                     yield filtered_event
                 continue
 
@@ -302,6 +311,14 @@ class OpenCodeCompat:
                         and not _should_emit_reasoning_observed(
                             filtered_event,
                             reasoning_lengths,
+                        )
+                    ):
+                        continue
+                    if (
+                        filtered_event.type == "reasoning_leak_detected"
+                        and not _should_emit_reasoning_leak_detected(
+                            filtered_event,
+                            reasoning_leak_part_ids,
                         )
                     ):
                         continue
@@ -329,6 +346,7 @@ class OpenCodeCompat:
                 raw_text_by_message.pop(message_id, None)
                 visible_text_by_message.pop(message_id, None)
                 think_filters.pop(message_id, None)
+                reasoning_leak_part_ids.discard(f"content_think_tag:{message_id}")
                 continue
 
             event = map_global_event(
@@ -342,6 +360,7 @@ class OpenCodeCompat:
                 raw_text_by_message.clear()
                 visible_text_by_message.clear()
                 think_filters.clear()
+                reasoning_leak_part_ids.clear()
             if event.type == "reasoning_observed" and not _should_emit_reasoning_observed(
                 event,
                 reasoning_lengths,
@@ -795,6 +814,18 @@ def _should_emit_reasoning_observed(
         seen_lengths[part_id] = length
         return True
     return False
+
+
+def _should_emit_reasoning_leak_detected(
+    event: ChatRuntimeEvent,
+    seen_part_ids: set[str],
+) -> bool:
+    data = event.data if isinstance(event.data, dict) else {}
+    part_id = str(data.get("part_id") or "unknown")
+    if part_id in seen_part_ids:
+        return False
+    seen_part_ids.add(part_id)
+    return True
 
 
 def _append_raw_event(session_dir: str, event: dict[str, object]) -> None:

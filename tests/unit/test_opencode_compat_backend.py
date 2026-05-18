@@ -1016,6 +1016,109 @@ async def test_run_turn_masks_late_think_tag_snapshot_without_reemitting_text(
 
 
 @pytest.mark.asyncio
+async def test_run_turn_coalesces_streamed_think_tag_leak_diagnostics(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    workspace = workspace_manager.prepare_workspace("sess_1")
+    store.items.append(
+        ExternalAgentSessionCreate(
+            session_id="sess_1",
+            external_session_key="ses_open",
+            session_dir=str(workspace.session_dir),
+            workspace_dir=str(workspace.workspace_dir),
+            server_url="http://127.0.0.1:4100",
+            port=4100,
+            pid=123,
+            config_hash="hash",
+            config_json={},
+        )
+    )
+    http_client.events = [
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        "id": "text_1",
+                        "messageID": "msg_1",
+                        "type": "text",
+                        "text": "",
+                    },
+                },
+            },
+        },
+        *[
+            {
+                "directory": str(workspace.workspace_dir),
+                "payload": {
+                    "type": "message.part.delta",
+                    "properties": {
+                        "sessionID": "ses_open",
+                        "messageID": "msg_1",
+                        "partID": "text_1",
+                        "field": "text",
+                        "delta": delta,
+                    },
+                },
+            }
+            for delta in [
+                "<think>",
+                "第一段内部分析。",
+                "第二段内部分析。",
+                "第三段内部分析。",
+                "</think>",
+                "最终回答",
+            ]
+        ],
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "session.status",
+                "properties": {"sessionID": "ses_open", "status": {"type": "idle"}},
+            },
+        },
+    ]
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    events = [
+        event
+        async for event in compat.run_turn(
+            session_id="sess_1",
+            user_message="hi",
+            llm_config=_llm_config(),
+        )
+    ]
+
+    leak_events = [event for event in events if event.type == "reasoning_leak_detected"]
+    assert len(leak_events) == 1
+    visible_text = "".join(
+        str(event.data.get("delta", "")) for event in events if event.type == "text_delta"
+    )
+    assert visible_text == "最终回答"
+    assert "<think>" not in visible_text
+
+
+@pytest.mark.asyncio
 async def test_run_turn_emits_runtime_state_from_opencode_token_usage(tmp_path: Path) -> None:
     wiki_root = tmp_path / "wiki"
     wiki_root.mkdir()
