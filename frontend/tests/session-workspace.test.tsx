@@ -1810,6 +1810,83 @@ describe("SessionWorkspace streaming interaction", () => {
     });
   });
 
+  it("keeps unsent composer drafts isolated per session", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path === "/api/auth/me") {
+          return jsonResponse({
+            subject_id: "client_test",
+            display_name: "client_test",
+            role: "member",
+            authenticated: false,
+          });
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "会话一",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+            {
+              id: "sess_2",
+              title: "会话二",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T09:00:00",
+              updated_at: "2026-04-30T09:00:00",
+            },
+          ]);
+        }
+        if (/^\/api\/sessions\/[^/]+\/turns$/.test(path)) {
+          return jsonResponse([]);
+        }
+        if (/^\/api\/sessions\/[^/]+\/traces$/.test(path)) {
+          return jsonResponse([]);
+        }
+        if (/^\/api\/sessions\/[^/]+\/attachments$/.test(path)) {
+          return jsonResponse([]);
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "会话一",
+    );
+    const input = screen.getByLabelText("会话输入") as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: "会话一未发送草稿" } });
+    expect(input.value).toBe("会话一未发送草稿");
+
+    fireEvent.click(screen.getByRole("button", { name: "会话二" }));
+    expect(await screen.findByRole("heading", { name: "会话二" })).toBeInTheDocument();
+    expect(input.value).toBe("");
+
+    fireEvent.change(input, { target: { value: "会话二自己的草稿" } });
+    expect(input.value).toBe("会话二自己的草稿");
+
+    fireEvent.click(screen.getByRole("button", { name: "会话一" }));
+    expect(await screen.findByRole("heading", { name: "会话一" })).toBeInTheDocument();
+    expect(input.value).toBe("会话一未发送草稿");
+
+    fireEvent.click(screen.getByRole("button", { name: "会话二" }));
+    expect(await screen.findByRole("heading", { name: "会话二" })).toBeInTheDocument();
+    expect(input.value).toBe("会话二自己的草稿");
+  });
+
   it("allows sending a second session while another session is streaming", async () => {
     let firstStreamController: ReadableStreamDefaultController<Uint8Array> | null = null;
     const encoder = new TextEncoder();

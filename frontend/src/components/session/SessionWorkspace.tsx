@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -70,6 +77,7 @@ export function SessionWorkspace({
   const previousSubjectQueryKeyRef = useRef<string | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
+  const [draftsBySessionId, setDraftsBySessionId] = useState<Record<string, string>>({});
   const [activeStreamingSessionIds, setActiveStreamingSessionIds] = useState<string[]>([]);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [insights, setInsights] = useState<RuntimeInsight[]>([]);
@@ -125,6 +133,8 @@ export function SessionWorkspace({
     setRuntimeState(null);
     setStages(createInitialStages());
     setDetectedFeatureIds([]);
+    setDraft("");
+    setDraftsBySessionId({});
   }
 
   useEffect(() => {
@@ -178,6 +188,11 @@ export function SessionWorkspace({
     onSuccess: (_unused, sessionId) => {
       const activeSessionId = selected?.id ?? selectedId;
       setDeletedSessionIds((current) => [...new Set([...current, sessionId])]);
+      setDraftsBySessionId((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
       setDeleteCandidate(null);
       setDeleteError("");
       if (activeSessionId === sessionId) {
@@ -212,6 +227,13 @@ export function SessionWorkspace({
       setDeletedSessionIds((current) => [
         ...new Set([...current, ...payload.deleted_ids]),
       ]);
+      setDraftsBySessionId((current) => {
+        const next = { ...current };
+        for (const sessionId of payload.deleted_ids) {
+          delete next[sessionId];
+        }
+        return next;
+      });
       if (activeSessionId && payload.deleted_ids.includes(activeSessionId)) {
         resetActiveSessionState();
         onSelectedSessionChange?.(null);
@@ -242,6 +264,19 @@ export function SessionWorkspace({
     visibleSessions[0] ??
     null;
   const selectedSessionId = selected?.id ?? "";
+  const updateDraft = useCallback(
+    (next: SetStateAction<string>) => {
+      const value = typeof next === "function" ? next(draft) : next;
+      setDraft(value);
+      if (selectedSessionId) {
+        setDraftsBySessionId((current) => ({
+          ...current,
+          [selectedSessionId]: value,
+        }));
+      }
+    },
+    [draft, selectedSessionId],
+  );
   const isSelectedSessionStreaming =
     Boolean(selectedSessionId) && activeStreamingSessionIds.includes(selectedSessionId);
   const { copiedSessionId, copySessionId, showActionNotice } =
@@ -357,7 +392,7 @@ export function SessionWorkspace({
     selected,
     setActiveStreamingSessionIds,
     setDetectedFeatureIds,
-    setDraft,
+    setDraft: updateDraft,
     setInsights,
     setMessages,
     setSelectedId,
@@ -373,6 +408,9 @@ export function SessionWorkspace({
       restoreActiveStreamSnapshot(selectedSessionId);
     }
   }, [activeStreamingSessionIds, restoreActiveStreamSnapshot, selectedSessionId]);
+  useEffect(() => {
+    setDraft(selectedSessionId ? draftsBySessionId[selectedSessionId] ?? "" : "");
+  }, [draftsBySessionId, selectedSessionId]);
   const wikiPromotion = useSessionWikiPromotion({
     detectedFeatureIds,
     features,
@@ -483,7 +521,7 @@ export function SessionWorkspace({
         isStreaming={isSelectedSessionStreaming}
         messages={messages}
         onCopySessionId={() => void copySessionId()}
-        onDraftChange={setDraft}
+        onDraftChange={updateDraft}
         onFeedback={submitFeedback}
         onOpenReportDialog={openReportDialog}
         onCancelMessage={cancelMessage}
