@@ -70,9 +70,7 @@ export function SessionWorkspace({
   const previousSubjectQueryKeyRef = useRef<string | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [activeStreamingSessionId, setActiveStreamingSessionId] =
-    useState<string | null>(null);
+  const [activeStreamingSessionIds, setActiveStreamingSessionIds] = useState<string[]>([]);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [insights, setInsights] = useState<RuntimeInsight[]>([]);
   const [runtimeState, setRuntimeState] = useState<RuntimeSessionState | null>(null);
@@ -245,7 +243,7 @@ export function SessionWorkspace({
     null;
   const selectedSessionId = selected?.id ?? "";
   const isSelectedSessionStreaming =
-    isStreaming && activeStreamingSessionId === selectedSessionId;
+    Boolean(selectedSessionId) && activeStreamingSessionIds.includes(selectedSessionId);
   const { copiedSessionId, copySessionId, showActionNotice } =
     useSessionNotices({
       selected,
@@ -351,18 +349,16 @@ export function SessionWorkspace({
     useSessionMessageStream({
     draft,
     insights,
-    isStreaming,
     messagesSessionIdRef,
     messages,
     queryClient,
     rememberSession,
     runtimeState,
     selected,
-    setActiveStreamingSessionId,
+    setActiveStreamingSessionIds,
     setDetectedFeatureIds,
     setDraft,
     setInsights,
-    setIsStreaming,
     setMessages,
     setSelectedId,
     setRuntimeState,
@@ -372,11 +368,11 @@ export function SessionWorkspace({
   useEffect(() => {
     if (
       selectedSessionId &&
-      activeStreamingSessionId === selectedSessionId
+      activeStreamingSessionIds.includes(selectedSessionId)
     ) {
       restoreActiveStreamSnapshot(selectedSessionId);
     }
-  }, [activeStreamingSessionId, restoreActiveStreamSnapshot, selectedSessionId]);
+  }, [activeStreamingSessionIds, restoreActiveStreamSnapshot, selectedSessionId]);
   const wikiPromotion = useSessionWikiPromotion({
     detectedFeatureIds,
     features,

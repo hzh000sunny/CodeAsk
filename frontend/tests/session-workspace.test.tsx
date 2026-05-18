@@ -1810,6 +1810,123 @@ describe("SessionWorkspace streaming interaction", () => {
     });
   });
 
+  it("allows sending a second session while another session is streaming", async () => {
+    let firstStreamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/auth/me") {
+          return jsonResponse({
+            subject_id: "client_test",
+            display_name: "client_test",
+            role: "member",
+            authenticated: false,
+          });
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              id: "sess_1",
+              title: "正在生成的会话",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T10:00:00",
+              updated_at: "2026-04-30T10:00:00",
+            },
+            {
+              id: "sess_2",
+              title: "新问题会话",
+              created_by_subject_id: "client_test",
+              status: "active",
+              pinned: false,
+              created_at: "2026-04-30T09:00:00",
+              updated_at: "2026-04-30T09:00:00",
+            },
+          ]);
+        }
+        if (path === "/api/sessions/sess_1/turns") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/sessions/sess_1/traces") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/sessions/sess_2/turns") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/sessions/sess_2/traces") {
+          return jsonResponse([]);
+        }
+        if (/^\/api\/sessions\/[^/]+\/attachments$/.test(path)) {
+          return jsonResponse([]);
+        }
+        if (
+          path === "/api/sessions/sess_1/messages" &&
+          init?.method === "POST"
+        ) {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                firstStreamController = controller;
+                controller.enqueue(
+                  encoder.encode('event: text_delta\ndata: {"text":"第一会话生成中"}\n\n'),
+                );
+              },
+            }),
+            { headers: { "Content-Type": "text/event-stream" } },
+          );
+        }
+        if (
+          path === "/api/sessions/sess_2/messages" &&
+          init?.method === "POST"
+        ) {
+          return streamResponse("第二会话回答。");
+        }
+        throw new Error(`unexpected request ${path}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await within(screen.getByRole("region", { name: "会话列表" })).findByText(
+      "正在生成的会话",
+    );
+    fireEvent.change(screen.getByLabelText("会话输入"), {
+      target: { value: "开始第一个会话" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    expect(await screen.findByText("第一会话生成中")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "新问题会话" }));
+    fireEvent.change(screen.getByLabelText("会话输入"), {
+      target: { value: "第二个会话也要发送" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/sessions/sess_2/messages",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByText("第二会话回答。")).toBeInTheDocument();
+    expect(
+      screen.queryByText("当前已有会话正在生成，请等待完成或切回该会话停止生成。"),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      firstStreamController?.enqueue(
+        encoder.encode('event: done\ndata: {"turn_id":"turn_stream"}\n\n'),
+      );
+      firstStreamController?.close();
+    });
+  });
+
   it("keeps previous action trace entries when sending a follow-up message", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {

@@ -75,18 +75,16 @@ function clearActiveStreamState(sessionId: string) {
 export function useSessionMessageStream({
   draft,
   insights,
-  isStreaming,
   messagesSessionIdRef,
   messages,
   queryClient,
   rememberSession,
   runtimeState,
   selected,
-  setActiveStreamingSessionId,
+  setActiveStreamingSessionIds,
   setDetectedFeatureIds,
   setDraft,
   setInsights,
-  setIsStreaming,
   setMessages,
   setSelectedId,
   setRuntimeState,
@@ -95,18 +93,16 @@ export function useSessionMessageStream({
 }: {
   draft: string;
   insights: RuntimeInsight[];
-  isStreaming: boolean;
   messages: ConversationMessage[];
   messagesSessionIdRef: RefObject<string | null>;
   queryClient: QueryClient;
   rememberSession: (session: SessionResponse) => void;
   runtimeState: RuntimeSessionState | null;
   selected: SessionResponse | null;
-  setActiveStreamingSessionId: Dispatch<SetStateAction<string | null>>;
+  setActiveStreamingSessionIds: Dispatch<SetStateAction<string[]>>;
   setDetectedFeatureIds: Dispatch<SetStateAction<number[]>>;
   setDraft: Dispatch<SetStateAction<string>>;
   setInsights: Dispatch<SetStateAction<RuntimeInsight[]>>;
-  setIsStreaming: Dispatch<SetStateAction<boolean>>;
   setMessages: Dispatch<SetStateAction<ConversationMessage[]>>;
   setSelectedId: Dispatch<SetStateAction<string | null>>;
   setRuntimeState: Dispatch<SetStateAction<RuntimeSessionState | null>>;
@@ -138,13 +134,24 @@ export function useSessionMessageStream({
 
   useEffect(() => {
     activeStreamRef.current = activeStreamState;
+    setActiveStreamingSessionIds([...activeStreamStatesBySession.keys()]);
     if (!activeStreamState) {
       return;
     }
-    setIsStreaming(true);
-    setActiveStreamingSessionId(activeStreamState.sessionId);
     restoreActiveStreamSnapshot(activeStreamState.sessionId);
-  }, [restoreActiveStreamSnapshot, setActiveStreamingSessionId, setIsStreaming]);
+  }, [restoreActiveStreamSnapshot, setActiveStreamingSessionIds]);
+
+  function markSessionStreaming(sessionId: string) {
+    setActiveStreamingSessionIds((current) =>
+      current.includes(sessionId) ? current : [...current, sessionId],
+    );
+  }
+
+  function markSessionIdle(sessionId: string) {
+    setActiveStreamingSessionIds((current) =>
+      current.filter((item) => item !== sessionId),
+    );
+  }
 
   function updateActiveStreamSnapshot(
     sessionId: string,
@@ -163,8 +170,7 @@ export function useSessionMessageStream({
     }
   }
 
-  async function rollbackActiveStream() {
-    const active = activeStreamRef.current;
+  async function rollbackActiveStream(active: ActiveStreamState) {
     if (!active) {
       return;
     }
@@ -181,7 +187,7 @@ export function useSessionMessageStream({
     setStages(createInitialStages());
     activeStreamSnapshotsBySession.delete(active.sessionId);
     clearActiveStreamState(active.sessionId);
-    setActiveStreamingSessionId(null);
+    markSessionIdle(active.sessionId);
     if (active.serverTurnId) {
       await abortSessionTurn(active.sessionId, active.serverTurnId);
     }
@@ -194,11 +200,15 @@ export function useSessionMessageStream({
   }
 
   function cancelMessage() {
-    if (!activeStreamState) {
+    const selectedActiveStream = selected?.id
+      ? activeStreamStatesBySession.get(selected.id)
+      : null;
+    const active = selectedActiveStream ?? activeStreamState;
+    if (!active) {
       return;
     }
     showActionNotice("已停止生成");
-    activeStreamState.abortController.abort();
+    active.abortController.abort();
   }
 
   async function sendMessage() {
@@ -206,14 +216,6 @@ export function useSessionMessageStream({
     if (!content) {
       return;
     }
-    if (isStreaming || activeStreamStatesBySession.size > 0) {
-      showActionNotice(
-        "当前已有会话正在生成，请等待完成或切回该会话停止生成。",
-        "error",
-      );
-      return;
-    }
-
     let target = selected;
     if (!target) {
       try {
@@ -225,6 +227,10 @@ export function useSessionMessageStream({
         showActionNotice(`创建默认会话失败：${messageFromError(error)}`, "error");
         return;
       }
+    }
+    if (activeStreamStatesBySession.has(target.id)) {
+      showActionNotice("当前会话正在生成，请等待完成或停止后再发送。", "error");
+      return;
     }
 
     const userMessageId = `msg_user_${Date.now()}`;
@@ -252,6 +258,7 @@ export function useSessionMessageStream({
     };
     setActiveStreamState(streamState);
     activeStreamRef.current = streamState;
+    markSessionStreaming(target.id);
     const initialSnapshot = {
       detectedFeatureIds: [],
       insights,
@@ -264,8 +271,6 @@ export function useSessionMessageStream({
     setDraft("");
     setStages(initialSnapshot.stages);
     setDetectedFeatureIds([]);
-    setIsStreaming(true);
-    setActiveStreamingSessionId(target.id);
     messagesSessionIdRef.current = target.id;
     setMessages(nextMessages);
 
@@ -449,7 +454,7 @@ export function useSessionMessageStream({
     } catch (error) {
       if (isAbortError(error)) {
         try {
-          await rollbackActiveStream();
+          await rollbackActiveStream(streamState);
           showActionNotice("已停止生成");
         } catch (rollbackError) {
           showActionNotice(`停止生成失败：${messageFromError(rollbackError)}`, "error");
@@ -473,10 +478,9 @@ export function useSessionMessageStream({
       if (activeStreamRef.current?.sessionId === target.id) {
         applyActiveStreamSnapshotIfVisible(target.id);
       }
-      setIsStreaming(false);
-      setActiveStreamingSessionId(null);
-      if (activeStreamState?.sessionId === target.id) {
-        clearActiveStreamState(target.id);
+      clearActiveStreamState(target.id);
+      markSessionIdle(target.id);
+      if (activeStreamRef.current?.sessionId === target.id) {
         activeStreamRef.current = null;
       }
     }
