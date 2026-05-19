@@ -1,8 +1,9 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+
+import { makeCodeAskE2eTempDir } from "./test-temp";
 
 const SUBJECT_ID = "live_e2e@dev";
 const SUBJECT_KEY = "codeask.subject_id";
@@ -151,7 +152,7 @@ async function createWikiImportDirectory(payload: {
   assetFiles: Array<{ relativePath: string; content: Buffer }>;
   ignoredFiles: Array<{ relativePath: string; content: string }>;
 }) {
-  const root = await mkdtemp(path.join(tmpdir(), "codeask-live-wiki-import-"));
+  const root = await makeCodeAskE2eTempDir("codeask-live-wiki-import-");
   const dir = path.join(root, payload.rootName);
 
   for (const file of payload.markdownFiles) {

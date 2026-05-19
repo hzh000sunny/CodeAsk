@@ -216,7 +216,10 @@ def test_workspace_manager_creates_and_restores_wiki_symlink(tmp_path: Path) -> 
     manager = OpenCodeWorkspaceManager(data_dir=data_dir, wiki_workspace_root=wiki_root)
     workspace = manager.prepare_workspace("sess_safe-1")
 
-    assert workspace.session_dir == data_dir / "agent_sessions" / "opencode" / "sess_safe-1"
+    assert (
+        workspace.session_dir
+        == data_dir / "agent_sessions" / "opencode" / "sessions" / "sess_safe-1"
+    )
     assert workspace.workspace_dir.is_dir()
     assert workspace.attachments_dir.is_dir()
     assert workspace.config_dir.is_dir()

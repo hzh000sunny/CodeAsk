@@ -35,6 +35,26 @@ def _llm_config() -> LLMConfigWithSecret:
     )
 
 
+def _session_workspace_path(tmp_path: Path, session_id: str = "sess_1") -> Path:
+    return tmp_path / "data" / "agent_sessions" / "opencode" / "sessions" / session_id / "workspace"
+
+
+def _without_runtime_observation_events(events):  # type: ignore[no-untyped-def]
+    return [
+        event
+        for event in events
+        if not (
+            event.type == "assistant_action"
+            and event.data.get("action")
+            in {
+                "opencode_prompt_async_start",
+                "opencode_prompt_async_done",
+                "opencode_event_stream_open",
+            }
+        )
+    ]
+
+
 @dataclass
 class FakeProcessManager:
     handle: OpenCodeServerHandle
@@ -59,6 +79,8 @@ class FakeHttpClient:
         self.health_calls = 0
         self.fail_abort = False
         self.session_ids: list[str] = []
+        self.list_message_calls: list[dict[str, str]] = []
+        self.missing_session_ids: set[str] = set()
 
     async def health(self) -> dict[str, object]:
         self.health_calls += 1
@@ -69,6 +91,12 @@ class FakeHttpClient:
         if self.session_ids:
             return self.session_ids.pop(0)
         return "ses_open"
+
+    async def list_messages(self, *, session_id: str, directory: str) -> list[dict[str, object]]:
+        self.list_message_calls.append({"session_id": session_id, "directory": directory})
+        if session_id in self.missing_session_ids:
+            raise RuntimeError("opencode session not found")
+        return []
 
     async def prompt_async(
         self,
@@ -179,7 +207,7 @@ async def test_initialize_session_writes_workspace_config_and_external_binding(
 
     result = await compat.initialize_session("sess_1", _llm_config())
 
-    workspace = tmp_path / "data" / "agent_sessions" / "opencode" / "sess_1" / "workspace"
+    workspace = _session_workspace_path(tmp_path)
     config = json.loads((workspace / "opencode.json").read_text(encoding="utf-8"))
     assert config["mcp"]["codeask"]["url"] == "http://127.0.0.1:8000/api/agent-mcp/sess_1"
     assert config["mcp"]["codeask"]["headers"]["Authorization"] == "Bearer token-sess_1"
@@ -214,9 +242,7 @@ async def test_run_turn_appends_dynamic_codeask_context_to_system_prompt(
     http_client = FakeHttpClient()
     http_client.events = [
         {
-            "directory": str(
-                tmp_path / "data" / "agent_sessions" / "opencode" / "sess_1" / "workspace"
-            ),
+            "directory": str(_session_workspace_path(tmp_path)),
             "payload": {
                 "type": "session.status",
                 "properties": {"sessionID": "ses_open", "status": {"type": "idle"}},
@@ -239,6 +265,7 @@ async def test_run_turn_appends_dynamic_codeask_context_to_system_prompt(
         / "data"
         / "agent_sessions"
         / "opencode"
+        / "sessions"
         / "sess_1"
         / "workspace"
         / "wiki"
@@ -289,13 +316,14 @@ async def test_run_turn_appends_dynamic_codeask_context_to_system_prompt(
         / "data"
         / "agent_sessions"
         / "opencode"
+        / "sessions"
         / "sess_1"
         / "workspace"
         / "CODEASK_CONTEXT.md"
     )
     expected_context = await _dynamic_context(
         "sess_1",
-        tmp_path / "data" / "agent_sessions" / "opencode" / "sess_1" / "workspace",
+        _session_workspace_path(tmp_path),
     )
     assert dynamic_file.read_text(encoding="utf-8") == f"{expected_context}\n"
 
@@ -400,7 +428,7 @@ async def test_initialize_session_uses_explicit_provider_without_probe(
 
     await compat.initialize_session("sess_1", llm_config)
 
-    workspace = tmp_path / "data" / "agent_sessions" / "opencode" / "sess_1" / "workspace"
+    workspace = _session_workspace_path(tmp_path)
     config = json.loads((workspace / "opencode.json").read_text(encoding="utf-8"))
     provider = config["provider"]["codeask_cfg_1"]
     assert provider["options"]["baseURL"] == "https://gateway.example.test/api/coding/v1"
@@ -435,7 +463,7 @@ async def test_initialize_session_recreates_cleaned_external_binding(tmp_path: P
     object.__setattr__(store.items[0], "status", "cleaned")
     await compat.initialize_session("sess_1", _llm_config())
 
-    workspace = tmp_path / "data" / "agent_sessions" / "opencode" / "sess_1" / "workspace"
+    workspace = _session_workspace_path(tmp_path)
     assert http_client.created_directories == [str(workspace), str(workspace)]
     assert store.items[-1].external_session_key == "ses_open"
 
@@ -608,11 +636,32 @@ async def test_run_turn_sends_prompt_and_maps_opencode_events(tmp_path: Path) ->
         }
     ]
     assert http_client.health_calls == 1
-    assert [event.type for event in events] == ["text_delta", "done"]
-    assert events[0].data == {"delta": "hello"}
+    observation_actions = [
+        event.data["action"] for event in events if event.type == "assistant_action"
+    ]
+    assert observation_actions == [
+        "opencode_prompt_async_start",
+        "opencode_prompt_async_done",
+        "opencode_event_stream_open",
+    ]
+    user_visible_events = _without_runtime_observation_events(events)
+    assert [event.type for event in user_visible_events] == ["text_delta", "done"]
+    assert user_visible_events[0].data == {"delta": "hello"}
     raw_log = workspace.logs_dir / "opencode-events.jsonl"
     assert raw_log.exists()
     assert '"message.part.delta"' in raw_log.read_text(encoding="utf-8")
+    summary_log = workspace.logs_dir / "opencode-events.summary.jsonl"
+    assert summary_log.exists()
+    summary_lines = [
+        json.loads(line) for line in summary_log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [line["type"] for line in summary_lines] == [
+        "prompt_async_start",
+        "prompt_async_done",
+        "event_stream_open",
+        "opencode_status",
+    ]
+    assert summary_lines[-1]["status"] == "idle"
 
 
 @pytest.mark.asyncio
@@ -714,8 +763,13 @@ async def test_run_turn_streams_text_delta_before_later_status_events(tmp_path: 
         )
     ]
 
-    assert [event.type for event in events] == ["text_delta", "assistant_action", "done"]
-    assert events[0].data == {"delta": "hello"}
+    user_visible_events = _without_runtime_observation_events(events)
+    assert [event.type for event in user_visible_events] == [
+        "text_delta",
+        "assistant_action",
+        "done",
+    ]
+    assert user_visible_events[0].data == {"delta": "hello"}
 
 
 @pytest.mark.asyncio
@@ -802,8 +856,9 @@ async def test_run_turn_coalesces_repeated_reasoning_observed_events(tmp_path: P
         )
     ]
 
-    assert [event.type for event in events] == ["reasoning_observed", "done"]
-    assert events[0].data["content_length"] == 32
+    user_visible_events = _without_runtime_observation_events(events)
+    assert [event.type for event in user_visible_events] == ["reasoning_observed", "done"]
+    assert user_visible_events[0].data["content_length"] == 32
 
 
 @pytest.mark.asyncio
@@ -898,7 +953,8 @@ async def test_run_turn_does_not_emit_reasoning_delta_as_text(tmp_path: Path) ->
         )
     ]
 
-    assert [event.type for event in events] == ["done"]
+    user_visible_events = _without_runtime_observation_events(events)
+    assert [event.type for event in user_visible_events] == ["done"]
 
 
 @pytest.mark.asyncio
@@ -1000,14 +1056,15 @@ async def test_run_turn_masks_late_think_tag_snapshot_without_reemitting_text(
         )
     ]
 
-    assert [event.type for event in events] == [
+    user_visible_events = _without_runtime_observation_events(events)
+    assert [event.type for event in user_visible_events] == [
         "text_delta",
         "reasoning_leak_detected",
         "done",
     ]
-    assert events[0].data == {"delta": "正式回答"}
-    assert events[1].data["mode"] == "backend_content_guard"
-    assert events[1].data["source"] == "content_reasoning_leak_guard"
+    assert user_visible_events[0].data == {"delta": "正式回答"}
+    assert user_visible_events[1].data["mode"] == "backend_content_guard"
+    assert user_visible_events[1].data["source"] == "content_reasoning_leak_guard"
     visible_text = "".join(
         str(event.data.get("delta", "")) for event in events if event.type == "text_delta"
     )
@@ -1193,8 +1250,9 @@ async def test_run_turn_emits_runtime_state_from_opencode_token_usage(tmp_path: 
         )
     ]
 
-    assert [event.type for event in events] == ["runtime_state", "done"]
-    usage = events[0].data
+    user_visible_events = _without_runtime_observation_events(events)
+    assert [event.type for event in user_visible_events] == ["runtime_state", "done"]
+    usage = user_visible_events[0].data
     assert usage["backend"] == "opencode"
     assert usage["model_name"] == "model-a"
     assert usage["context_size_chars"] == 13_306
@@ -1275,9 +1333,10 @@ async def test_run_turn_uses_configured_context_window_for_usage_state(tmp_path:
         )
     ]
 
-    assert events[0].type == "runtime_state"
-    assert events[0].data["context_window"] == 131_072
-    assert events[0].data["usage_label"] == "32k / 131k"
+    user_visible_events = _without_runtime_observation_events(events)
+    assert user_visible_events[0].type == "runtime_state"
+    assert user_visible_events[0].data["context_window"] == 131_072
+    assert user_visible_events[0].data["usage_label"] == "32k / 131k"
 
 
 @pytest.mark.asyncio
@@ -1343,8 +1402,9 @@ async def test_initialize_session_reuses_existing_binding_when_config_is_unchang
 
     assert first.external_session_key == "ses_open"
     assert second.external_session_key == "ses_open"
-    assert http_client.created_directories == [
-        str(tmp_path / "data" / "agent_sessions" / "opencode" / "sess_1" / "workspace")
+    assert http_client.created_directories == [str(_session_workspace_path(tmp_path))]
+    assert http_client.list_message_calls == [
+        {"session_id": "ses_open", "directory": str(_session_workspace_path(tmp_path))}
     ]
 
 
@@ -1382,12 +1442,147 @@ async def test_initialize_session_reuses_external_session_after_shared_server_re
 
     assert first.external_session_key == "ses_open"
     assert second.external_session_key == "ses_open"
-    assert http_client.created_directories == [
-        str(tmp_path / "data" / "agent_sessions" / "opencode" / "sess_1" / "workspace")
-    ]
+    assert http_client.created_directories == [str(_session_workspace_path(tmp_path))]
     assert store.items[0].server_url == "http://127.0.0.1:4101"
     assert store.items[0].port == 4101
     assert store.items[0].pid == 456
+    assert http_client.list_message_calls == [
+        {"session_id": "ses_open", "directory": str(_session_workspace_path(tmp_path))}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_recreates_stale_external_session(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    http_client.session_ids = ["ses_old", "ses_new"]
+    store = FakeStore()
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    first = await compat.initialize_session("sess_1", _llm_config())
+    http_client.missing_session_ids.add("ses_old")
+    second = await compat.initialize_session("sess_1", _llm_config())
+
+    workspace = _session_workspace_path(tmp_path)
+    assert first.external_session_key == "ses_old"
+    assert second.external_session_key == "ses_new"
+    assert http_client.created_directories == [str(workspace), str(workspace)]
+    assert http_client.list_message_calls == [
+        {"session_id": "ses_old", "directory": str(workspace)}
+    ]
+    summary_log = workspace.parent / "logs" / "opencode-events.summary.jsonl"
+    summary_lines = [
+        json.loads(line) for line in summary_log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert "external_session_stale" in [line["type"] for line in summary_lines]
+    assert "external_session_created" in [line["type"] for line in summary_lines]
+
+
+@pytest.mark.asyncio
+async def test_run_turn_uses_initialized_binding_after_llm_config_switch(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    http_client.session_ids = ["ses_old", "ses_new"]
+    store = FakeStore()
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+    cfg_old = _llm_config()
+    cfg_new = LLMConfigWithSecret(
+        **{
+            **_llm_config().__dict__,
+            "id": "cfg_2",
+            "name": "Anthropic",
+            "protocol": "anthropic",
+            "model_name": "model-b",
+            "opencode_provider_profile": "anthropic-compatible-bearer",
+        }
+    )
+
+    first = await compat.initialize_session("sess_1", cfg_old)
+    second = await compat.initialize_session("sess_1", cfg_new)
+    workspace = _session_workspace_path(tmp_path)
+    http_client.events = [
+        {
+            "directory": str(workspace),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_new",
+                    "part": {
+                        "id": "text_1",
+                        "messageID": "msg_1",
+                        "type": "text",
+                        "text": "",
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace),
+            "payload": {
+                "type": "message.part.delta",
+                "properties": {"sessionID": "ses_new", "delta": "new config answer"},
+            },
+        },
+        {
+            "directory": str(workspace),
+            "payload": {
+                "type": "session.status",
+                "properties": {"sessionID": "ses_new", "status": {"type": "idle"}},
+            },
+        },
+    ]
+
+    events = [
+        event
+        async for event in compat.run_turn(
+            session_id="sess_1",
+            user_message="continue",
+            llm_config=cfg_new,
+            binding=second,
+        )
+    ]
+
+    assert first.external_session_key == "ses_old"
+    assert second.external_session_key == "ses_new"
+    assert http_client.prompts[-1]["session_id"] == "ses_new"
+    assert http_client.prompts[-1]["model_id"] == "model-b"
+    user_visible_events = _without_runtime_observation_events(events)
+    assert [event.type for event in user_visible_events] == ["text_delta", "done"]
+    assert user_visible_events[0].data == {"delta": "new config answer"}
 
 
 @pytest.mark.asyncio
@@ -1480,16 +1675,20 @@ async def test_cleanup_session_removes_workspace_and_repo_worktrees(tmp_path: Pa
         mcp_token_resolver=lambda session_id: f"token-{session_id}",
         data_dir=tmp_path / "data",
     )
-    session_dir = tmp_path / "data" / "agent_sessions" / "opencode" / "sess_cleanup"
+    session_dir = tmp_path / "data" / "agent_sessions" / "opencode" / "sessions" / "sess_cleanup"
+    legacy_session_dir = tmp_path / "data" / "agent_sessions" / "opencode" / "sess_cleanup"
     worktree_dir = tmp_path / "data" / "repos" / "repo_1" / "worktrees" / "sess_cleanup"
     session_dir.mkdir(parents=True)
+    legacy_session_dir.mkdir(parents=True)
     worktree_dir.mkdir(parents=True)
     (session_dir / "state.txt").write_text("temp", encoding="utf-8")
+    (legacy_session_dir / "state.txt").write_text("legacy", encoding="utf-8")
     (worktree_dir / "main.py").write_text("print(1)\n", encoding="utf-8")
 
     result = await compat.cleanup_session("sess_cleanup")
 
     assert result["session_id"] == "sess_cleanup"
     assert not session_dir.exists()
+    assert not legacy_session_dir.exists()
     assert not worktree_dir.exists()
     assert process_manager.calls == 0

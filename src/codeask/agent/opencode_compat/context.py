@@ -8,7 +8,15 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from codeask.db.models import Feature, FeatureRepo, Repo, SessionAttachment, SessionFeature
+from codeask.db.models import (
+    Feature,
+    FeatureRepo,
+    Repo,
+    SessionAttachment,
+    SessionConversationSummary,
+    SessionFeature,
+    SessionTurn,
+)
 
 SessionFactory = async_sessionmaker[AsyncSession]
 
@@ -20,6 +28,7 @@ async def build_dynamic_codeask_context(
     workspace_dir: Path,
     feature_limit: int = 80,
     repo_limit: int = 120,
+    recent_turn_limit: int = 12,
 ) -> str:
     """Build per-turn facts for the model.
 
@@ -32,6 +41,11 @@ async def build_dynamic_codeask_context(
         features = await _load_active_features(session, limit=feature_limit)
         repositories = await _load_repositories(session, limit=repo_limit)
         attachments = await _load_attachments(session, session_id=session_id)
+        conversation = await _load_conversation_recovery_context(
+            session,
+            session_id=session_id,
+            limit=recent_turn_limit,
+        )
 
     lines = [
         "<!-- CodeAsk Dynamic Context (managed by CodeAsk, do not modify) -->",
@@ -107,6 +121,25 @@ async def build_dynamic_codeask_context(
     else:
         lines.append("- No attachments in the current session.")
 
+    lines.extend(["", "## Conversation Recovery Context"])
+    if conversation["summary"]:
+        lines.append("### Existing Summary")
+        lines.append(_truncate_block(str(conversation["summary"]), limit=6000))
+    else:
+        lines.append("- No compacted conversation summary is currently stored.")
+    recent_turns = conversation["recent_turns"]
+    if recent_turns:
+        lines.append("")
+        lines.append("### Recent Completed Turns")
+        for turn in recent_turns:
+            role = "Assistant" if turn["role"] == "agent" else "User"
+            lines.append(
+                f"- {role} turn {turn['turn_index']}: "
+                f"{_truncate_inline(str(turn['content']), limit=1200)}"
+            )
+    else:
+        lines.append("- No previous completed turns are currently stored.")
+
     lines.extend(
         [
             "",
@@ -138,6 +171,38 @@ async def build_dynamic_codeask_context(
         ]
     )
     return "\n".join(lines)
+
+
+async def _load_conversation_recovery_context(
+    session: AsyncSession,
+    *,
+    session_id: str,
+    limit: int,
+) -> dict[str, Any]:
+    summary = await session.get(SessionConversationSummary, session_id)
+    rows = (
+        await session.execute(
+            select(SessionTurn)
+            .where(SessionTurn.session_id == session_id)
+            .order_by(SessionTurn.turn_index.desc(), SessionTurn.created_at.desc())
+            .limit(limit + 1)
+        )
+    ).scalars()
+    recent = list(rows)
+    if recent and recent[0].role == "user":
+        recent = recent[1:]
+    recent = list(reversed(recent[:limit]))
+    return {
+        "summary": summary.summary if summary is not None else None,
+        "recent_turns": [
+            {
+                "turn_index": row.turn_index,
+                "role": row.role,
+                "content": row.content,
+            }
+            for row in recent
+        ],
+    }
 
 
 async def _load_bound_features(
@@ -280,3 +345,17 @@ async def _load_attachments(
 
 def _cell(value: object) -> str:
     return str(value or "-").replace("|", "\\|").replace("\n", " ")
+
+
+def _truncate_inline(value: str, *, limit: int) -> str:
+    cleaned = " ".join(value.split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return f"{cleaned[: limit - 3]}..."
+
+
+def _truncate_block(value: str, *, limit: int) -> str:
+    cleaned = value.strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return f"{cleaned[: limit - 3]}..."

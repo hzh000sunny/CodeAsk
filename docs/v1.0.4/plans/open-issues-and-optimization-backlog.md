@@ -245,6 +245,26 @@
 
 ---
 
+## 7.1 Agent 事件耗时需要可观测
+
+- [x] `P0` 每个 Agent 事件必须记录耗时诊断。
+  - 当前问题：私有环境出现会话卡在“准备运行环境 / 注入上下文”后没有后续事件时，只靠 raw opencode log 很难判断卡在 prompt 提交、event stream、模型首包还是工具调用。
+  - 要求：SSE 返回给前端的事件需要带事件序号、本轮已耗时、距上一事件耗时、提交模型耗时、等待首个后端事件、等待首次响应、是否已有响应；最终完成或失败事件需要记录总耗时。
+  - 关闭记录：新增会话级 `AgentTurnTiming`，`opencode_prompt_async_start/done`、`opencode_event_stream_open`、首个后端事件、首个有效响应和 `done/error` 都会写入 `timing`；DB trace 持久化非 token 增量事件和最终 `done/error`，前端行动轨迹展开详情展示耗时字段。
+  - 验证：`uv run pytest tests/integration/test_opencode_session_stream.py::test_post_message_stream_uses_opencode_backend_by_setting -q`；`corepack pnpm --dir frontend exec vitest run tests/action-trace-scope.test.tsx`。
+
+---
+
+## 7.2 LLM 配置切换后 opencode binding 必须一致
+
+- [x] `P0` 同一会话连续问答中切换 LLM 配置时不能继续使用旧 external session key。
+  - 当前问题：私有环境报告中出现 `config_hash` 已更新、但 `external_session_key` 仍指向旧 opencode session 的不一致状态，随后事件流只剩“准备运行环境 / 注入上下文”，没有后续响应。
+  - 分析：连续问答中超过全局 LLM sticky 时间或当前配置失败后切换到其它全局配置是预期行为；真正的问题是配置切换后 binding 必须与本轮选中的配置保持一致。当前正常 DB upsert 是同事务更新 `external_session_key/config_hash/status`，本地数据库也没有发现重复 `external_agent_sessions.session_id` 记录；但执行链路里 `initialize_session()` 已经拿到新 binding 后，`run_turn()` 仍重新从 DB 读取一次，历史数据或异常竞争会放大该不一致。
+  - 关闭记录：`stream_opencode_response()` 将 `initialize_session()` 返回的 binding 直接传入 `run_turn()`；`run_turn()` 保留不传 binding 时从 store 读取的兼容路径。这样本轮 prompt、summary log、event stream 过滤都以同一个初始化结果为准。
+  - 验证：`uv run pytest tests/unit/test_opencode_compat_backend.py::test_run_turn_uses_initialized_binding_after_llm_config_switch -q`；`uv run pytest tests/unit/test_opencode_compat_backend.py tests/integration/test_opencode_session_stream.py tests/unit/test_llm_gateway.py -q`。
+
+---
+
 ## 8. 前端会话流状态仍然脆弱
 
 - [x] `P0` 引入按 session id 管理的 stream store。
@@ -309,11 +329,11 @@
 - [x] `P0` 实现 `OpenCodeCompat.cleanup_session(session_id)`。
   - 当前问题：文档标记 cleanup_session 未完成；删除会话只删除 session storage 和 opencode workspace，不精确清理 repo worktree。
   - 要求：
-    - 清理 `data/agent_sessions/opencode/<session_id>`；
+    - 清理 `data/agent_sessions/opencode/sessions/<session_id>`，并兼容清理旧版 `data/agent_sessions/opencode/<session_id>`；
     - 清理 `data/repos/*/worktrees/<session_id>`；
     - 不关闭 shared opencode server；
     - 写入日志和可观测结果。
-  - 关闭记录：`cleanup_session` 删除会话 workspace 和 `data/repos/*/worktrees/<session_id>`，不调用 process manager。
+  - 关闭记录：`cleanup_session` 删除会话 workspace、旧版 legacy workspace 和 `data/repos/*/worktrees/<session_id>`，不调用 process manager。
   - 验证：`test_cleanup_session_removes_workspace_and_repo_worktrees`。
 
 - [x] `P0` 删除单个会话和批量删除必须调用统一 cleanup 入口。

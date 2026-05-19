@@ -114,8 +114,18 @@ test("frontend session sends one turn through opencode backend", async ({ page }
         enabledModelNames.has(String(trace.payload.model_name)),
     ),
   ).toBe(true);
+  const doneTrace = [...traces].reverse().find((trace) => trace.event_type === "done");
+  expect(doneTrace?.payload.timing).toMatchObject({
+    response_observed: true,
+  });
 
-  const sessionDir = path.join(REAL_DATA_DIR, "agent_sessions", "opencode", sessionId);
+  const sessionDir = path.join(
+    REAL_DATA_DIR,
+    "agent_sessions",
+    "opencode",
+    "sessions",
+    sessionId,
+  );
   const workspaceDir = path.join(sessionDir, "workspace");
   const wikiLink = path.join(workspaceDir, "wiki");
   expect(existsSync(path.join(workspaceDir, "opencode.json"))).toBe(true);

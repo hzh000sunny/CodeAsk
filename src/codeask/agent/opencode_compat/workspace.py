@@ -27,7 +27,7 @@ class OpenCodeWorkspaceManager:
     def __init__(self, *, data_dir: Path, wiki_workspace_root: Path) -> None:
         self._data_dir = data_dir
         self._wiki_workspace_root = wiki_workspace_root
-        self._root = data_dir / "agent_sessions" / "opencode"
+        self._root = data_dir / "agent_sessions" / "opencode" / "sessions"
 
     def prepare_workspace(self, session_id: str) -> OpenCodeWorkspace:
         if not _SAFE_SESSION_ID.fullmatch(session_id):

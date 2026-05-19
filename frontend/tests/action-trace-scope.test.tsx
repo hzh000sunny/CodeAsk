@@ -139,6 +139,76 @@ describe("action trace code scope display", () => {
     expect(dialog).toHaveTextContent('{"query":');
   });
 
+  it("shows agent event timing diagnostics in the action trace popover", () => {
+    const event: ActionTraceEventModel = {
+      id: "runtime_state_1",
+      kind: "runtime_status",
+      title: "运行状态",
+      detail: "opencode 正在处理当前请求",
+      status: "running",
+      data: {
+        action: "opencode_busy",
+        timing: {
+          event_index: 4,
+          turn_elapsed_ms: 123.45,
+          since_previous_event_ms: 3.2,
+          model_send_duration_ms: 2400,
+          first_backend_event_wait_ms: 88,
+          first_response_wait_ms: 1200,
+          response_observed: true,
+          total_elapsed_ms: 5200,
+        },
+      },
+      evidenceRefs: [],
+    };
+
+    render(<ActionTraceEvent event={event} />);
+    fireEvent.click(screen.getByRole("button", { name: "运行状态 详情" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
+    expect(dialog).toHaveTextContent("事件序号");
+    expect(dialog).toHaveTextContent("4");
+    expect(dialog).toHaveTextContent("本轮已耗时");
+    expect(dialog).toHaveTextContent("123.45 ms");
+    expect(dialog).toHaveTextContent("提交模型耗时");
+    expect(dialog).toHaveTextContent("2.40 s");
+    expect(dialog).toHaveTextContent("等待后端事件");
+    expect(dialog).toHaveTextContent("88 ms");
+    expect(dialog).toHaveTextContent("等待首次响应");
+    expect(dialog).toHaveTextContent("1.20 s");
+    expect(dialog).toHaveTextContent("是否已有响应");
+    expect(dialog).toHaveTextContent("是");
+    expect(dialog).toHaveTextContent("总耗时");
+    expect(dialog).toHaveTextContent("5.20 s");
+  });
+
+  it("maps done events so final turn duration can be inspected", () => {
+    const event = actionTraceFromAgentEvent({
+      type: "done",
+      data: {
+        backend: "opencode",
+        timing: {
+          event_index: 9,
+          turn_elapsed_ms: 5200,
+          response_observed: true,
+          total_elapsed_ms: 5200,
+        },
+      },
+    });
+
+    expect(event).not.toBeNull();
+    expect(event?.title).toBe("本轮完成");
+
+    render(<ActionTraceEvent event={event as ActionTraceEventModel} />);
+    fireEvent.click(screen.getByRole("button", { name: "本轮完成 详情" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
+    expect(dialog).toHaveTextContent("总耗时");
+    expect(dialog).toHaveTextContent("5.20 s");
+    expect(dialog).toHaveTextContent("是否已有响应");
+    expect(dialog).toHaveTextContent("是");
+  });
+
   it("redacts host absolute paths in action trace cards and popovers", async () => {
     const absoluteWorkspacePath =
       "/home/hzh/.codeask/agent_sessions/opencode/sess_secret/workspace/repos/claude-code/src/tools/read.ts";

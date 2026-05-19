@@ -204,8 +204,8 @@ opencode backend 适用于 OpenAI、OpenAI-compatible、第三方网关和本地
 建议运行方式：
 
 ```text
-HOME=<CODEASK_DATA_DIR>/agent_sessions/opencode/<session_id>/home
-OPENCODE_CONFIG_DIR=<CODEASK_DATA_DIR>/agent_sessions/opencode/<session_id>/config
+HOME=<CODEASK_DATA_DIR>/agent_sessions/opencode/sessions/<session_id>/home
+OPENCODE_CONFIG_DIR=<CODEASK_DATA_DIR>/agent_sessions/opencode/sessions/<session_id>/config
 OPENAI_API_KEY=<decrypted key>
 ```
 

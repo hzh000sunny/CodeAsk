@@ -180,6 +180,7 @@ export function actionTraceFromAgentEvent(
         chunks: event.data.chunks,
         redacted: event.data.redacted,
         raw_reasoning_used: false,
+        timing: event.data.timing,
       },
       evidenceRefs: [],
     };
@@ -207,6 +208,7 @@ export function actionTraceFromAgentEvent(
         mode: event.data.mode,
         leakedLength: event.data.leakedLength,
         masked: event.data.masked,
+        timing: event.data.timing,
       },
       evidenceRefs: [],
     };
@@ -231,6 +233,18 @@ export function actionTraceFromAgentEvent(
       detail: stringValue(event.data.summary) ?? compactJson(event.data),
       status:
         event.data.required_confirmation === true ? "info" : "success",
+      data: event.data,
+      evidenceRefs: [],
+    };
+  }
+
+  if (event.type === "done") {
+    return {
+      id: `done_${Date.now()}`,
+      kind: "runtime_status",
+      title: "本轮完成",
+      detail: "Agent 本轮生成已完成",
+      status: "success",
       data: event.data,
       evidenceRefs: [],
     };

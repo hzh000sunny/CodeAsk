@@ -1,8 +1,9 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { expect, test, type Page, type Route } from "@playwright/test";
+
+import { makeCodeAskE2eTempDir } from "./test-temp";
 
 const feature = {
   id: 7,
@@ -36,7 +37,7 @@ test("wiki directory import keeps ignored files folded and strips the local root
 
   await openWikiImportDialog(page);
 
-  const rootDir = await mkdtemp(path.join(tmpdir(), "codeask-wiki-import-"));
+  const rootDir = await makeCodeAskE2eTempDir("codeask-wiki-import-");
   const opsDir = path.join(rootDir, "ops");
   await mkdir(path.join(opsDir, "images"), { recursive: true });
   await mkdir(path.join(opsDir, "raw"), { recursive: true });
@@ -192,10 +193,10 @@ async function installWikiImportMocks(
 
     if (pathWithQuery === "/api/auth/me" && method === "GET") {
       return json(route, {
-        subject_id: "client_e2e",
-        display_name: "client_e2e",
-        role: "member",
-        authenticated: false,
+        subject_id: "admin",
+        display_name: "admin",
+        role: "admin",
+        authenticated: true,
       });
     }
     if (pathWithQuery === "/api/sessions" && method === "GET") {
@@ -203,6 +204,9 @@ async function installWikiImportMocks(
     }
     if (pathWithQuery === "/api/features" && method === "GET") {
       return json(route, [feature]);
+    }
+    if (pathWithQuery === "/api/features/7/admins" && method === "GET") {
+      return json(route, { admins: [] });
     }
     if (pathWithQuery === "/api/wiki/tree" && method === "GET") {
       return json(route, {

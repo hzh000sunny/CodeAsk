@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from secrets import token_hex
 from typing import Any
@@ -63,6 +64,108 @@ def _frontend_event(
             }
         }
     )
+
+
+class AgentTurnTiming:
+    """Attach lightweight timing diagnostics to each agent event."""
+
+    _INTERNAL_OPENCODE_ACTIONS = {
+        "opencode_prompt_async_start",
+        "opencode_prompt_async_done",
+        "opencode_event_stream_open",
+    }
+
+    def __init__(self) -> None:
+        now = time.perf_counter()
+        self._started_at = now
+        self._previous_event_at = now
+        self._event_index = 0
+        self._model_send_started_at: float | None = None
+        self._model_send_done_at: float | None = None
+        self._event_stream_open_at: float | None = None
+        self._first_backend_event_at: float | None = None
+        self._first_response_at: float | None = None
+        self._response_observed = False
+
+    def annotate(self, event_type: str, data: dict[str, object]) -> dict[str, object]:
+        now = time.perf_counter()
+        self._event_index += 1
+        action = data.get("action")
+        action = action if isinstance(action, str) else ""
+
+        if action == "opencode_prompt_async_start" and self._model_send_started_at is None:
+            self._model_send_started_at = now
+        elif action == "opencode_prompt_async_done" and self._model_send_done_at is None:
+            self._model_send_done_at = now
+        elif action == "opencode_event_stream_open" and self._event_stream_open_at is None:
+            self._event_stream_open_at = now
+        elif (
+            self._event_stream_open_at is not None
+            and self._first_backend_event_at is None
+            and action not in self._INTERNAL_OPENCODE_ACTIONS
+        ):
+            self._first_backend_event_at = now
+
+        if self._is_response_event(event_type, data) and self._first_response_at is None:
+            self._first_response_at = now
+            self._response_observed = True
+
+        timing: dict[str, object] = {
+            "event_index": self._event_index,
+            "turn_elapsed_ms": _elapsed_ms(self._started_at, now),
+            "since_previous_event_ms": _elapsed_ms(self._previous_event_at, now),
+            "response_observed": self._response_observed,
+        }
+        if self._model_send_started_at is not None:
+            timing["model_send_started_elapsed_ms"] = _elapsed_ms(
+                self._started_at,
+                self._model_send_started_at,
+            )
+        if self._model_send_done_at is not None:
+            timing["model_send_done_elapsed_ms"] = _elapsed_ms(
+                self._started_at,
+                self._model_send_done_at,
+            )
+        if self._model_send_started_at is not None and self._model_send_done_at is not None:
+            timing["model_send_duration_ms"] = _elapsed_ms(
+                self._model_send_started_at,
+                self._model_send_done_at,
+            )
+        if self._event_stream_open_at is not None:
+            timing["event_stream_open_elapsed_ms"] = _elapsed_ms(
+                self._started_at,
+                self._event_stream_open_at,
+            )
+        if self._event_stream_open_at is not None and self._first_backend_event_at is not None:
+            timing["first_backend_event_wait_ms"] = _elapsed_ms(
+                self._event_stream_open_at,
+                self._first_backend_event_at,
+            )
+        if self._model_send_done_at is not None and self._first_response_at is not None:
+            timing["first_response_wait_ms"] = _elapsed_ms(
+                self._model_send_done_at,
+                self._first_response_at,
+            )
+        if event_type in {"done", "error"}:
+            timing["total_elapsed_ms"] = _elapsed_ms(self._started_at, now)
+
+        existing = data.get("timing")
+        if isinstance(existing, dict):
+            timing = {**existing, **timing}
+        annotated = {**data, "timing": timing}
+        self._previous_event_at = now
+        return annotated
+
+    @staticmethod
+    def _is_response_event(event_type: str, data: dict[str, object]) -> bool:
+        if event_type == "text_delta":
+            delta = data.get("delta") or data.get("text")
+            return isinstance(delta, str) and bool(delta)
+        return event_type in {"tool_call", "tool_result", "reasoning_observed"}
+
+
+def _elapsed_ms(start: float, end: float) -> float:
+    return round(max(0.0, end - start) * 1000, 2)
 
 
 async def create_user_turn_and_bindings(
@@ -161,7 +264,9 @@ async def stream_agent_response(
     *,
     force_code_investigation: bool,
     runtime_llm_config: dict[str, Any] | None = None,
+    timing: AgentTurnTiming | None = None,
 ) -> AsyncIterator[bytes]:
+    timing = timing or AgentTurnTiming()
     if getattr(request.app.state.settings, "agent_backend", "opencode") == "opencode":
         async for chunk in stream_opencode_response(
             request,
@@ -169,6 +274,7 @@ async def stream_agent_response(
             turn_id,
             content,
             runtime_llm_config=runtime_llm_config,
+            timing=timing,
         ):
             yield chunk
         return
@@ -206,7 +312,7 @@ async def stream_agent_response(
                 event.type,
                 event.data,
             )
-            event_data = _event_data_dict(event.data)
+            event_data = timing.annotate(event.type, _event_data_dict(event.data))
             await persist_runtime_event_trace(request, session_id, turn_id, event.type, event_data)
             if event.type == "text_delta":
                 delta = event_data.get("delta") or event_data.get("text")
@@ -248,6 +354,7 @@ async def stream_opencode_response(
     content: str,
     *,
     runtime_llm_config: dict[str, Any] | None = None,
+    timing: AgentTurnTiming | None = None,
 ) -> AsyncIterator[bytes]:
     compat = request.app.state.opencode_compat
     multiplexer = SSEMultiplexer()
@@ -256,6 +363,7 @@ async def stream_opencode_response(
     excluded_global_config_ids: set[str] = set()
     attempt = 0
     last_initial_error: ChatRuntimeEvent | None = None
+    timing = timing or AgentTurnTiming()
 
     while True:
         selection = await _resolve_opencode_llm_config(
@@ -267,7 +375,7 @@ async def stream_opencode_response(
         if isinstance(selection, ChatRuntimeEvent):
             if last_initial_error is not None:
                 selection = last_initial_error
-            event_data = _event_data_dict(selection.data)
+            event_data = timing.annotate(selection.type, _event_data_dict(selection.data))
             await persist_runtime_event_trace(
                 request,
                 session_id,
@@ -288,7 +396,10 @@ async def stream_opencode_response(
                 "summary": "opencode 正在初始化当前会话",
             },
         )
-        initializing_data = _event_data_dict(initializing_event.data)
+        initializing_data = timing.annotate(
+            initializing_event.type,
+            _event_data_dict(initializing_event.data),
+        )
         await persist_runtime_event_trace(
             request,
             session_id,
@@ -306,12 +417,12 @@ async def stream_opencode_response(
         )
 
         try:
-            await compat.initialize_session(session_id, llm_config)
+            binding = await compat.initialize_session(session_id, llm_config)
             context_window = int(
                 getattr(request.app.state.settings, "model_context_window_tokens", 200_000)
             )
             runtime_event = _opencode_runtime_state_event(selection, content, context_window)
-            runtime_data = _event_data_dict(runtime_event.data)
+            runtime_data = timing.annotate(runtime_event.type, _event_data_dict(runtime_event.data))
             await persist_runtime_event_trace(
                 request,
                 session_id,
@@ -333,9 +444,10 @@ async def stream_opencode_response(
                 session_id=session_id,
                 user_message=content,
                 llm_config=llm_config,
+                binding=binding,
                 context_window_tokens=context_window,
             ):
-                event_data = _event_data_dict(event.data)
+                event_data = timing.annotate(event.type, _event_data_dict(event.data))
                 if event.type == "error" and not emitted_text:
                     last_initial_error = event
                     if _retry_next_opencode_global_config(
@@ -407,7 +519,7 @@ async def stream_opencode_response(
                     **({"code": error_code} if error_code else {}),
                 },
             )
-            error_data = _event_data_dict(error_event.data)
+            error_data = timing.annotate(error_event.type, _event_data_dict(error_event.data))
             await persist_runtime_event_trace(
                 request,
                 session_id,
@@ -874,7 +986,7 @@ async def persist_runtime_event_trace(
     event_type: str,
     data: object,
 ) -> None:
-    if event_type in {"text_delta", "done"}:
+    if event_type == "text_delta":
         return
     event_data = _event_data_dict(data)
     if event_type == "runtime_state" and event_data.get("update_reason") == "assistant_delta":

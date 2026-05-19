@@ -212,7 +212,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             misfire_grace_time=3600,
         )
         scheduler.add_job(
-            repo_cloner.refresh_all,
+            lambda: repo_cloner.refresh_all(reason="hourly_refresh"),
             "interval",
             hours=1,
             id="repo_hourly_refresh",

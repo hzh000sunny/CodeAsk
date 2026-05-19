@@ -48,8 +48,10 @@ async def collect_session_storage_dirs(
     for session_id in unique_session_ids:
         storage_dir = data_dir / "sessions" / session_id
         dirs[str(storage_dir)] = storage_dir
-        opencode_session_dir = data_dir / "agent_sessions" / "opencode" / session_id
+        opencode_session_dir = data_dir / "agent_sessions" / "opencode" / "sessions" / session_id
         dirs[str(opencode_session_dir)] = opencode_session_dir
+        legacy_opencode_session_dir = data_dir / "agent_sessions" / "opencode" / session_id
+        dirs[str(legacy_opencode_session_dir)] = legacy_opencode_session_dir
 
     if not unique_session_ids:
         return list(dirs.values())

@@ -8,7 +8,7 @@ from typing import Any
 
 _AGENT_SESSION_PATH_RE = re.compile(
     r"(?:[A-Za-z]:)?/[^\s\"'`<>|)]*/agent_sessions/[^\s\"'`<>|)]+/"
-    r"(?P<session>sess_[A-Za-z0-9_-]+)(?P<relative>/[^\s\"'`<>|)]*)?"
+    r"(?:sessions/)?(?P<session>sess_[A-Za-z0-9_-]+)(?P<relative>/[^\s\"'`<>|)]*)?"
 )
 _WINDOWS_ABSOLUTE_PATH_RE = re.compile(r"\b[A-Za-z]:\\[^\s\"'`<>|)]+")
 _POSIX_ABSOLUTE_PATH_RE = re.compile(

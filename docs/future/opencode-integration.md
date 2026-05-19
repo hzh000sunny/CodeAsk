@@ -376,9 +376,9 @@ async def start_opencode_server(session_id: str, config: OpenCodeBackendConfig) 
     启动 opencode serve 子进程，返回可用的 HTTP 地址和认证信息。
     """
     # 1. 准备独立 HOME 目录
-    home_dir = f"{DATA_DIR}/agent_sessions/opencode/{session_id}/home"
-    config_dir = f"{DATA_DIR}/agent_sessions/opencode/{session_id}/config"
-    workspace_dir = f"{DATA_DIR}/agent_sessions/opencode/{session_id}/workspace"
+    home_dir = f"{DATA_DIR}/agent_sessions/opencode/sessions/{session_id}/home"
+    config_dir = f"{DATA_DIR}/agent_sessions/opencode/sessions/{session_id}/config"
+    workspace_dir = f"{DATA_DIR}/agent_sessions/opencode/sessions/{session_id}/workspace"
     os.makedirs(home_dir, exist_ok=True)
     os.makedirs(config_dir, exist_ok=True)
     os.makedirs(workspace_dir, exist_ok=True)

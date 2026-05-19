@@ -737,9 +737,32 @@ v1.0.4 保留内部审计事实，但不把宿主机绝对路径直接返回给�
 
 - `AgentTrace.payload` 和 raw opencode JSONL 保留原始 payload，用于内部审计、上下文摘要、报告生成和问题定位。
 - SSE 返回给前端前使用脱敏副本；`GET /api/sessions/{session_id}/traces` 返回历史行动轨迹前同样使用脱敏副本。
-- 当前会话目录内路径，例如 `<CODEASK_DATA_DIR>/agent_sessions/opencode/<session_id>/workspace/repos/app/src/main.ts`，返回为 `workspace/repos/app/src/main.ts`。
+- 当前会话目录内路径，例如 `<CODEASK_DATA_DIR>/agent_sessions/opencode/sessions/<session_id>/workspace/repos/app/src/main.ts`，返回为 `workspace/repos/app/src/main.ts`。
 - 其它宿主机绝对路径返回为 `[外部绝对路径已隐藏]`。
 - `text_delta` / `done` 不做该路径脱敏，避免改变用户可见的模型正文；Agent 事件、工具参数摘要、工具结果摘要和错误事件走脱敏出口。
+
+### 8.2 会话级 opencode 诊断日志
+
+shared opencode server 的 stdout/stderr 只写入：
+
+```text
+<CODEASK_DATA_DIR>/agent_sessions/opencode/logs/opencode-server.log
+```
+
+每个 CodeAsk 会话的运行态资源单独放在：
+
+```text
+<CODEASK_DATA_DIR>/agent_sessions/opencode/sessions/<session_id>/
+```
+
+会话目录下保留两个日志：
+
+- `logs/opencode-events.jsonl`：opencode `/global/event` raw 事件，用于完整审计。
+- `logs/opencode-events.summary.jsonl`：人工排查摘要事件，只记录 `prompt_async_start/done`、`event_stream_open`、`opencode_status`、tool running/completed/error、事件 directory/sessionID 不匹配等关键节点。
+
+SSE 返回给前端的每个 Agent 事件都会带 `timing` 诊断字段，记录本轮事件序号、本轮已耗时、距上一事件耗时、提交给模型的耗时、打开 opencode event stream 的时间、等待首个后端事件耗时、等待首次有效响应耗时，以及当前是否已经观察到响应。`done/error` 事件额外带 `total_elapsed_ms`。DB trace 持久化非 `text_delta` 事件和最终 `done/error`，避免把所有 token 增量写入数据库；前端展开 Agent 行动轨迹卡片时展示这些耗时字段。
+
+旧版本的 `agent_sessions/opencode/<session_id>` 目录作为 legacy 路径仅用于清理兼容，新会话不再写入该位置。
 
 ```python
 # src/codeask/agent/opencode_compat/events.py

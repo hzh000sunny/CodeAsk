@@ -276,6 +276,7 @@ function ActionTraceDetailValue({
 
 function detailRowsForEvent(event: ActionTraceEventModel) {
   const data = event.data ?? {};
+  const timing = recordValue(data.timing);
   const result = recordValue(data.result) ?? {};
   const resultData = recordValue(result.data) ?? {};
   const versionInfo = recordValue(data.version_info) ?? recordValue(result.version_info);
@@ -284,6 +285,24 @@ function detailRowsForEvent(event: ActionTraceEventModel) {
   const rows: Array<{ label: string; value: string }> = [];
   addRow(rows, "所属轮次", event.turnId);
   addRow(rows, "发生时间", event.occurredAt);
+  if (timing) {
+    addRow(rows, "事件序号", numberDataLabel(timing.event_index));
+    addRow(rows, "本轮已耗时", msDataLabel(timing.turn_elapsed_ms));
+    addRow(rows, "距上一事件", msDataLabel(timing.since_previous_event_ms));
+    addRow(rows, "提交模型耗时", msDataLabel(timing.model_send_duration_ms));
+    addRow(rows, "等待后端事件", msDataLabel(timing.first_backend_event_wait_ms));
+    addRow(rows, "等待首次响应", msDataLabel(timing.first_response_wait_ms));
+    addRow(rows, "总耗时", msDataLabel(timing.total_elapsed_ms));
+    addRow(
+      rows,
+      "是否已有响应",
+      timing.response_observed === true
+        ? "是"
+        : timing.response_observed === false
+          ? "否"
+          : null,
+    );
+  }
   addRow(rows, "工具名称", stringValue(data.tool_name) ?? stringValue(data.name));
   addRow(rows, "调用编号", stringValue(data.tool_call_id) ?? stringValue(data.id));
   addRow(rows, "调用参数", args ? readableJson(args) : null);
@@ -368,6 +387,17 @@ function numberValue(value: unknown) {
 function numberDataLabel(value: unknown) {
   const number = numberValue(value);
   return number === null ? null : String(number);
+}
+
+function msDataLabel(value: unknown) {
+  const number = numberValue(value);
+  if (number === null) {
+    return null;
+  }
+  if (number >= 1000) {
+    return `${(number / 1000).toFixed(2)} s`;
+  }
+  return `${number} ms`;
 }
 
 function contextSizeLabel(value: unknown) {

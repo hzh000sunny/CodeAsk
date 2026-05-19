@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
@@ -46,6 +47,7 @@ class FakeOpenCodeCompat:
         llm_config,
         system=None,
         context_window_tokens=200_000,
+        binding=None,
     ):
         if self.fail_run:
             yield ChatRuntimeEvent(
@@ -179,6 +181,12 @@ async def test_post_message_stream_uses_opencode_backend_by_setting(
     assert "event: text_delta" in response.text
     assert "opencode answer" in response.text
     assert "event: done" in response.text
+    stream_events = _parse_sse_events(response.text)
+    assert stream_events
+    assert all("timing" in event["data"] for event in stream_events)
+    done_event = next(event for event in stream_events if event["event"] == "done")
+    assert done_event["data"]["timing"]["response_observed"] is True
+    assert done_event["data"]["timing"]["total_elapsed_ms"] >= 0
     assert [call["method"] for call in fake.calls] == ["initialize_session", "run_turn"]
 
     async with app.state.session_factory() as session:
@@ -195,6 +203,21 @@ async def test_post_message_stream_uses_opencode_backend_by_setting(
         )
     assert [turn["role"] for turn in turns] == ["user", "agent"]
     assert turns[1]["content"] == "opencode answer"
+    async with app.state.session_factory() as session:
+        traces = (
+            (
+                await session.execute(
+                    sessions_api.AgentTrace.__table__.select()
+                    .where(sessions_api.AgentTrace.session_id == session_id)
+                    .order_by(sessions_api.AgentTrace.created_at.asc())
+                )
+            )
+            .mappings()
+            .all()
+        )
+    assert traces
+    assert all("timing" in trace["payload"] for trace in traces)
+    assert traces[-1]["payload"]["timing"]["response_observed"] is True
 
 
 @pytest.mark.asyncio
@@ -717,3 +740,23 @@ async def test_bulk_delete_sessions_calls_opencode_cleanup_for_owned_sessions(
     assert response.json()["deleted_ids"] == session_ids
     cleanup_ids = [call["session_id"] for call in fake.calls if call["method"] == "cleanup_session"]
     assert cleanup_ids == session_ids
+
+
+def _parse_sse_events(source: str) -> list[dict[str, object]]:
+    events: list[dict[str, object]] = []
+    for frame in source.strip().split("\n\n"):
+        event_type = ""
+        data_lines: list[str] = []
+        for line in frame.splitlines():
+            if line.startswith("event:"):
+                event_type = line.removeprefix("event:").strip()
+            elif line.startswith("data:"):
+                data_lines.append(line.removeprefix("data:").strip())
+        if event_type:
+            events.append(
+                {
+                    "event": event_type,
+                    "data": json.loads("\n".join(data_lines)) if data_lines else {},
+                }
+            )
+    return events

@@ -62,7 +62,11 @@ from codeask.sessions.attachments import (
     remove_session_storage_dirs,
     write_session_manifest,
 )
-from codeask.sessions.messages import create_user_turn_and_bindings, stream_agent_response
+from codeask.sessions.messages import (
+    AgentTurnTiming,
+    create_user_turn_and_bindings,
+    stream_agent_response,
+)
 from codeask.sessions.report_generation import prepare_session_report_draft
 from codeask.sessions.reports import (
     has_completed_question_answer,
@@ -388,6 +392,7 @@ async def _stream_post_message_response(
 ):
     started_at = perf_counter()
     multiplexer = SSEMultiplexer()
+    timing = AgentTurnTiming()
     log.info(
         "session_message_stream_received",
         session_id=session_id,
@@ -402,7 +407,11 @@ async def _stream_post_message_response(
             "turn_id": turn_id,
         },
     )
-    yield multiplexer.format(received_event)
+    received_data = timing.annotate(
+        received_event.type,
+        dict(received_event.data) if isinstance(received_event.data, dict) else {},
+    )
+    yield multiplexer.format(received_event.model_copy(update={"data": received_data}))
     try:
         _record_opencode_server_status_if_configured(request)
         log.info("session_message_preflight_start", session_id=session_id, turn_id=turn_id)
@@ -433,6 +442,7 @@ async def _stream_post_message_response(
                 and not bool(getattr(request.state, "authenticated", False))
                 else None
             ),
+            timing=timing,
         ):
             yield chunk
         log.info(
@@ -458,11 +468,15 @@ async def _stream_post_message_response(
                 "error": _stream_error_message(exc),
             },
         )
+        error_data = timing.annotate(
+            error_event.type,
+            dict(error_event.data) if isinstance(error_event.data, dict) else {},
+        )
         yield multiplexer.format(
             error_event.model_copy(
                 update={
                     "data": redact_trace_payload_for_frontend(
-                        error_event.data,
+                        error_data,
                         session_id=session_id,
                     )
                 }

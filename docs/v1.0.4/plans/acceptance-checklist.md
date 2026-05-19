@@ -95,6 +95,13 @@ v1.0.4 收口前必须满足：
 - [x] 动态上下文快照：每轮 opencode turn 在发送 prompt 前记录 `codeask_context_snapshot` 摘要，只保存 prompt/context 字符数和 Wiki manifest 元数据，不保存上下文原文。
 - [x] MCP 工具契约：`list_features`、`get_feature_info`、`list_feature_repos`、`prepare_worktree` 已支持自然语言场景下的 query/name/repo_name/reason，并返回候选和 recovery hint，不替模型做业务判断。
 - [x] opencode 进程输出：默认 `opencode serve` stdout/stderr 写入 `data/agent_sessions/opencode/logs/opencode-server.log`，不再保留无人消费的 PIPE。
+- [x] opencode 会话日志分层：新会话资源写入 `data/agent_sessions/opencode/sessions/<session_id>/`，shared server 资源继续留在 `data/agent_sessions/opencode/` 根目录，降低私有环境排查时的目录噪音。
+- [x] opencode 会话摘要日志：除 raw `/global/event` 的 `logs/opencode-events.jsonl` 外，新增 `logs/opencode-events.summary.jsonl`，记录 `prompt_async_start/done`、`event_stream_open`、`opencode_status`、tool running/completed/error、事件归属不匹配等人工排查关键节点。
+- [x] Agent 事件耗时：每条 SSE Agent 事件返回 `timing`，记录事件序号、本轮已耗时、距上一事件耗时、提交模型耗时、等待后端事件、等待首次响应、是否已有响应；最终 `done/error` 记录 `total_elapsed_ms` 并持久化到 trace。前端行动轨迹展开详情可直接查看这些字段，便于定位“请求已提交但模型/事件流无响应”的卡点。
+- [x] Agent 事件耗时验证：`uv run pytest tests/unit/test_opencode_compat_backend.py tests/integration/test_opencode_session_stream.py tests/integration/test_agent_chat_runtime_sse.py -q` -> 通过；`corepack pnpm --dir frontend exec vitest run tests/action-trace-scope.test.tsx` -> `9 passed`；重启后端后真实浏览器 `CODEASK_RUN_LIVE_OPENCODE_E2E=1 ... e2e/opencode-backend-live.spec.ts --project=chromium` -> `1 passed`。
+- [x] LLM 配置切换绑定一致性：同一 CodeAsk 会话在连续问答中超过全局 LLM sticky 时间或配置失败轮转后，允许切换全局 LLM 配置；切换后本轮使用 `initialize_session` 刚返回的 opencode binding 直接执行 `run_turn`，不再重新依赖一次 DB 读取，避免历史数据、竞争或私有环境异常导致 `config_hash` 与 `external_session_key` 不一致后继续向旧 opencode session 发消息。
+- [x] LLM 配置切换验证：新增 `test_run_turn_uses_initialized_binding_after_llm_config_switch`，先复现旧行为下 `run_turn(binding=...)` 不支持的失败，再验证切换 `cfg_1 -> cfg_2` 后实际 prompt 使用新 `external_session_key=ses_new` 和新模型 `model-b`。
+- [x] repo 定时刷新日志：每小时 `repo_hourly_refresh` 触发的 clone/update 日志增加 `reason=hourly_refresh`，避免和用户源码调查链路混淆。
 - [x] opencode 诊断：`OpenCodeProcessManager.describe()` 返回 configured/resolved bin、version、pid、port、log file、last error、last health time；`GET /api/admin/opencode/status` 仅 admin 可访问且无副作用。
 - [x] opencode 不可用分类：`bin missing/start failed/process exited/health timeout/version unsupported` 均有稳定错误 code；SSE `error` 会保留该 code 给前端诊断。
 - [x] 会话清理：`OpenCodeCompat.cleanup_session` 清理 session workspace 和 `data/repos/*/worktrees/<session_id>`；单删和批量删除均调用统一入口。
@@ -129,13 +136,13 @@ v1.0.4 收口前必须满足：
 
 ### 1.6 2026-05-18 Agent 事件路径脱敏与人工验收收口
 
-- [x] 根因确认：前端行动轨迹卡片和 Network 中的 Agent 事件可能展示 opencode workspace 或宿主机上的绝对路径，例如 `CODEASK_DATA_DIR/agent_sessions/opencode/<session_id>/workspace/...`。
+- [x] 根因确认：前端行动轨迹卡片和 Network 中的 Agent 事件可能展示 opencode workspace 或宿主机上的绝对路径，例如 `CODEASK_DATA_DIR/agent_sessions/opencode/sessions/<session_id>/workspace/...`。
 - [x] 修复边界：只在返回给前端的数据出口做脱敏；数据库 `agent_traces.payload`、raw opencode JSONL、opencode 工具参数、模型上下文、报告生成链路均保留原始事实，不受影响。
 - [x] SSE 返回脱敏：`/api/sessions/{id}/messages` 流中的非 `text_delta/done` Agent 事件在返回前使用 payload 副本脱敏。
 - [x] 历史行动轨迹脱敏：`/api/sessions/{id}/traces` 返回前对 `payload` 副本脱敏。
 - [x] 当前会话目录内绝对路径显示为会话相对路径；非当前会话或外部宿主机绝对路径显示为 `[外部绝对路径已隐藏]`。
 - [x] 前端保留展示层兜底脱敏，防止旧接口或历史数据绕过后端出口脱敏。
-- [x] 验证：`uv run pytest tests/unit/test_session_trace_redaction.py -q` -> `2 passed`。
+- [x] 验证：`uv run pytest tests/unit/test_session_trace_redaction.py -q` -> `3 passed`。
 - [x] 验证：`corepack pnpm --dir frontend exec vitest run tests/action-trace-scope.test.tsx` -> `7 passed`。
 - [x] 验证：`uv run ruff check src/codeask/sessions/trace_redaction.py src/codeask/sessions/messages.py src/codeask/api/sessions.py tests/unit/test_session_trace_redaction.py` -> `All checks passed!`。
 - [x] 验证：`uv run ruff format --check src/codeask/sessions/trace_redaction.py src/codeask/sessions/messages.py src/codeask/api/sessions.py tests/unit/test_session_trace_redaction.py` -> 通过。
@@ -302,7 +309,7 @@ v1.0.4 收口前必须满足：
 - [x] 已在 AnythingLLM Reference 知识库创建真实验证文档：`2026-05-14 Mermaid复杂流程图渲染验证`。
 - [x] Wiki 工作台真实浏览器验证：`/#/wiki?feature=3&node=259`，SVG 1 个，Mermaid 代码块 0 个，控制台无错误。
 - [x] 特性页知识库预览真实浏览器验证：AnythingLLM Reference -> 知识库 -> `2026-05-14 Mermaid复杂流程图渲染验证`，SVG 1 个，Mermaid 代码块 0 个，控制台无错误。
-- [x] 验证截图：`/tmp/codeask-mermaid-wiki.png`、`/tmp/codeask-mermaid-feature.png`。
+- [x] 验证截图：历史验证曾写入 `/tmp/codeask-mermaid-wiki.png`、`/tmp/codeask-mermaid-feature.png`；后续测试临时产物默认统一写入项目 `.tmp/`，避免依赖系统 `/tmp` 权限。
 - [x] 自动化测试：`corepack pnpm --dir frontend exec vitest run tests/wiki/markdown-renderer.test.tsx` -> `7 passed`。
 
 ---
@@ -324,7 +331,7 @@ v1.0.4 收口前必须满足：
 ### 3.1 临时空库 E2E
 
 - [x] 命令记录：
-  - `TMP_DIR=$(mktemp -d /tmp/codeask-v104-start-XXXXXX)`
+  - 历史记录：`TMP_DIR=$(mktemp -d /tmp/codeask-v104-start-XXXXXX)`；当前测试策略改为项目内 `.tmp/`，`uv run pytest` 默认使用 `.tmp/pytest`，Playwright wiki import 临时目录默认使用 `.tmp/playwright`，临时空库建议使用 `.tmp/codeask-v104-start-XXXXXX`。
   - `CODEASK_DATA_DIR="$TMP_DIR" CODEASK_DATA_KEY=<generated-fernet-key> CODEASK_PORT=8031 CODEASK_OPENCODE_PORT_RANGE=4331-4331 ./start.sh`
   - 停止后再次执行：`CODEASK_DATA_DIR="$TMP_DIR" CODEASK_PORT=8031 CODEASK_OPENCODE_PORT_RANGE=4331-4331 ./start.sh`，验证不传 `CODEASK_DATA_KEY` 时可读取 `$TMP_DIR/secrets/data.key`。
   - `corepack pnpm --dir frontend build`
@@ -352,7 +359,7 @@ v1.0.4 收口前必须满足：
 
 - [x] 使用真实数据测试前缀会话：`v104 writable sandbox <timestamp>`。
 - [x] 创建会话并发送普通问题：真实浏览器通过 `/api/sessions/{id}/messages` 发送“请用一句话回答：CodeAsk 当前是否能创建测试会话？”。
-- [x] 生成 opencode workspace：发送完成后确认 `/home/hzh/.codeask/agent_sessions/opencode/<session_id>` 存在。
+- [x] 生成 opencode workspace：发送完成后确认 `/home/hzh/.codeask/agent_sessions/opencode/sessions/<session_id>` 存在。
 - [x] 行动轨迹写入当前会话：测试会话 `sess_1fdee30d8087a7f2` 落库 `2` 个 turn、`25` 条 trace。
 - [x] 删除测试会话后清理：通过 `DELETE /api/sessions/sess_1fdee30d8087a7f2` 删除后，session workspace 不再存在；输出 `realdata-writable-sandbox: PASS session=sess_1fdee30d8087a7f2 turns=2 traces=25`。
 - [x] 脚本失败残留清理：第一次脚本自身解析函数作用域错误留下 `sess_92648296ac56a56e`，已通过正式 API 删除并确认无 `v104 writable sandbox%` 残留会话。

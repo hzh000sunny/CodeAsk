@@ -40,7 +40,7 @@ class RepoCloner:
         self._session_factory = session_factory
         self._timeout = clone_timeout_seconds
 
-    def run_clone(self, repo_id: str, *, force: bool = False) -> None:
+    def run_clone(self, repo_id: str, *, force: bool = False, reason: str = "manual") -> None:
         """Clone or update a registered repo into its bare path.
 
         This method is intentionally synchronous so APScheduler can run it in a
@@ -48,10 +48,10 @@ class RepoCloner:
         """
         repo = self._load_repo_sync(repo_id)
         if repo is None:
-            log.warning("clone_skipped_missing_repo", repo_id=repo_id)
+            log.warning("clone_skipped_missing_repo", repo_id=repo_id, reason=reason)
             return
         if repo.status == Repo.STATUS_READY and not force:
-            log.info("clone_skipped_already_ready", repo_id=repo_id)
+            log.info("clone_skipped_already_ready", repo_id=repo_id, reason=reason)
             return
 
         bare_path = Path(repo.bare_path)
@@ -62,7 +62,12 @@ class RepoCloner:
             if self._is_plain_local_dir(repo):
                 self._sync_plain_local_dir_snapshot(repo, bare_path)
                 self._set_status(repo_id, Repo.STATUS_READY, error=None, mark_synced=True)
-                log.info("clone_succeeded", repo_id=repo_id, bare_path=str(bare_path))
+                log.info(
+                    "clone_succeeded",
+                    repo_id=repo_id,
+                    bare_path=str(bare_path),
+                    reason=reason,
+                )
                 return
             if self._is_valid_bare_repo(bare_path):
                 self._update_existing_bare_repo(repo, bare_path)
@@ -74,17 +79,17 @@ class RepoCloner:
             raise
 
         self._set_status(repo_id, Repo.STATUS_READY, error=None, mark_synced=True)
-        log.info("clone_succeeded", repo_id=repo_id, bare_path=str(bare_path))
+        log.info("clone_succeeded", repo_id=repo_id, bare_path=str(bare_path), reason=reason)
 
-    def refresh_all(self) -> None:
+    def refresh_all(self, *, reason: str = "refresh_all") -> None:
         """Refresh every registered repo that is not already cloning."""
 
         repo_ids = self._list_refreshable_repo_ids_sync()
         for repo_id in repo_ids:
             try:
-                self.run_clone(repo_id, force=True)
+                self.run_clone(repo_id, force=True, reason=reason)
             except CloneError:
-                log.warning("repo_refresh_failed", repo_id=repo_id, exc_info=True)
+                log.warning("repo_refresh_failed", repo_id=repo_id, reason=reason, exc_info=True)
 
     def _build_clone_argv(self, repo: Repo, bare_path: Path) -> list[str]:
         if repo.source == Repo.SOURCE_GIT:

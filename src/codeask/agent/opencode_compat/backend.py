@@ -7,9 +7,13 @@ import hashlib
 import inspect
 import json
 import shutil
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
+
+import structlog
 
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
 from codeask.agent.opencode_compat.config import (
@@ -41,6 +45,9 @@ class ProcessManagerLike(Protocol):
 class HttpClientLike(Protocol):
     async def health(self) -> dict[str, object]: ...
     async def create_session(self, *, directory: str) -> str: ...
+    async def list_messages(
+        self, *, session_id: str, directory: str
+    ) -> list[dict[str, object]]: ...
     async def prompt_async(
         self,
         *,
@@ -75,6 +82,7 @@ class WikiWorkspaceExporterLike(Protocol):
 
 ContextBuilder = Callable[[str, Path], str | Awaitable[str]]
 SUPPORTED_OPENCODE_VERSIONS = {"1.14.48"}
+log = structlog.get_logger("codeask.agent.opencode_compat.backend")
 
 
 class OpenCodeCompat:
@@ -136,14 +144,61 @@ class OpenCodeCompat:
             and existing.config_hash == config_hash
             and existing.workspace_dir == str(workspace.workspace_dir)
         ):
-            return await self._session_store.update_server_binding(
-                session_id=session_id,
-                server_url=server.base_url,
-                port=server.port,
-                pid=server.pid,
+            usable, reason = await _external_session_is_usable(
+                client,
+                session_id=str(existing.external_session_key),
+                directory=str(workspace.workspace_dir),
             )
+            if not usable:
+                _append_summary_event(
+                    str(existing.session_dir),
+                    {
+                        "type": "external_session_stale",
+                        "external_session_key": str(existing.external_session_key),
+                        "directory": str(workspace.workspace_dir),
+                        "reason": reason,
+                    },
+                )
+                log.warning(
+                    "opencode_external_session_stale",
+                    session_id=session_id,
+                    external_session_key=str(existing.external_session_key),
+                    directory=str(workspace.workspace_dir),
+                    reason=reason,
+                )
+            else:
+                _append_summary_event(
+                    str(existing.session_dir),
+                    {
+                        "type": "external_session_reused",
+                        "external_session_key": str(existing.external_session_key),
+                        "directory": str(workspace.workspace_dir),
+                    },
+                )
+                log.info(
+                    "opencode_external_session_reused",
+                    session_id=session_id,
+                    external_session_key=str(existing.external_session_key),
+                    directory=str(workspace.workspace_dir),
+                )
+                return await self._session_store.update_server_binding(
+                    session_id=session_id,
+                    server_url=server.base_url,
+                    port=server.port,
+                    pid=server.pid,
+                )
 
         external_session_key = await client.create_session(directory=str(workspace.workspace_dir))
+        if existing is not None:
+            _append_summary_event(
+                str(existing.session_dir),
+                {
+                    "type": "external_session_created",
+                    "external_session_key": external_session_key,
+                    "directory": str(workspace.workspace_dir),
+                    "reason": "new_or_recreated_binding",
+                },
+            )
         return await self._session_store.upsert(
             ExternalAgentSessionCreate(
                 session_id=session_id,
@@ -208,8 +263,10 @@ class OpenCodeCompat:
         llm_config: LLMConfigWithSecret,
         system: str | None = None,
         context_window_tokens: int = 200_000,
+        binding: Any | None = None,
     ) -> AsyncIterator[ChatRuntimeEvent]:
-        binding = await self._session_store.get_by_session_id(session_id)
+        if binding is None:
+            binding = await self._session_store.get_by_session_id(session_id)
         server = self._process_manager.ensure_server()
         client = self._http_client_factory(server)
         await _wait_for_health(client)
@@ -237,6 +294,37 @@ class OpenCodeCompat:
         if context_snapshot is not None:
             yield context_snapshot
 
+        _append_summary_event(
+            binding.session_dir,
+            {
+                "type": "prompt_async_start",
+                "external_session_key": str(binding.external_session_key),
+                "directory": workspace_dir,
+                "provider_id": provider_id,
+                "model_id": llm_config.model_name,
+            },
+        )
+        log.info(
+            "opencode_prompt_async_start",
+            session_id=session_id,
+            external_session_key=str(binding.external_session_key),
+            provider_id=provider_id,
+            model_id=llm_config.model_name,
+        )
+        yield ChatRuntimeEvent(
+            type="assistant_action",
+            data={
+                "action": "opencode_prompt_async_start",
+                "summary": "正在将本轮消息提交给 opencode",
+                "metadata": {
+                    "backend": "opencode",
+                    "external_session_key": str(binding.external_session_key),
+                    "provider_id": provider_id,
+                    "model_id": llm_config.model_name,
+                },
+            },
+        )
+        prompt_started_at = time.perf_counter()
         await client.prompt_async(
             session_id=str(binding.external_session_key),
             directory=workspace_dir,
@@ -245,9 +333,67 @@ class OpenCodeCompat:
             text=user_message,
             system=system_prompt,
         )
+        prompt_duration_ms = round((time.perf_counter() - prompt_started_at) * 1000, 2)
+        _append_summary_event(
+            binding.session_dir,
+            {
+                "type": "prompt_async_done",
+                "external_session_key": str(binding.external_session_key),
+                "directory": workspace_dir,
+                "duration_ms": prompt_duration_ms,
+            },
+        )
+        log.info(
+            "opencode_prompt_async_done",
+            session_id=session_id,
+            external_session_key=str(binding.external_session_key),
+            duration_ms=prompt_duration_ms,
+        )
+        yield ChatRuntimeEvent(
+            type="assistant_action",
+            data={
+                "action": "opencode_prompt_async_done",
+                "summary": "opencode 已接收本轮消息",
+                "metadata": {
+                    "backend": "opencode",
+                    "external_session_key": str(binding.external_session_key),
+                    "duration_ms": prompt_duration_ms,
+                },
+            },
+        )
 
+        _append_summary_event(
+            binding.session_dir,
+            {
+                "type": "event_stream_open",
+                "external_session_key": str(binding.external_session_key),
+                "directory": workspace_dir,
+            },
+        )
+        log.info(
+            "opencode_event_stream_open",
+            session_id=session_id,
+            external_session_key=str(binding.external_session_key),
+        )
+        yield ChatRuntimeEvent(
+            type="assistant_action",
+            data={
+                "action": "opencode_event_stream_open",
+                "summary": "正在监听 opencode 运行事件",
+                "metadata": {
+                    "backend": "opencode",
+                    "external_session_key": str(binding.external_session_key),
+                },
+            },
+        )
         async for raw_event in client.stream_global_events(directory=workspace_dir):
             _append_raw_event(binding.session_dir, raw_event)
+            _append_summary_from_raw_event(
+                binding.session_dir,
+                raw_event,
+                directory=workspace_dir,
+                session_id=str(binding.external_session_key),
+            )
             part_class = _opencode_part_class(
                 raw_event,
                 session_id=str(binding.external_session_key),
@@ -388,10 +534,13 @@ class OpenCodeCompat:
         if self._data_dir is None:
             return {"session_id": session_id, "removed": removed}
 
-        session_dir = self._data_dir / "agent_sessions" / "opencode" / session_id
-        if session_dir.exists():
-            shutil.rmtree(session_dir, ignore_errors=True)
-            removed.append(str(session_dir))
+        for session_dir in [
+            self._data_dir / "agent_sessions" / "opencode" / "sessions" / session_id,
+            self._data_dir / "agent_sessions" / "opencode" / session_id,
+        ]:
+            if session_dir.exists():
+                shutil.rmtree(session_dir, ignore_errors=True)
+                removed.append(str(session_dir))
 
         repos_root = self._data_dir / "repos"
         if repos_root.exists():
@@ -797,6 +946,19 @@ async def _wait_for_health(
         raise OpenCodeProcessError("opencode_health_timeout", message) from last_error
 
 
+async def _external_session_is_usable(
+    client: HttpClientLike,
+    *,
+    session_id: str,
+    directory: str,
+) -> tuple[bool, str | None]:
+    try:
+        await client.list_messages(session_id=session_id, directory=directory)
+    except Exception as exc:  # pragma: no cover - exact opencode failure shape is integration-bound
+        return False, str(exc).strip() or exc.__class__.__name__
+    return True, None
+
+
 def _should_emit_reasoning_observed(
     event: ChatRuntimeEvent,
     seen_lengths: dict[str, int],
@@ -834,6 +996,118 @@ def _append_raw_event(session_dir: str, event: dict[str, object]) -> None:
     with (logs_dir / "opencode-events.jsonl").open("a", encoding="utf-8") as file:
         file.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
         file.write("\n")
+
+
+def _append_summary_event(session_dir: str, event: dict[str, object]) -> None:
+    logs_dir = Path(session_dir) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    payload = {"ts": datetime.now(UTC).isoformat(), **event}
+    with (logs_dir / "opencode-events.summary.jsonl").open("a", encoding="utf-8") as file:
+        file.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        file.write("\n")
+
+
+def _append_summary_from_raw_event(
+    session_dir: str,
+    event: dict[str, object],
+    *,
+    directory: str,
+    session_id: str,
+) -> None:
+    event_directory = event.get("directory")
+    if event_directory != directory:
+        _append_summary_event(
+            session_dir,
+            {
+                "type": "event_ignored_directory_mismatch",
+                "expected_directory": directory,
+                "actual_directory": event_directory,
+            },
+        )
+        log.debug(
+            "opencode_event_ignored_directory_mismatch",
+            expected_directory=directory,
+            actual_directory=event_directory,
+        )
+        return
+
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return
+    event_type = payload.get("type")
+    if event_type == "sync":
+        return
+    properties = payload.get("properties")
+    properties = properties if isinstance(properties, dict) else {}
+    prop_session_id = properties.get("sessionID")
+    if isinstance(prop_session_id, str) and prop_session_id != session_id:
+        _append_summary_event(
+            session_dir,
+            {
+                "type": "event_ignored_session_mismatch",
+                "expected_session_id": session_id,
+                "actual_session_id": prop_session_id,
+                "event_type": event_type,
+            },
+        )
+        log.debug(
+            "opencode_event_ignored_session_mismatch",
+            expected_session_id=session_id,
+            actual_session_id=prop_session_id,
+            event_type=event_type,
+        )
+        return
+
+    if event_type == "session.status":
+        status = properties.get("status")
+        status_type = status.get("type") if isinstance(status, dict) else status
+        _append_summary_event(
+            session_dir,
+            {
+                "type": "opencode_status",
+                "status": status_type,
+                "metadata": status if isinstance(status, dict) else {},
+            },
+        )
+        return
+
+    if event_type == "session.error":
+        _append_summary_event(
+            session_dir,
+            {"type": "opencode_error", "error": properties.get("error")},
+        )
+        return
+
+    if event_type != "message.part.updated":
+        return
+    part = properties.get("part")
+    if not isinstance(part, dict) or part.get("type") != "tool":
+        return
+    state = part.get("state")
+    state = state if isinstance(state, dict) else {}
+    status = state.get("status")
+    if status == "running":
+        _append_summary_event(
+            session_dir,
+            {
+                "type": "tool_call",
+                "tool_name": str(part.get("tool") or "unknown"),
+                "tool_call_id": str(part.get("id") or ""),
+                "arguments": state.get("input") if isinstance(state.get("input"), dict) else {},
+            },
+        )
+    elif status in {"completed", "error"}:
+        _append_summary_event(
+            session_dir,
+            {
+                "type": "tool_result",
+                "tool_name": str(part.get("tool") or "unknown"),
+                "tool_call_id": str(part.get("id") or ""),
+                "ok": status == "completed",
+                "summary": str(state.get("title") or state.get("output") or status),
+                "error": str(state.get("error")) if state.get("error") else None,
+            },
+        )
 
 
 def _opencode_text_delta(

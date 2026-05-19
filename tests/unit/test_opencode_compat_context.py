@@ -8,7 +8,16 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from codeask.agent.opencode_compat.context import build_dynamic_codeask_context
 from codeask.db import session_factory
 from codeask.db.base import Base
-from codeask.db.models import Feature, FeatureRepo, Repo, Session, SessionAttachment, SessionFeature
+from codeask.db.models import (
+    Feature,
+    FeatureRepo,
+    Repo,
+    Session,
+    SessionAttachment,
+    SessionConversationSummary,
+    SessionFeature,
+    SessionTurn,
+)
 
 
 @pytest.fixture()
@@ -71,6 +80,38 @@ async def db_factory(tmp_path: Path):  # type: ignore[no-untyped-def]
                 size_bytes=2048,
             )
         )
+        session.add_all(
+            [
+                SessionTurn(
+                    id="turn_1",
+                    session_id="sess_ctx",
+                    turn_index=0,
+                    role="user",
+                    content="AnythingLLM 是怎么处理召回的？",
+                ),
+                SessionTurn(
+                    id="turn_2",
+                    session_id="sess_ctx",
+                    turn_index=1,
+                    role="agent",
+                    content="AnythingLLM 会基于 workspace 文档向量检索相关 chunks。",
+                ),
+                SessionTurn(
+                    id="turn_current",
+                    session_id="sess_ctx",
+                    turn_index=2,
+                    role="user",
+                    content="继续查源码确认一下",
+                ),
+                SessionConversationSummary(
+                    session_id="sess_ctx",
+                    summary="用户正在围绕 AnythingLLM 的 RAG 召回链路进行连续追问。",
+                    covered_turn_index=0,
+                    covered_turn_count=1,
+                    covered_trace_count=0,
+                ),
+            ]
+        )
         await session.commit()
     try:
         yield factory
@@ -101,5 +142,10 @@ async def test_dynamic_context_includes_session_features_repos_and_workspace(
     assert "客户端日志" in context
     assert "client.log" in context
     assert "att_log" in context
+    assert "Conversation Recovery Context" in context
+    assert "用户正在围绕 AnythingLLM 的 RAG 召回链路进行连续追问" in context
+    assert "AnythingLLM 是怎么处理召回的" in context
+    assert "workspace 文档向量检索" in context
+    assert "继续查源码确认一下" not in context
     assert "bind_session_features" in context
     assert "prepare_worktree" in context

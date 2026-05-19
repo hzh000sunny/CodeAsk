@@ -36,3 +36,16 @@ def test_hides_other_session_paths() -> None:
     redacted = redact_trace_payload_for_frontend(payload, session_id="sess_current")
 
     assert redacted["summary"] == "[外部绝对路径已隐藏]"
+
+
+def test_redacts_agent_session_paths_under_sessions_parent() -> None:
+    payload = {
+        "summary": (
+            "/home/hzh/.codeask/agent_sessions/opencode/sessions/"
+            "sess_current/workspace/repos/app/src/main.ts"
+        )
+    }
+
+    redacted = redact_trace_payload_for_frontend(payload, session_id="sess_current")
+
+    assert redacted["summary"] == "workspace/repos/app/src/main.ts"
