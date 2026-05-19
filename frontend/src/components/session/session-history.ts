@@ -4,6 +4,7 @@ import {
   appendRuntimeInsight,
   createInitialStages,
   isOpencodeRunningInsight,
+  mergeRuntimeState,
   runtimeInsightFromEvent,
   runtimeStateFromEvent,
   type ConversationMessage,
@@ -65,7 +66,7 @@ export function runtimeStateFromSessionTraces(
     }
     const runtimeState = runtimeStateFromEvent(event);
     if (runtimeState) {
-      latest = runtimeState;
+      latest = mergeRuntimeState(latest, runtimeState);
     }
   }
   return latest;

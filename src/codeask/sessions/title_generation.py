@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -48,15 +49,28 @@ async def maybe_generate_session_title(
         user_content=first_user_content,
         assistant_content=first_assistant_content,
     )
+    log.info(
+        "session_title_generation_started",
+        session_id=session_id,
+        subject_id=subject_id,
+    )
     try:
         raw_title = await generate_single_text(
             gateway,
             subject_id=subject_id,
             session_id=session_id,
+            request_purpose="session_title_generation",
             prompt=prompt,
             max_tokens=SESSION_TITLE_MAX_TOKENS,
             temperature=0.2,
         )
+    except asyncio.CancelledError:
+        log.warning(
+            "session_title_generation_cancelled",
+            session_id=session_id,
+            subject_id=subject_id,
+        )
+        raise
     except Exception as exc:
         log.warning(
             "session_title_generation_failed",
@@ -69,11 +83,18 @@ async def maybe_generate_session_title(
     title = normalize_session_title(raw_title)
     if not title or title == DEFAULT_SESSION_TITLE:
         return
-    await _apply_generated_title_if_still_default(
+    applied = await _apply_generated_title_if_still_default(
         session_factory,
         session_id=session_id,
         title=title,
     )
+    if applied:
+        log.info(
+            "session_title_generation_succeeded",
+            session_id=session_id,
+            subject_id=subject_id,
+            title=title,
+        )
 
 
 async def generate_session_title_from_history(
@@ -97,15 +118,28 @@ async def generate_session_title_from_history(
         user_content=user_content,
         assistant_content=assistant_content,
     )
+    log.info(
+        "session_title_generation_started",
+        session_id=session_id,
+        subject_id=subject_id,
+    )
     try:
         raw_title = await generate_single_text(
             gateway,
             subject_id=subject_id,
             session_id=session_id,
+            request_purpose="session_title_generation",
             prompt=prompt,
             max_tokens=SESSION_TITLE_MAX_TOKENS,
             temperature=0.2,
         )
+    except asyncio.CancelledError:
+        log.warning(
+            "session_title_generation_cancelled",
+            session_id=session_id,
+            subject_id=subject_id,
+        )
+        raise
     except Exception as exc:
         log.warning(
             "session_title_generation_failed",
@@ -118,12 +152,19 @@ async def generate_session_title_from_history(
     title = normalize_session_title(raw_title)
     if not title or title == DEFAULT_SESSION_TITLE:
         return False
-    await _apply_generated_title_if_still_default(
+    applied = await _apply_generated_title_if_still_default(
         session_factory,
         session_id=session_id,
         title=title,
     )
-    return True
+    if applied:
+        log.info(
+            "session_title_generation_succeeded",
+            session_id=session_id,
+            subject_id=subject_id,
+            title=title,
+        )
+    return applied
 
 
 def build_session_title_prompt(*, user_content: str, assistant_content: str) -> str:
@@ -197,12 +238,13 @@ async def _apply_generated_title_if_still_default(
     *,
     session_id: str,
     title: str,
-) -> None:
+) -> bool:
     async with session_factory() as db:
         row = await db.get(Session, session_id)
         if row is None or row.title_source != "default":
-            return
+            return False
         row.title = title
         row.title_source = "auto"
         row.title_generated_at = datetime.now(UTC)
         await db.commit()
+        return True

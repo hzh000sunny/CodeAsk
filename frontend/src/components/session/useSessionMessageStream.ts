@@ -25,6 +25,7 @@ import {
   askUserMessageFromEvent,
   createInitialStages,
   messageFromError,
+  mergeRuntimeState,
   reduceStages,
   removeOpencodeRunningInsight,
   runtimeInsightFromEvent,
@@ -301,7 +302,7 @@ export function useSessionMessageStream({
             if (runtimeState) {
               updateActiveStreamSnapshot(target.id, (snapshot) => ({
                 ...snapshot,
-                runtimeState,
+                runtimeState: mergeRuntimeState(snapshot.runtimeState, runtimeState),
               }));
             }
           }

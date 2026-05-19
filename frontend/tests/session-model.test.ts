@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendRuntimeInsight,
   createInitialStages,
+  mergeRuntimeState,
   runtimeInsightFromEvent,
   runtimeStateFromEvent,
 } from "../src/components/session/session-model";
@@ -213,6 +214,33 @@ describe("session runtime stage model", () => {
     expect(withRealEvent[0].kind).toBe("tool_call");
   });
 
+  it("deduplicates repeated running events for the same tool call", () => {
+    const taskCall = runtimeInsightFromEvent({
+      type: "tool_call",
+      data: {
+        tool_call_id: "call_task",
+        tool_name: "task",
+        arguments_summary: {
+          description: "Explore AnythingLLM Embedding",
+          subagent_type: "explore",
+        },
+      },
+    });
+
+    expect(taskCall).not.toBeNull();
+    const withOneTask = appendRuntimeInsight([], {
+      ...taskCall!,
+      turnId: "turn_1",
+    });
+    const stillOneTask = appendRuntimeInsight(withOneTask, {
+      ...taskCall!,
+      turnId: "turn_1",
+    });
+
+    expect(stillOneTask).toHaveLength(1);
+    expect(stillOneTask[0].title).toBe("准备使用 opencode 子任务");
+  });
+
   it("does not restore persisted opencode busy events as history insights", () => {
     const traces: AgentTraceResponse[] = [
       trace("tr_busy_1", "turn_1", "assistant_action", {
@@ -291,6 +319,35 @@ describe("session runtime stage model", () => {
 
     expect(runtimeState).not.toBeNull();
     expect(runtimeState?.usageLabel).toBe("1k / 200k");
+  });
+
+  it("does not let a new turn initial estimate reset a larger observed context state", () => {
+    const observed = runtimeStateFromEvent({
+      type: "runtime_state",
+      data: {
+        model_name: "glm-5.1",
+        context_used: 32768,
+        context_window: 200000,
+        context_metric_source: "opencode_tokens",
+      },
+    });
+    const nextInitial = runtimeStateFromEvent({
+      type: "runtime_state",
+      data: {
+        model_name: "glm-5.1",
+        context_used: 12,
+        context_window: 200000,
+        context_metric_source: "initial_estimate",
+      },
+    });
+
+    expect(observed).not.toBeNull();
+    expect(nextInitial).not.toBeNull();
+    const merged = mergeRuntimeState(observed, nextInitial);
+
+    expect(merged?.contextUsed).toBe(32768);
+    expect(merged?.usageLabel).toBe("32k / 200k");
+    expect(merged?.contextMetricSource).toBe("opencode_tokens");
   });
 
   it("maps llm input audits into debug trace insights", () => {

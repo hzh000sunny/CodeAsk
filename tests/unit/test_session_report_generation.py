@@ -15,8 +15,11 @@ from codeask.sessions.report_generation import (
 class _ReasoningAwareGateway:
     def __init__(self, events: list[LLMEvent]) -> None:
         self.events = events
+        self.calls: list[LLMRequest] = []
 
     def stream(self, request: LLMRequest) -> AsyncIterator[LLMEvent]:
+        self.calls.append(request)
+
         async def gen() -> AsyncIterator[LLMEvent]:
             for event in self.events:
                 yield event
@@ -132,3 +135,34 @@ def test_generate_single_text_ignores_reasoning_events() -> None:
     )
 
     assert text == "正式标题"
+    assert gateway.calls[0].metadata["request_purpose"] == "single_text"
+
+
+def test_generate_single_text_records_observability_metadata() -> None:
+    gateway = _ReasoningAwareGateway(
+        [
+            LLMEvent(type="text_delta", data={"delta": "标题"}),
+            LLMEvent(type="message_stop", data={"stop_reason": "end_turn"}),
+        ]
+    )
+
+    text = asyncio.run(
+        generate_single_text(
+            gateway,  # type: ignore[arg-type]
+            subject_id="admin",
+            session_id="sess_meta",
+            request_purpose="session_title_generation",
+            request_id="req_meta",
+            prompt="生成标题",
+            max_tokens=16,
+            temperature=0,
+        )
+    )
+
+    assert text == "标题"
+    assert gateway.calls[0].metadata == {
+        "subject_id": "admin",
+        "session_id": "sess_meta",
+        "request_purpose": "session_title_generation",
+        "request_id": "req_meta",
+    }

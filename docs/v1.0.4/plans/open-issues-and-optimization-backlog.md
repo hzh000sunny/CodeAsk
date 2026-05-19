@@ -3,7 +3,7 @@
 > 状态：Closed for v1.0.4 P0/P1 收口
 > 创建日期：2026-05-16
 > 范围：v1.0.4 opencode backend、LLM 配置、MCP tools、Wiki/worktree、会话流、前端行动轨迹、E2E 验收与文档一致性
-> 用途：记录当前审查发现的所有未完成项和设计/实现不合理点。后续开发必须先对照本文逐项关闭或明确延期，不能只修单点问题后直接闭环 v1.0.4。
+> 用途：记录 v1.0.4 审查期间发现的所有未完成项和设计/实现不合理点，以及对应修复、验证和延期边界。后续版本如果继续改动 opencode backend，必须先对照本文确认不能回退这些已关闭问题。
 
 ---
 
@@ -32,7 +32,7 @@
     - `docs/v1.0.4/design/opencode-backend.md`
     - `docs/v1.0.4/plans/opencode-backend.md`
     - `docs/v1.0.4/plans/acceptance-checklist.md`
-  - 关闭记录：五份主文档统一标记为 `Implementing / P0 收敛中`；README 新增能力状态矩阵，按 `已实现且已验收`、`已实现待更多真实 E2E`、`未完成`、`延期或 P1` 显式区分。
+  - 关闭记录：五份主文档最终统一为 `Manual Acceptance Completed` / `Release Ready` 口径；README 新增能力状态矩阵，按 `已实现且已验收`、`延期或后续版本` 显式区分，并补充 2026-05-19 opencode 完成事件闭合、长对话 UI 和特性源码调查 E2E 证据。
 
 - [x] `P0` 在验收清单中明确：v1.0.4 未达到全部收口条件前，不得标记版本闭环。
   - 当前问题：部分模块已经写成 `[x]`，但多环境 E2E、cleanup、opencode unavailable、worktree、连续性仍未完成。
@@ -255,6 +255,26 @@
 
 ---
 
+## 7.1.1 CodeAsk 直连 LLM 请求需要可归因
+
+- [x] `P0` CodeAsk 自身发起的 LLM 请求必须能在日志中区分用途。
+  - 当前问题：私有环境只看到 `llm_request_debug`，无法判断这是主会话、会话标题生成、报告生成还是连接测试；同一时间出现 SQLAlchemy 取消日志时，定位成本很高。
+  - 要求：不改变模型请求协议，只在 debug 日志和 LLM metadata 中补充观测字段；不能把这类辅助请求写入正常会话上下文。
+  - 关闭记录：`generate_single_text()` 增加 `request_purpose/request_id` metadata；会话标题生成传 `session_title_generation` 并记录 started/succeeded/cancelled；报告生成传 `session_report_prepare`。`llm_request_debug` 现在输出 `request_purpose`、`session_id`、`request_id`。
+  - 验证：`uv run pytest tests/unit/test_llm_client_adapter.py::test_llm_request_debug_logs_request_purpose_and_session tests/unit/test_session_report_generation.py::test_generate_single_text_records_observability_metadata tests/integration/test_sessions_api.py::test_explicit_session_title_generation_returns_updated_session -q`。
+
+---
+
+## 7.1.2 长 LLM 请求不得持有无关数据库连接
+
+- [x] `P0` 报告生成任务在等待模型期间必须释放前置读取用的 DB session。
+  - 当前问题：报告生成原实现把读取 turns/traces/feature/existing report 和等待 LLM 返回放在同一个 `async with session_factory()` 中；如果任务或请求被取消，容易放大 aiosqlite 连接未归还的风险。
+  - 要求：先读取生成报告所需的快照数据并关闭 DB session，再调用 LLM；失败/成功状态仍写入内存任务缓存，不改变报告保存语义。
+  - 关闭记录：`_run_session_report_prepare_task()` 已拆成“读取快照 → 释放 session → 调 LLM → 更新 prepare status”。新增跟踪测试确认 LLM stream 阶段没有报告读取 session 仍处于打开状态。
+  - 验证：`uv run pytest tests/integration/test_session_report_generation.py::test_prepare_session_report_releases_db_session_before_llm_stream -q`。
+
+---
+
 ## 7.2 LLM 配置切换后 opencode binding 必须一致
 
 - [x] `P0` 同一会话连续问答中切换 LLM 配置时不能继续使用旧 external session key。
@@ -321,6 +341,18 @@
   - 要求：同一 turn 只显示一个“opencode running/initializing”状态；非 busy 事件到来后转为正常事件。
   - 关闭记录：前端 `appendRuntimeInsight` 按 turn 去重 `opencode_busy`，任意真实 runtime/tool/text/error/done insight 到来后移除 running 状态；历史 trace 恢复时不把 persisted busy 当成长期卡片。
   - 验证：`corepack pnpm --dir frontend exec vitest run tests/session-model.test.ts tests/session-workspace.test.tsx`。
+
+- [x] `P0` opencode 已返回 assistant 终止型 finish 时必须闭合 CodeAsk turn。
+  - 当前问题：真实会话 `sess_535ecc82d996ff15` 中，opencode raw event 已有完整助手正文和 `message.updated finish=stop`，但 CodeAsk 先处理 finish 分支并 `continue`，没有把该事件映射为 `done`；后续如果 `session.status idle` 没有被当前流稳定消费，前端会一直显示正在生成，DB 中也不会写入 agent turn。
+  - 要求：assistant `message.updated.finish=stop` 等终止型完成事件是可独立闭合本轮的协议事件；收到后必须清理本轮 message 缓存，返回 `done`，并停止继续等待后续 idle 事件。`finish=tool-calls` 不是终止，它表示模型请求工具调用，必须继续等待工具结果和最终回答。该处理只解决协议完成语义，不参与模型决策。
+  - 关闭记录：`OpenCodeCompat.run_turn` 在 `_opencode_message_finish(...)` 返回非 `tool-calls/tool_calls` finish 后 yield `done` 并 break；`tool-calls/tool_calls` 分支只清理当前消息缓存并继续消费后续事件；保留已有 `session.status idle` 作为兼容路径，但不再作为唯一完成条件。
+  - 验证：`uv run pytest tests/unit/test_opencode_compat_backend.py::test_run_turn_finishes_on_assistant_message_finish_without_idle_status tests/unit/test_opencode_compat_backend.py::test_run_turn_does_not_finish_on_tool_calls_finish -q`；`uv run pytest tests/unit/test_opencode_compat_backend.py -q`。
+
+- [x] `P1` opencode 原生 `task` 事件不能裸展示为未知工具。
+  - 当前问题：用户在行动轨迹中看到“准备使用 task”，无法判断这是 CodeAsk 工具、MCP 工具还是 opencode 自身行为。
+  - 要求：前端按 opencode 语义显示为子任务/子 Agent 事件，并在展开详情里展示 description、subagent_type 等模型传入的任务摘要；同一 `tool_call_id` 的 repeated running 事件要去重。
+  - 关闭记录：`task` 显示为 `opencode 子任务`；`toolCallDetail` 提取 `description/subagent_type`；`appendRuntimeInsight` 按 `turnId + tool_call_id` 去重 repeated running tool call。
+  - 验证：`corepack pnpm --dir frontend exec vitest run tests/action-trace-scope.test.tsx tests/session-model.test.ts`。
 
 ---
 
@@ -540,11 +572,27 @@
   - 当前问题：opencode `read` / `grep` / MCP tool 事件中可能出现宿主机绝对路径；即使前端展示层过滤，浏览器 Network 中仍可看到原始路径。
   - 要求：只处理返回给前端的 SSE 和历史 traces API；不能修改数据库 trace、raw opencode JSONL、工具执行参数、模型上下文和报告生成链路。
   - 关闭记录：新增 `src/codeask/sessions/trace_redaction.py`，SSE 非 `text_delta/done` Agent 事件返回前使用脱敏副本；`/api/sessions/{session_id}/traces` 返回前对 payload 副本脱敏。当前会话目录内路径显示为会话相对路径，外部宿主机绝对路径显示为 `[外部绝对路径已隐藏]`。
-  - 验证：`uv run pytest tests/unit/test_session_trace_redaction.py -q`；`corepack pnpm --dir frontend exec vitest run tests/action-trace-scope.test.tsx`；相关 ruff/eslint/tsc 检查通过。
+  - 2026-05-19 回归补充：覆盖新目录结构 `agent_sessions/opencode/sessions/<session_id>/...`，尤其是 opencode `read` 的 `tool_call.arguments_summary.filePath`、`tool_result.summary/message/path`。后端 SSE 和历史 traces API 都只返回 `workspace/...` 相对路径；前端展示层保留同样的兜底脱敏。
+  - 2026-05-19 slashless 路径补充：真实会话 `sess_535ecc82d996ff15` 暴露 opencode 完成事件会把 `/home/hzh/...` 变成 `home/hzh/...` 后写入 `summary/message`；旧正则会从中间 `/hzh/...` 匹配，导致前端看到 `homeworkspace/...`。已修正后端和前端正则边界，slashless agent session path 会完整转换为 `workspace/...`。
+  - 验证：`uv run pytest tests/unit/test_session_trace_redaction.py tests/integration/test_opencode_session_stream.py -q`；`corepack pnpm --dir frontend exec vitest run tests/action-trace-scope.test.tsx`；相关 ruff/eslint/tsc 检查通过。
 
 ---
 
-## 20. 建议执行顺序
+## 20. 会话消息换行和上下文指标刷新
+
+- [x] `P0` 用户气泡必须保留用户输入中的换行。
+  - 当前问题：用户消息和助手消息共用 Markdown 渲染，普通换行在气泡中被 Markdown 折叠为空格，导致用户实际发送的多行内容和界面展示不一致。
+  - 关闭记录：用户消息改为纯文本节点渲染，样式使用 `white-space: pre-wrap`；助手消息继续使用 Markdown 渲染。
+  - 验证：`corepack pnpm --dir frontend exec vitest run tests/message-stream.test.tsx`；`CODEASK_RUN_LIVE_SESSION_LONG_UI_E2E=1 ... playwright test -c playwright.realdata.config.ts e2e/session-long-ui-live.spec.ts --project=chromium`。
+
+- [x] `P0` 模型上下文指标不能在每轮开始时被初始估算清零。
+  - 当前问题：每轮开始后端都会发送基于当前用户输入长度的 `initial_estimate` runtime_state；前端直接覆盖已有 runtime state，导致界面显示从 `0k / 200k` 或很小数值重新开始。
+  - 关闭记录：新增 `mergeRuntimeState`，当已有更大的 `opencode_tokens` 观测值时，新的 `initial_estimate` 只更新模型/配置元信息，不回退上下文用量；实时 SSE 和历史 trace 回放共用该逻辑。
+  - 验证：`corepack pnpm --dir frontend exec vitest run tests/session-model.test.ts`；真实浏览器长对话会话 `sess_ff0d65dc59be064c` 中逐轮观察到 `initial_estimate` 小值和持续增长的 `opencode_tokens`，前端未回退显示为 `0k / 200k`。
+
+---
+
+## 21. 建议执行顺序
 
 ### P0 收口批次 A：契约一致性
 
@@ -576,11 +624,13 @@
 
 ---
 
-## 21. v1.0.4 关闭前必须重新确认
+## 22. v1.0.4 关闭前必须重新确认
 
 - [x] PRD、Design、Plan、Acceptance Checklist、本文档状态一致。
 - [x] 所有 P0 已关闭，或被用户明确同意延期并迁移到 future/下一版本。
 - [x] 每个 P0 关闭项都有自动化测试或真实浏览器 E2E 记录。
 - [x] opencode 版本、LLM 配置数量、测试 session id、数据目录、测试命令均已记录。
 - [x] 不存在“文档写完成，但验收矩阵未完成”的状态。
-- [x] 2026-05-18 用户已确认人工验收和验证完成；本次仅推送 `main`，暂不推送 `v1.0.4` 分支。
+- [x] 2026-05-18 用户已确认人工验收和验证完成。
+- [x] 2026-05-19 补充 opencode 完成事件闭合、`finish=tool-calls` 边界、`task` 子任务展示、长对话 UI、特性源码调查和路径脱敏回归；自动化与真实浏览器 E2E 均已记录。
+- [x] 本次先推送 `main`，暂不推送 `v1.0.4` 分支。

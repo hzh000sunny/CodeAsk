@@ -98,7 +98,8 @@ v1.0.4 收口前必须满足：
 - [x] opencode 会话日志分层：新会话资源写入 `data/agent_sessions/opencode/sessions/<session_id>/`，shared server 资源继续留在 `data/agent_sessions/opencode/` 根目录，降低私有环境排查时的目录噪音。
 - [x] opencode 会话摘要日志：除 raw `/global/event` 的 `logs/opencode-events.jsonl` 外，新增 `logs/opencode-events.summary.jsonl`，记录 `prompt_async_start/done`、`event_stream_open`、`opencode_status`、tool running/completed/error、事件归属不匹配等人工排查关键节点。
 - [x] Agent 事件耗时：每条 SSE Agent 事件返回 `timing`，记录事件序号、本轮已耗时、距上一事件耗时、提交模型耗时、等待后端事件、等待首次响应、是否已有响应；最终 `done/error` 记录 `total_elapsed_ms` 并持久化到 trace。前端行动轨迹展开详情可直接查看这些字段，便于定位“请求已提交但模型/事件流无响应”的卡点。
-- [x] Agent 事件耗时验证：`uv run pytest tests/unit/test_opencode_compat_backend.py tests/integration/test_opencode_session_stream.py tests/integration/test_agent_chat_runtime_sse.py -q` -> 通过；`corepack pnpm --dir frontend exec vitest run tests/action-trace-scope.test.tsx` -> `9 passed`；重启后端后真实浏览器 `CODEASK_RUN_LIVE_OPENCODE_E2E=1 ... e2e/opencode-backend-live.spec.ts --project=chromium` -> `1 passed`。
+- [x] Agent 事件耗时验证：`uv run pytest tests/unit/test_opencode_compat_backend.py tests/integration/test_opencode_session_stream.py tests/integration/test_agent_chat_runtime_sse.py -q` -> 通过；`corepack pnpm --dir frontend exec vitest run tests/action-trace-scope.test.tsx` -> `10 passed`；重启后端后真实浏览器 `CODEASK_RUN_LIVE_OPENCODE_E2E=1 ... e2e/opencode-backend-live.spec.ts --project=chromium` -> `1 passed`。
+- [x] Agent 事件路径脱敏回归：opencode `read` 的准备事件和完成事件均覆盖新目录结构 `agent_sessions/opencode/sessions/<session_id>/...`；SSE、历史 traces API 和前端行动轨迹只展示 `workspace/...` 会话相对路径，不暴露宿主机绝对路径或 session 目录前缀。
 - [x] LLM 配置切换绑定一致性：同一 CodeAsk 会话在连续问答中超过全局 LLM sticky 时间或配置失败轮转后，允许切换全局 LLM 配置；切换后本轮使用 `initialize_session` 刚返回的 opencode binding 直接执行 `run_turn`，不再重新依赖一次 DB 读取，避免历史数据、竞争或私有环境异常导致 `config_hash` 与 `external_session_key` 不一致后继续向旧 opencode session 发消息。
 - [x] LLM 配置切换验证：新增 `test_run_turn_uses_initialized_binding_after_llm_config_switch`，先复现旧行为下 `run_turn(binding=...)` 不支持的失败，再验证切换 `cfg_1 -> cfg_2` 后实际 prompt 使用新 `external_session_key=ses_new` 和新模型 `model-b`。
 - [x] repo 定时刷新日志：每小时 `repo_hourly_refresh` 触发的 clone/update 日志增加 `reason=hourly_refresh`，避免和用户源码调查链路混淆。
@@ -142,6 +143,7 @@ v1.0.4 收口前必须满足：
 - [x] 历史行动轨迹脱敏：`/api/sessions/{id}/traces` 返回前对 `payload` 副本脱敏。
 - [x] 当前会话目录内绝对路径显示为会话相对路径；非当前会话或外部宿主机绝对路径显示为 `[外部绝对路径已隐藏]`。
 - [x] 前端保留展示层兜底脱敏，防止旧接口或历史数据绕过后端出口脱敏。
+- [x] 2026-05-19 回归补充：opencode `tool_result.summary/message` 可能返回去掉前导 `/` 的 `home/hzh/.../agent_sessions/.../workspace/...` 路径；后端出口和前端兜底均需把该格式完整转换为 `workspace/...`，不能残留为 `homeworkspace/...` 或宿主机路径。
 - [x] 验证：`uv run pytest tests/unit/test_session_trace_redaction.py -q` -> `3 passed`。
 - [x] 验证：`corepack pnpm --dir frontend exec vitest run tests/action-trace-scope.test.tsx` -> `7 passed`。
 - [x] 验证：`uv run ruff check src/codeask/sessions/trace_redaction.py src/codeask/sessions/messages.py src/codeask/api/sessions.py tests/unit/test_session_trace_redaction.py` -> `All checks passed!`。
@@ -149,6 +151,23 @@ v1.0.4 收口前必须满足：
 - [x] 验证：`corepack pnpm --dir frontend exec eslint src/components/session/action-trace/ActionTraceEvent.tsx src/components/session/action-trace/path-redaction.ts tests/action-trace-scope.test.tsx --max-warnings=0` -> 通过。
 - [x] 验证：`corepack pnpm --dir frontend exec tsc --noEmit` -> 通过。
 - [x] 人工验收：用户已确认人工验证和版本验收完成；本次提交只推送 `main`，不推送 `v1.0.4` 分支。
+
+### 1.7 2026-05-19 会话展示回归修复
+
+- [x] 用户消息换行：会话输入框中带换行发送的内容，用户气泡必须按原始文本保留换行展示；用户消息不再走 Markdown 段落渲染，避免普通换行被折叠为空格。
+- [x] 模型上下文指标：新一轮对话开始时的 `initial_estimate` 只作为初始值，不得覆盖已经从 opencode usage 中观测到的更大 `opencode_tokens` 指标；实时事件流和历史 trace 回放都使用同一合并逻辑。
+- [x] 自动化回归：`corepack pnpm --dir frontend exec vitest run tests/message-stream.test.tsx tests/session-model.test.ts` -> `18 passed`。
+- [x] 真实浏览器长对话回归：新增 `frontend/e2e/session-long-ui-live.spec.ts`，显式设置 `CODEASK_RUN_LIVE_SESSION_LONG_UI_E2E=1` 后，使用 Chromium 登录、创建会话、连续发送 5 轮 UI 消息，首轮包含换行，逐轮检查用户气泡换行和右侧上下文显示不回退到 `0k / 200k`。本地验证会话 `sess_ff0d65dc59be064c`，10 条 turn、56 条 trace、0 个 error；`opencode_tokens` 从 13140 增长到 13451。
+
+### 1.8 2026-05-19 opencode 完成事件闭合回归
+
+- [x] 根因确认：真实会话 `sess_535ecc82d996ff15` 第 4 轮中，opencode raw log 已返回完整助手消息、`message.updated finish=stop` 和后续 `session.status idle`，但 CodeAsk 没有写入 agent turn，也没有返回 `done`；UI 因此长期停留在“正在生成”。
+- [x] 修复边界：`OpenCodeCompat.run_turn` 在收到 assistant `message.updated.finish=stop` 等终止型完成事件时立即返回 `done` 并结束本轮，不再依赖后续 `session.status idle` 作为唯一闭合条件；`finish=tool-calls` 只表示模型正在请求工具，必须继续等待工具结果和最终回答。该修复只处理 opencode 协议事件收敛，不改变模型是否调用工具、是否绑定特性、是否查询源码的决策。
+- [x] opencode `task` 工具展示：`task` 是 opencode 原生子任务/子 Agent 事件，不是 CodeAsk MCP。前端行动轨迹显示为 `opencode 子任务`，展开卡片展示 `description`、`subagent_type` 等关键信息，避免用户看到裸 `task` 后无法判断来源。
+- [x] 重复运行事件降噪：同一 turn、同一 `tool_call_id` 的 running 工具事件只保留一张卡片；后续完成、错误、文本或 done 事件仍按正常链路更新，避免 `task` 或 busy 类事件刷屏。
+- [x] 自动化回归：新增 `test_run_turn_finishes_on_assistant_message_finish_without_idle_status`，覆盖只有 `message.updated finish=stop`、没有 `session.status idle` 的完成路径；新增 `test_run_turn_does_not_finish_on_tool_calls_finish`，覆盖 `finish=tool-calls` 不提前闭合；新增前端行动轨迹测试覆盖 `task` 子任务命名和同一 running tool call 去重。
+- [x] 真实浏览器回归：`CODEASK_RUN_LIVE_FEATURE_SCOPED_CODE_E2E=1 CODEASK_REALDATA_BASE_URL=http://127.0.0.1:5173 CODEASK_REAL_DATA_DIR=/home/hzh/.codeask corepack pnpm --dir frontend exec playwright test -c playwright.realdata.config.ts e2e/agent-feature-scoped-code-live.spec.ts --project=chromium` -> `2 passed`；会话 `sess_7da0f98faaaf0ae5` 和 `sess_7e9f3dae1d8e30e2` 均完成源码调查，包含 `codeask_bind_session_features`、`codeask_prepare_worktree` 和 opencode 原生 `grep/read`。
+- [x] 基础浏览器回归：`CODEASK_RUN_LIVE_OPENCODE_E2E=1 CODEASK_RUN_LIVE_SESSION_LONG_UI_E2E=1 CODEASK_REALDATA_BASE_URL=http://127.0.0.1:5173 CODEASK_REAL_DATA_DIR=/home/hzh/.codeask corepack pnpm --dir frontend exec playwright test -c playwright.realdata.config.ts e2e/opencode-backend-live.spec.ts e2e/session-long-ui-live.spec.ts --project=chromium` -> `2 passed`；会话 `sess_a58fc781f20f965b` 和 `sess_cb92ea31d8d48779` 验证基础 opencode 会话、刷新后继续追问、长对话 UI、换行展示和上下文指标不回退。
 
 ---
 
@@ -295,9 +314,11 @@ v1.0.4 收口前必须满足：
 - [x] 报告正文不得保存 raw JSON 或 fenced JSON；模型返回固定 schema 时应恢复 `body_markdown`。
 - [x] 长报告输出被截断时，如果 `title_description` / `body_markdown` 已经出现，应做固定 schema 容错恢复。
 - [x] 报告生成输出预算已提升，避免普通 4096 输出上限过早截断长报告。
+- [x] 报告草稿生成不在等待 LLM 返回期间持有报告读取用的数据库 session；任务先读取 turns/traces/feature/existing report 并释放连接，再发起 LLM 请求，降低请求取消时 aiosqlite 连接未归还的概率。
+- [x] 报告生成、会话标题生成等 CodeAsk 直连 LLM 请求会在 `llm_request_debug` 中带 `request_purpose` 和 `session_id`，用于区分 `session_report_prepare`、`session_title_generation` 和普通会话主链路。
 - [x] 已修复真实会话 `sess_512f3e10aabd6dee` 生成的错误报告标题和正文。
 - [x] 测试：`tests/unit/test_session_report_generation.py` 增加截断 JSON-like 输出恢复用例。
-- [x] 验证：`uv run pytest tests/unit/test_session_report_generation.py tests/integration/test_session_report_generation.py -q` -> `18 passed`。
+- [x] 验证：`uv run pytest tests/unit/test_session_report_generation.py tests/integration/test_session_report_generation.py -q`。
 - [x] 验证：`uv run ruff check src/codeask/sessions/report_generation.py tests/unit/test_session_report_generation.py` -> `All checks passed!`。
 
 ### 2.12 Wiki Mermaid 流程图渲染回归

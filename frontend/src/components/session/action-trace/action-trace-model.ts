@@ -372,6 +372,8 @@ function toolCallDetail(data: Record<string, unknown>) {
   const args = recordValue(data.arguments_summary) ?? recordValue(data.arguments);
   const parts = [
     stringValue(data.reason),
+    stringValue(args.description),
+    stringValue(args.subagent_type),
     stringValue(args.query) ? `query=${stringValue(args.query)}` : null,
     stringValue(args.path),
     stringValue(args.ref) ? `ref=${stringValue(args.ref)}` : null,
@@ -525,6 +527,7 @@ function toolDisplayName(name: string) {
     search_code: "代码搜索",
     search_reports: "报告搜索",
     search_wiki: "Wiki 搜索",
+    task: "opencode 子任务",
   };
   return labels[name] ?? name;
 }

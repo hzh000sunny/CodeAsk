@@ -2,7 +2,7 @@ import type { ActionTraceEvent, EvidenceRef } from "./action-trace-model";
 
 const SESSION_PATH_MARKER = "/agent_sessions/";
 const SESSION_ABSOLUTE_PATH_PATTERN =
-  /(?:[A-Za-z]:)?\/[^\s"'`<>|)]*\/agent_sessions\/[^\s"'`<>|)]+\/sess_[A-Za-z0-9_-]+(?:\/[^\s"'`<>|)]*)?/g;
+  /(?<![A-Za-z0-9_.-])(?:[A-Za-z]:)?\/?[^\s"'`<>|)]*\/agent_sessions\/[^\s"'`<>|)]+\/(?:sessions\/)?sess_[A-Za-z0-9_-]+(?:\/[^\s"'`<>|)]*)?/g;
 const WINDOWS_ABSOLUTE_PATH_PATTERN =
   /\b[A-Za-z]:\\[^\s"'`<>|)]+/g;
 const POSIX_ABSOLUTE_PATH_PATTERN =
@@ -64,6 +64,10 @@ function sessionRelativePath(value: string) {
   }
   const afterMarker = value.slice(markerIndex + SESSION_PATH_MARKER.length);
   const parts = afterMarker.split("/");
-  const relativeParts = parts.slice(2).filter(Boolean);
+  const sessionPartIndex = parts.findIndex((part) => part.startsWith("sess_"));
+  if (sessionPartIndex === -1) {
+    return HIDDEN_ABSOLUTE_PATH;
+  }
+  const relativeParts = parts.slice(sessionPartIndex + 1).filter(Boolean);
   return relativeParts.length > 0 ? relativeParts.join("/") : ".";
 }

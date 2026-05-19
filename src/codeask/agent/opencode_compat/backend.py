@@ -493,6 +493,12 @@ class OpenCodeCompat:
                 visible_text_by_message.pop(message_id, None)
                 think_filters.pop(message_id, None)
                 reasoning_leak_part_ids.discard(f"content_think_tag:{message_id}")
+                if _is_terminal_assistant_finish(_finish_reason):
+                    yield ChatRuntimeEvent(
+                        type="done",
+                        data={"backend": "opencode", "finish_reason": _finish_reason},
+                    )
+                    break
                 continue
 
             event = map_global_event(
@@ -1180,6 +1186,10 @@ def _opencode_message_finish(
     if not isinstance(message_id, str) or not isinstance(finish, str):
         return None
     return message_id, finish
+
+
+def _is_terminal_assistant_finish(finish_reason: str) -> bool:
+    return finish_reason not in {"tool-calls", "tool_calls"}
 
 
 def _opencode_usage_runtime_state(

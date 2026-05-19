@@ -335,6 +335,48 @@ async def _wait_prepare_status(
     raise AssertionError("report prepare task did not finish")
 
 
+class _SessionFactoryTracker:
+    def __init__(self, original) -> None:  # type: ignore[no-untyped-def]
+        self._original = original
+        self.open_count = 0
+
+    def __call__(self):  # type: ignore[no-untyped-def]
+        return _TrackedSessionContext(self)
+
+
+class _TrackedSessionContext:
+    def __init__(self, tracker: _SessionFactoryTracker) -> None:
+        self._tracker = tracker
+        self._session = tracker._original()
+
+    async def __aenter__(self):  # type: ignore[no-untyped-def]
+        value = await self._session.__aenter__()
+        self._tracker.open_count += 1
+        return value
+
+    async def __aexit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
+        try:
+            return await self._session.__aexit__(exc_type, exc, tb)
+        finally:
+            self._tracker.open_count -= 1
+
+
+class _OpenSessionRecordingLLMClient(MockLLMClient):
+    def __init__(
+        self,
+        scripts: list[list[LLMEvent]],
+        tracker: _SessionFactoryTracker,
+    ) -> None:
+        super().__init__(scripts)
+        self._tracker = tracker
+        self.open_counts_during_stream: list[int] = []
+
+    async def stream(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        self.open_counts_during_stream.append(self._tracker.open_count)
+        async for event in super().stream(*args, **kwargs):
+            yield event
+
+
 @pytest.mark.asyncio
 async def test_prepare_session_report_calls_llm_with_report_rules(
     app: FastAPI,
@@ -376,6 +418,40 @@ async def test_prepare_session_report_calls_llm_with_report_rules(
     assert "报告不是聊天记录副本" in prompt_text
     assert "已确认事实" in prompt_text
     assert "未确认项" in prompt_text
+    assert mock.calls[0]["metadata"]["request_purpose"] == "session_report_prepare"
+    assert mock.calls[0]["metadata"]["session_id"] == session_id
+
+
+@pytest.mark.asyncio
+async def test_prepare_session_report_releases_db_session_before_llm_stream(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    await _create_default_llm_config(client)
+    feature_id = await _create_feature(client)
+    session_id = await _create_session(client)
+    await _seed_turns(app, session_id)
+
+    tracker = _SessionFactoryTracker(app.state.session_factory)
+    app.state.session_factory = tracker
+    mock = _OpenSessionRecordingLLMClient([text_message(PAYMENT_REPORT_JSON)], tracker)
+    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+
+    started = await client.post(
+        f"/api/sessions/{session_id}/reports/prepare",
+        json={"feature_id": feature_id},
+        headers={"X-Subject-Id": "alice@dev-1"},
+    )
+
+    assert started.status_code == 200, started.text
+    payload = await _wait_prepare_status(
+        client,
+        session_id,
+        str(started.json()["request_id"]),
+    )
+    assert payload["status"] == "succeeded"
+    assert mock.open_counts_during_stream == [0]
+    assert mock.calls[0]["metadata"]["request_purpose"] == "session_report_prepare"
 
 
 @pytest.mark.asyncio

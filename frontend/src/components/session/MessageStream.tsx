@@ -106,10 +106,14 @@ export function MessageStream({
           key={message.id}
         >
           {message.content ? (
-            <MarkdownRenderer
-              content={message.content}
-              onCopyCode={onCopyCode}
-            />
+            message.role === "user" ? (
+              <p className="plain-message-content">{message.content}</p>
+            ) : (
+              <MarkdownRenderer
+                content={message.content}
+                onCopyCode={onCopyCode}
+              />
+            )
           ) : (
             <p className="streaming-placeholder">正在生成...</p>
           )}

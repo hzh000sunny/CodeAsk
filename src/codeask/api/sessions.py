@@ -635,64 +635,37 @@ async def _run_session_report_prepare_task(
         inferred_feature_ids = await _load_inferred_feature_ids(session, session_id=session_id)
         selected_feature = await _load_optional_feature(session, feature_id)
         traces = await _load_session_traces(session, session_id)
-        log.info(
-            "session_report_prepare_started",
-            session_id=session_id,
-            request_id=request_id,
+
+    log.info(
+        "session_report_prepare_started",
+        session_id=session_id,
+        request_id=request_id,
+        subject_id=subject_id,
+        feature_id=feature_id,
+        turn_count=len(turns),
+    )
+    try:
+        prepared = await prepare_session_report_draft(
+            app.state.llm_gateway,
             subject_id=subject_id,
-            feature_id=feature_id,
-            turn_count=len(turns),
+            session_id=session_id,
+            turns=list(turns),
+            tool_action_summary=traces,
+            selected_feature=selected_feature,
+            existing_report=existing_report,
+            today=date.today(),
         )
-        try:
-            prepared = await prepare_session_report_draft(
-                app.state.llm_gateway,
-                subject_id=subject_id,
-                session_id=session_id,
-                turns=list(turns),
-                tool_action_summary=traces,
-                selected_feature=selected_feature,
-                existing_report=existing_report,
-                today=date.today(),
-            )
-        except Exception as exc:
-            duration_ms = int((perf_counter() - started_at) * 1000)
-            log.exception(
-                "session_report_prepare_failed",
-                session_id=session_id,
-                request_id=request_id,
-                subject_id=subject_id,
-                feature_id=feature_id,
-                duration_ms=duration_ms,
-                error_type=type(exc).__name__,
-                error=str(exc),
-            )
-            _store_report_prepare_status_for_app(
-                app,
-                session_id,
-                request_id,
-                SessionReportPrepareStatus(
-                    request_id=request_id,
-                    status="failed",
-                    error=f"报告草稿生成失败：{type(exc).__name__}: {exc}",
-                ),
-            )
-            return
+    except Exception as exc:
         duration_ms = int((perf_counter() - started_at) * 1000)
-        log.info(
-            "session_report_prepare_succeeded",
+        log.exception(
+            "session_report_prepare_failed",
             session_id=session_id,
             request_id=request_id,
             subject_id=subject_id,
             feature_id=feature_id,
             duration_ms=duration_ms,
-            title=prepared.title,
-        )
-        draft = SessionReportPrepared(
-            existing_report_id=int(existing_report.id) if existing_report is not None else None,
-            feature_id=feature_id,
-            inferred_feature_ids=inferred_feature_ids,
-            title=prepared.title,
-            body_markdown=prepared.body_markdown,
+            error_type=type(exc).__name__,
+            error=str(exc),
         )
         _store_report_prepare_status_for_app(
             app,
@@ -700,10 +673,38 @@ async def _run_session_report_prepare_task(
             request_id,
             SessionReportPrepareStatus(
                 request_id=request_id,
-                status="succeeded",
-                draft=draft,
+                status="failed",
+                error=f"报告草稿生成失败：{type(exc).__name__}: {exc}",
             ),
         )
+        return
+    duration_ms = int((perf_counter() - started_at) * 1000)
+    log.info(
+        "session_report_prepare_succeeded",
+        session_id=session_id,
+        request_id=request_id,
+        subject_id=subject_id,
+        feature_id=feature_id,
+        duration_ms=duration_ms,
+        title=prepared.title,
+    )
+    draft = SessionReportPrepared(
+        existing_report_id=int(existing_report.id) if existing_report is not None else None,
+        feature_id=feature_id,
+        inferred_feature_ids=inferred_feature_ids,
+        title=prepared.title,
+        body_markdown=prepared.body_markdown,
+    )
+    _store_report_prepare_status_for_app(
+        app,
+        session_id,
+        request_id,
+        SessionReportPrepareStatus(
+            request_id=request_id,
+            status="succeeded",
+            draft=draft,
+        ),
+    )
 
 
 @router.post(

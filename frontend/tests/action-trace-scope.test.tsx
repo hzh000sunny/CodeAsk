@@ -7,6 +7,7 @@ import {
   actionTraceFromAgentEvent,
   type ActionTraceEvent as ActionTraceEventModel,
 } from "../src/components/session/action-trace/action-trace-model";
+import { redactTraceDisplayText } from "../src/components/session/action-trace/path-redaction";
 
 describe("action trace code scope display", () => {
   it("summarizes feature-scoped code tool results", () => {
@@ -139,6 +140,41 @@ describe("action trace code scope display", () => {
     expect(dialog).toHaveTextContent('{"query":');
   });
 
+  it("labels opencode task tool calls as subtask events", () => {
+    const event = actionTraceFromAgentEvent({
+      type: "tool_call",
+      data: {
+        tool_call_id: "call_task",
+        tool_name: "task",
+        arguments_summary: {
+          description: "Explore AnythingLLM Embedding",
+          subagent_type: "explore",
+        },
+      },
+    });
+
+    expect(event).not.toBeNull();
+    expect(event?.title).toBe("准备使用 opencode 子任务");
+    expect(event?.detail).toContain("Explore AnythingLLM Embedding");
+    expect(event?.detail).toContain("explore");
+  });
+
+  it("labels opencode task tool results as subtask completion", () => {
+    const event = actionTraceFromAgentEvent({
+      type: "tool_result",
+      data: {
+        tool_call_id: "call_task",
+        tool_name: "task",
+        ok: true,
+        summary: "Explore AnythingLLM Embedding",
+      },
+    });
+
+    expect(event).not.toBeNull();
+    expect(event?.title).toBe("opencode 子任务完成");
+    expect(event?.detail).toContain("Explore AnythingLLM Embedding");
+  });
+
   it("shows agent event timing diagnostics in the action trace popover", () => {
     const event: ActionTraceEventModel = {
       id: "runtime_state_1",
@@ -211,7 +247,7 @@ describe("action trace code scope display", () => {
 
   it("redacts host absolute paths in action trace cards and popovers", async () => {
     const absoluteWorkspacePath =
-      "/home/hzh/.codeask/agent_sessions/opencode/sess_secret/workspace/repos/claude-code/src/tools/read.ts";
+      "/home/hzh/.codeask/agent_sessions/opencode/sessions/sess_secret/workspace/repos/claude-code/src/tools/read.ts";
     const externalPath = "/home/hzh/.ssh/id_rsa";
     const event = actionTraceFromAgentEvent({
       type: "tool_call",
@@ -237,6 +273,7 @@ describe("action trace code scope display", () => {
       "workspace/repos/claude-code/src/tools/read.ts",
     );
     expect(card).not.toHaveTextContent("/home/hzh");
+    expect(card).not.toHaveTextContent("sess_secret");
     fireEvent.click(card);
 
     const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
@@ -245,6 +282,73 @@ describe("action trace code scope display", () => {
     );
     expect(dialog).toHaveTextContent("[外部绝对路径已隐藏]");
     expect(dialog).not.toHaveTextContent("/home/hzh");
+    expect(dialog).not.toHaveTextContent("sess_secret");
+  });
+
+  it("redacts read tool result paths under the current opencode session directory", () => {
+    const absoluteWorkspacePath =
+      "/home/hzh/.codeask/agent_sessions/opencode/sessions/sess_secret/workspace/repos/claude-code/src/tools/read.ts";
+    const event = actionTraceFromAgentEvent({
+      type: "tool_result",
+      data: {
+        tool_call_id: "call_read_file",
+        tool_name: "read",
+        ok: true,
+        summary: `Read ${absoluteWorkspacePath}`,
+        message: `Opened ${absoluteWorkspacePath}`,
+        path: absoluteWorkspacePath,
+      },
+    });
+
+    expect(event).not.toBeNull();
+    render(<ActionTraceEvent event={event as ActionTraceEventModel} />);
+
+    const card = screen.getByRole("button", { name: "read完成 详情" });
+    expect(card).toHaveTextContent("workspace/repos/claude-code/src/tools/read.ts");
+    expect(card).not.toHaveTextContent("/home/hzh");
+    expect(card).not.toHaveTextContent("sess_secret");
+    fireEvent.click(card);
+
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
+    expect(dialog).toHaveTextContent("workspace/repos/claude-code/src/tools/read.ts");
+    expect(dialog).not.toHaveTextContent("/home/hzh");
+    expect(dialog).not.toHaveTextContent("sess_secret");
+  });
+
+  it("redacts opencode tool result paths even when the leading slash is missing", () => {
+    const slashlessWorkspacePath =
+      "home/hzh/.codeask/agent_sessions/opencode/sessions/sess_secret/workspace/repos/claude-code/src/tools/read.ts";
+    const event = actionTraceFromAgentEvent({
+      type: "tool_result",
+      data: {
+        tool_call_id: "call_read_file",
+        tool_name: "read",
+        ok: true,
+        summary: slashlessWorkspacePath,
+        message: `Opened ${slashlessWorkspacePath}`,
+      },
+    });
+
+    expect(event).not.toBeNull();
+    render(<ActionTraceEvent event={event as ActionTraceEventModel} />);
+
+    const card = screen.getByRole("button", { name: "read完成 详情" });
+    expect(card).toHaveTextContent("workspace/repos/claude-code/src/tools/read.ts");
+    expect(card).not.toHaveTextContent("homeworkspace");
+    expect(card).not.toHaveTextContent("home/hzh");
+    expect(card).not.toHaveTextContent("sess_secret");
+  });
+
+  it("redacts slashless opencode paths to the exact workspace relative path", () => {
+    const slashlessWorkspacePath =
+      "home/hzh/.codeask/agent_sessions/opencode/sessions/sess_secret/workspace/repos/claude-code/src/tools/read.ts";
+
+    expect(redactTraceDisplayText(slashlessWorkspacePath)).toBe(
+      "workspace/repos/claude-code/src/tools/read.ts",
+    );
+    expect(redactTraceDisplayText(`Opened ${slashlessWorkspacePath}`)).toBe(
+      "Opened workspace/repos/claude-code/src/tools/read.ts",
+    );
   });
 
   it("copies long detail values from the action trace popover", async () => {

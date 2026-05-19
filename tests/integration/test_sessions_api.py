@@ -353,6 +353,8 @@ async def test_explicit_session_title_generation_returns_updated_session(
     assert len(mock.calls) == 1
     assert mock.calls[0]["tools"] == []
     assert mock.calls[0]["max_tokens"] == 2048
+    assert mock.calls[0]["metadata"]["request_purpose"] == "session_title_generation"
+    assert mock.calls[0]["metadata"]["session_id"] == session_id
     turns = await client.get(
         f"/api/sessions/{session_id}/turns",
         headers={"X-Subject-Id": "alice@dev-1"},

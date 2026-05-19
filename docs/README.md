@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-[**v1.0.4**](./v1.0.4/) — OpenCode Agent Backend 对接（Active；引入 opencode 作为新会话默认 Agent 执行引擎，CodeAsk 负责知识、权限、审计、workspace 和 MCP 适配）
+[**v1.0.4**](./v1.0.4/) — OpenCode Agent Backend 对接（Release Ready；引入 opencode 作为新会话默认 Agent 执行引擎，CodeAsk 负责知识、权限、审计、workspace 和 MCP 适配，自动化、真实浏览器和人工验收已完成）
 
 进入版本目录后请先读该目录下的 `README.md`。
 
@@ -50,7 +50,7 @@ docs/
 ├── v1.0.1/            ← LLM Wiki 专项（Completed）
 ├── v1.0.2/            ← LLM Agent 会话运行时优化（Completed）
 ├── v1.0.3/            ← 鉴权与访问控制（Completed）
-├── v1.0.4/            ← 当前版本：OpenCode Agent Backend 对接（Active）
+├── v1.0.4/            ← 当前版本：OpenCode Agent Backend 对接（Release Ready）
 ├── v1.1/              ← 未来 minor 演进（尚未创建）
 └── v2.0/              ← 未来 major 演进（尚未创建）
 ```

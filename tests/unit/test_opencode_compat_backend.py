@@ -773,6 +773,190 @@ async def test_run_turn_streams_text_delta_before_later_status_events(tmp_path: 
 
 
 @pytest.mark.asyncio
+async def test_run_turn_finishes_on_assistant_message_finish_without_idle_status(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    workspace = workspace_manager.prepare_workspace("sess_1")
+    store.items.append(
+        ExternalAgentSessionCreate(
+            session_id="sess_1",
+            external_session_key="ses_open",
+            session_dir=str(workspace.session_dir),
+            workspace_dir=str(workspace.workspace_dir),
+            server_url="http://127.0.0.1:4100",
+            port=4100,
+            pid=123,
+            config_hash="hash",
+            config_json={},
+        )
+    )
+    http_client.events = [
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        "id": "text_1",
+                        "messageID": "msg_1",
+                        "sessionID": "ses_open",
+                        "type": "text",
+                        "text": "final answer",
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "info": {
+                        "id": "msg_1",
+                        "role": "assistant",
+                        "finish": "stop",
+                    },
+                },
+            },
+        },
+    ]
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    events = [
+        event
+        async for event in compat.run_turn(
+            session_id="sess_1",
+            user_message="hi",
+            llm_config=_llm_config(),
+        )
+    ]
+
+    user_visible_events = _without_runtime_observation_events(events)
+    assert [event.type for event in user_visible_events] == ["text_delta", "done"]
+    assert user_visible_events[0].data == {"delta": "final answer"}
+    assert user_visible_events[-1].data == {"backend": "opencode", "finish_reason": "stop"}
+
+
+@pytest.mark.asyncio
+async def test_run_turn_does_not_finish_on_tool_calls_finish(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    workspace = workspace_manager.prepare_workspace("sess_1")
+    store.items.append(
+        ExternalAgentSessionCreate(
+            session_id="sess_1",
+            external_session_key="ses_open",
+            session_dir=str(workspace.session_dir),
+            workspace_dir=str(workspace.workspace_dir),
+            server_url="http://127.0.0.1:4100",
+            port=4100,
+            pid=123,
+            config_hash="hash",
+            config_json={},
+        )
+    )
+    http_client.events = [
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "info": {
+                        "id": "msg_tools",
+                        "role": "assistant",
+                        "finish": "tool-calls",
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        "id": "text_1",
+                        "messageID": "msg_final",
+                        "sessionID": "ses_open",
+                        "type": "text",
+                        "text": "final answer after tools",
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "info": {
+                        "id": "msg_final",
+                        "role": "assistant",
+                        "finish": "stop",
+                    },
+                },
+            },
+        },
+    ]
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    events = [
+        event
+        async for event in compat.run_turn(
+            session_id="sess_1",
+            user_message="hi",
+            llm_config=_llm_config(),
+        )
+    ]
+
+    user_visible_events = _without_runtime_observation_events(events)
+    assert [event.type for event in user_visible_events] == ["text_delta", "done"]
+    assert user_visible_events[0].data == {"delta": "final answer after tools"}
+    assert user_visible_events[-1].data == {"backend": "opencode", "finish_reason": "stop"}
+
+
+@pytest.mark.asyncio
 async def test_run_turn_coalesces_repeated_reasoning_observed_events(tmp_path: Path) -> None:
     wiki_root = tmp_path / "wiki"
     wiki_root.mkdir()

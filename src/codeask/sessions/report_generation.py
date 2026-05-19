@@ -257,6 +257,8 @@ async def generate_single_text(
     *,
     subject_id: str,
     session_id: str | None = None,
+    request_purpose: str = "single_text",
+    request_id: str | None = None,
     prompt: str,
     max_tokens: int = 4096,
     temperature: float = 0.2,
@@ -278,6 +280,8 @@ async def generate_single_text(
                 for key, value in {
                     "subject_id": subject_id,
                     "session_id": session_id,
+                    "request_purpose": request_purpose,
+                    "request_id": request_id,
                 }.items()
                 if value
             },
@@ -315,6 +319,7 @@ async def prepare_session_report_draft(
         gateway,
         subject_id=subject_id,
         session_id=session_id,
+        request_purpose="session_report_prepare",
         prompt=prompt,
         max_tokens=12000,
     )

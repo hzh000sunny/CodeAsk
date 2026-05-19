@@ -1436,6 +1436,14 @@ textarea:focus-visible {
   background: #fff7f6;
 }
 
+.plain-message-content {
+  margin: 5px 0 0;
+  color: #1f2937;
+  line-height: 1.62;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .streaming-placeholder {
   margin: 5px 0 0;
   color: #1f2937;

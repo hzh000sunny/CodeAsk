@@ -165,7 +165,7 @@ CodeAsk 暂时不适合作为：
 - 问题报告生成已从“聊天记录整理”调整为 AI 按报告规则生成正式 Markdown 草稿，并具备长报告 JSON-like 输出截断恢复能力。
 - v1.0.3 已补齐统一登录、用户自动注册、admin、特性管理员、全局附件开关、审计日志和真实浏览器 E2E。
 - 未登录访客仍可直接使用会话、查看特性和 Wiki；写操作由服务端权限守卫强制校验。
-- v1.0.4 已新增独立 `src/codeask/agent/opencode_compat/` 模块，默认会话接入 shared `opencode serve`、会话级 workspace、Wiki 零复制挂载、remote MCP、opencode 事件流、Agent 适配方式选择/手动测试和真实浏览器 live E2E 通道。LLM 配置新增/编辑表单连接测试遵循表单语义：先测试当前草稿，保存时才把测试状态写入数据库；API 使用通用 `agent_runtime_*` 字段，历史 `opencode_provider_*` 仅作为兼容层。v1.0.4 已完成人工验收，Agent 事件返回会对宿主机绝对路径做后端出口脱敏。
+- v1.0.4 已新增独立 `src/codeask/agent/opencode_compat/` 模块，默认会话接入 shared `opencode serve`、会话级 workspace、Wiki 零复制挂载、remote MCP、opencode 事件流、Agent 适配方式选择/手动测试和真实浏览器 live E2E 通道。LLM 配置新增/编辑表单连接测试遵循表单语义：先测试当前草稿，保存时才把测试状态写入数据库；API 使用通用 `agent_runtime_*` 字段，历史 `opencode_provider_*` 仅作为兼容层。v1.0.4 已完成人工验收，Agent 事件返回会对宿主机绝对路径做后端出口脱敏，并已覆盖长对话、刷新继续追问、特性源码调查和 opencode 完成事件闭合回归。
 
 仍在规划或后续专项中的能力：
 

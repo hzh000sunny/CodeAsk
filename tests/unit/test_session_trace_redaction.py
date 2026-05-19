@@ -40,12 +40,49 @@ def test_hides_other_session_paths() -> None:
 
 def test_redacts_agent_session_paths_under_sessions_parent() -> None:
     payload = {
+        "tool_name": "read",
+        "arguments_summary": {
+            "filePath": (
+                "/home/hzh/.codeask/agent_sessions/opencode/sessions/"
+                "sess_current/workspace/repos/app/src/main.ts"
+            )
+        },
         "summary": (
+            "Read /home/hzh/.codeask/agent_sessions/opencode/sessions/"
+            "sess_current/workspace/repos/app/src/main.ts"
+        ),
+        "message": (
+            "Opened /home/hzh/.codeask/agent_sessions/opencode/sessions/"
+            "sess_current/workspace/repos/app/src/main.ts"
+        ),
+        "path": (
             "/home/hzh/.codeask/agent_sessions/opencode/sessions/"
             "sess_current/workspace/repos/app/src/main.ts"
-        )
+        ),
+    }
+
+    redacted = redact_trace_payload_for_frontend(payload, session_id="sess_current")
+
+    assert redacted["arguments_summary"]["filePath"] == "workspace/repos/app/src/main.ts"
+    assert redacted["summary"] == "Read workspace/repos/app/src/main.ts"
+    assert redacted["message"] == "Opened workspace/repos/app/src/main.ts"
+    assert redacted["path"] == "workspace/repos/app/src/main.ts"
+
+
+def test_redacts_opencode_result_paths_without_leading_slash() -> None:
+    payload = {
+        "tool_name": "read",
+        "summary": (
+            "home/hzh/.codeask/agent_sessions/opencode/sessions/"
+            "sess_current/workspace/repos/app/src/main.ts"
+        ),
+        "message": (
+            "Opened home/hzh/.codeask/agent_sessions/opencode/sessions/"
+            "sess_current/workspace/repos/app/src/main.ts"
+        ),
     }
 
     redacted = redact_trace_payload_for_frontend(payload, session_id="sess_current")
 
     assert redacted["summary"] == "workspace/repos/app/src/main.ts"
+    assert redacted["message"] == "Opened workspace/repos/app/src/main.ts"

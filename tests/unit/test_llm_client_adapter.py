@@ -123,6 +123,46 @@ async def test_stream_delta_shape_logging_is_debug_only(
 
 
 @pytest.mark.asyncio
+async def test_llm_request_debug_logs_request_purpose_and_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_acompletion(**kwargs):  # type: ignore[no-untyped-def]
+        async def gen() -> AsyncIterator[Any]:
+            yield _chunk(content="ok")
+            yield _chunk(finish_reason="stop")
+
+        return gen()
+
+    import codeask.llm.client as mod
+
+    logger = _CapturingLogger()
+    monkeypatch.setattr(mod, "acompletion", fake_acompletion)
+    monkeypatch.setattr(mod, "logger", logger)
+
+    client = OpenAIClient(api_key="x", model_name="gpt-test")
+    events = [
+        event
+        async for event in client.stream(
+            messages=[LLMMessage(role="user", content=[TextBlock(type="text", text="hi")])],
+            tools=[],
+            max_tokens=100,
+            temperature=0.0,
+            metadata={
+                "request_purpose": "session_title_generation",
+                "session_id": "sess_observe",
+            },
+        )
+    ]
+
+    assert events[-1].type == "message_stop"
+    debug_event = next(
+        payload for event, payload in logger.info_events if event == "llm_request_debug"
+    )
+    assert debug_event["request_purpose"] == "session_title_generation"
+    assert debug_event["session_id"] == "sess_observe"
+
+
+@pytest.mark.asyncio
 async def test_openai_compatible_stream_emits_reasoning_delta_without_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

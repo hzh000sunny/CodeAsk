@@ -213,6 +213,13 @@ def _delta_to_dict(delta: object) -> dict[str, object]:
     return {}
 
 
+def _metadata_string(metadata: dict[str, Any] | None, key: str) -> str | None:
+    if metadata is None:
+        return None
+    value = metadata.get(key)
+    return value if isinstance(value, str) and value else None
+
+
 def _delta_debug_payload(delta: object) -> dict[str, object]:
     raw = _delta_to_dict(delta)
     payload: dict[str, object] = {"fields": sorted(raw)}
@@ -311,6 +318,9 @@ class _BaseClient:
             reasoning_request_profile=self._reasoning_request_profile,
             extra_body_present="extra_body" in kwargs,
             thinking_present="thinking" in kwargs,
+            request_purpose=_metadata_string(metadata, "request_purpose"),
+            session_id=_metadata_string(metadata, "session_id"),
+            request_id=_metadata_string(metadata, "request_id"),
         )
 
         try:

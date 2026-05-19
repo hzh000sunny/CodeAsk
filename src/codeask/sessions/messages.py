@@ -49,7 +49,7 @@ def _frontend_event(
     turn_id: str,
 ) -> ChatRuntimeEvent:
     frontend_data: dict[str, object]
-    if event.type in {"text_delta", "done"}:
+    if event.type == "text_delta":
         frontend_data = event_data
     else:
         frontend_data = redact_trace_payload_for_frontend(

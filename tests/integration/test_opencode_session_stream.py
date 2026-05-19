@@ -221,6 +221,90 @@ async def test_post_message_stream_uses_opencode_backend_by_setting(
 
 
 @pytest.mark.asyncio
+async def test_opencode_read_tool_paths_are_redacted_in_sse_and_traces(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    app.state.settings.agent_backend = "opencode"
+    fake = FakeOpenCodeCompat(calls=[])
+    app.state.opencode_compat = fake
+
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    config = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "opencode-read-redaction",
+            "protocol": "openai",
+            "base_url": "http://llm.test/v1",
+            "api_key": "sk-secret",
+            "model_name": "gpt-test",
+            "is_default": True,
+        },
+    )
+    assert config.status_code == 201, config.text
+    created = await client.post("/api/sessions", json={"title": "OpenCode read redaction"})
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+    absolute_path = (
+        f"/home/hzh/.codeask/agent_sessions/opencode/sessions/{session_id}/"
+        "workspace/repos/app/src/main.ts"
+    )
+    slashless_path = absolute_path.lstrip("/")
+    fake.scripted_run_events_by_model = {
+        "gpt-test": [
+            ChatRuntimeEvent(
+                type="tool_call",
+                data={
+                    "tool_call_id": "call_read",
+                    "tool_name": "read",
+                    "arguments_summary": {"filePath": absolute_path},
+                },
+            ),
+            ChatRuntimeEvent(
+                type="tool_result",
+                data={
+                    "tool_call_id": "call_read",
+                    "tool_name": "read",
+                    "ok": True,
+                    "summary": slashless_path,
+                    "message": f"Opened {slashless_path}",
+                    "path": absolute_path,
+                },
+            ),
+            ChatRuntimeEvent(type="text_delta", data={"delta": "done"}),
+            ChatRuntimeEvent(
+                type="done",
+                data={
+                    "backend": "opencode",
+                    "log_path": absolute_path,
+                },
+            ),
+        ]
+    }
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "read file", "client_turn_id": "turn_read_redact"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert "/home/hzh" not in response.text
+    assert session_id not in response.text
+    assert "workspace/repos/app/src/main.ts" in response.text
+
+    traces = await client.get(f"/api/sessions/{session_id}/traces")
+    assert traces.status_code == 200, traces.text
+    trace_payload_text = json.dumps(
+        [trace["payload"] for trace in traces.json()],
+        ensure_ascii=False,
+    )
+    assert "/home/hzh" not in trace_payload_text
+    assert session_id not in trace_payload_text
+    assert "workspace/repos/app/src/main.ts" in trace_payload_text
+
+
+@pytest.mark.asyncio
 async def test_post_message_stream_passes_configured_context_window_to_opencode(
     app: FastAPI,
     client: AsyncClient,

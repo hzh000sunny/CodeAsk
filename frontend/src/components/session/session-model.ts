@@ -195,6 +195,34 @@ export function runtimeStateFromEvent(
   };
 }
 
+export function mergeRuntimeState(
+  current: RuntimeSessionState | null,
+  incoming: RuntimeSessionState | null,
+): RuntimeSessionState | null {
+  if (!incoming) {
+    return current;
+  }
+  if (!current) {
+    return incoming;
+  }
+  if (
+    incoming.contextMetricSource === "initial_estimate" &&
+    current.contextUsed > incoming.contextUsed &&
+    current.contextWindow === incoming.contextWindow
+  ) {
+    return {
+      ...current,
+      configId: incoming.configId ?? current.configId,
+      configName: incoming.configName ?? current.configName,
+      modelName: incoming.modelName === "unknown" ? current.modelName : incoming.modelName,
+      protocol: incoming.protocol ?? current.protocol,
+      scope: incoming.scope ?? current.scope,
+      isGlobalPool: incoming.isGlobalPool || current.isGlobalPool,
+    };
+  }
+  return incoming;
+}
+
 export function runtimeInsightFromEvent(
   event: AgentEvent,
 ): RuntimeInsight | null {
@@ -342,6 +370,18 @@ export function appendRuntimeInsight(
       (item) => isOpencodeRunningInsight(item) && item.turnId === targetTurnId,
     );
     return hasRunningForTurn ? current : [...current, insight];
+  }
+  if (insight.kind === "tool_call" && insight.status === "running") {
+    const hasSameRunningToolCall = current.some(
+      (item) =>
+        item.kind === "tool_call" &&
+        item.status === "running" &&
+        item.turnId === targetTurnId &&
+        item.id === insight.id,
+    );
+    if (hasSameRunningToolCall) {
+      return current;
+    }
   }
 
   return [
