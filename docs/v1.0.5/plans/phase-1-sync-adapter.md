@@ -30,7 +30,7 @@ Phase 1 = 把 OpenViking 接入 CodeAsk 后端，但**不接入 opencode 主链�
 - Wiki / 报告 / 仓库变更 hook 写入同步队列
 - 同步引擎执行 add-resource / 索引追踪 / 失败重试
 - admin 诊断接口 `GET /api/admin/openviking/status`
-- admin 设置页 OpenViking 状态卡片
+- admin 设置页 OpenViking 仪表盘（详见 §7）
 - 后端单元 / 集成测试
 
 不包含：
@@ -55,22 +55,33 @@ src/codeask/rag/openviking/
 ├── config.py
 ├── process.py
 ├── client.py
-├── sync.py
+├── sync.py            # 含 progress sweep + EMA throughput + ETA
 ├── uri.py
-├── models.py
+├── models.py          # 4 张表的 SQLAlchemy 模型
+├── dashboard.py       # emit_event；事件流写入
 ├── health.py
+├── tuning.py          # 主机识别 / 推荐预设 / Ollama snippet / 实测探测
 └── README.md
 ```
 
-每个文件的职责、关键接口、最低测试见 SDD §1.5（待 Phase 0 后回填）。
+`src/codeask/api/` 新增 3 个 router 模块：`openviking_status.py` / `openviking_admin.py` / `openviking_tuning.py`（详见 §7）。
+
+每个文件的职责、关键接口、最低测试在 Phase 1 实现阶段按 SDD §1.1 / §3 / §5 / §6 / §13 章节展开；本计划 §7-§9 列出 API 表面、事件流入口与实施顺序。
 
 ---
 
 ## 3. 数据库
 
-新增表 `openviking_sync_jobs`（schema 见 SDD §3.1）。
+v1.0.5 新增 4 张表，全部在一个 alembic migration 文件里建：
 
-- 新建 alembic migration：`alembic/versions/XXXX_openviking_sync_jobs.py`
+| 表 | schema 见 | 用途 |
+|---|---|---|
+| `openviking_sync_jobs` | SDD §3.1 | 同步任务状态机 + progress 字段 |
+| `openviking_embedding_settings` | SDD §3.3 | 当前激活 embedding 配置 + 切换历史 |
+| `openviking_tuning_settings` | SDD §3.4 | append-only 调优记录 |
+| `openviking_dashboard_events` | SDD §13.1 | append-only 事件流 |
+
+- 新建 alembic migration：`alembic/versions/XXXX_openviking_v1_0_5.py`
 - 不修改任何现有表
 - 升级路径在临时数据库与真实数据备份上各跑一次（写入 acceptance-checklist）
 
@@ -336,7 +347,8 @@ async def apply_tuning(changes: list[TuningChange], admin_id: str):
     if any(c.scope == "codeask" for c in changes):
         await scheduler.reload_jobs()         # 秒级
 
-    return accepted_response(estimated_downtime=30 if "openviking" in scopes else 5)
+    scope_set = {c.scope for c in changes}
+    return accepted_response(estimated_downtime=30 if "openviking" in scope_set else 5)
 ```
 
 不做异步 baseline snapshot；admin 通过仪表盘 metrics 卡片自然观察改后状态。
@@ -469,7 +481,7 @@ async def emit_event(session, *, event_type, source_type=None, source_id=None,
 
 ## 9. 实施顺序（建议工单切分）
 
-1. settings + alembic migration（`openviking_sync_jobs` / `openviking_embedding_settings` / `openviking_dashboard_events`）+ 空 module（编译通过）
+1. settings + alembic migration（4 张表：`openviking_sync_jobs` / `openviking_embedding_settings` / `openviking_tuning_settings` / `openviking_dashboard_events`）+ 空 module（编译通过）
 2. process + health（启停 + 探测 + Ollama `/api/tags` 模型列表，纯单元）
 3. client（HTTP + MCP 调用真实 server，集成）
 4. uri + sync（无 hook 触发，手动 enqueue 跑一次）
@@ -477,7 +489,7 @@ async def emit_event(session, *, event_type, source_type=None, source_id=None,
 6. hooks（接入 wiki / report / repo 变更点，含 emit_event）
 7. APScheduler 任务（keepalive / sync / **progress_sweep** / scheduled_refresh / event_retention / metrics_5min_rollup）
 8. admin status API + sync_jobs API + events API + 手动操作 API
-9. **tuning API** + before/after baseline snapshot 后台任务（含主机识别 / 预设算法 / Ollama 探测）
+9. **tuning API** + 主机识别 / 推荐预设算法 / Ollama 实测探测（不做 before/after snapshot）
 10. 前端：OpenVikingHealthCard + OpenVikingSyncJobsCard + OpenVikingEventStream + OpenVikingTuningCard（最小可用版本）
 11. 前端：OpenVikingMetricsCard（可后置到 Phase 2）
 12. 升级路径在真实数据备份上的回归

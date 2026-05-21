@@ -16,7 +16,14 @@ Phase 0 是 v1.0.5 进入实现前的真实环境可行性 spike。**只验证�
 - 三类真实样本（一个 Feature Wiki / 一个 verified 报告 / 一个真实代码仓）能通过 OpenViking 完成 `find/search/read/grep/glob`
 - opencode 能在同一会话里同时挂 CodeAsk MCP 与 OpenViking MCP
 - 数据目录、配置生成、健康检查路径在本机验证可行
-- 召回质量在锁定 embedding 模型后达到记录基线（不要求最优，但要可重复）
+- 关键故障模式识别并记录修复方向（SOCKS proxy / ov.conf schema 漂移 / circuit breaker / CPU 并发雪崩）
+
+下列**推到后续阶段**（与 §10.5 风险及 §10.6 复核一致）：
+
+- 完整三 fixture 全量索引：CPU 性能瓶颈，Phase 1 后台异步同步引擎处理
+- 真实代码仓导入：用户决策 Phase 0 不导
+- 召回质量基线（5 query × N 模型 relevance@5）：依赖完整 fixture 索引，推到 Phase 2 live E2E
+- opencode + 双 MCP 协同：推到 Phase 2
 
 Phase 0 不做：
 
@@ -75,69 +82,71 @@ export OPENVIKING_CONFIG_FILE=$DATA/openviking/ov.conf
 ### 3.2 安装 Ollama 并拉模型
 
 ```bash
-# 安装
+# 安装（install.sh 自带 systemd unit，会自动启动 ollama serve）
 curl -fsSL https://ollama.com/install.sh | sh
 
-# 启动（保留前台 / 或 systemctl --user enable --now ollama 根据环境）
-ollama serve > $DATA/ollama.log 2>&1 &
-OLLAMA_PID=$!
-
-# 健康
+# 验证 systemd 已启动
+systemctl is-active ollama
+curl -sf http://127.0.0.1:11434/api/version
 curl -sf http://127.0.0.1:11434/api/tags | head -c 200
 
-# 三个候选模型；每个模型实测后选最终一个
+# v1.0.5 默认模型（中文优先；spike 实测选定）
 ollama pull bge-m3
-ollama pull nomic-embed-text
-ollama pull mxbai-embed-large
 
 # 列模型确认
-curl -sf http://127.0.0.1:11434/api/tags
+ollama list
 ```
 
-记录每个模型的 size、dim、pull 耗时。
+`nomic-embed-text` / `mxbai-embed-large` 等候选模型对比留给 Phase 2 live E2E 阶段做（spike 期内由 CPU 推理速度限制，跑 N 模型对比不现实）。详细安装实测见 [`../specs/ollama-installation.md`](../specs/ollama-installation.md)。
 
 ### 3.3 OpenViking server 启动（不污染 CodeAsk venv）
 
 ```bash
-# 临时方式：uvx 拉 PyPI 包
+# 临时方式：uvx 拉 PyPI 包（spike 不污染 CodeAsk venv）
 uvx --from openviking==0.3.17 openviking-server --version
-uvx --from openviking==0.3.17 openviking --help | head -40
 
-# 生成基础配置（手写或 doctor 引导）
+# 生成 ov.conf（spec/openviking-server-bootstrap.md §4 实测最小可工作模板）
 cat > $OPENVIKING_CONFIG_FILE <<'EOF'
 {
-  "storage": {
-    "workspace": "/tmp/codeask-v105-spike/openviking/workspace",
-    "vectordb": {"name": "context", "backend": "local"},
-    "agfs": {"backend": "local"}
-  },
-  "server": {
-    "host": "127.0.0.1",
-    "port": 1933,
-    "auth_mode": "trusted",
-    "cors_origins": ["http://127.0.0.1:5173"],
-    "temp_upload": {"default_mode": "local"}
-  },
-  "embedder": {
-    "provider": "ollama",
-    "base_url": "http://127.0.0.1:11434",
-    "model": "bge-m3"
-  },
-  "vlm": {"enabled": false}
+    "server": {
+        "host": "127.0.0.1",
+        "port": 1933,
+        "root_api_key": null,
+        "cors_origins": ["http://127.0.0.1:5173", "http://127.0.0.1:8000"]
+    },
+    "storage": {
+        "workspace": "/tmp/codeask-v105-spike/openviking/workspace",
+        "vectordb": {"name": "context", "backend": "local"},
+        "agfs": {"backend": "local"}
+    },
+    "embedding": {
+        "dense": {
+            "provider": "ollama",
+            "model": "bge-m3",
+            "api_base": "http://127.0.0.1:11434/v1",
+            "dimension": 1024,
+            "input": "text"
+        },
+        "text_source": "content_only",
+        "max_input_tokens": 4096,
+        "max_concurrent": 1
+    },
+    "auto_generate_l0": false,
+    "auto_generate_l1": false,
+    "default_search_mode": "thinking",
+    "default_search_limit": 3,
+    "log": {"level": "INFO", "output": "stdout"},
+    "encryption": {"enabled": false}
 }
 EOF
 
-# 启动
-uvx --from openviking==0.3.17 openviking-server \
+# 启动（注意 --with socksio：本机有 SOCKS proxy 时必须；详见 spec §6.1）
+nohup uvx --from openviking==0.3.17 --with socksio openviking-server \
   --config $OPENVIKING_CONFIG_FILE \
-  --host 127.0.0.1 --port 1933 \
-  > $DATA/openviking/server.log 2>&1 &
-OV_PID=$!
+  > $DATA/openviking/logs/server.log 2>&1 &
 
 # 健康
-curl -sf http://127.0.0.1:1933/health
-uvx --from openviking==0.3.17 openviking health
-uvx --from openviking==0.3.17 openviking status | head -40
+curl -sf --noproxy '*' http://127.0.0.1:1933/health
 ```
 
 如果 doctor 命令在锁定版本可用，再追加：
@@ -184,55 +193,26 @@ $DATA/openviking/_samples/features/opencode/problem-reports/verified/2026-05-20-
 
 ### 4.3 样本导入命令
 
+> CLI 语义注意（spec §7.2 实测）：`--parent-auto-create` 接 URI 参数（创建父目录链），跟 `--to` / `--parent` **互斥**。
+
 ```bash
-# 1. 准备 spike 工作目录中的样本根
-mkdir -p $DATA/openviking/_samples
+# 1. 至少导一个 fixture wiki，验证完整链路（add-resource → embed → find）
+uvx --from openviking==0.3.17 --with socksio openviking add-resource \
+  $(pwd)/tests/fixtures/features/opencode/wiki \
+  --parent-auto-create viking://resources/codeask/features/opencode/knowledge-base/ \
+  --reason "v105-spike-fixture:opencode"
+  # 不加 --wait；CLI 立即返回 task_id，OpenViking 后台处理
+  # max_concurrent=1 下单 chunk ~3s；110 chunks 约 5-6 分钟
 
-# 2. 链接（或拷贝）仓库内的 fixture wiki 到 spike 临时区
-ln -sfn $(pwd)/tests/fixtures/features/opencode/wiki         $DATA/openviking/_samples/opencode-wiki
-ln -sfn $(pwd)/tests/fixtures/features/anything-llm/wiki     $DATA/openviking/_samples/anything-llm-wiki
-ln -sfn $(pwd)/tests/fixtures/features/openviking/wiki       $DATA/openviking/_samples/openviking-wiki
+# 2. 查任务进度
+uvx --from openviking==0.3.17 --with socksio openviking task list
+uvx --from openviking==0.3.17 --with socksio openviking task status <task_id>
 
-# 3. 临时 verified 报告（仅 spike 用，不回写 fixture）
-mkdir -p $DATA/openviking/_samples/opencode-reports/verified
-cat > $DATA/openviking/_samples/opencode-reports/verified/2026-05-20-opencode-mcp-handshake-empty.md <<'EOF'
-# 2026-05-20 opencode 启动后 MCP tools/list 返回空数组
+# 3. anything-llm / openviking 两个 fixture wiki：可选；如时间允许同样导入
+# 4. 代码仓：Phase 0 不导（用户决策）；推到 Phase 1 sync engine 完成后再做
 
-## 问题背景
-... (spike 临时编造一份小型 verified 报告用于召回质量验证) ...
-
-## 定位过程
-...
-EOF
-
-# 4. 导入三个 Wiki
-for slug in opencode anything-llm openviking; do
-  uvx --from openviking==0.3.17 openviking add-resource \
-    $DATA/openviking/_samples/$slug-wiki \
-    --to viking://resources/codeask/features/$slug/knowledge-base/ \
-    --parent-auto-create \
-    --reason "v105-spike-feature-wiki:$slug" \
-    --wait --timeout 600
-done
-
-# 5. 导入临时 verified 报告（绑定到 opencode 特性）
-uvx --from openviking==0.3.17 openviking add-resource \
-  $DATA/openviking/_samples/opencode-reports/verified \
-  --to viking://resources/codeask/features/opencode/problem-reports/verified/ \
-  --parent-auto-create \
-  --reason "v105-spike-verified-report:opencode" \
-  --wait --timeout 300
-
-# 6. 导入代码仓（先确保本地已 clone 到 references/）
-test -d references/opencode || \
-  git clone git@github.com:anomalyco/opencode.git references/opencode
-uvx --from openviking==0.3.17 openviking add-resource \
-  references/opencode \
-  --to viking://resources/codeask/repos/opencode/ \
-  --parent-auto-create \
-  --reason "v105-spike-code-repo:opencode" \
-  --ignore-dirs "node_modules,dist,build,.venv,.git,target" \
-  --wait --timeout 1800
+# 5. 临时 verified 报告：本次 spike 不生成；spec §6.4 已经验证 verified vs draft 路径
+#    通过实际 OpenViking 目录 `problem-reports/verified/` 接受 markdown 文件即可
 ```
 
 记录每条 add-resource 的耗时、返回 task_id 与最终 `viking://` URI 到 §10 实验记录。
@@ -380,15 +360,19 @@ curl -sf "http://127.0.0.1:4255/global/event"
 
 ## 7. 召回质量基线
 
-锁定 embedding 模型前，依次跑 `bge-m3` / `nomic-embed-text` / `mxbai-embed-large`：
+v1.0.5 默认 embedding 模型已直接锁定为 `bge-m3`（中文 wiki 优先；用户决策）。多模型对比测试因 CPU 推理速度限制不在 spike 阶段做，**推到 Phase 2 live E2E**。
 
-1. 同一组 5 个真实业务问题（写到 §10 实验记录）
-2. 同一组样本（同一 Feature Wiki + 一个 verified 报告）
+Phase 0 期内只验证单 chunk 端到端通路（spec §6.3 实测中文 find 命中 score 0.69，已足够证明链路）。
+
+完整召回基线（5 query × N 模型 relevance@5）的测试方法保留在此节供 Phase 2 沿用：
+
+1. 同一组 5 个真实业务问题（§4.4 已固化）
+2. 同一组样本（三个 fixture wiki 全量 + 临时 verified 报告）
 3. 每个模型重新 `add-resource`（先 `forget` 清空再导）
 4. 跑 `find / search`，记录 top-5 URI 与 score
 5. 主观判断 relevance@5（人工标 0/1）
 
-最终选定模型写入 PRD §7 与 SDD §5.4。基线包含：
+Phase 2 跑完后回填的基线字段：
 
 | 字段 | 说明 |
 |---|---|
@@ -410,7 +394,7 @@ Phase 0 通过的硬性要求：
 3. §5 工具命令至少 happy path 全过；记录至少 3 个边界用例
 4. §6.2 opencode 单独挂 OpenViking MCP 可完成一次端到端调用
 5. §6.3 双 MCP 共存验证通过
-6. §7 至少完成 1 个 embedding 模型的基线；relevance@5 ≥ 3/5
+6. §7 召回基线测试方法已固化（实际跑分推到 Phase 2 live E2E；spike 只需证明单 chunk 链路通）
 7. §10 实验记录完整；命令 / 输出 / 耗时 / 失败现象都有
 
 任何一项不达成，触发 PRD §5"退路"评估：是否调整 v1.0.5 方向（OpenViking 替换、改方案、推迟版本）。

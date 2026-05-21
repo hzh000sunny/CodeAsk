@@ -37,7 +37,7 @@ Maintainer 和 Asker 角色不变。RAG 的引入对用户的可见变化：
 
 - 会话中模型能更主动地引用 Wiki / 报告 / 代码候选，并附上 `viking://` 来源 URI
 - Agent 行动轨迹新增 OpenViking 工具事件（`find / search / read / grep / glob`）
-- admin 设置页新增 OpenViking 状态卡片（healthy / port / queue / last_sync）
+- admin 设置页新增 OpenViking 仪表盘（健康 / 同步任务进度 / 事件流 / 调优面板，详见 §10）
 
 普通用户不需要理解 OpenViking 概念，也不暴露"切换 RAG 后端"开关。
 
@@ -91,7 +91,7 @@ CodeAsk 持久化 turn + 行动轨迹（含 OpenViking 工具事件）
 | 会话级隔离不变 | OpenViking session_id 不直接复用 CodeAsk session_id；MCP 调用通过会话级 bearer token 校验，沿用 v1.0.4 `mcp/auth.py` 模式 |
 | 审计完整 | OpenViking 工具调用、CodeAsk 同步任务、permission 拒绝、错误事件都进入审计 |
 | 增量同步 | Wiki / 报告 / 仓库变更后通过同步状态表追踪；失败有重试上限和 cooldown |
-| 仪表盘可见性 | 详见 §11；admin 必须能看到 OpenViking 的所有后台活动（首次索引、增量更新、模型切换、错误重试、进程重启恢复），不允许"后端在做事但 UI 没显示" |
+| 仪表盘可见性 | 详见 §10；admin 必须能看到 OpenViking 的所有后台活动（首次索引、增量更新、模型切换、错误重试、进程重启恢复），不允许"后端在做事但 UI 没显示" |
 
 ---
 
@@ -179,7 +179,7 @@ v1.0.5 在 CodeAsk 现有 LLM 配置体系之外引入 embedding 配置：
 
 | 配置项 | 来源 | 是否暴露给用户 |
 |---|---|---|
-| OpenViking server URL / token | CodeAsk 后端自动管理；admin 可在诊断面板查看状态 | 否 |
+| OpenViking server URL / token | CodeAsk 后端自动管理；admin 可在 OpenViking 仪表盘查看状态 | 否 |
 | Embedding provider | 第一版固定 `ollama`；后续可扩展为多 provider | 暂不暴露给普通用户；admin 可见 |
 | Embedding 模型 | **admin 可见、可在设置页切换** | 是（admin UI） |
 | VLM | 第一版默认不启用 VLM；不依赖 VLM 的资源（Markdown、代码、文本报告）质量为主 | 否 |

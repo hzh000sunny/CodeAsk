@@ -74,7 +74,7 @@ Phase 2 第一步先评估上述哪种更稳定。优先 (a)；如果 opencode 1
 - 路径脱敏沿用 `path-redaction.ts`
 - admin 设置页 OpenViking 卡片（Phase 1 已建）增加"会话调用统计"小节（可选）
 
-**会话视图边界**（PRD §10.4）：
+**会话视图边界**（PRD §10.6）：
 
 - 会话页 Agent 行动轨迹**只**展示 opencode 调 OpenViking MCP 的工具事件（`find/search/read/grep/glob/list`）
 - **不**展示后台同步事件（`wiki_doc_changed` / `scheduled_refresh` / `ollama_recovery` 等）—— 这些只在 admin OpenViking 仪表盘可见

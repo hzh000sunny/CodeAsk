@@ -201,14 +201,19 @@ curl -sf http://127.0.0.1:11434/api/version
 
 ## 6. 与 CodeAsk / OpenViking 的衔接
 
-Ollama 装好后，OpenViking `ov.conf` 中 `embedder` 段配置：
+Ollama 装好后，OpenViking `ov.conf` 中 `embedding` 段配置（顶层 key 是 `embedding`，dense 子段；详见 `./openviking-server-bootstrap.md` §4）：
 
 ```json
 {
-  "embedder": {
-    "provider": "ollama",
-    "base_url": "http://127.0.0.1:11434",
-    "model": "<phase-0 选定模型>"
+  "embedding": {
+    "dense": {
+      "provider": "ollama",
+      "api_base": "http://127.0.0.1:11434/v1",
+      "model": "bge-m3",
+      "dimension": 1024,
+      "input": "text"
+    },
+    "max_concurrent": 1
   }
 }
 ```
@@ -216,7 +221,8 @@ Ollama 装好后，OpenViking `ov.conf` 中 `embedder` 段配置：
 CodeAsk 后端在 v1.0.5 实现阶段会通过 settings 暴露：
 
 - `openviking_embed_base_url` 默认 `http://127.0.0.1:11434`
-- `openviking_embed_model` 由 spike §7 结果决定
+- `openviking_embed_model` 默认 `bge-m3`（Phase 0 锁定）
+- `openviking_embed_dimension` 默认 `1024`（bge-m3 维度）
 
 Ollama 进程**不**归 CodeAsk 管理；CodeAsk 只在健康检查时探测 `<base_url>/api/tags` 是否可达。
 

@@ -27,25 +27,31 @@
 
 ## 2. Phase 0 spike
 
-- [ ] `phase-0-spike.md` §10 实验记录已填
-- [ ] OpenViking 版本与 embedding 模型已锁定并写入 PRD / SDD
-- [ ] 召回基线满足 §7 阈值（relevance@5 ≥ 3/5）
-- [ ] §8 退出条件全部满足
+- [x] `phase-0-spike.md` §10 实验记录已填
+- [x] OpenViking 版本（0.3.17）与 embedding 模型（bge-m3）已锁定并写入 PRD / SDD
+- [ ] 召回基线（relevance@5）：测试方法已固化 in §7；实际跑分推到 Phase 2 live E2E（依赖完整 fixture 索引）
+- [ ] §8 退出条件全部满足（含 Phase 2 推迟项确认）
 
 ---
 
 ## 3. Phase 1 同步适配器
 
-- [ ] `src/codeask/rag/openviking/` 模块全部就位
-- [ ] alembic head 包含 `openviking_sync_jobs`
+### 3.1 模块与表
+
+- [ ] `src/codeask/rag/openviking/` 模块全部就位（含 `dashboard.py` / `tuning.py`）
+- [ ] `src/codeask/api/` 三个 router 就位：`openviking_status.py` / `openviking_admin.py` / `openviking_tuning.py`
+- [ ] alembic head 包含 4 张表：`openviking_sync_jobs` / `openviking_embedding_settings` / `openviking_tuning_settings` / `openviking_dashboard_events`
 - [ ] OpenViking server startup / keepalive / shutdown 行为符合 SDD §5
 - [ ] `openviking_embedding_settings` 表存在；首次启动时按 settings 默认值填入一行
-- [ ] `openviking_dashboard_events` 表存在；启动 sweep / hook / sweep / 模型切换全部写入对应 event_type
+- [ ] `openviking_dashboard_events` 表存在；启动 sweep / hook / 模型切换全部写入对应 event_type
+
+### 3.2 进程与同步
 - [ ] admin 设置页可见 OpenViking 仪表盘三个核心卡片：Health / SyncJobs / EventStream
 - [ ] admin 切换 embedding 模型 → 写入新行 + previous_setting_id + 重新生成 ov.conf + 重启 server + 触发全量重建
 - [ ] 切换期间召回质量下降但 opencode 会话不中断；重建完成后召回恢复
 - [ ] 切换、重建、失败、回退都写审计日志
-- [ ] sync_jobs.progress 由 `progress_sweep` 任务每 5 s 自动更新；admin 卡片显示进度条 + ETA
+- [ ] sync_jobs.progress 由 `progress_sweep` 任务每 5 s 自动更新；admin 卡片显示进度条 + ETA（EMA 算法，详见 SDD §6.1）
+- [ ] Wiki / 报告 / 仓库变更 hook 全部接入；启动 sweep 行为正确
 - [ ] kill OpenViking server 后重启：admin 仪表盘自动出现 `openviking_restart_detected` 事件，sync_jobs 进度从中断点续传，不重置
 - [ ] kill Ollama 后重启：仪表盘出现 `ollama_recovery` 事件，sync_jobs 在 1–2 分钟内追上
 - [ ] 编辑 Wiki / 新增 verified 报告 / 仓库同步完成 → 仪表盘事件流出现对应 `wiki_doc_changed` / `report_status_changed` / `repo_synced` 事件
@@ -53,8 +59,15 @@
 - [ ] admin 手动触发"单源重同步 / 全量重建 / 失败重试"三个动作走通；事件流出现 `manual_resync` / `manual_retry` 事件
 - [ ] events 接口分页可用；每 event_type 保留策略生效（默认 2000 条）
 - [ ] events 接口返回不泄露宿主机绝对路径（沿用 v1.0.4 出口脱敏）
-- [ ] 会话页 Agent 行动轨迹只显示 opencode 调 OpenViking MCP 的工具事件，不显示后台同步事件
-- [ ] `openviking_tuning_settings` 表存在；首次启动按主机识别结果填入推荐预设的默认值
+- [ ] 失败重试与 cancelled 转换符合 SDD §9（指数退避 30s / 2m / 10m / 1h / 6h）
+
+### 3.3 Embedding 模型管理
+
+（合并入上方"admin 切换 embedding 模型..."项，无独立 checkbox）
+
+### 3.4 调优面板
+
+- [ ] `openviking_tuning_settings` 表首次启动按主机识别结果填入推荐预设默认值
 - [ ] 仪表盘 OpenVikingTuningCard 显示三个 scope 的当前值、推荐值、回滚按钮
 - [ ] admin 改 `openviking.embedding.max_concurrent` → 写 DB → 重写 ov.conf → restart OpenViking → ~30 s 服务中断 → 仪表盘 metrics 卡片自然刷新到改后数据
 - [ ] admin 改 `codeask.sync_workers` → 秒级生效；不重启 OpenViking
@@ -63,9 +76,11 @@
 - [ ] 一次应用推荐预设 → 多个参数一次性改完；不影响 ollama_recommend
 - [ ] Ollama systemd snippet 接口返回正确的 NUM_PARALLEL / NUM_THREAD；admin 自己改 systemd 并 restart 后，CodeAsk 探测出 NUM_PARALLEL 实际生效，事件流 `ollama_settings_verified` outcome=success
 - [ ] 极端值（如 max_concurrent=10000）被后端 schema 拒绝；事件 outcome=error；不应用
-- [ ] Wiki / 报告 / 仓库变更 hook 全部接入；启动 sweep 行为正确
-- [ ] 失败重试与 cancelled 转换符合 SDD §9
-- [ ] admin 诊断接口与卡片可读
+
+### 3.5 边界与质量
+
+- [ ] 会话页 Agent 行动轨迹只显示 opencode 调 OpenViking MCP 的工具事件，不显示后台同步事件
+- [ ] admin 诊断接口与卡片可读；不显示宿主机绝对路径
 - [ ] 后端 pytest 全量通过；不引入 ruff / pyright 新红
 - [ ] 真实数据备份升级回归通过
 

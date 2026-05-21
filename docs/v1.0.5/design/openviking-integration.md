@@ -14,25 +14,33 @@
 src/codeask/rag/
 └── openviking/
     ├── __init__.py
-    ├── config.py           # ov.conf 生成；从 CodeAsk settings 派生
+    ├── config.py           # ov.conf 生成；从 CodeAsk settings + DB 派生
     ├── process.py          # OpenViking server 生命周期（参考 opencode_compat/process.py）
     ├── client.py           # OpenViking HTTP / MCP 客户端封装
-    ├── sync.py             # 同步引擎；wiki / report / repo 增量同步
+    ├── sync.py             # 同步引擎；wiki / report / repo 增量同步 + progress sweep + ETA
     ├── uri.py              # CodeAsk 主数据 ↔ viking:// URI 映射
-    ├── models.py           # OpenVikingSyncJob 等 SQLAlchemy 模型
-    ├── health.py           # 健康检查、版本探测、Ollama 健康联动
+    ├── models.py           # OpenVikingSyncJob / OpenVikingEmbeddingSetting /
+    │                       # OpenVikingTuningSetting / OpenVikingDashboardEvent
+    ├── dashboard.py        # emit_event；事件流写入封装
+    ├── health.py           # 健康检查、版本探测、Ollama 健康联动、模型可用性探测
+    ├── tuning.py           # 主机识别 / 推荐预设 / Ollama systemd snippet 生成 / 实测探测
     └── README.md           # 模块边界说明
 ```
 
 ```text
 src/codeask/api/
-├── openviking_status.py    # GET /api/admin/openviking/status 诊断接口
-└── openviking_admin.py     # admin embedding 模型管理（list / set / rebuild）
+├── openviking_status.py    # GET /status / /sync_jobs / /events + 手动操作（详见 Phase 1 §7.1-§7.1.3）
+├── openviking_admin.py     # admin embedding 模型管理（list / set / rebuild，详见 Phase 1 §7.2）
+└── openviking_tuning.py    # admin tuning API（详见 Phase 1 §7.1.4）
 ```
 
 ```text
 alembic/versions/
-└── XXXX_openviking_sync_jobs.py
+└── XXXX_openviking_v1_0_5.py   # 单 migration 建 4 张表：
+                                # openviking_sync_jobs (§3.1)
+                                # openviking_embedding_settings (§3.3)
+                                # openviking_tuning_settings (§3.4)
+                                # openviking_dashboard_events (§13.1)
 ```
 
 ### 1.2 修改模块
@@ -47,7 +55,7 @@ alembic/versions/
 | `src/codeask/sessions/report_generation.py` 及报告 verify hook | 报告生命周期变更后写入同步队列 |
 | `src/codeask/code_index/cloner.py` & `worktree.py` | 代码仓 ready / 更新后写入同步队列 |
 | `src/codeask/settings.py` | 新增 OpenViking / Ollama 配置项 |
-| `frontend/src/components/settings/...` | admin 设置页新增 OpenViking 状态卡片 |
+| `frontend/src/components/settings/...` | admin 设置页新增 OpenViking 仪表盘组件（详见 §13.4） |
 | `frontend/src/components/session/action-trace/...` | 新增 OpenViking 工具事件展示 |
 
 ### 1.3 不动模块
@@ -184,7 +192,13 @@ class OpenVikingEmbeddingSetting(Base, TimestampMixin):
     rebuild_status: Mapped[str] = mapped_column(String(16), default="idle")
     # idle | rebuilding | completed | failed
     rebuild_progress: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    # {"total": int, "indexed": int, "failed": int}
+    # 聚合所有 sync_jobs 在当前 rebuild 中的总进度：
+    # {
+    #   "total_sources": int, "indexed_sources": int, "failed_sources": int,
+    #   "total_chunks": int, "indexed_chunks": int, "failed_chunks": int,
+    #   "started_at": str, "estimated_completion_at": str | null
+    # }
+    # 注意：这是 rebuild 级别的聚合进度；单 sync_job 的精细进度走 §3.1 OpenVikingSyncJob.progress
 ```
 
 只保留**当前一行**作为活跃配置（按 `activated_at` 取最新行）；历史行用于审计与回滚。`previous_setting_id` 指向上一个活跃行，便于切换失败回退。
@@ -216,9 +230,7 @@ class OpenVikingTuningSetting(Base, TimestampMixin):
     # admin 在 UI 可填一段调整原因，便于以后回看
 ```
 
-唯一约束：`(scope, key)` 同时只允许一行；切换时旧行**保留为 history**，新行覆盖（用 `previous_value` + `created_at` 串联历史）。
-
-或者更简单的方案：append-only，每次写新行，按 `(scope, key)` 取最新一行为生效配置。两种实现等价，建议 append-only 便于回滚和审计；Phase 1 实现时定。
+**Append-only 设计**：每次写新行；按 `(scope, key)` 取 `id` 最大（或 `activated_at` 最新）的一行为当前生效配置。历史行保留，便于回滚和审计；不加唯一约束。
 
 `ollama_recommend` scope 的行**只是 CodeAsk 提供给 admin 的建议值**，不代表 Ollama 实际生效值；admin 是否真的改 systemd 由仪表盘探测当前 Ollama 行为反推。
 
@@ -326,11 +338,28 @@ CodeAsk 进程退出时调用 `process.shutdown()`；优雅终止超时使用 `o
       "input": "text"
     },
     "text_source": "content_only",
-    "max_input_tokens": 4096
+    "max_input_tokens": "<tuning: embedding.max_input_tokens, default 4096>",
+    "max_concurrent": "<tuning: embedding.max_concurrent, default 1 for ollama>",
+    "max_retries": "<tuning: embedding.max_retries, default 3>",
+    "circuit_breaker": {
+      "failure_threshold": "<tuning: embedding.circuit_breaker.failure_threshold, default 5>",
+      "reset_timeout": "<tuning: embedding.circuit_breaker.reset_timeout, default 60>"
+    }
   },
+  "auto_generate_l0": false,
+  "auto_generate_l1": false,
   "vlm": {"enabled": false}
 }
 ```
+
+可调字段（用 `<tuning: ...>` 标记）由 `OpenVikingTuningSetting` 表当前生效行决定（详见 §3.4 + §13.6）。其它字段固定。
+
+ov.conf 重写时机：
+
+- 首次启动 server（DB 未空）
+- 切换 embedding model
+- 任何 `scope=openviking` 的 tuning 变更
+- 重写后必须 restart server（OpenViking 不支持 reload）
 
 ---
 
@@ -346,10 +375,12 @@ CodeAsk 进程退出时调用 `process.shutdown()`；优雅终止超时使用 `o
 
 1. 标 `running`、`attempts += 1`
 2. 从 CodeAsk 主数据派生本地路径或文本
-3. 调 `client.add_resource(path, parent=..., reason=..., instruction=...)`
-4. 若 OpenViking 返回异步 task_id，记录后由后台 sweep 跟踪
+3. 调 `client.add_resource(path, parent=..., reason=..., instruction=...)`，**走 OpenViking HTTP REST**（`POST /api/v1/resources`），不调 `ov` CLI
+4. 若 OpenViking 返回异步 `task_id`，记录到 `sync_jobs.task_id`，由后台 sweep（§6.1）跟踪
 5. 等待索引完成 → 写 `viking_uri`、`source_hash`、`last_indexed_at`，标 `indexed`
 6. 失败 → 标 `failed`、记录 `error`、按指数退避更新 `next_retry_at`；超过 `maxRepeatFailures` 标 `cancelled`
+
+> 注：CLI（`ov add-resource ...`）只用于 spike / 人工排查；CodeAsk 产品代码全部走 HTTP REST，避免依赖 `ov` 二进制 PATH。
 
 并发：单进程内同步 worker 数受 `settings.openviking_sync_workers` 控制（建议默认 2）。
 
@@ -517,6 +548,9 @@ Tool usage principles:
 
 ```python
 class Settings:
+    # RAG backend 总开关（v1.0.5 默认 openviking；none 则退回 v1.0.4 文件检索）
+    rag_backend: str = "openviking"   # openviking | none
+
     # OpenViking 进程
     openviking_bin: str = "openviking-server"
     openviking_host: str = "127.0.0.1"
@@ -526,22 +560,38 @@ class Settings:
     openviking_graceful_shutdown_seconds: int = 5
     openviking_verified_version: str | None = "0.3.17"
 
-    # 同步
+    # 同步与定时
     openviking_sync_workers: int = 2
     openviking_sync_interval_seconds: int = 60
     openviking_sync_max_repeat_failures: int = 5
+    openviking_progress_sweep_interval_seconds: int = 5
+    openviking_scheduled_refresh_hours: int = 24
+
+    # 事件流保留
+    openviking_event_retention_count: int = 2000
+    openviking_event_retention_sweep_interval_hours: int = 24
 
     # MCP
     openviking_mcp_token: str | None = None        # 留 None 自动生成
 
-    # Embedding
+    # Embedding（首次安装时填 OpenVikingEmbeddingSetting 表的默认值；之后以 DB 为准）
     openviking_embed_provider: str = "ollama"
     openviking_embed_base_url: str = "http://127.0.0.1:11434"
-    openviking_embed_model: str = "bge-m3"          # Phase 0 实测后可改
+    openviking_embed_model: str = "bge-m3"
+    openviking_embed_dimension: int = 1024
 
     # 数据目录
     openviking_data_dir: str = "{CODEASK_DATA_DIR}/openviking"
 ```
+
+**Settings vs DB 配置的边界**：
+
+| 配置项 | 来源 | 修改后何时生效 |
+|---|---|---|
+| `rag_backend` / `openviking_bin` / `openviking_host` / `openviking_port` / `openviking_data_dir` / `openviking_*_interval_seconds` / `openviking_event_retention_*` | settings | 重启 CodeAsk 进程；不走 DB |
+| `openviking_embed_*` | settings = **首次安装填 DB 默认值** | 首次启动；之后 **DB 中 OpenVikingEmbeddingSetting 才是事实** |
+| `embedding.max_concurrent` / `circuit_breaker` / `max_retries` / `max_input_tokens` | DB `OpenVikingTuningSetting` | admin UI 改完自动 restart OpenViking |
+| Ollama `NUM_PARALLEL` / `NUM_THREAD` | systemd unit（CodeAsk 不直接管） | admin 自己改 systemd + `daemon-reload` + `restart ollama` |
 
 ---
 
@@ -585,13 +635,15 @@ class OpenVikingDashboardEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    # wiki_doc_changed / report_status_changed / repo_synced / feature_changed /
-    # scheduled_refresh / scheduled_refresh_summary / manual_resync / startup_sweep /
-    # embedding_model_switched / openviking_restart_detected / ollama_recovery /
+    # wiki_doc_changed / wiki_dir_changed / report_status_changed / repo_synced /
+    # feature_changed / scheduled_refresh / scheduled_refresh_summary /
+    # manual_resync / manual_retry / startup_sweep /
+    # embedding_model_switched / openviking_restart_detected /
+    # openviking_restart_completed / ollama_recovery / ollama_lost /
     # ollama_settings_verified / codeask_restart_sweep /
     # circuit_breaker_tripped / circuit_breaker_recovered /
     # sync_job_completed / sync_job_failed / sync_job_cancelled /
-    # tuning_change / openviking_restart_completed
+    # tuning_change
     source_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     source_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     sync_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -666,14 +718,7 @@ GET /api/admin/openviking/events?limit=...      # 事件流分页
 
 ### 13.5 配置项
 
-`src/codeask/settings.py` 在 §10 配置项基础上新增：
-
-```python
-openviking_progress_sweep_interval_seconds: int = 5
-openviking_scheduled_refresh_hours: int = 24
-openviking_event_retention_count: int = 2000
-openviking_event_retention_sweep_interval_hours: int = 24
-```
+仪表盘相关的 settings 字段（progress sweep / scheduled refresh / event retention）已统一并入 §10 配置项表。
 
 ### 13.6 调优面板
 
@@ -694,7 +739,7 @@ PRD §10.4 / §10.5 规定 admin 必须能通过仪表盘**调参数 + 看效果
 
 #### 13.6.2 调优 API
 
-新增（详见 Phase 1 §7.5）：
+新增（详见 Phase 1 §7.1.4）：
 
 ```text
 GET  /api/admin/openviking/tuning              # 当前所有 scope 的生效配置 + 推荐预设
@@ -796,4 +841,4 @@ admin 应用后，**仪表盘自动探测**新值是否生效：
 - 历史趋势图（用 sync_jobs.progress 时序数据 + tuning history 后续可补）
 - 多 OpenViking 实例聚合
 - **自动调参**（CodeAsk 根据指标自动改参数；v1.0.5 只做"建议 + admin 手动应用"，不自动）
-- **跨变更对比图表**（v1.0.5 用成对 events 文字对比；折线图后续）
+- **改前改后自动对比**（v1.0.5 只发单条 `tuning_change` 事件；admin 通过 metrics 卡片自然观察改后状态；折线图作为未来历史趋势能力可补）

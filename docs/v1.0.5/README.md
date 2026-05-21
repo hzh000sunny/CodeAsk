@@ -35,7 +35,7 @@ v1.0.5 新增：
 - 启动管理 OpenViking server（参考 v1.0.4 `opencode_compat/process.py` 模式）
 - 把 CodeAsk Wiki / 问题报告 / 代码仓增量同步到 OpenViking `viking://resources/codeask/...`
 - opencode 同时挂 CodeAsk MCP 和 OpenViking remote MCP，会话动态上下文增加 OpenViking 资源布局提示
-- admin 诊断面板新增 OpenViking 状态卡片
+- admin 设置页新增 OpenViking 仪表盘（健康卡 + 同步任务卡 + 事件流 + 调优面板）
 - Wiki 现有 FTS5 / n-gram 检索作为兜底保留，但不再是 opencode 主链路 RAG 入口
 
 v1.0.5 不做：
@@ -52,7 +52,7 @@ v1.0.5 不做：
 | 维度 | 选择 | 备注 |
 |---|---|---|
 | RAG 后端 | OpenViking 统一后端 | Wiki、问题报告、代码仓都进入同一 `viking://resources/codeask/` 资源空间 |
-| Embedding provider | 本机 Ollama | OpenViking `embedder.provider = ollama`，模型由 Phase 0 实测决定（候选 `bge-m3` / `nomic-embed-text` / `mxbai-embed-large`） |
+| Embedding provider | 本机 Ollama | OpenViking ov.conf 顶层 `embedding.dense.provider = ollama`；默认模型 `bge-m3`（admin UI 可切换） |
 | OpenViking 进程 | CodeAsk 后端管理 | 参考 v1.0.4 shared opencode serve：启动拉起 + keepalive + admin 诊断；Ollama 进程不归 CodeAsk 管 |
 | AGPL 边界 | 边界承诺已记录，无前置门槛 | CodeAsk 不修改 OpenViking 源码、不内嵌源码、当前不规划 SaaS；详见 `specs/openviking-agpl-review.md` |
 | 数据目录 | `$CODEASK_DATA_DIR/openviking/{ov.conf,workspace,models,logs}` | 不使用用户默认 `~/.openviking` |
