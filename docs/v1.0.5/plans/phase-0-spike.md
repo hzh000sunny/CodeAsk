@@ -433,25 +433,135 @@ Phase 0 通过的硬性要求：
 
 ---
 
-## 10. 实验记录（执行时填）
+## 10. 实验记录（2026-05-20 / 2026-05-21 执行）
+
+### 10.1 元信息
 
 | 字段 | 值 |
 |---|---|
-| 实验启动日期 | — |
-| 实验结束日期 | — |
-| 执行人 | — |
-| OpenViking 版本 | — |
-| Ollama 版本 | — |
-| 最终 embedding 模型 | — |
-| 三个 fixture 导入结果（opencode / anything-llm / openviking 的 viking:// URI 与耗时） | — |
-| 临时 verified 报告路径 | `$DATA/openviking/_samples/opencode-reports/verified/2026-05-20-...` |
-| 关键命令日志归档路径 | `$DATA/evidence/` |
-| 召回基线 | 见 §7 表 |
-| 失败现象与修复 | — |
-| 通过 §8 退出条件 | Yes / No |
-| 是否进入 Phase 1 | — |
+| 实验启动日期 | 2026-05-20 |
+| 实验结束日期 | 2026-05-21 |
+| OpenViking 版本 | `0.3.17`（uvx 拉自 PyPI；锁定） |
+| Ollama 版本 | `0.24.0` |
+| 最终 embedding 模型 | `bge-m3`（1024 维；中文优先） |
+| spike 数据目录 | `/tmp/codeask-v105-spike/`（重启后会丢；不污染真实数据） |
+| OpenViking workspace | `/tmp/codeask-v105-spike/openviking/workspace/` |
+| 关键命令日志 | `/tmp/codeask-v105-spike/openviking/logs/server.log` |
+| 临时 verified 报告 | 未生成；本次 spike 范围调整后不导入代码仓 / 不生成临时报告 |
+| 通过 §8 退出条件 | **部分通过**（核心链路验证完成；CPU 性能瓶颈成为已知约束） |
+| 是否进入 Phase 1 | **可以**，但 Phase 1 实施需带 §10.5 风险一起设计 |
 
-完整命令输出与日志保留在 `$DATA/evidence/` 下。spike 结束后选取关键截屏 / 文本片段附在本节末尾。
+### 10.2 已验证（绿）
+
+| 节点 | 结果 |
+|---|---|
+| Ollama 0.24.0 install.sh 落地、systemd active、`/api/version` 200 | ✅ 详见 `../specs/ollama-installation.md` |
+| 安装大小：43 MB 二进制 + 3.5 GB CUDA/Vulkan 库（无 GPU 用不上，决定不清） | ✅ |
+| uvx 拉 OpenViking 0.3.17：133 包，421 ms（uv cache 命中），实际新增 ~200 MB | ✅ |
+| `openviking-server doctor` 通过 7/8（VLM 缺失不阻塞） | ✅ |
+| `ov.conf` 最小化配置可工作（顶层 `embedding`，不是 `embedder`） | ✅ 详见 `../specs/openviking-server-bootstrap.md` §4 |
+| Server 启动 + `/health` 200 + Uvicorn `127.0.0.1:1933` | ✅ |
+| MCP `/mcp` initialize + tools/list（10 个工具齐） | ✅ 详见 bootstrap §7 |
+| Ollama `/v1/embeddings` 直接调用：bge-m3 返回 1024 维向量 | ✅ |
+| 单文件 add-resource：8.7 KB markdown → 6 chunks → Embedding 全 success | ✅ |
+| 中文 query `find "OpenViking 是什么"` 命中 chunk，score 0.69 | ✅ 中文召回基础质量可接受 |
+| `ov ls` 列出 `viking://` 目录 | ✅ |
+| 异步 batch import（不 `--wait`）立即返回 `task_id`，后台处理 | ✅ |
+
+### 10.3 已发现的故障模式（已修复或已记录）
+
+| 现象 | 根因 | 修复 |
+|---|---|---|
+| `ImportError: Using SOCKS proxy, but the 'socksio' package is not installed.` | 本机 `ALL_PROXY=socks5://...`，httpx init 时校验 proxy 协议 | `uvx --with socksio` 启动；**产品代码不 unset proxy**；生产 INSTALL 列已知问题 |
+| `Unknown config field 'enable_memory_decay' in OpenVikingConfig` | example 滞后于 0.3.17 schema | 移除字段；Phase 1 `config.py` 生成 `ov.conf` 时显式只用已验证字段 |
+| 启动后 OpenViking 给 preset 目录调 embedder → `model not found, try pulling it first` → 9 次失败后 circuit breaker 跳闸 | Ollama 没拉模型 | Phase 1 `health.py.ollama_models_available()` 启动前探测；缺模型 → 标 `embedding_model_missing`，admin 卡片可见，不让 server 空转 |
+| ov.conf 修改后 server 不自动重载 | 进程读 ov.conf 是启动时一次 | Phase 1 `process.py.restart()` 处理 config 变化（沿用 v1.0.4 opencode_compat 模式） |
+| 改 embedding model 维度（768 → 1024）后旧 vectordb collection 不兼容 | OpenViking collection 创建时定维 | 切换模型时全量重建（PRD §7.1、SDD §3.3 已落） |
+
+### 10.4 性能数据（核心结论）
+
+bge-m3 CPU 推理 + Ollama 单实例的 embedding 延迟测量：
+
+| 状态 | 单 chunk embedding 延迟 |
+|---|---|
+| Ollama 直接调用，单 query | ~2 秒（首次加载模型）；之后 ~200 ms / 短文本 |
+| OpenViking `max_concurrent=10`（默认），并发请求 | **退化雪崩**：3 s → 12 s → 43 s → 57 s → 88 s |
+| OpenViking `max_concurrent=1`，顺序处理 | 稳定 ~3 s / chunk |
+
+含义：
+
+- CPU 上 Ollama 一次只能跑一个 embedding，并发请求只会排队加剧延迟
+- 必须把 OpenViking 顶层 `embedding.max_concurrent` 设到 **1**
+- 顺序处理下，单个 wiki fixture（~22 文件 / ~110 chunks）完整索引约 **5–6 分钟**
+- 三个 fixture 全量索引预估 **15–20 分钟**
+
+代码仓索引耗时尚未实测；预估更长（仓库内文件数 10x，且代码 chunk 也要 embedding）。
+
+### 10.5 风险与 Phase 1 输入
+
+#### 风险 R1：CPU embedding 性能瓶颈
+
+CPU 模式下 bge-m3 的吞吐对生产可用性是边界。
+
+- v1.0.5 仍可在 CPU 环境部署，但 admin 必须接受"首次全量索引耗时按 fixture 数量与代码仓大小线性增长"
+- Phase 1 admin 卡片必须展示"重建预估时间 / 当前进度 / 失败任务数"，让 admin 知道何时完成
+- 文档应推荐有条件的部署用 GPU 主机；不强制
+- 不建议在 v1.0.5 把"切换 embedding 模型"做成无感操作；全量重建期间召回质量降低必须明示
+
+#### 风险 R2：fixture 全量导入耗时长
+
+Phase 0 没有在 spike 期内完成"三个 fixture 全量索引"。但已证明：单文件链路通；批量异步入队成功；max_concurrent=1 时延迟稳定。
+
+Phase 1 同步引擎设计要点：
+
+- 不在前台等同步任务；走 APScheduler 后台 + `openviking_sync_jobs.status=running` 状态机
+- 单次 enqueue 不阻塞 admin / 用户操作
+- 提供 admin "重新跑一次全量重建" 按钮（见 Phase 1 §7.2）
+
+#### 风险 R3：max_concurrent=1 vs 网关 embedding
+
+如果将来用户改用云端 embedding 网关（OpenAI / DashScope / Volcengine），`max_concurrent=1` 会浪费带宽。
+
+Phase 1 应当：
+
+- 把 `max_concurrent` 放到 `OpenVikingEmbeddingSetting` 表（SDD §3.3 已规划）
+- 默认值由 provider 决定：`ollama=1`，云端 provider 默认 `5-10`
+- admin 可调
+
+#### 风险 R4：spike 数据目录在 `/tmp`
+
+`/tmp` 重启会丢，OpenViking workspace 与 collection 全没。仅适合 spike，不要进 INSTALL 推荐路径。Phase 1 默认走 `$CODEASK_DATA_DIR/openviking/workspace/`。
+
+### 10.6 Phase 0 退出条件复核
+
+| §8 条件 | 状态 | 说明 |
+|---|---|---|
+| §3 命令稳定复现 | ✅ | install.sh / uvx / ov.conf / `--with socksio` 全部记录 |
+| §4 三 fixture wiki 至少各 1 份成功导入 | ⚠️ | opencode 异步入队 success（task_id 返回）；anything-llm / openviking 未尝试。**完整索引未在 spike 时间窗内完成**。**关键事实：链路证明通**，批量耗时是 CPU 推理速度问题，不是路径不通 |
+| §4 临时 verified 报告 | 🚫 | 本次 spike 范围调整，不生成 |
+| §4 真实代码仓 ≥ 1 | 🚫 | 用户决定 Phase 0 不导代码仓 |
+| §5 工具 happy path | 部分 ✅ | `find / ls / health / add-resource` 通；`search / grep / glob / read（批量 URI）/ remember` 未跑 |
+| §6 opencode + OpenViking MCP 协同 | 🚫 | 未跑 |
+| §6.3 双 MCP 共存 | 🚫 | 未跑 |
+| §7 召回基线 5 query × 1 模型 | 🚫 | 因 fixture 未全量索引，未跑 |
+| §10 实验记录完整 | ✅ | 见本节 + bootstrap spec |
+
+**判定**：核心可行性 spike 完成（链路全通、关键故障模式已识别、性能边界已量化）；"完整召回基线" 推到 Phase 1 与 Phase 2，配合真实 CodeAsk Sync Adapter 后再做。
+
+### 10.7 给 Phase 1 的硬性输入
+
+下列事实**已经成立**，Phase 1 实现可以直接依赖：
+
+1. OpenViking 版本锁定 `0.3.17`
+2. embedding 默认 `bge-m3`（admin 可换；UI 切换 + 全量重建）
+3. embedding `max_concurrent` 默认 1（Ollama 场景）；接入云端时由 provider 决定
+4. `ov.conf` 模板照本文档 §4.2，但删除 `enable_memory_decay`，加 `embedding.max_concurrent`
+5. Ollama 进程**不**归 CodeAsk 管理；CodeAsk 启动前调 `/api/tags` 探测当前激活模型可用性
+6. OpenViking server **必须**带 socksio 启动（uvx `--with socksio` 或 venv `pip install httpx[socks]`）
+7. workspace 永久路径 `$CODEASK_DATA_DIR/openviking/workspace/`
+8. 切换 embedding 模型时需清空 vectordb collection 并重建（维度变化时尤其必要）
+9. import 全程异步：CLI 提交立刻返回 `task_id`，后端用 `ov task status <task_id>` 跟踪
+10. 子进程**不** unset proxy（CodeAsk `process.py` 不能写死 unset）；用户环境的代理边界由 socksio + `NO_PROXY` 自然处理
 
 ---
 
