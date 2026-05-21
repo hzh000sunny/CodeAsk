@@ -39,6 +39,30 @@
 - [ ] `src/codeask/rag/openviking/` 模块全部就位
 - [ ] alembic head 包含 `openviking_sync_jobs`
 - [ ] OpenViking server startup / keepalive / shutdown 行为符合 SDD §5
+- [ ] `openviking_embedding_settings` 表存在；首次启动时按 settings 默认值填入一行
+- [ ] `openviking_dashboard_events` 表存在；启动 sweep / hook / sweep / 模型切换全部写入对应 event_type
+- [ ] admin 设置页可见 OpenViking 仪表盘三个核心卡片：Health / SyncJobs / EventStream
+- [ ] admin 切换 embedding 模型 → 写入新行 + previous_setting_id + 重新生成 ov.conf + 重启 server + 触发全量重建
+- [ ] 切换期间召回质量下降但 opencode 会话不中断；重建完成后召回恢复
+- [ ] 切换、重建、失败、回退都写审计日志
+- [ ] sync_jobs.progress 由 `progress_sweep` 任务每 5 s 自动更新；admin 卡片显示进度条 + ETA
+- [ ] kill OpenViking server 后重启：admin 仪表盘自动出现 `openviking_restart_detected` 事件，sync_jobs 进度从中断点续传，不重置
+- [ ] kill Ollama 后重启：仪表盘出现 `ollama_recovery` 事件，sync_jobs 在 1–2 分钟内追上
+- [ ] 编辑 Wiki / 新增 verified 报告 / 仓库同步完成 → 仪表盘事件流出现对应 `wiki_doc_changed` / `report_status_changed` / `repo_synced` 事件
+- [ ] 24h scheduled_refresh 触发后产生 `scheduled_refresh_summary` 事件
+- [ ] admin 手动触发"单源重同步 / 全量重建 / 失败重试"三个动作走通；事件流出现 `manual_resync` / `manual_retry` 事件
+- [ ] events 接口分页可用；每 event_type 保留策略生效（默认 2000 条）
+- [ ] events 接口返回不泄露宿主机绝对路径（沿用 v1.0.4 出口脱敏）
+- [ ] 会话页 Agent 行动轨迹只显示 opencode 调 OpenViking MCP 的工具事件，不显示后台同步事件
+- [ ] `openviking_tuning_settings` 表存在；首次启动按主机识别结果填入推荐预设的默认值
+- [ ] 仪表盘 OpenVikingTuningCard 显示三个 scope 的当前值、推荐值、回滚按钮
+- [ ] admin 改 `openviking.embedding.max_concurrent` → 写 DB → 重写 ov.conf → restart OpenViking → ~30 s 服务中断 → 仪表盘 metrics 卡片自然刷新到改后数据
+- [ ] admin 改 `codeask.sync_workers` → 秒级生效；不重启 OpenViking
+- [ ] 改任一参数后事件流出现一条 `tuning_change` 事件，含 scope / key / value_before / value_after / notes / triggered_by
+- [ ] 回滚动作正确恢复上一版值；事件流出现 `tuning_change` outcome=info notes="rollback"
+- [ ] 一次应用推荐预设 → 多个参数一次性改完；不影响 ollama_recommend
+- [ ] Ollama systemd snippet 接口返回正确的 NUM_PARALLEL / NUM_THREAD；admin 自己改 systemd 并 restart 后，CodeAsk 探测出 NUM_PARALLEL 实际生效，事件流 `ollama_settings_verified` outcome=success
+- [ ] 极端值（如 max_concurrent=10000）被后端 schema 拒绝；事件 outcome=error；不应用
 - [ ] Wiki / 报告 / 仓库变更 hook 全部接入；启动 sweep 行为正确
 - [ ] 失败重试与 cancelled 转换符合 SDD §9
 - [ ] admin 诊断接口与卡片可读

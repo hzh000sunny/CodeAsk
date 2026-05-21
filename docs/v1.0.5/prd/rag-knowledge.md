@@ -91,6 +91,7 @@ CodeAsk 持久化 turn + 行动轨迹（含 OpenViking 工具事件）
 | 会话级隔离不变 | OpenViking session_id 不直接复用 CodeAsk session_id；MCP 调用通过会话级 bearer token 校验，沿用 v1.0.4 `mcp/auth.py` 模式 |
 | 审计完整 | OpenViking 工具调用、CodeAsk 同步任务、permission 拒绝、错误事件都进入审计 |
 | 增量同步 | Wiki / 报告 / 仓库变更后通过同步状态表追踪；失败有重试上限和 cooldown |
+| 仪表盘可见性 | 详见 §11；admin 必须能看到 OpenViking 的所有后台活动（首次索引、增量更新、模型切换、错误重试、进程重启恢复），不允许"后端在做事但 UI 没显示" |
 
 ---
 
@@ -179,11 +180,28 @@ v1.0.5 在 CodeAsk 现有 LLM 配置体系之外引入 embedding 配置：
 | 配置项 | 来源 | 是否暴露给用户 |
 |---|---|---|
 | OpenViking server URL / token | CodeAsk 后端自动管理；admin 可在诊断面板查看状态 | 否 |
-| Embedding provider | 第一版固定 `ollama`；模型由全局 settings 配置 | 暂不暴露在普通用户视图；admin 可在 settings 调整 |
+| Embedding provider | 第一版固定 `ollama`；后续可扩展为多 provider | 暂不暴露给普通用户；admin 可见 |
+| Embedding 模型 | **admin 可见、可在设置页切换** | 是（admin UI） |
 | VLM | 第一版默认不启用 VLM；不依赖 VLM 的资源（Markdown、代码、文本报告）质量为主 | 否 |
-| Ollama URL / 模型 tag | `OPENVIKING_EMBED_OLLAMA_BASE_URL` / `OPENVIKING_EMBED_MODEL` 等环境变量；admin 可读 | 否 |
+| Ollama URL | settings 默认 `http://127.0.0.1:11434`；admin 可读 | 否 |
 
 `ov.conf` 由 CodeAsk 后端生成，落在 `$CODEASK_DATA_DIR/openviking/ov.conf`，不使用 `~/.openviking`。
+
+### 7.1 Embedding 模型管理
+
+v1.0.5 把 embedding 模型当作"运行时可切换的 admin 配置"，不是一次性写死的环境变量：
+
+- admin 设置页提供 embedding 模型选择控件，下拉列出当前 Ollama 实例 `/api/tags` 中可用的模型
+- admin 可输入自定义模型 tag（即使尚未拉取，下次同步任务执行时如果 Ollama 拉到了就生效）
+- 切换模型 = 标记所有 `openviking_sync_jobs` 为 `pending` 并清空 OpenViking 当前向量索引 → 重新同步（v1.0.5 第一版采用全量重建；增量切换留给后续优化）
+- 切换记录写审计：旧模型 / 新模型 / 触发时间 / 触发用户 / 重建预估时间
+- 切换期间 opencode 会话仍可用，但召回质量在重建完成前会偏低；admin 面板需要可见进度
+- 默认模型由 settings 决定，但 settings 只是初始值；DB 中的 admin 配置一旦设置就以 DB 为准
+
+为什么放在 admin UI 而不是只暴露环境变量：
+
+- embedding 模型直接影响召回质量；不同语言 / 不同领域的最佳模型不一样，应该让 admin 在生产中可对比、可切换
+- 切换需要触发后台全量重建，必须有审计与可见进度，纯环境变量做不到
 
 ---
 
@@ -239,7 +257,136 @@ v1.0.5 在 CodeAsk 现有 LLM 配置体系之外引入 embedding 配置：
 
 ---
 
-## §10 文档维护
+## §10 仪表盘可观察性承诺
+
+v1.0.5 把 OpenViking 集成做成"admin 知道它在做什么"的一等公民功能，不是单纯的诊断接口。理由：
+
+- 索引是长耗时操作（CPU 上一个代码仓可能数小时），admin 必须能看到进度、ETA 和瓶颈，不能只见"成功 / 失败"
+- 增量同步是被多类事件触发的（Wiki 改 / 报告验证 / 仓库 push / 模型切换 / 启动 sweep）；只展示状态不展示触发源，admin 没法判断"为什么后台在跑"
+- OpenViking / Ollama 都是独立进程，可能崩溃、重启、版本不一致；admin 必须能立刻看到恢复进度
+
+### 10.1 admin 仪表盘必须展示
+
+| 板块 | 内容 |
+|---|---|
+| 进程健康 | OpenViking running/pid/port/uptime/version；Ollama reachable/loaded model/`NUM_PARALLEL` 当前值 |
+| 存储概览 | OpenViking workspace 总向量数、总文档数、磁盘占用 |
+| 当前 embedding 配置 | provider/model/dimension/max_concurrent/activated_at；切换历史 |
+| 进行中任务 | 每个 task：源对象、已完成 chunk / 总 chunk、failure 数、吞吐 chunk/s、ETA |
+| 等待中任务 | pending 队列长度 |
+| 失败任务 | failed / cancelled 列表、错误原因、手动重试入口 |
+| 事件流 | 最近 N 条事件（同步触发、模型切换、Ollama 重启检测、circuit breaker 跳闸、recovery、完成事件等） |
+| 性能指标 | 最近 5 分钟：throughput、avg embed latency、circuit breaker trips |
+| 手动操作 | 单源重新同步、全量重建、清空 + 重建（带确认弹窗） |
+
+### 10.2 触发同步的事件源（仪表盘事件流必须能展示）
+
+| 事件 | 触发点 |
+|---|---|
+| `wiki_doc_changed` | Wiki 节点 create/update/publish/move/rename/delete |
+| `report_verified` | 问题报告 verify 状态变化 |
+| `report_unverified` / `report_deleted` | 同上 |
+| `repo_synced` | 仓库 ready/refresh 完成 |
+| `feature_changed` | 特性创建/重命名/归档 |
+| `scheduled_refresh` | APScheduler 定时增量 sweep |
+| `embedding_model_switched` | admin UI 切换 model |
+| `manual_resync` | admin 手动触发单源 / 全量 |
+| `startup_sweep` | CodeAsk 启动时对齐缺失对象 |
+| `openviking_restart_detected` | OpenViking server 重启后队列恢复 |
+| `ollama_recovery` | Ollama 重启后 OpenViking 重新连通 |
+
+每条事件至少携带：`event_type / source_object_id / source_type / triggered_by / triggered_at / outcome`。
+
+### 10.3 不在第一版要求的
+
+- 实时 WebSocket 推送（v1.0.5 用 polling，2–5 s 间隔；后续优化）
+- Prometheus / 外部 metrics 导出（OpenViking 自己提供 `/metrics`，CodeAsk 仪表盘第一版不接）
+- 历史趋势图表（折线 / 热力图等）
+- 跨多 OpenViking 实例聚合
+
+### 10.4 参数调优闭环
+
+仪表盘不只是"看"，还要能调。admin 在不熟悉部署环境时，必须能通过观察指标动态调整参数，而不是只能在 settings.py 改完重启全栈。
+
+调优闭环：
+
+```text
+admin 进入仪表盘
+  ↓
+观察当前指标（throughput / avg embed latency / ETA / circuit breaker trips）
+  ↓
+判断瓶颈，调整参数（OpenViking max_concurrent / Ollama NUM_PARALLEL / ...）
+  ↓
+系统自动 restart 相应进程（OpenViking 30 s，Ollama 由 admin 在 shell 跑）
+  ↓
+仪表盘 metrics 卡片自然刷新到新数据（5 分钟滚动窗口）
+  ↓
+admin 自己判断是否改善；不满意 → 回滚 / 再调
+```
+
+**只展示当前事实数据，不做改前改后自动对比。** 理由：
+
+- 系统强行算 delta 可能误导：可能改善真的来自这次调整，也可能来自外部因素（其它 sync 任务完成、Ollama 模型从冷启动转热等）；admin 自己心里判断更准
+- 减少实现复杂度（没有 sleep + 异步 snapshot + 配对事件渲染）
+- 减少前端复杂度（事件流就是单条事件按时间倒序，不需要"成对渲染"逻辑）
+
+历史变更走 `GET /api/admin/openviking/tuning/history` 拉，admin 想看趋势就翻历史。
+
+### 10.5 可调参数清单
+
+#### 10.5.1 OpenViking 端（CodeAsk admin UI 直接管理）
+
+| 参数 | 含义 | 调整时机 |
+|---|---|---|
+| `embedding.max_concurrent` | OpenViking 客户端 asyncio.Semaphore 上限 | embedding 是 CPU/GPU/远程网关时各不同；spike 实测 CPU=1，GPU=2-4，云端=5-10 |
+| `embedding.circuit_breaker.failure_threshold` | 连续失败多少次跳闸 | 默认 5；网络抖动多可调大 |
+| `embedding.circuit_breaker.reset_timeout` | 半开重试间隔（秒） | 默认 60；Ollama 频繁卡顿可调小 |
+| `embedding.max_retries` | 单 chunk embed 最大重试次数 | 默认 3 |
+| `embedding.max_input_tokens` | 单 chunk 输入上限 | 默认 4096；大型代码文件可调大避免切碎 |
+
+改完 → 写 DB → 重写 ov.conf → restart OpenViking → 不重建已有索引 → ~30 s 服务中断。
+
+#### 10.5.2 Ollama 端（CodeAsk 提供建议，admin 自己改 systemd）
+
+| 参数 | 含义 | 推荐值 |
+|---|---|---|
+| `OLLAMA_NUM_PARALLEL` | Ollama 同时处理几个 embed 请求 | 见 10.5.4 推荐表 |
+| `OLLAMA_NUM_THREAD` | 每次推理用几核做 BLAS | 见 10.5.4 推荐表 |
+
+第一版 admin UI 提供"复制 systemd snippet"按钮 + 给出 `systemctl edit ollama && systemctl restart ollama` 命令，**不**替 admin 跑 sudo。CodeAsk 进程不需要 root 权限。
+
+#### 10.5.3 CodeAsk 端（settings + 内存）
+
+| 参数 | 含义 | 调整时机 |
+|---|---|---|
+| `openviking_sync_workers` | CodeAsk 同步引擎并发 worker 数 | 影响多个 sync_jobs 是否并发派发到 OpenViking |
+| `openviking_progress_sweep_interval_seconds` | 进度轮询间隔 | 默认 5；任务多可调大降低 OpenViking 负载 |
+| `openviking_scheduled_refresh_hours` | 全量 hash 比对周期 | 默认 24 |
+
+CodeAsk 端参数调整是轻量的（restart sync scheduler，不动 OpenViking），秒级生效。
+
+#### 10.5.4 部署规格推荐表
+
+| 主机规格 | OpenViking max_concurrent | Ollama NUM_PARALLEL | Ollama NUM_THREAD | CodeAsk sync_workers |
+|---|---|---|---|---|
+| 笔记本 / 小机（4–8 核 CPU） | 1 | 1 | auto | 2 |
+| 单 socket 服务器（16–32 核 CPU） | 2 | 2 | 16 | 2 |
+| 中型服务器（32–64 核 CPU） | 4 | 4 | 16 | 3 |
+| 多 socket 大机（64–128 核 CPU） | 8 | 8 | 16，绑 NUMA | 4 |
+| 单 GPU 主机 | 4 | 4 | auto | 3 |
+| 云端 embedding 网关（OpenAI / 火山 / DashScope） | 8 | n/a | n/a | 4 |
+
+仪表盘"调优面板"会把当前规格自动识别（CPU 核数 + GPU 检测 + provider）+ 推荐值预填，admin 可手动覆盖。
+
+### 10.6 与其它仪表盘的关系
+
+- v1.0.4 已有 admin opencode 状态卡片；OpenViking 仪表盘**独立**放置，不嵌入 opencode 卡片
+- 会话页 Agent 行动轨迹只展示 opencode 调 OpenViking MCP 的工具事件（`find/search/read/grep/glob`）；**不**展示后台同步事件，避免污染会话视图
+- 同步事件只在 admin 仪表盘可见
+
+---
+
+## §11 文档维护
 
 本文档是 v1.0.5 产品契约。
 

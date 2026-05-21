@@ -74,23 +74,34 @@ v1.0.5/
 │   ├── phase-2-opencode-integration.md    # Phase 2 opencode 主链路接入计划（框架）
 │   └── acceptance-checklist.md            # 多环境 E2E 与收口验收清单
 └── specs/
-    └── openviking-agpl-review.md          # OpenViking 集成边界声明（许可证承诺记录）
+    ├── openviking-agpl-review.md          # OpenViking 集成边界声明（许可证承诺记录）
+    ├── ollama-installation.md             # Ollama 安装实测记录（Phase 0）
+    └── openviking-server-bootstrap.md     # OpenViking server 首次启动实测记录（Phase 0）
 ```
 
 ## 推荐阅读顺序
 
 1. `prd/rag-knowledge.md` —— 产品契约
-3. `design/openviking-integration.md` —— 系统设计
-4. `plans/phase-0-spike.md` —— Phase 0 spike 详细计划
-5. `plans/phase-1-sync-adapter.md`
-6. `plans/phase-2-opencode-integration.md`
-7. `plans/acceptance-checklist.md`
-8. `../future/rag-knowledge-pipeline.md` —— 设计前史
-9. `../future/openviking-rag-research-2026-05-20.md` —— 早期实测调研
+2. `design/openviking-integration.md` —— 系统设计
+3. `plans/phase-0-spike.md` —— Phase 0 spike 详细计划
+4. `specs/ollama-installation.md` —— Ollama 安装实测记录
+5. `specs/openviking-server-bootstrap.md` —— OpenViking server 首次启动实测记录
+6. `plans/phase-1-sync-adapter.md`
+7. `plans/phase-2-opencode-integration.md`
+8. `plans/acceptance-checklist.md`
+9. `../future/rag-knowledge-pipeline.md` —— 设计前史
+10. `../future/openviking-rag-research-2026-05-20.md` —— 早期实测调研
 
 ## 当前实施进度
 
-截至 2026-05-20，本版本仍处于 Draft：尚未启动 Phase 0 spike。OpenViking 集成边界已声明（不修改源码、不内嵌源码、不规划 SaaS），无许可证前置门槛。
+- 2026-05-20：v1.0.5 文档骨架建立；OpenViking 集成边界已声明（不修改源码、不内嵌源码、不规划 SaaS），无许可证前置门槛。
+- 2026-05-20：Phase 0 spike 启动；本机 Ollama 0.24.0 + OpenViking 0.3.17 + MCP 10 tools 全部验证通过；实测记录见 `specs/ollama-installation.md` 与 `specs/openviking-server-bootstrap.md`。
+- 2026-05-21：embedding 模型选定 `bge-m3`（中文 wiki 优先，admin UI 可切换；PRD §7.1、SDD §3.3 已补）。
+- 2026-05-21：发现 CPU 上 Ollama embedding 并发雪崩（默认 max_concurrent=10 → 单 chunk 88s），收敛为 `max_concurrent=1` 顺序处理，单 chunk 稳定 ~3s。
+- 2026-05-21：Phase 0 收口。核心链路全通（Ollama / OpenViking / MCP / Embedding / 中文 find / 批量异步 import 入队）；CPU 性能瓶颈量化为已知约束写入 SDD；完整召回基线推到 Phase 2 live E2E。详见 `plans/phase-0-spike.md` §10。
+- 2026-05-21：补 admin 仪表盘契约。PRD §10、SDD §13、Phase 1 §7 全部完成。约定："admin 必须能看到 OpenViking 的所有后台活动"，含首次索引 / 增量更新 / 模型切换 / 进程重启恢复 / 错误重试。新增 `openviking_dashboard_events` 表与三个前端组件（Health / SyncJobs / EventStream）。
+- 2026-05-21：补调优面板。约定："admin 必须能通过仪表盘动态调参 + 看当前指标"。PRD §10.4–§10.5 定义调优闭环与可调参数清单（OpenViking + Ollama + CodeAsk 三层），含部署规格推荐表。SDD §3.4 新增 `OpenVikingTuningSetting` 表；§13.6 定义调优面板组件。**只展示当前事实指标，不做改前改后自动对比**——避免误把外部因素归因到 admin 调参，也减少实现复杂度。Phase 1 §7.1.4 加 7 个 tuning API。Ollama 参数由 CodeAsk 给推荐 + 复制 systemd snippet，不替 admin 跑 sudo；CodeAsk 探测实际生效。
+- 下一步：进入 Phase 1（OpenViking Sync Adapter）实现阶段。
 
 ## 引用
 
