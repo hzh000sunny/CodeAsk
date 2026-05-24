@@ -256,23 +256,20 @@ sudo groupdel ollama 2>/dev/null || true
 
 ---
 
-## 9. 进入 INSTALL.md 的建议（待 v1.0.5 收口后）
+## 9. 与 INSTALL.md 的分工（已收口）
 
-如果 v1.0.5 决定把 Ollama 接入作为正式可选依赖发布，可以从本文件抽出下列内容写入 `INSTALL.md`：
+v1.0.5 已决定把 Ollama 作为 RAG embedding 的默认（且当前唯一）provider，operator 安装指引已落入根目录 [`../../../INSTALL.md`](../../../INSTALL.md) 的"Ollama 与 RAG embedding（v1.0.5）"段，对应的产品契约见 [`../prd/rag-knowledge.md`](../prd/rag-knowledge.md) §7.0。
 
-- §3.1 一行式安装命令（保留前置条件检查清单）
-- §4 安装后验证段落
-- §5 磁盘占用表（去掉 spike 临时数据）
-- §6 与 OpenViking 配置衔接
-- §8 已知风险（去掉 spike 专属）
+分工：
 
-不进 `INSTALL.md` 的：
+| 内容 | 落点 |
+|---|---|
+| 一行式安装命令、`ollama pull bge-m3`、`/api/tags` 验证、CodeAsk 探测行为承诺 | INSTALL.md |
+| Operator vs CodeAsk 生命周期边界、模型缺失时的 admin 仪表盘行为 | PRD §7.0 |
+| 本机首次安装的命令输出、磁盘分解、CUDA / Vulkan 处置、systemd 行为、卸载方式 | 本文件（spike 证据） |
+| OpenViking ov.conf 中 `embedding.dense` 与 `max_concurrent=1` 的配置细节 | [`./openviking-server-bootstrap.md`](./openviking-server-bootstrap.md) §4 / §6.3 |
 
-- §2 本机前置事实（开发者环境信息）
-- §3.2 / §4.1 实测输出（属于 spike 证据）
-- §7 卸载（可作为运维 FAQ 单独写）
-
-如果最终决定 Ollama 默认不启用（用户改用 OpenAI 兼容网关 embedding），本文件只保留为 spike 证据，不进 INSTALL.md。
+本文件保留为 Phase 0 实测档案，**不**复制 INSTALL.md 的指引；如果未来 Ollama 升级、`install.sh` 行为变化、或新增 provider，先更新 INSTALL.md / PRD §7.0，再把"实测差异"补到本文件 §10 决策记录。
 
 ---
 

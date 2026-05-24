@@ -36,7 +36,13 @@ v1.0.5 新增：
 - 把 CodeAsk Wiki / 问题报告 / 代码仓增量同步到 OpenViking `viking://resources/codeask/...`
 - opencode 同时挂 CodeAsk MCP 和 OpenViking remote MCP，会话动态上下文增加 OpenViking 资源布局提示
 - admin 设置页新增 OpenViking 仪表盘（健康卡 + 同步任务卡 + 事件流 + 调优面板）
-- Wiki 现有 FTS5 / n-gram 检索作为兜底保留，但不再是 opencode 主链路 RAG 入口
+- Wiki UI 搜索框改为 **OpenViking 优先 → SQL ILIKE 兜底**；Wiki 写路径（上传 / 发布 / 回滚 / Report verify）触发 OpenViking 增量同步；草稿与 unverified Report **不**入 OpenViking
+
+v1.0.5 废弃：
+
+- **整条 FTS5 / n-gram 索引链路**：删除 `wiki/search.py`、`wiki/indexer.py`、`wiki/tokenizer.py`；alembic drop `docs_fts` / `docs_ngram_fts` / `reports_fts` 三张虚表；`api/documents_compat.py` 的 `/search` 端点与 chunk-index 写入删除
+- **整条 `agent_backend=native` legacy 路径**：删除 `agent/orchestrator.py`、`agent/wiki_tools.py`、`agent/tools.py`、`agent/tool_schemas.py`、`agent/tool_delegates.py`、`agent/stages/`、`agent/chat_runtime/{runtime,loop,retrieval,prompt,compaction,tool_executor,tool_registry,tool_contracts}.py` 与 `agent/chat_runtime/tools/` 整目录；`chat_runtime/events.py` + `chat_runtime/context.py` 是 opencode_compat 与 api/sessions 共享类型层，保留；`settings.agent_backend` 收敛为 `Literal["opencode"]`
+- 保留 `wiki/native_search.py`（SQL ILIKE）作为 UI 搜索框的兜底；`wiki/chunker.py` 瘦身保留（仅 `NativeWikiSearchService` 抽 heading 用，不再依赖 tokenizer）
 
 v1.0.5 不做：
 
@@ -57,7 +63,7 @@ v1.0.5 不做：
 | AGPL 边界 | 边界承诺已记录，无前置门槛 | CodeAsk 不修改 OpenViking 源码、不内嵌源码、当前不规划 SaaS；详见 `specs/openviking-agpl-review.md` |
 | 数据目录 | `$CODEASK_DATA_DIR/openviking/{ov.conf,workspace,models,logs}` | 不使用用户默认 `~/.openviking` |
 | 处理参考 | anything-llm | chunk header、vector cache、sync queue、source dedup、worker SSE 进度等模式 |
-| 退化策略 | OpenViking 不可用时返回明确错误，不静默回退 | 与 v1.0.4 opencode 不可用同样的失败语义 |
+| 退化策略 | **graceful degradation**：OpenViking 不可用时，Wiki UI 搜索框走 SQL ILIKE 兜底，opencode 会话走 native `read/grep/glob` 在 `workspace/wiki/` symlink 上检索；admin 仪表盘标 degraded，但用户路径保持可用、不弹窗中断 | OpenViking 是 v1.0.5 的**增强**而不是 hard dependency |
 
 ## 目录结构
 
@@ -101,7 +107,8 @@ v1.0.5/
 - 2026-05-21：Phase 0 收口。核心链路全通（Ollama / OpenViking / MCP / Embedding / 中文 find / 批量异步 import 入队）；CPU 性能瓶颈量化为已知约束写入 SDD；完整召回基线推到 Phase 2 live E2E。详见 `plans/phase-0-spike.md` §10。
 - 2026-05-21：补 admin 仪表盘契约。PRD §10、SDD §13、Phase 1 §7 全部完成。约定："admin 必须能看到 OpenViking 的所有后台活动"，含首次索引 / 增量更新 / 模型切换 / 进程重启恢复 / 错误重试。新增 `openviking_dashboard_events` 表与三个前端组件（Health / SyncJobs / EventStream）。
 - 2026-05-21：补调优面板。约定："admin 必须能通过仪表盘动态调参 + 看当前指标"。PRD §10.4–§10.5 定义调优闭环与可调参数清单（OpenViking + Ollama + CodeAsk 三层），含部署规格推荐表。SDD §3.4 新增 `OpenVikingTuningSetting` 表；§13.6 定义调优面板组件。**只展示当前事实指标，不做改前改后自动对比**——避免误把外部因素归因到 admin 调参，也减少实现复杂度。Phase 1 §7.1.4 加 7 个 tuning API。Ollama 参数由 CodeAsk 给推荐 + 复制 systemd snippet，不替 admin 跑 sudo；CodeAsk 探测实际生效。
-- 下一步：进入 Phase 1（OpenViking Sync Adapter）实现阶段。
+- 2026-05-24：v1.0.5 范围扩展 & 决策反转。Review 发现 v1.0.4 实际存在 FTS5 索引漂移、`agent_backend=native` legacy 路径未启用、Wiki UI 搜索框走 SQL ILIKE 不走 FTS5。本次定调：(1) **OpenViking 是增强、不是 hard dep**——不可用时 Wiki UI 走 SQL ILIKE 兜底，opencode 走 native `read/grep/glob`，admin 仪表盘标 degraded 但用户路径不弹窗中断；(2) **Wiki 写路径全部 hook OpenViking 增量同步**（上传 / publish / rollback / Report verify），草稿与 unverified Report 不入；(3) **一次性清除 FTS5 链路 + native backend 整条路径**：删 `wiki/{search,indexer,tokenizer}.py` + `agent/{orchestrator,wiki_tools,tools,stages,chat_runtime non-shared}` + 三张 FTS5 虚表；保留 `wiki/native_search.py` 作为 UI 兜底，保留 `chat_runtime/{events,context}.py` 共享类型层；`settings.agent_backend` 收敛为 `Literal["opencode"]`。前端零改动。详见 PRD §3 / §8 / §9，SDD §1.2 / §1.3 / §1.5 / §6.2 / §6.3 / §9，Phase 1 §1 / §3 / §9。
+- 下一步：进入 Phase 1（OpenViking Sync Adapter + 兜底改写 + FTS5/native 清理）实现阶段。
 
 ## 引用
 

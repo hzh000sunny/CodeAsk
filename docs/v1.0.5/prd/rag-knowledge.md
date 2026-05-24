@@ -26,10 +26,12 @@ opencode 与 CodeAsk 的关系不变：opencode 是 Agent 执行引擎，CodeAsk
 
 | | v1.0.4 | v1.0.5 |
 |---|---|---|
-| Wiki 检索 | 静态 FTS5 / n-gram + `workspace/wiki` 文件零复制 | 加入 OpenViking 语义检索；`workspace/wiki` 文件挂载保留作为兜底 |
-| 报告检索 | 文件 `glob/grep ./wiki/<feature>/problem-reports/` | 同上 + OpenViking 召回；verified/draft 权重在动态上下文中明确 |
-| 代码仓检索 | 用户显式指定仓库 → `prepare_worktree` → opencode 原生 grep/read | OpenViking 先召回候选 repo / 路径 / 符号 → opencode 主动调用 CodeAsk `prepare_worktree` → 真实源码读取 |
-| 后端 | opencode + CodeAsk MCP | opencode + CodeAsk MCP + OpenViking MCP |
+| opencode 会话内 Wiki 检索 | `workspace/wiki` 零复制 symlink；opencode 用 native `read/grep/glob` 直接读 Markdown | 同上 **+ OpenViking 语义召回作为增强**；OpenViking 不可用时退回 v1.0.4 行为 |
+| 浏览器 Wiki UI 搜索框 | `/api/wiki/search` 走 `NativeWikiSearchService` (SQL `ILIKE`)；另有 legacy `/api/documents/search` 走 FTS5（前端不调用） | `/api/wiki/search` 改为 **OpenViking 优先 → SQL `ILIKE` 兜底**；OpenViking 0 命中或不可用即回退 |
+| 报告检索 | 文件 `glob/grep ./wiki/<feature>/problem-reports/` + legacy FTS5 `reports_fts`（前端不调用） | 同 v1.0.4 文件路径 + OpenViking 召回；**仅 verified report 入 OpenViking**，unverified / draft 不入 |
+| 代码仓检索 | 用户显式指定仓库 → `prepare_worktree` → opencode 原生 grep/read | OpenViking 先召回候选 repo / 路径 / 符号 → opencode 主动调用 CodeAsk `prepare_worktree` → 真实源码读取；OpenViking 不可用时退回 v1.0.4 显式指定流程 |
+| 后端 | opencode + CodeAsk MCP；存在 legacy `agent_backend=native` 路径（默认未启用，含 FTS5 工具） | **删除整条 native 路径**，`agent_backend` 收敛为 `Literal["opencode"]`；opencode + CodeAsk MCP + OpenViking MCP（OpenViking 是会话内语义检索的唯一入口；CodeAsk MCP 不暴露 FTS / 向量工具） |
+| FTS5 / n-gram 索引 | 三张虚表 + `WikiIndexer` + `WikiSearchService`，仅 legacy 上传路径写入；UI 不调；编辑发布后不重建（drift） | **完全废弃**：alembic drop 三张虚表；删除 `wiki/{search,indexer,tokenizer}.py`；`api/documents_compat.py` `/search` 端点删除，上传路径不再 chunk |
 
 ### 2.2 用户体验承诺
 
@@ -45,26 +47,64 @@ Maintainer 和 Asker 角色不变。RAG 的引入对用户的可见变化：
 
 ## §3 主链路
 
+v1.0.5 有两条独立链路同时切换：opencode 会话内的 Agent 召回，和浏览器 Wiki UI 的搜索框。
+
+### 3.1 opencode 会话 RAG
+
 ```text
 用户在 opencode 会话中描述问题
   ↓
 CodeAsk 组装动态上下文（沿用 v1.0.4）
-  + 新增 OpenViking 资源布局提示
+  + 新增 OpenViking 资源布局提示（仅 OpenViking 可用时注入）
   + 新增 RAG 使用原则（语义先于精确，verified 强于 draft）
   ↓
 opencode 自主选择工具
-  ├─ 知识候选：OpenViking find/search/read
-  ├─ 精确文本：OpenViking grep/glob 或 opencode 原生 grep
+  ├─ OpenViking 可用：知识候选用 OpenViking find/search/read；精确文本可用 OpenViking grep/glob 或 opencode 原生 grep
+  ├─ OpenViking 不可用：opencode 用 native read/grep/glob 在 workspace/wiki/ symlink 上检索（v1.0.4 行为）
   ├─ 代码证据：必须先 codeask_prepare_worktree → opencode read/grep workspace 相对路径
   ├─ 会话动作：CodeAsk MCP (bind features / attachments / worktree)
   └─ 知识库写操作：仅通过 CodeAsk 现有 UI / API，不通过 MCP 暴露给模型
   ↓
 opencode 给出带证据的回答
   ↓
-CodeAsk 持久化 turn + 行动轨迹（含 OpenViking 工具事件）
+CodeAsk 持久化 turn + 行动轨迹（含 OpenViking 工具事件，若有）
   ↓
-（可选）生成问题报告 → 审核 → 入库 → 触发 OpenViking 增量同步
+（可选）生成问题报告 → 审核 → verified 后触发 OpenViking 增量同步（unverified 不入）
 ```
+
+### 3.2 浏览器 Wiki UI 搜索框
+
+```text
+用户在 Wiki 页面搜索框输入 q
+  ↓
+前端 GET /api/wiki/search?q=...&feature_id=...&current_feature_id=...
+  ↓
+后端 try {
+  if (openviking.is_healthy()) {
+    hits = openviking.find_or_search(q, scope="viking://resources/codeask/", filter=feature_uri)
+    if (hits.length > 0) return hits  ← OpenViking 命中
+  }
+} catch (OpenVikingError) { /* fall through */ }
+  ↓
+兜底：NativeWikiSearchService SQL ILIKE 全表扫描（v1.0.4 行为）
+  ↓
+统一分组（current_feature / other_current_features / history_features / current_feature_reports）返回前端
+```
+
+OpenViking 与 SQL ILIKE 两条路径的结果**不混合排序**：要么全部来自 OpenViking，要么全部来自 ILIKE 兜底。前端不区分来源（UX 一致）。
+
+### 3.3 Wiki 写路径 → OpenViking 增量同步触发器
+
+| 写操作 | 触发 | 入队 sync_job |
+|---|---|---|
+| `POST /api/documents` 上传 Markdown / 文本 / PDF | LegacyWikiSyncService 写 `wiki_documents` 后 | ✅ `source_type=wiki_doc` |
+| `POST /api/wiki/documents/{node_id}/publish` | 新 version 写入 + `current_version_id` 更新后 | ✅ `source_type=wiki_doc` |
+| `POST /api/wiki/documents/{node_id}/rollback` | `current_version_id` 切换后 | ✅ `source_type=wiki_doc` |
+| `PUT /api/wiki/documents/{node_id}/draft` 草稿 | 写 `wiki_document_drafts` | ❌ **不入** OpenViking |
+| `DELETE /api/documents/{id}` 或 wiki node 软删 | `deleted_at` 标记后 | ✅ `tombstone=true`，删 viking://... 资源 |
+| Report verify endpoint：`verified=false → true` | Report 状态变更后 | ✅ `source_type=report` |
+| Report verify endpoint：`verified=true → false`（反转） | Report 状态变更后 | ✅ `tombstone=true` |
+| Report `verified=false` / draft 状态下任何编辑 | — | ❌ **不入** OpenViking |
 
 ---
 
@@ -87,7 +127,7 @@ CodeAsk 持久化 turn + 行动轨迹（含 OpenViking 工具事件）
 | 资源映射稳定 | `viking://resources/codeask/features/<feature_slug>/...` 是稳定契约；slug 重命名需要走 CodeAsk 主数据，并触发同步 |
 | verified 强于 draft | 动态上下文中明确告诉模型：verified 报告才能作为强证据；draft 只作为弱背景 |
 | 代码证据走 worktree | OpenViking 返回 repo/path/symbol 候选只是"可能在哪里"；最终代码证据必须来自 CodeAsk `prepare_worktree` 准备的 session worktree |
-| OpenViking 不可用时明确报错 | 与 v1.0.4 opencode 不可用同等失败语义；不静默回退到旧 FTS5 链路 |
+| OpenViking 是增强、不是 hard dep | OpenViking 不可用时 graceful degradation：Wiki UI 搜索框退回 SQL ILIKE 兜底；opencode 会话退回 native `read/grep/glob`；admin 仪表盘标 degraded 但用户路径保持可用，不弹窗中断（详见 §8） |
 | 会话级隔离不变 | OpenViking session_id 不直接复用 CodeAsk session_id；MCP 调用通过会话级 bearer token 校验，沿用 v1.0.4 `mcp/auth.py` 模式 |
 | 审计完整 | OpenViking 工具调用、CodeAsk 同步任务、permission 拒绝、错误事件都进入审计 |
 | 增量同步 | Wiki / 报告 / 仓库变更后通过同步状态表追踪；失败有重试上限和 cooldown |
@@ -187,6 +227,29 @@ v1.0.5 在 CodeAsk 现有 LLM 配置体系之外引入 embedding 配置：
 
 `ov.conf` 由 CodeAsk 后端生成，落在 `$CODEASK_DATA_DIR/openviking/ov.conf`，不使用 `~/.openviking`。
 
+### 7.0 Operator 前置职责
+
+v1.0.5 区分两类生命周期：
+
+| 组件 | 谁负责安装与启停 | CodeAsk 行为 |
+|---|---|---|
+| OpenViking server | **CodeAsk 后端** | 启动时自动拉起、keepalive 守护、admin 仪表盘可见 |
+| Ollama 进程 + embedding 模型 | **Operator（部署者）** | CodeAsk **只探测、不操作**；不会自动 `ollama pull`，不会改 Ollama systemd unit |
+
+Operator 在 CodeAsk 首次启动前必须完成：
+
+1. 安装 Ollama（默认走 `install.sh`，实测命令见 [`../specs/ollama-installation.md`](../specs/ollama-installation.md) §3）
+2. 拉取至少一个 embedding 模型（v1.0.5 默认 `bge-m3` ~1.2 GB；admin UI 切换前应保证目标模型已在 `/api/tags`）
+3. 保证 `http://127.0.0.1:11434/api/tags` 同机可达（默认 Ollama 即如此；跨机部署需要 operator 自行处理 `OLLAMA_HOST` 与防火墙）
+
+CodeAsk 启动时的探测行为（详见 [`../design/openviking-integration.md`](../design/openviking-integration.md) §9 错误矩阵）：
+
+- Ollama 不可达 → `embedding_unhealthy`，admin 仪表盘报错；OpenViking 同步任务退避
+- Ollama 可达但目标模型不在 `/api/tags` → `embedding_model_missing`，OpenViking server 不让空转（详见 [`../specs/openviking-server-bootstrap.md`](../specs/openviking-server-bootstrap.md) §6.4 circuit breaker 跳闸场景）
+- 任何情况下，CodeAsk 都**不会**自动执行 `ollama pull`、不会改 Ollama 配置；admin 在仪表盘看到模型缺失提示后，需要在主机上手动 `ollama pull <model>`
+
+INSTALL.md 的"Ollama 与 RAG embedding（v1.0.5）"段是给 operator 的安装清单；本节是其在产品契约中的对应承诺。
+
 ### 7.1 Embedding 模型管理
 
 v1.0.5 把 embedding 模型当作"运行时可切换的 admin 配置"，不是一次性写死的环境变量：
@@ -207,14 +270,23 @@ v1.0.5 把 embedding 模型当作"运行时可切换的 admin 配置"，不是�
 
 ## §8 失败语义
 
-| 场景 | 行为 | 用户可见 |
+总原则：**OpenViking 是增强功能，不可用时 graceful degrade，不阻断用户路径**。admin 仪表盘必须把降级状态显式标出，但不要用居中弹窗打断普通用户。
+
+| 场景 | 用户路径行为 | admin 仪表盘 |
 |---|---|---|
-| OpenViking server 未启动 / 启动失败 | 健康检查失败；不静默回退 | 居中弹窗：知识检索后端不可用，请检查 OpenViking 或 Ollama |
-| Ollama 不可用 | OpenViking embedding 失败；后台同步任务记录错误并退避 | 同上 |
-| OpenViking MCP 调用失败 | 该工具返回 error 给 opencode，模型自行处理 | 行动轨迹展示错误详情 |
-| 同步任务失败 | 状态机记录 `failed`，受 `maxRepeatFailures` 限制；admin 可手动重试 | admin 面板可见 |
-| 代码仓导入超阈值 | 通过 `--ignore-dirs / --include / --exclude` 配置；超时进入失败状态 | admin 可见任务状态 |
-| OpenViking 版本与已验证版本不一致 | 启动时记录 warning；admin 面板提示 | 管理员可见 |
+| OpenViking server 未启动 / 启动失败 | Wiki UI 搜索框走 SQL ILIKE 兜底；opencode 会话走 native `read/grep/glob` 在 `workspace/wiki/` symlink 上检索（v1.0.4 行为） | `degraded`，原因 `server_unavailable`，含最近 N 条启动错误 |
+| Ollama 不可用（`/api/tags` 超时 / 拒连） | OpenViking 后续 embedding 调用退避；已索引数据继续可查；用户路径同上兜底 | `embedding_unhealthy`；同步任务退避（不消耗 retry 配额） |
+| Ollama 可达但目标模型不在 `/api/tags` | 同上 | `embedding_model_missing`，提示 operator `ollama pull <model>` |
+| OpenViking MCP 调用单次失败 | 工具返回 error 给 opencode，模型自行回退到 native grep；不立刻判定 OpenViking 整体不可用 | 行动轨迹展示错误详情；事件流记录单次 MCP 失败 |
+| 同步任务失败 | 不影响用户路径（被同步内容尚未进入 OpenViking，但 SQL ILIKE 兜底覆盖） | 状态机记录 `failed`，受 `maxRepeatFailures` 限制；admin 可手动重试 |
+| 代码仓导入超阈值 | 同上 | 通过 `--ignore-dirs / --include / --exclude` 配置；超时进入失败状态 |
+| OpenViking 版本与已验证版本不一致 | 无影响 | warning |
+
+显式不弹窗的反例：opencode 调 OpenViking MCP 单次失败不弹窗（模型自己处理）；OpenViking 整体不可用不弹窗（用户走兜底）。仅当**用户行为依赖 admin 干预**（如长期 `embedding_model_missing` 导致同步队列堆积）才在 admin UI 内提示。
+
+### 8.1 OpenViking 0 命中时的 UI 搜索框兜底
+
+`/api/wiki/search` 在 OpenViking 健康且返回 0 命中时仍然回退 SQL ILIKE。理由：OpenViking 语义检索可能在词面查询上不命中（用户搜某个精确路径 / token），ILIKE 兜底能补这种 case。代价是少数情况下 OpenViking + ILIKE 对同一查询的结果集不一致；v1.0.5 不暴露"切换检索引擎"开关，前端不区分来源。如果 Phase 2 上线后发现 ILIKE 兜底召出大量噪声，再收紧为"仅 OpenViking 不可用才兜底"。
 
 ---
 
@@ -231,7 +303,10 @@ v1.0.5 把 embedding 模型当作"运行时可切换的 admin 配置"，不是�
 - [ ] 真实代码仓同步到 `viking://resources/codeask/repos/<slug>/` 并可被 `search` 命中
 - [ ] opencode 在同一会话同时使用 CodeAsk MCP 和 OpenViking MCP 不串
 - [ ] OpenViking 召回代码候选 → 模型调用 `codeask_prepare_worktree` → opencode 读取真实文件
-- [ ] OpenViking 不可用时，会话以明确错误结束，不静默回退到旧 FTS5 主链路
+- [ ] OpenViking 不可用时 graceful degrade：Wiki UI 搜索框命中走 SQL ILIKE 兜底；opencode 会话用 native `read/grep/glob`；admin 仪表盘显示 `degraded` 但不弹窗打断普通用户
+- [ ] Wiki 写路径全部 hook OpenViking：上传 / publish / rollback / Report verify 后 sync_job 入队（DB 可查）；草稿与 unverified Report **不**入队
+- [ ] `agent_backend=native` legacy 路径已删除：`grep -r "agent_backend.*native\|orchestrator\|wiki_tools" src/codeask/` 无残留
+- [ ] FTS5 / n-gram 已删除：`docs_fts` / `docs_ngram_fts` / `reports_fts` 虚表通过 alembic drop；`wiki/{search,indexer,tokenizer}.py` 与 `api/documents_compat.py:/search` 端点删除
 - [ ] 同步状态表能记录每条同步任务的 source / uri / status / hash / last_synced_at / error
 
 ### 9.2 非功能验收

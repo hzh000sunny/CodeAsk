@@ -20,28 +20,36 @@
 
 ## 1. 范围
 
-Phase 1 = 把 OpenViking 接入 CodeAsk 后端，但**不接入 opencode 主链路**。
+Phase 1 = 把 OpenViking 接入 CodeAsk 后端，把 Wiki UI 搜索框改成"OpenViking 优先 + ILIKE 兜底"，把 Wiki 写路径 hook 进 OpenViking 增量同步；**不接入 opencode 主链路**。同时一次性清理 FTS5 与 `agent_backend=native` legacy 代码。
 
 包含：
 
 - 新增 `src/codeask/rag/openviking/` 兼容模块（参考 SDD §1.1）
-- 新增 `openviking_sync_jobs` 表 + alembic migration
+- 新增 4 张表 + 一条 alembic migration（详见 §3）
+- 新增一条 alembic migration drop FTS5 三张虚表（详见 §3）
 - 启动 OpenViking server 进程管理 + keepalive
-- Wiki / 报告 / 仓库变更 hook 写入同步队列
+- Wiki 写路径 hook（PRD §3.3 触发器表 / SDD §6.2）：上传 / publish / rollback / Report verify / 软删 → enqueue
+- **草稿与 unverified Report 不入队**（SDD §6.3 过滤规则）
 - 同步引擎执行 add-resource / 索引追踪 / 失败重试
+- `/api/wiki/search` 改写为 **OpenViking 优先 + `NativeWikiSearchService` (SQL ILIKE) 兜底**（详见 §9）
+- 删除 FTS5 链路代码（详见 §9 第 11-14 步）
+- 删除 `agent_backend=native` legacy 路径（详见 §9 第 15-17 步）
 - admin 诊断接口 `GET /api/admin/openviking/status`
 - admin 设置页 OpenViking 仪表盘（详见 §7）
 - 后端单元 / 集成测试
 
 不包含：
 
-- 不在 opencode 会话注入 OpenViking 资源提示
-- 不在 `opencode.json` 加 OpenViking MCP
-- 不暴露 OpenViking 工具事件到前端行动轨迹
-- 不删除 / 替换 v1.0.4 Wiki FTS5 / native_search 实现
+- 不在 opencode 会话注入 OpenViking 资源提示（Phase 2）
+- 不在 `opencode.json` 加 OpenViking MCP（Phase 2）
+- 不暴露 OpenViking 工具事件到前端行动轨迹（Phase 2）
 - 不接入 Claude Code backend
 
-Phase 1 完成后，OpenViking 在 CodeAsk 后端可用，但用户会话仍使用 v1.0.4 的 file-based grep + workspace/wiki 兜底。Phase 2 才把 OpenViking 接入 opencode。
+Phase 1 完成后：
+
+- Wiki UI 搜索框：OpenViking 可用即语义优先，不可用即 ILIKE 兜底，前端零改动
+- opencode 会话：行为与 v1.0.4 相同（用 `workspace/wiki` symlink + native grep）；Phase 2 才注入 OpenViking
+- FTS5 索引、native chat_runtime 路径已从代码库完全清除
 
 ---
 
@@ -72,7 +80,9 @@ src/codeask/rag/openviking/
 
 ## 3. 数据库
 
-v1.0.5 新增 4 张表，全部在一个 alembic migration 文件里建：
+v1.0.5 新增 2 条 alembic migration，按顺序执行：
+
+### 3.1 新增 4 张表
 
 | 表 | schema 见 | 用途 |
 |---|---|---|
@@ -81,9 +91,29 @@ v1.0.5 新增 4 张表，全部在一个 alembic migration 文件里建：
 | `openviking_tuning_settings` | SDD §3.4 | append-only 调优记录 |
 | `openviking_dashboard_events` | SDD §13.1 | append-only 事件流 |
 
-- 新建 alembic migration：`alembic/versions/XXXX_openviking_v1_0_5.py`
-- 不修改任何现有表
-- 升级路径在临时数据库与真实数据备份上各跑一次（写入 acceptance-checklist）
+文件：`alembic/versions/XXXX_openviking_v1_0_5_tables.py`
+
+### 3.2 DROP FTS5 虚表
+
+```python
+def upgrade():
+    op.execute("DROP TABLE IF EXISTS docs_fts")
+    op.execute("DROP TABLE IF EXISTS docs_ngram_fts")
+    op.execute("DROP TABLE IF EXISTS reports_fts")
+
+def downgrade():
+    raise NotImplementedError("v1.0.5 不支持 downgrade 到 FTS5")
+```
+
+文件：`alembic/versions/YYYY_drop_fts5_tables.py`（在 3.1 之后）
+
+`document_chunks` 物理表暂留（含 legacy 上传文档历史，不再读写）；`documents` 表保留（仍由 `LegacyWikiSyncService` 用作上传桥接）。
+
+### 3.3 升级路径验证
+
+- 临时数据库跑一次（空库）
+- v1.0.4 数据备份跑一次（含真实 wiki / report 数据，验证 FTS5 drop 不破坏其它表）
+- 验证写入 acceptance-checklist
 
 ---
 
@@ -481,17 +511,44 @@ async def emit_event(session, *, event_type, source_type=None, source_id=None,
 
 ## 9. 实施顺序（建议工单切分）
 
+OpenViking 接入 + 仪表盘（步骤 1-11）：
+
 1. settings + alembic migration（4 张表：`openviking_sync_jobs` / `openviking_embedding_settings` / `openviking_tuning_settings` / `openviking_dashboard_events`）+ 空 module（编译通过）
 2. process + health（启停 + 探测 + Ollama `/api/tags` 模型列表，纯单元）
 3. client（HTTP + MCP 调用真实 server，集成）
 4. uri + sync（无 hook 触发，手动 enqueue 跑一次）
 5. `dashboard.emit_event` + sync_job 状态转移时调用
-6. hooks（接入 wiki / report / repo 变更点，含 emit_event）
+6. hooks（接入 wiki / report / repo 变更点，含 emit_event；按 SDD §6.2 触发器表 / §6.3 过滤规则——草稿与 unverified Report 不入队）
 7. APScheduler 任务（keepalive / sync / **progress_sweep** / scheduled_refresh / event_retention / metrics_5min_rollup）
 8. admin status API + sync_jobs API + events API + 手动操作 API
 9. **tuning API** + 主机识别 / 推荐预设算法 / Ollama 实测探测（不做 before/after snapshot）
 10. 前端：OpenVikingHealthCard + OpenVikingSyncJobsCard + OpenVikingEventStream + OpenVikingTuningCard（最小可用版本）
 11. 前端：OpenVikingMetricsCard（可后置到 Phase 2）
+
+Wiki UI 搜索框 OpenViking-first + ILIKE 兜底（步骤 12-13）：
+
+12. `api/wiki/search.py` 改写：OpenViking healthy 时调 `client.find_or_search(q, scope, filter=feature_uri, limit)`；失败（异常 / 不可达）或 0 命中即 fallthrough 到 `NativeWikiSearchService`；URI → feature_id 反查保留原 `_group_for_hit` 分组；前端零改动
+13. 集成测试：OpenViking 健康有命中 / OpenViking 健康 0 命中 / OpenViking 不可达 / OpenViking 异常——四种 case 验证兜底正确
+
+FTS5 链路清除（步骤 14-16）：
+
+14. 改写 `api/documents_compat.py`：`POST /documents` 上传逻辑移除 `DocumentChunker.chunk_file` + `WikiIndexer.index_chunk`；保留 `Document` 写入与 `LegacyWikiSyncService` 桥接；新增 enqueue OpenViking sync 调用；删除 `GET /documents/search` 端点
+15. 删除 `src/codeask/wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py`；瘦身 `wiki/chunker.py`（删 tokenizer import、删 `tokenized_text` / `ngram_text` 字段）；删除对应单元 / 集成测试 (`tests/integration/test_wiki_search.py`)
+16. alembic migration drop `docs_fts` / `docs_ngram_fts` / `reports_fts`（详见 §3.2）
+
+`agent_backend=native` legacy 路径清除（步骤 17-19）：
+
+17. `src/codeask/app.py` 删除 native wiring：`AgentWikiToolService` / `ToolRegistry` / `AgentOrchestrator` / `chat_tool_registry` / 各 `register_*_tools` 构造与注入；`scheduler` 中只剩 opencode_keepalive / opencode_session_idle_cleanup
+18. `src/codeask/sessions/messages.py:stream_agent_response` 删除 `if agent_backend != "opencode"` 分支；`api/sessions.py` 同理
+19. 删除文件：`agent/orchestrator.py` / `agent/wiki_tools.py` / `agent/tools.py` / `agent/tool_schemas.py` / `agent/tool_delegates.py` / `agent/stages/` 整目录 / `agent/chat_runtime/{runtime,loop,retrieval,prompt,compaction,tool_executor,tool_registry,tool_contracts}.py` / `agent/chat_runtime/tools/` 整目录；保留 `chat_runtime/events.py` + `chat_runtime/context.py`；清理 `chat_runtime/__init__.py` 的 re-export；`settings.py` 收敛 `agent_backend: Literal["opencode"]`（或直接删除该字段并清理所有引用）；删除对应测试
+
+Wiki 写路径 hook（步骤 20-22）：
+
+20. `wiki/documents/service.py:publish_document` / `rollback_to_version` 完成后调 `rag.openviking.sync.enqueue(source_type="wiki_doc", source_id=document.id)`；`save_draft` / `delete_draft` 不调
+21. `wiki/reports.py` + `api/reports.py` verify endpoint：`verified=false → true` 入队；`verified=true → false` 入队 tombstone；`verified=false` 状态下编辑不入队
+22. wiki node 软删 hook（`WikiNode.deleted_at` 标记后）入队 tombstone
+
+每步独立可验证 + 可回滚；建议按 11/13/16/19/22 为里程碑分别打 PR。
 12. 升级路径在真实数据备份上的回归
 13. acceptance-checklist 内 Phase 1 子项打勾
 

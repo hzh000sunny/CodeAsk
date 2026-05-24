@@ -24,7 +24,7 @@
 - 工具白名单：限定 OpenViking 工具子集（详见 PRD §6.2）
 - 前端 `frontend/src/components/session/action-trace/...`：识别并展示 OpenViking 工具事件
 - live E2E：覆盖真实 OpenViking + Ollama + 真实 LLM
-- 失败语义：OpenViking 不可用时明确报错；不静默回退
+- 失败语义：OpenViking 是增强、不是 hard dep——不可用时 opencode 模型自行退回 native `read/grep/glob`；动态上下文 / `opencode.json` 在 OpenViking 不健康时不注入 OpenViking 段落；admin 仪表盘标 degraded 但用户路径不弹窗中断（详见 §6）
 - 文档：CodeAsk 与 OpenViking 版本绑定记录、AGENTS.md 模板
 
 不包含：
@@ -90,24 +90,24 @@ Phase 2 第一步先评估上述哪种更稳定。优先 (a)；如果 opencode 1
 - 真实 Feature Wiki 已同步
 - 用例：用户描述业务问题 → 模型调用 `openviking_search` → 读 Wiki → 给出带 `viking://` 来源的回答
 - 用例：用户问代码问题 → 模型先 `openviking_search` 命中 repo 候选 → 调 `codeask_prepare_worktree` → opencode 原生 read 真实文件 → 输出
-- 用例：OpenViking server 关停 → 会话明确弹错；不静默回退
+- 用例：OpenViking server 关停 → 模型自动退回 native `read/grep/glob`，会话继续；admin 仪表盘标 degraded；用户路径不弹窗中断
 
 ---
 
 ## 6. 失败语义
 
-OpenViking 不可用的分类沿用 v1.0.4 opencode 失败模型：
+OpenViking 是 v1.0.5 的**增强**，按 PRD §8 / SDD §9 graceful degrade。Phase 2 接入 opencode 后失败语义如下：
 
-| 分类 | 触发 | 用户可见 |
-|---|---|---|
-| bin missing | `openviking-server` 找不到 | 居中弹窗：知识检索后端未安装 |
-| start failed | `process.ensure_server` 多次失败 | 居中弹窗：知识检索后端启动失败 |
-| process exited | keepalive 检测到崩溃 | 当前轮会话报错；下一轮自动重试 |
-| health timeout | `/health` 多次超时 | 同上 |
-| embedding unhealthy | Ollama 不可达；OpenViking 报错 | 居中弹窗：embedding 服务不可用 |
-| version unsupported | 版本与 `openviking_verified_version` 不一致 | 仅 admin 可见 warning |
+| 分类 | 触发 | 用户路径 | admin 仪表盘 |
+|---|---|---|---|
+| bin missing | `openviking-server` 找不到 | opencode `opencode.json` 不注入 OpenViking MCP；动态上下文不注入 OpenViking 段落；模型走 native `read/grep/glob` | 卡片标红 `bin_missing` |
+| start failed | `process.ensure_server` 多次失败 | 同上 | 卡片标红 `start_failed` |
+| process exited | keepalive 检测到崩溃 | 当前轮 MCP 调用返回 error → opencode 模型自行退回 native 工具；不中断会话 | 仪表盘事件 `openviking_restart_detected` + 进度从中断点续传 |
+| health timeout | `/health` 多次超时 | 同上 | 同上 |
+| embedding unhealthy | Ollama 不可达；OpenViking 报错 | 已索引内容继续可查；新内容暂不入；用户路径无感 | 卡片标黄 `embedding_unhealthy` |
+| version unsupported | 版本与 `openviking_verified_version` 不一致 | 阻止启动场景下进入 `backend_unavailable`，同样兜底 | warning |
 
-错误事件经 SSE 透传给前端，沿用 v1.0.4 `error` 事件结构（含 `backend: "openviking"` 字段）。
+错误事件经 SSE 透传给前端用于行动轨迹展示（沿用 v1.0.4 `error` 事件结构，含 `backend: "openviking"` 字段）；但**不**因为 OpenViking 整体不可用而向普通用户弹窗——降级状态仅在 admin 仪表盘可见。
 
 ---
 

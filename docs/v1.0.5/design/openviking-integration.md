@@ -47,28 +47,75 @@ alembic/versions/
 
 | 现有文件 | 变更 |
 |---|---|
-| `src/codeask/app.py` | 启动阶段拉起 OpenViking server；注册 keepalive 与同步定时任务；新增 `app.state.openviking_*` |
-| `src/codeask/agent/opencode_compat/config.py` | 在 `opencode.json` 的 `mcp` 中加入 OpenViking remote MCP endpoint 与 token |
-| `src/codeask/agent/opencode_compat/context.py` | `build_dynamic_codeask_context` 加入 OpenViking 资源布局与使用原则段落 |
+| `src/codeask/app.py` | 启动阶段拉起 OpenViking server；注册 keepalive 与同步定时任务；新增 `app.state.openviking_*`；**删除** 所有 native backend wiring（`agent_orchestrator` / `tool_registry` / `agent_wiki_search` / `chat_tool_registry` / `chat_runtime` 构造与注入） |
+| `src/codeask/agent/opencode_compat/config.py` | 在 `opencode.json` 的 `mcp` 中加入 OpenViking remote MCP endpoint 与 token；OpenViking 不健康时 `mcp` 段不注入（让 opencode 退回 native read/grep/glob） |
+| `src/codeask/agent/opencode_compat/context.py` | `build_dynamic_codeask_context` 加入 OpenViking 资源布局与使用原则段落；OpenViking 不健康时该段落不注入 |
 | `src/codeask/agent/opencode_compat/prompts.py` | `AGENTS.md` 与 system prompt 增加 RAG 使用原则 |
-| `src/codeask/wiki/` 相关 hook | Wiki 节点变更后写入同步队列 |
-| `src/codeask/sessions/report_generation.py` 及报告 verify hook | 报告生命周期变更后写入同步队列 |
+| `src/codeask/api/wiki/search.py` | `GET /api/wiki/search` 改写为 **OpenViking 优先 → `NativeWikiSearchService` (SQL ILIKE) 兜底**（PRD §3.2）；URI → feature_id 反查后复用现有分组逻辑 |
+| `src/codeask/api/documents_compat.py` | `POST /documents` 上传：移除 chunk + FTS5 索引写入，改为入队 `openviking_sync_jobs`；`GET /documents/search` 端点**删除** |
+| `src/codeask/wiki/documents/service.py` | `publish_document` / `rollback_to_version` 完成后 hook OpenViking 同步入队（PRD §3.3）；草稿路径 `save_draft` / `delete_draft` 不入队 |
+| `src/codeask/wiki/reports.py` 及 `src/codeask/api/reports.py` verify endpoint | Report `verified=false → true` 入队同步；`true → false` 入队 tombstone；unverified 状态下任何编辑都不入队 |
+| `src/codeask/sessions/messages.py` | `stream_agent_response` 删除 `agent_backend != "opencode"` 分支，单条路径走 opencode |
+| `src/codeask/api/sessions.py` | 删除所有 `agent_backend == "opencode"` 条件分支判断；abort_turn 等直接调用 opencode_compat |
 | `src/codeask/code_index/cloner.py` & `worktree.py` | 代码仓 ready / 更新后写入同步队列 |
-| `src/codeask/settings.py` | 新增 OpenViking / Ollama 配置项 |
+| `src/codeask/settings.py` | 新增 OpenViking / Ollama 配置项；`agent_backend` 字段收敛为 `Literal["opencode"]`（或直接删除字段，所有路径走 opencode） |
 | `frontend/src/components/settings/...` | admin 设置页新增 OpenViking 仪表盘组件（详见 §13.4） |
 | `frontend/src/components/session/action-trace/...` | 新增 OpenViking 工具事件展示 |
 
 ### 1.3 不动模块
 
 - `src/codeask/agent/opencode_compat/` 内部不反向依赖 `src/codeask/rag/openviking/`；OpenViking 模块通过 app.state 暴露 client/sync，让 opencode_compat 间接拿到
-- `src/codeask/wiki/native_search.py`、`wiki/search.py`、FTS5 / n-gram 索引保留作为兜底；v1.0.5 不删除
-- `src/codeask/agent/chat_runtime/`、`agent/orchestrator.py` 不动；v1.0.4 已经只在回退路径使用
+- `src/codeask/wiki/native_search.py` 保留：`NativeWikiSearchService` 作为 Wiki UI 搜索框的 SQL ILIKE 兜底（OpenViking 不可用或 0 命中时回退到它）
+- `src/codeask/wiki/chunker.py` 保留但**瘦身**：删除对 `tokenizer.py` 的 import，删除 `ParsedChunk.tokenized_text` / `ngram_text` 字段（仅服务 FTS5）；只保留 markdown / pdf / docx → heading + chunk 解析能力，供 `NativeWikiSearchService._best_heading_path` 使用
+- `src/codeask/agent/chat_runtime/events.py` + `chat_runtime/context.py` 保留：是 opencode_compat / api/sessions / sessions/messages 共享的类型层（`ChatRuntimeEvent` / `SessionMessage`），不属于 native runtime 逻辑
 
 ### 1.4 边界约束
 
 - `rag/openviking/` 不抽通用 RAG backend Protocol。如果未来引入 AnythingLLM 或其它后端，新增独立目录如 `rag/anythingllm_compat/`，不与 OpenViking 模块复用内部代码
 - 不让 OpenViking 直接读写 CodeAsk DB；CodeAsk 主数据永远经由 CodeAsk 后端
 - 不让 OpenViking 直接读取宿主机绝对路径；所有同步路径通过 sync.py 受控转发，并在导入元数据中只保留 CodeAsk 相对路径
+- **OpenViking 是增强、不是 hard dep**：opencode_compat 注入 OpenViking 上下文 / MCP 配置前必须先探测 OpenViking 健康；不健康时该段落 / 配置缺省，opencode 走 v1.0.4 行为
+
+### 1.5 删除模块（v1.0.5 一次性清理）
+
+**FTS5 索引链路（无人调用，已 drift）**：
+
+- `src/codeask/wiki/search.py`（`WikiSearchService` FTS5 + n-gram bm25）
+- `src/codeask/wiki/indexer.py`（`WikiIndexer.index_chunk / unindex / index_report`）
+- `src/codeask/wiki/tokenizer.py`（`tokenize` + `to_ngrams`，仅服务 FTS5 写入）
+
+**`agent_backend=native` legacy 路径（默认未启用，唯一调 FTS5 的入口）**：
+
+- `src/codeask/agent/orchestrator.py`（`AgentOrchestrator`）
+- `src/codeask/agent/wiki_tools.py`（`AgentWikiToolService`、`search_wiki` 工具实现）
+- `src/codeask/agent/tools.py`（`ToolRegistry`）
+- `src/codeask/agent/tool_schemas.py`
+- `src/codeask/agent/tool_delegates.py`
+- `src/codeask/agent/stages/`（`knowledge_retrieval.py` / `code_investigation.py` / `scope_detection.py` / `__init__.py` 等整个目录）
+- `src/codeask/agent/chat_runtime/runtime.py` / `loop.py` / `retrieval.py` / `prompt.py` / `compaction.py` / `tool_executor.py` / `tool_registry.py` / `tool_contracts.py`
+- `src/codeask/agent/chat_runtime/tools/`（`wiki.py` / `reports.py` / `code.py` / `attachments.py` / `live_code.py` / `policies.py` / `report_actions.py` / `user_interaction.py` 整个目录）
+- `src/codeask/agent/chat_runtime/__init__.py` 中对上述模块的 re-export 清理（保留 `events.py` / `context.py` 的 re-export）
+
+**alembic migration（新增一条 DROP migration）**：
+
+```python
+def upgrade():
+    op.execute("DROP TABLE IF EXISTS docs_fts")
+    op.execute("DROP TABLE IF EXISTS docs_ngram_fts")
+    op.execute("DROP TABLE IF EXISTS reports_fts")
+
+def downgrade():
+    # 不还原 — v1.0.5 起 FTS5 已废弃，不支持回退到 v1.0.4 的索引格式
+    raise NotImplementedError("v1.0.5 不支持 downgrade 到 FTS5")
+```
+
+> `document_chunks` 物理表暂留（含 legacy 上传文档的 chunk 历史，不再读写），后续版本可在确认无历史依赖后再清。`documents` 表保留（仍由 `LegacyWikiSyncService` 用作上传桥接）。
+
+**对应测试清理**：
+
+- `tests/integration/test_wiki_search.py`（直接测 FTS5）→ 删除
+- 各种 native backend / chat_runtime / orchestrator 单测与集成测试 → 删除
+- 新增：`/api/wiki/search` OpenViking-first + ILIKE 兜底集成测试；Wiki publish / Report verify hook 入队的单测
 
 ---
 
@@ -436,24 +483,45 @@ OpenViking 在 parse 阶段切完所有文件后才知道精确 chunk 数。这�
 
 `sync.py.enqueue()` 由下列 hook 调用（详见 Phase 1 §5）：
 
-| 触发事件 | 写入 | 在事件流中显示为 |
-|---|---|---|
-| Wiki 节点 create/update/publish | `source_type=wiki_doc` | `wiki_doc_changed` |
-| Wiki 目录 move/rename/delete | `source_type=wiki_dir` | `wiki_dir_changed` |
-| 报告 verified/unverified/deleted | `source_type=report` | `report_status_changed` |
-| 仓库 ready/refresh 完成 | `source_type=repo` | `repo_synced` |
-| 特性创建/重命名/归档 | `source_type=feature_readme` + `global_index` | `feature_changed` |
-| APScheduler 周期 sweep（默认 24h） | 对存在但 sync_hash 不匹配的对象 | `scheduled_refresh` |
-| admin UI 手动重同步 | 单对象 / 单特性 / 全量 | `manual_resync` |
-| CodeAsk 启动时对齐 | 缺失对象补 enqueue | `startup_sweep` |
-| 模型切换 | 全量 reset → enqueue | `embedding_model_switched` |
+| 触发事件 | 触发位置 | 写入 | 在事件流中显示为 | 同步过滤 |
+|---|---|---|---|---|
+| 上传文档（legacy）| `POST /api/documents` 上传成功 + `LegacyWikiSyncService` 同步到 `wiki_documents` 之后 | `source_type=wiki_doc` | `wiki_doc_changed` | 全部入队 |
+| Wiki 文档发布 | `WikiDocumentService.publish_document` 写 `wiki_document_versions` + 更新 `current_version_id` 之后 | `source_type=wiki_doc` | `wiki_doc_changed` | 全部入队 |
+| Wiki 文档回滚 | `WikiDocumentService.rollback_to_version` 切换 `current_version_id` 之后 | `source_type=wiki_doc` | `wiki_doc_changed` | 全部入队 |
+| Wiki 草稿写入 | `save_draft` / `delete_draft` | — | — | **不入队**（PRD §3.3） |
+| Wiki 软删 | `WikiNode.deleted_at` 标记之后 | `source_type=wiki_doc`，`tombstone=true` | `wiki_doc_changed` | 全部入队（删 viking 资源） |
+| Wiki 目录 move/rename | tree service 移动节点 | `source_type=wiki_dir` | `wiki_dir_changed` | 全部入队 |
+| Report verify endpoint：`verified=false → true` | report status 写入之后 | `source_type=report` | `report_status_changed` | ✅ 入队 |
+| Report verify endpoint：`verified=true → false` | 反转之后 | `source_type=report`，`tombstone=true` | `report_status_changed` | ✅ 入队 tombstone |
+| Report `verified=true` 状态下编辑 | report 编辑 endpoint | `source_type=report` | `report_status_changed` | ✅ 入队（hash 不同才入） |
+| Report `verified=false` / draft 状态下编辑 | — | — | — | **不入队**（PRD §3.3） |
+| Report 软删 | delete endpoint | `source_type=report`，`tombstone=true` | `report_status_changed` | 入队 tombstone（仅曾 verified 过的） |
+| 仓库 ready/refresh 完成 | code_index hook | `source_type=repo` | `repo_synced` | 全部入队 |
+| 特性创建/重命名/归档 | feature CRUD | `source_type=feature_readme` + `global_index` | `feature_changed` | 全部入队 |
+| APScheduler 周期 sweep（默认 24h） | 后台 | 对存在但 sync_hash 不匹配的对象 | `scheduled_refresh` | sweep 时也遵守上述过滤（drafts / unverified 跳过）|
+| admin UI 手动重同步 | API | 单对象 / 单特性 / 全量 | `manual_resync` | 同上 |
+| CodeAsk 启动时对齐 | startup | 缺失对象补 enqueue | `startup_sweep` | 同上 |
+| 模型切换 | embedding settings 改动 | 全量 reset → enqueue | `embedding_model_switched` | 同上 |
 
 定时增量 sweep（`scheduled_refresh`）的实现：
 
 - APScheduler 每 24h（可配）跑一次
-- 对每个 source 对象计算 `source_hash`（基于内容 hash + mtime）
+- 扫描 `wiki_documents`（仅 `current_version_id` not null 且 node 未软删）+ `reports`（仅 `verified=true`）+ feature / repo
+- 对每个候选对象计算 `source_hash`（基于内容 hash + mtime）
 - 与 `sync_jobs.source_hash` 比对；变化的写入新 pending job
 - 跑完一轮发 `scheduled_refresh_summary` 事件（新增多少 / 跳过多少 / 失败多少）
+
+### 6.3 同步过滤规则（决定哪些内容进 OpenViking）
+
+| 来源 | 进 OpenViking | 理由 |
+|---|---|---|
+| WikiDocument `current_version_id` 指向的版本 | ✅ | 已发布的官方内容 |
+| WikiDocument 草稿（`wiki_document_drafts`） | ❌ | 草稿可能未审、未定稿，不应作为语义检索候选 |
+| Report `verified=true` | ✅ | verified 报告才是强证据 |
+| Report `verified=false` / draft | ❌ | 与 PRD §4 "verified 强于 draft" 保持一致；unverified 不进语义索引 |
+| Legacy 上传文档 | ✅（通过 `LegacyWikiSyncService` 桥接到 wiki_documents 后入队） | 上传即发布语义 |
+| 代码仓 | ✅（Phase 2） | |
+| 软删 / 反 verify | tombstone 入队 | 让 OpenViking 同步删除对应资源 |
 
 ---
 
@@ -524,21 +592,26 @@ Tool usage principles:
 
 ## 9. 错误处理矩阵
 
-| 场景 | 处理 | 用户可见 |
-|---|---|---|
-| OpenViking bin 不存在 | 标记 backend unavailable | 居中弹窗：知识检索后端不可用 |
-| OpenViking 启动超时 | 重试一次；再失败标记 unavailable | 同上 |
-| Ollama 未启动 / 模型未拉取 | OpenViking 启动后 embedding 调用失败 → 同步任务 failed | 居中弹窗：embedding 服务不可用 |
-| OpenViking server 崩溃 | keepalive 重启 + 当前轮工具调用返回 error | 行动轨迹错误事件 |
-| 同步任务超阈值失败 | 标 cancelled；admin 面板可重置 | admin 面板可见 |
-| OpenViking 版本与已验证不一致 | 启动 warning；可配置阻止启动 | admin 可见 |
-| MCP token 不一致 | 拒绝调用；审计 | 行动轨迹错误事件 |
-| 资源不存在（read/list） | OpenViking 返回 not_found；模型自行处理 | 行动轨迹错误事件 |
-| 集成边界承诺被破坏（修改 OpenViking 源码 / 内嵌源码 / SaaS 化） | 触发 specs/openviking-agpl-review.md §4 回访；阻止该改动合入 | 项目负责人可见 |
-| OpenViking server 重启（手动 / 崩溃 / keepalive 拉起） | OpenViking 持久化队列（QueueFS + RedoLog）保证未完成 SemanticMsg 不丢；启动时自动恢复；in-flight 少数 chunk 重新入队；sync_jobs.progress 由 sweep 自动追上 | 仪表盘事件 `openviking_restart_detected` + 进度从中断点继续，不重置 |
-| Ollama 进程重启 | OpenViking 端进度完全保留；in-flight HTTP connection reset 由 OpenViking re-enqueue；可能触发 circuit breaker 60 s 等待 | 仪表盘事件 `ollama_recovery`；卡片显示"恢复中" |
-| CodeAsk 进程重启 | OpenViking 独立运行，sync_jobs `running` 状态保留；CodeAsk 重启后 sweep 自动对齐 | 仪表盘事件 `codeask_restart_sweep`；几秒内进度续传 |
-| 改 embedding 模型 / dimension | 必须清 vectordb collection 并全量重建（详见 §3.3）；旧 sync_jobs 全部置 pending；新 rebuild_status=rebuilding | 仪表盘明示 "rebuilding in progress"；ETA 单独标识 |
+总原则：OpenViking 是 v1.0.5 的增强能力，不可用时按 PRD §8 graceful degrade，用户路径不中断。"用户可见"列默认是 admin 仪表盘行为；只在显式注明时才弹窗或在会话内报错。
+
+| 场景 | 处理 | 用户路径 | admin 仪表盘 |
+|---|---|---|---|
+| OpenViking bin 不存在 | 标记 `backend_unavailable`；不重试 | Wiki UI 走 SQL ILIKE；opencode 不注入 OpenViking MCP，走 native grep | 卡片标红 `bin_missing`，含可执行路径与诊断指引 |
+| OpenViking 启动超时 | 重试一次；再失败标 `backend_unavailable` | 同上 | 卡片标红 `start_failed`，含最近 N 条启动错误 |
+| Ollama 不可达（`/api/tags` 超时 / 拒连） | 标 `embedding_unhealthy`；同步任务退避（不消耗 retry 配额）；CodeAsk 不会自动启动 Ollama | 已索引内容继续可查；新内容暂不入索引；UI 搜索 + opencode 都仍可用（走兜底） | 卡片标黄 `embedding_unhealthy` |
+| Ollama 可达但目标模型不在 `/api/tags` | 标 `embedding_model_missing`；OpenViking 同步任务 `failed`；CodeAsk **不会**自动 `ollama pull` | 同上 | 卡片标黄，提示 operator 执行 `ollama pull <model>` |
+| OpenViking server 崩溃 | keepalive 重启 + 当前轮 MCP 工具调用返回 error 给 opencode | opencode 收到 MCP error 后退回 native grep；不中断会话 | 行动轨迹错误事件 + 仪表盘 `openviking_restart_detected` |
+| 同步任务单次失败 | retry 退避 | 已索引内容继续可查；该项暂未入索引（UI 搜索走 ILIKE 兜底覆盖） | 事件流可见，可手动重试 |
+| 同步任务超阈值失败 | 标 cancelled | 同上 | 面板可重置 |
+| OpenViking 版本与已验证不一致 | 启动 warning；可配置阻止启动 | 阻止启动场景下进入 `backend_unavailable` 同样兜底 | warning |
+| MCP token 不一致 | 拒绝调用；审计 | opencode 退回 native grep | 行动轨迹错误事件 |
+| 资源不存在（read/list） | OpenViking 返回 not_found；模型自行处理 | 模型走其它工具 | 行动轨迹错误事件 |
+| 集成边界承诺被破坏（修改 OpenViking 源码 / 内嵌源码 / SaaS 化） | 触发 specs/openviking-agpl-review.md §4 回访；阻止该改动合入 | — | 项目负责人可见 |
+| OpenViking server 重启（手动 / 崩溃 / keepalive 拉起） | OpenViking 持久化队列（QueueFS + RedoLog）保证未完成 SemanticMsg 不丢；启动时自动恢复；in-flight 少数 chunk 重新入队；sync_jobs.progress 由 sweep 自动追上 | 重启窗口期内走兜底，恢复后自动续传 | 仪表盘事件 `openviking_restart_detected` + 进度从中断点继续 |
+| Ollama 进程重启 | OpenViking 端进度完全保留；in-flight HTTP connection reset 由 OpenViking re-enqueue；可能触发 circuit breaker 60 s 等待 | 同上 | 仪表盘事件 `ollama_recovery`；卡片显示"恢复中" |
+| CodeAsk 进程重启 | OpenViking 独立运行，sync_jobs `running` 状态保留；CodeAsk 重启后 sweep 自动对齐 | 重启完成立即恢复全功能 | 仪表盘事件 `codeask_restart_sweep` |
+| 改 embedding 模型 / dimension | 必须清 vectordb collection 并全量重建（详见 §3.3）；旧 sync_jobs 全部置 pending；新 rebuild_status=rebuilding | 重建期间召回质量偏低，UI 搜索 ILIKE 兜底仍工作 | 仪表盘明示 "rebuilding in progress"；ETA 单独标识 |
+| Wiki UI 搜索框 OpenViking 返回 0 命中 | 不视为错误；自动回退 SQL ILIKE | 用户看到 ILIKE 结果，不感知后端差异 | 计入 `openviking_search_miss` 指标，不报错 |
 
 ---
 
@@ -714,7 +787,7 @@ GET /api/admin/openviking/events?limit=...      # 事件流分页
 | `OpenVikingEventStream.tsx` | 时间倒序事件流；按 event_type 筛选；error/warning 高亮 |
 | `OpenVikingMetricsCard.tsx` | 最近 5 分钟 throughput / avg latency / breaker trips |
 
-视觉沿用 v1.0.4 opencode 卡片样式；失败提示沿用 v1.0.3 ui-feedback 规则（居中弹窗）。
+视觉沿用 v1.0.4 opencode 卡片样式。仪表盘内部的操作失败（如手动重试 API 报错）沿用 v1.0.3 ui-feedback 规则（弹 toast），但 **OpenViking 整体不可用、Ollama 不可达、模型缺失等"后端状态降级"不弹窗给普通用户**——这些只在 admin 仪表盘卡片上体现 `degraded` 状态，符合 PRD §8 / §9 错误矩阵的 graceful degradation 总原则。
 
 ### 13.5 配置项
 

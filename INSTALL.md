@@ -286,6 +286,62 @@ export CODEASK_ADMIN_PASSWORD="<strong-password>"
 
 未登录访客可以直接使用会话、查看特性和 Wiki，并可以在浏览器本地保存访客 LLM 配置。普通用户登录后可以管理自己的会话、用户设置和用户级 LLM 配置。特性、Wiki、仓库关联、全局配置等写操作由 admin 和特性管理员权限控制。
 
+## Ollama 与 RAG embedding（v1.0.5）
+
+v1.0.5 起，会话主链路 RAG 由 OpenViking 提供（详见 [docs/v1.0.5/](./docs/v1.0.5/)）。OpenViking 进程由 CodeAsk 后端管理，但 **Ollama 进程和 embedding 模型由 operator 负责**：CodeAsk 不会自动安装 Ollama，也不会自动 `ollama pull` 模型。如果只使用 v1.0.4 行为（不启用 OpenViking），可跳过本节。
+
+### 安装 Ollama
+
+Linux（Ubuntu / Debian / 其他 systemd 发行版）：
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+脚本会创建 `ollama` 系统用户、写入 `/etc/systemd/system/ollama.service` 并启动监听 `127.0.0.1:11434`。详细落地路径与磁盘占用实测见 [docs/v1.0.5/specs/ollama-installation.md](./docs/v1.0.5/specs/ollama-installation.md)。
+
+macOS：
+
+```bash
+brew install ollama
+brew services start ollama
+```
+
+### 拉取 embedding 模型
+
+v1.0.5 默认 embedding 模型是 `bge-m3`（约 1.2 GB，1024 维，中文优先）：
+
+```bash
+ollama pull bge-m3
+```
+
+如果磁盘紧张，可以临时改用更小的候选（`nomic-embed-text` ~270 MB / 768 维，`mxbai-embed-large` ~670 MB / 1024 维），但需要在 CodeAsk admin UI 中显式切换。切换 embedding 模型会触发 OpenViking 全量向量重建。
+
+### 验证
+
+```bash
+# Ollama 自身
+curl -sf http://127.0.0.1:11434/api/version
+curl -sf http://127.0.0.1:11434/api/tags | python3 -m json.tool
+```
+
+`/api/tags` 应返回包含 `bge-m3`（或所选模型）的 `models` 数组。
+
+### CodeAsk 探测行为
+
+CodeAsk 启动时只**探测**Ollama，不操作：
+
+- Ollama 不可达 → admin 仪表盘 `embedding_unhealthy`，OpenViking 同步任务退避，会话报错
+- Ollama 可达但目标模型不在 `/api/tags` → admin 仪表盘 `embedding_model_missing`，OpenViking server 不让空转
+
+任何情况下，CodeAsk **不会**自动执行 `ollama pull`、不会改 Ollama systemd 配置；admin 在仪表盘看到提示后需要手动在主机上 `ollama pull <model>`。
+
+### 磁盘与端口注意
+
+- Ollama 0.24.0 install.sh 在无 GPU 主机上仍会落地 CUDA / Vulkan runtime，安装本体约 **3.5 GB**；模型文件存放在 `/usr/share/ollama/.ollama/models`
+- API 默认绑定 `127.0.0.1:11434`；跨容器或远程访问需要 operator 自行设置 `Environment="OLLAMA_HOST=0.0.0.0:11434"`，这会扩大暴露面，必须单独评估
+- CPU 模式下 Ollama 一次只能跑一个 embedding；OpenViking 的 `embedding.max_concurrent` 在 CPU 部署下必须设为 `1`（CodeAsk 默认 ov.conf 已经如此配置）
+
 ## 前端开发联调
 
 开发模式需要两个终端。

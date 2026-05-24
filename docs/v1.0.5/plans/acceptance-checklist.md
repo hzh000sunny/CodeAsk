@@ -84,6 +84,39 @@
 - [ ] 后端 pytest 全量通过；不引入 ruff / pyright 新红
 - [ ] 真实数据备份升级回归通过
 
+### 3.6 Wiki UI 搜索框（OpenViking 优先 + ILIKE 兜底）
+
+- [ ] OpenViking 健康有命中 → 命中走 OpenViking；事件流可见 `openviking_search_hit`（统计）
+- [ ] OpenViking 健康 0 命中 → 自动回退 SQL ILIKE；前端不区分来源；事件流可见 `openviking_search_miss`
+- [ ] OpenViking 不可达 / 异常 → 自动回退 SQL ILIKE；不弹窗；admin 仪表盘 Health 卡显示 degraded
+- [ ] 分组（current_feature / other_current_features / history_features / current_feature_reports）在两条路径下行为一致
+- [ ] 前端 `frontend/src/lib/wiki/api.ts` 无改动，证明后端是无缝替换
+- [ ] OpenViking 长期不可用时连续搜索多次：仪表盘事件流不被搜索失败刷屏（去重 / 速率限制生效）
+
+### 3.7 Wiki 写路径 hook（同步过滤规则）
+
+- [ ] `POST /api/documents` 上传 Markdown / PDF / 文本：sync_jobs 表新增一条 pending，`source_type=wiki_doc`
+- [ ] `POST /api/wiki/documents/{node_id}/publish`：sync_jobs 表新增一条；`source_hash` 与新版本 markdown sha 对齐
+- [ ] `POST /api/wiki/documents/{node_id}/rollback`：sync_jobs 入队
+- [ ] `PUT /api/wiki/documents/{node_id}/draft` + `DELETE .../draft`：**sync_jobs 表不增加新行**
+- [ ] WikiNode 软删 → sync_jobs 入队 `tombstone=true`；OpenViking 资源被 `forget`
+- [ ] Report `verified=false → true` → sync_jobs 入队 `source_type=report`
+- [ ] Report `verified=true → false` → sync_jobs 入队 `source_type=report, tombstone=true`
+- [ ] Report 在 `verified=false` 状态下编辑 → **sync_jobs 不增加新行**
+- [ ] Report 在 `verified=true` 状态下编辑（且 hash 不同）→ sync_jobs 入队
+- [ ] scheduled_refresh 24h sweep 也遵守上述过滤：扫描时跳过 drafts 与 unverified reports
+
+### 3.8 FTS5 与 native backend 清理
+
+- [ ] alembic head 之后：`docs_fts` / `docs_ngram_fts` / `reports_fts` 三张虚表不存在
+- [ ] `find src/codeask/wiki -name "search.py" -o -name "indexer.py" -o -name "tokenizer.py"` 无输出
+- [ ] `wiki/chunker.py` 不再 import `tokenizer`，`ParsedChunk` 不含 `tokenized_text` / `ngram_text` 字段
+- [ ] `find src/codeask/agent -name "orchestrator.py" -o -name "wiki_tools.py" -o -name "tools.py" -o -name "tool_schemas.py" -o -name "tool_delegates.py" -o -path "*/stages/*" -o -path "*/chat_runtime/runtime*" -o -path "*/chat_runtime/loop*" -o -path "*/chat_runtime/retrieval*" -o -path "*/chat_runtime/prompt*" -o -path "*/chat_runtime/compaction*" -o -path "*/chat_runtime/tool_*" -o -path "*/chat_runtime/tools/*"` 无输出
+- [ ] `chat_runtime/events.py` + `chat_runtime/context.py` 仍存在（opencode_compat / api/sessions / sessions/messages 共享类型层）
+- [ ] `settings.agent_backend` 为 `Literal["opencode"]`（或字段已删除）
+- [ ] `grep -rn "agent_backend.*native\|AgentOrchestrator\|AgentWikiToolService\|ToolRegistry\(" src/codeask/` 无残留
+- [ ] `grep -rn "docs_fts\|docs_ngram_fts\|reports_fts\|WikiIndexer\|WikiSearchService" src/codeask/ alembic/versions/` 仅出现在新增的 DROP migration 文件中
+
 ---
 
 ## 4. Phase 2 opencode 接入
@@ -91,8 +124,8 @@
 - [ ] `opencode.json` 中加入 OpenViking remote MCP，工具白名单按 PRD §6.2 限定
 - [ ] 动态上下文与 `AGENTS.md` 包含 RAG 使用原则
 - [ ] 前端 action-trace 展示 OpenViking 工具事件，路径脱敏正常
-- [ ] OpenViking 失败语义按 SDD §9 落地；前端居中弹窗
-- [ ] 不静默回退 v1.0.4 file-grep 主链路
+- [ ] OpenViking 失败语义按 SDD §9 / PRD §8 落地：用户路径 graceful degrade（opencode 走 native `read/grep/glob`），admin 仪表盘 Health 卡显示 degraded；不向普通用户弹窗
+- [ ] OpenViking 不可用时 opencode 仍可完成会话（基于 `workspace/wiki/` symlink + native grep 检索 Markdown）
 
 ---
 
