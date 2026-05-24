@@ -65,15 +65,20 @@ v1.0.4 收口前必须满足：
 ### 1.2 2026-05-15 opencode 会话 LLMGateway 调度回归
 
 - [x] 根因确认：opencode 会话路径曾直接调用 `llm_config_repo.get_default_or(None, ...)`，当多条全局 LLM 配置同时启用且没有默认配置时，会触发 `Multiple rows were found when one or none was required`。
-- [x] 修复边界：opencode 路径只复用 `LLMGateway` 的配置选择、全局池随机选择、会话粘性、最大连接数和失败冷却能力，不复用旧 native LLM 请求执行链路。
+- [x] 修复边界：opencode 路径只复用 `LLMGateway` 的配置选择、全局池最空闲优先选择、会话粘性和失败冷却能力，不复用旧 native LLM 请求执行链路。
 - [x] `agent_runtime_profile`、`protocol`、`base_url`、`model_name` 等配置字段由网关选中后原样传给 `opencode_compat`，provider 配置生成仍由 opencode 兼容模块独立负责；历史 `opencode_provider_profile` 保留为兼容别名。
-- [x] 禁止“多条启用配置取第一条”的兜底；没有个人配置时必须从启用全局池随机选择。
-- [x] 自动化回归：`uv run pytest tests/unit/test_llm_gateway.py tests/integration/test_opencode_session_stream.py tests/integration/test_llm_config_repo.py -q` -> `32 passed`。
+- [x] 禁止“多条启用配置取第一条”的兜底；没有个人配置时必须从启用全局池中选择当前最空闲配置，最小负载候选并列时随机打散。
+- [x] 取消单个全局 LLM 配置的并行会话数量上限；全局池只有一个健康配置时，新的会话仍继续使用该配置，不返回资源繁忙。
+- [x] 修复全局池全 unhealthy 场景：如果至少存在一条全局配置，即使全部处于失败冷却，也要进入 degraded 模式继续选择最空闲配置尝试，避免单配置部署被 10 分钟冷却彻底打死。
+- [x] 修复并发初始化发现的 Wiki workspace 竞态：多个会话同时初始化时，Wiki 导出必须串行执行，避免共享 `current.tmp` 被并发删除导致初始化失败。
+- [x] 补充并发 E2E：验证单配置/少量配置在并发会话下不再因为冷却或历史会话计数直接拒绝新会话。
+- [x] 自动化回归：`uv run pytest tests/unit/test_llm_gateway.py tests/integration/test_opencode_session_stream.py tests/integration/test_llm_config_repo.py -q` -> `44 passed`。
 - [x] 全量后端回归：`uv run pytest -q` -> 通过，live LLM smoke 按默认跳过。
 - [x] 格式和 lint：`uv run ruff format --check src tests`、`uv run ruff check src tests` -> 通过。
 - [x] 真实 LLM 配置 E2E：`CODEASK_LIVE_LLM_CONFIG_SMOKE=1 CODEASK_LIVE_LLM_SMOKE_TIMEOUT=180 uv run pytest tests/live/test_live_opencode_llm_configs.py -q -s` -> 当前数据库 9 条配置全部通过。
 - [x] 真实会话 API E2E：会话 `sess_0fb72d2fb7d6912c`，turn `turn_gateway_e2e_001`，经全局池选择 `cfg_24bc87bc49e75ed9` / `minimax-m2.7` / `anthropic`，成功返回 `done`，未再出现多行配置查询错误。
-- [x] 真实浏览器 E2E：`CODEASK_RUN_LIVE_OPENCODE_E2E=1 CODEASK_REALDATA_BASE_URL=http://127.0.0.1:5173 corepack pnpm --dir frontend exec playwright test -c playwright.realdata.config.ts e2e/opencode-backend-live.spec.ts --project=chromium` -> 通过；会话 `sess_45de5ee331161238`。测试已按全局池随机选择更新为“命中任一启用配置”，不再假设第一条启用配置。
+- [x] 真实浏览器 E2E：`CODEASK_RUN_LIVE_OPENCODE_E2E=1 CODEASK_REALDATA_BASE_URL=http://127.0.0.1:5173 corepack pnpm --dir frontend exec playwright test -c playwright.realdata.config.ts e2e/opencode-backend-live.spec.ts --project=chromium` -> 通过；会话 `sess_45de5ee331161238`。测试按全局池调度更新为“命中任一启用配置”，不再假设第一条启用配置。
+- [x] 真实浏览器并发 E2E：`CODEASK_RUN_LIVE_OPENCODE_E2E=1 CODEASK_REALDATA_BASE_URL=http://127.0.0.1:5173 CODEASK_REAL_DATA_DIR=/home/hzh/.codeask corepack pnpm --dir frontend exec playwright test -c playwright.realdata.config.ts e2e/opencode-backend-live.spec.ts --project=chromium -g "frontend sends concurrent new sessions"` -> `1 passed`。覆盖 3 个新会话并发发送，均进入 opencode runtime、返回 `done`，没有资源繁忙错误。
 
 ### 1.3 2026-05-15 LLM 配置新增/编辑态测试状态回归
 

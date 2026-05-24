@@ -413,6 +413,59 @@ async def test_post_message_stream_uses_gateway_global_pool_for_opencode_configs
 
 
 @pytest.mark.asyncio
+async def test_opencode_global_pool_uses_single_unhealthy_config_in_degraded_mode(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    app.state.settings.agent_backend = "opencode"
+    fake = FakeOpenCodeCompat(calls=[])
+    app.state.opencode_compat = fake
+
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    created_config = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "opencode-single-degraded",
+            "protocol": "openai",
+            "base_url": "http://llm-single.test/v1",
+            "api_key": "sk-single",
+            "model_name": "model-single",
+            "enabled": True,
+            "is_default": False,
+        },
+    )
+    assert created_config.status_code == 201, created_config.text
+    config_id = created_config.json()["id"]
+    await client.post("/api/auth/logout")
+    for _ in range(3):
+        app.state.llm_gateway._global_usage.record_failure(config_id)  # pyright: ignore[reportPrivateUsage]
+
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "OpenCode"}, headers=headers)
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "hello opencode", "client_turn_id": "turn_opencode_degraded"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert "当前资源繁忙" not in response.text
+    assert "opencode answer" in response.text
+    assert [
+        (call["method"], call["model"])
+        for call in fake.calls
+        if call["method"] in {"initialize_session", "run_turn"}
+    ] == [
+        ("initialize_session", "model-single"),
+        ("run_turn", "model-single"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_opencode_global_pool_retries_next_config_only_before_text(
     app: FastAPI,
     client: AsyncClient,

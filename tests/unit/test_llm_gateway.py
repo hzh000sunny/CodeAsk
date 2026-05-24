@@ -343,15 +343,21 @@ async def test_gateway_does_not_fallback_when_explicit_config_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gateway_limits_global_config_to_three_sessions_per_minute() -> None:
+async def test_gateway_does_not_limit_global_config_parallel_sessions() -> None:
+    selected_models: list[str] = []
+
+    def build_client(**kwargs: object) -> _CapturingFactoryClient:
+        selected_models.append(str(kwargs["model_name"]))
+        return _CapturingFactoryClient()
+
     repo = _FakeRepo(global_configs=[_Config(id="global_cfg", model_name="global-model")])
     gateway = LLMGateway(
         repo,
-        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+        ClientFactory(provider_clients={"openai": build_client}),
         base_delay=0.0,
     )  # type: ignore[arg-type]
 
-    for session_id in ["sess_1", "sess_2", "sess_3"]:
+    for session_id in ["sess_1", "sess_2", "sess_3", "sess_4"]:
         out = [
             event
             async for event in gateway.stream(
@@ -360,13 +366,7 @@ async def test_gateway_limits_global_config_to_three_sessions_per_minute() -> No
         ]
         assert out[-1].type == "message_stop"
 
-    out = [
-        event
-        async for event in gateway.stream(_request(subject_id="alice@dev", session_id="sess_4"))
-    ]
-
-    assert out[-1].type == "error"
-    assert "当前资源繁忙，请稍后再试" in str(out[-1].data["message"])
+    assert selected_models == ["global-model"] * 4
 
 
 @pytest.mark.asyncio
@@ -398,9 +398,8 @@ async def test_gateway_counts_same_session_once_per_window() -> None:
         async for event in gateway.stream(_request(subject_id="alice@dev", session_id="sess_4"))
     ]
 
-    assert selected_models == ["global-model"] * 5
-    assert out[-1].type == "error"
-    assert "当前资源繁忙，请稍后再试" in str(out[-1].data["message"])
+    assert selected_models == ["global-model"] * 6
+    assert out[-1].type == "message_stop"
 
 
 @pytest.mark.asyncio
@@ -595,6 +594,7 @@ async def test_gateway_temporarily_removes_repeatedly_failing_global_config() ->
         "model-a",
         "model-b",
         "model-b",
+        "model-b",
         "model-a",
         "model-b",
     ]
@@ -678,7 +678,9 @@ async def test_gateway_does_not_cool_down_config_for_context_length_errors() -> 
 
     out = [
         event
-        async for event in gateway.stream(_request(subject_id="alice@dev", session_id="sess_ctx_4"))
+        async for event in gateway.stream(
+            _request(subject_id="alice@dev", session_id="sess_ctx_same")
+        )
     ]
 
     assert selected_models == ["model-a", "model-a", "model-a", "model-a"]
@@ -726,7 +728,7 @@ async def test_gateway_returns_last_error_when_all_global_candidates_fail() -> N
 
 
 @pytest.mark.asyncio
-async def test_gateway_select_runtime_config_uses_global_pool_random_choice() -> None:
+async def test_gateway_select_runtime_config_uses_random_choice_among_least_busy_ties() -> None:
     repo = _FakeRepo(
         global_configs=[
             _Config(id="cfg_a", model_name="model-a"),
@@ -758,7 +760,43 @@ async def test_gateway_select_runtime_config_uses_global_pool_random_choice() ->
 
 
 @pytest.mark.asyncio
-async def test_gateway_select_runtime_config_returns_resource_busy_when_pool_full() -> None:
+async def test_gateway_select_runtime_config_uses_least_busy_global_config() -> None:
+    repo = _FakeRepo(
+        global_configs=[
+            _Config(id="cfg_a", model_name="model-a"),
+            _Config(
+                id="cfg_b",
+                model_name="model-b",
+                reasoning_profile="custom_json",
+                reasoning_profile_json='{"x":true}',
+            ),
+        ]
+    )
+    gateway = LLMGateway(
+        repo,
+        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+        random_choice=lambda configs: configs[0],
+    )  # type: ignore[arg-type]
+
+    gateway._global_usage.record_session("cfg_a", "sess_a1")  # pyright: ignore[reportPrivateUsage]
+    gateway._global_usage.record_session("cfg_a", "sess_a2")  # pyright: ignore[reportPrivateUsage]
+    gateway._global_usage.record_session("cfg_b", "sess_b1")  # pyright: ignore[reportPrivateUsage]
+
+    selection = await gateway.select_runtime_config(
+        config_id=None,
+        subject_id="alice@dev",
+        session_id="sess_new",
+    )
+
+    assert not isinstance(selection, LLMEvent)
+    assert selection.config.id == "cfg_b"
+    assert selection.config.model_name == "model-b"
+    assert selection.config.reasoning_profile == "custom_json"
+    assert selection.pooled_global is True
+
+
+@pytest.mark.asyncio
+async def test_gateway_select_runtime_config_keeps_selecting_when_pool_has_no_limit() -> None:
     repo = _FakeRepo(global_configs=[_Config(id="cfg_a", model_name="model-a")])
     gateway = LLMGateway(
         repo,
@@ -773,12 +811,90 @@ async def test_gateway_select_runtime_config_returns_resource_busy_when_pool_ful
         )
         assert not isinstance(selection, LLMEvent)
 
-    busy = await gateway.select_runtime_config(
+    selection = await gateway.select_runtime_config(
         config_id=None,
         subject_id="alice@dev",
         session_id="sess_4",
     )
 
-    assert isinstance(busy, LLMEvent)
-    assert busy.type == "error"
-    assert busy.data["error_code"] == "resource_busy"
+    assert not isinstance(selection, LLMEvent)
+    assert selection.config.id == "cfg_a"
+    assert selection.pooled_global is True
+
+
+@pytest.mark.asyncio
+async def test_gateway_select_runtime_config_uses_single_unhealthy_global_config() -> None:
+    repo = _FakeRepo(global_configs=[_Config(id="cfg_a", model_name="model-a")])
+    gateway = LLMGateway(
+        repo,
+        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+        unhealthy_failure_threshold=1,
+    )  # type: ignore[arg-type]
+    gateway._global_usage.record_failure("cfg_a")  # pyright: ignore[reportPrivateUsage]
+
+    selection = await gateway.select_runtime_config(
+        config_id=None,
+        subject_id="alice@dev",
+        session_id="sess_after_unhealthy",
+    )
+
+    assert not isinstance(selection, LLMEvent)
+    assert selection.config.id == "cfg_a"
+    assert selection.pooled_global is True
+
+
+@pytest.mark.asyncio
+async def test_gateway_select_runtime_config_prefers_healthy_over_unhealthy_config() -> None:
+    repo = _FakeRepo(
+        global_configs=[
+            _Config(id="cfg_a", model_name="model-a"),
+            _Config(id="cfg_b", model_name="model-b"),
+        ]
+    )
+    gateway = LLMGateway(
+        repo,
+        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+        unhealthy_failure_threshold=1,
+    )  # type: ignore[arg-type]
+    gateway._global_usage.record_failure("cfg_a")  # pyright: ignore[reportPrivateUsage]
+
+    selection = await gateway.select_runtime_config(
+        config_id=None,
+        subject_id="alice@dev",
+        session_id="sess_with_healthy_candidate",
+    )
+
+    assert not isinstance(selection, LLMEvent)
+    assert selection.config.id == "cfg_b"
+    assert selection.pooled_global is True
+
+
+@pytest.mark.asyncio
+async def test_gateway_select_runtime_config_uses_least_busy_when_all_configs_unhealthy() -> None:
+    repo = _FakeRepo(
+        global_configs=[
+            _Config(id="cfg_a", model_name="model-a"),
+            _Config(id="cfg_b", model_name="model-b"),
+        ]
+    )
+    gateway = LLMGateway(
+        repo,
+        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+        unhealthy_failure_threshold=1,
+        random_choice=lambda configs: configs[0],
+    )  # type: ignore[arg-type]
+    gateway._global_usage.record_failure("cfg_a")  # pyright: ignore[reportPrivateUsage]
+    gateway._global_usage.record_failure("cfg_b")  # pyright: ignore[reportPrivateUsage]
+    gateway._global_usage.record_session("cfg_a", "sess_a1")  # pyright: ignore[reportPrivateUsage]
+    gateway._global_usage.record_session("cfg_a", "sess_a2")  # pyright: ignore[reportPrivateUsage]
+    gateway._global_usage.record_session("cfg_b", "sess_b1")  # pyright: ignore[reportPrivateUsage]
+
+    selection = await gateway.select_runtime_config(
+        config_id=None,
+        subject_id="alice@dev",
+        session_id="sess_all_unhealthy",
+    )
+
+    assert not isinstance(selection, LLMEvent)
+    assert selection.config.id == "cfg_b"
+    assert selection.pooled_global is True

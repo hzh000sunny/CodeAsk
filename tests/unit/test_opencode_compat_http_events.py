@@ -35,6 +35,11 @@ async def test_http_client_uses_opencode_message_paths_and_directory(httpx_mock)
         url="http://opencode.test/session/ses_1/message?directory=%2Ftmp%2Fworkspace",
         json=[{"info": {"id": "msg_1"}, "parts": []}],
     )
+    httpx_mock.add_response(
+        method="GET",
+        url="http://opencode.test/session/status?directory=%2Ftmp%2Fworkspace",
+        json={"ses_1": {"type": "idle"}},
+    )
 
     assert await client.health() == {"healthy": True, "version": "1.14.48"}
     assert await client.create_session(directory="/tmp/workspace") == "ses_1"
@@ -49,6 +54,7 @@ async def test_http_client_uses_opencode_message_paths_and_directory(httpx_mock)
     assert await client.list_messages(session_id="ses_1", directory="/tmp/workspace") == [
         {"info": {"id": "msg_1"}, "parts": []}
     ]
+    assert await client.session_status(directory="/tmp/workspace") == {"ses_1": {"type": "idle"}}
     httpx_mock.add_response(
         method="POST",
         url="http://opencode.test/session/ses_1/abort?directory=%2Ftmp%2Fworkspace",

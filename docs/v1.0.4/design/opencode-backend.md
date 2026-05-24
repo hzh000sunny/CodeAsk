@@ -218,6 +218,7 @@ CodeAsk 维护一个持久化 Wiki 文件工作区，供所有 opencode 会话�
 `WikiWorkspaceExporter` 负责从 CodeAsk Wiki 数据模型导出该目录：
 
 - 特性是一级目录。
+- 多个会话并发初始化时，`WikiWorkspaceExporter.export_current()` 必须在同一服务进程内串行执行。它会重建共享的 `wiki_workspace/current` 投影目录，不能让多个请求同时操作同一个 `current.tmp` 临时目录，否则会出现某个会话读取到正在被另一个导出任务删除的临时文件。
 - 特性下的目录和文档结构与当前特性 Wiki 树一致。
 - Markdown 文件名优先使用用户可见标题；必要时做文件系统安全转义。
 - 静态资源保持 Markdown 中可用的相对路径，例如 `Untitled.assets/image.png`。
@@ -829,8 +830,9 @@ LLM 配置选择仍复用 CodeAsk 统一的 `LLMGateway` 调度能力，但只�
 CodeAsk session
   -> LLMGateway.select_runtime_config(...)
       -> 用户个人配置优先
-      -> 无个人配置时从启用全局池随机选择
-      -> 会话粘性 / 最大连接数 / 失败冷却 / 资源繁忙
+      -> 无个人配置时从启用全局池选择当前最空闲配置
+      -> 最小负载候选并列时随机打散
+      -> 会话粘性 / 失败冷却 / 全池冷却时降级尝试 / 无配置时资源繁忙
   -> opencode_compat.initialize_session(session_id, selected_config)
   -> opencode_compat.run_turn(session_id, selected_config)
 ```
@@ -838,7 +840,10 @@ CodeAsk session
 边界要求：
 
 - 不允许在 opencode 会话路径直接调用 `llm_config_repo.get_default_or(None, ...)` 选择运行时配置；该方法不承担多条全局启用配置的随机调度。
-- 不允许把多条启用配置退化成“取第一条”；全局配置池必须随机选择，并受最大连接数、粘性和失败冷却约束。
+- 不允许把多条启用配置退化成“取第一条”；全局配置池必须优先选择当前最空闲配置，最小负载候选并列时再随机选择，并受会话粘性和失败冷却约束。
+- 不再限制单个全局 LLM 配置的并行会话数量；当只有一个健康配置时，新会话继续使用该配置，不因为历史活跃会话数返回资源繁忙。
+- 失败冷却不能把单配置部署打成长期不可用：如果全局池中存在健康配置，只从健康配置中选择；如果全局池全部处于 unhealthy 冷却，则进入 degraded 选择，仍从全部全局配置中按最空闲优先选择一个继续尝试。只有全局池本身为空时，才因为无候选配置返回资源繁忙。
+- degraded 选择不清除失败记录，也不把配置伪装成健康；它只是避免短时模型后端繁忙导致 CodeAsk 在 10 分钟冷却期内彻底不可用。
 - `LLMGateway` 不生成 opencode provider 配置，不根据 URL、厂商或模型名做 provider 特判。
 - 选中的 `LLMConfigWithSecret` 必须原样传给 `opencode_compat`，包括 `protocol`、`base_url`、`model_name`、`reasoning_profile` 和通用 `agent_runtime_profile`；历史 `opencode_provider_profile` 仅作为当前 backend 的兼容别名。
 - opencode provider profile 的配置生成和请求执行仍完全由 `src/codeask/agent/opencode_compat/` 负责。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import shutil
@@ -49,8 +50,13 @@ class WikiWorkspaceExporter:
     ) -> None:
         self._session_factory = session_factory
         self._workspace_root = workspace_root
+        self._export_lock = asyncio.Lock()
 
     async def export_current(self) -> WikiWorkspaceExportResult:
+        async with self._export_lock:
+            return await self._export_current_locked()
+
+    async def _export_current_locked(self) -> WikiWorkspaceExportResult:
         async with self._session_factory() as session:
             rows = (
                 await session.execute(

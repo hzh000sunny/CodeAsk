@@ -149,6 +149,98 @@ test("frontend session sends one turn through opencode backend", async ({ page }
     .toEqual(["user", "agent", "user", "agent"]);
 });
 
+test("frontend sends concurrent new sessions through opencode backend", async ({ page }) => {
+  await page.goto("/#/login", { waitUntil: "networkidle" });
+  await page.getByLabel("用户名").fill(ADMIN_USERNAME);
+  await page.getByLabel("密码", { exact: true }).fill(ADMIN_PASSWORD);
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page.getByText("Admin")).toBeVisible();
+
+  const llmConfigs = await page.evaluate(async () => {
+    const response = await fetch("/api/admin/llm-configs");
+    if (!response.ok) {
+      throw new Error(`list llm configs failed: ${response.status} ${await response.text()}`);
+    }
+    return (await response.json()) as Array<{
+      enabled?: boolean;
+      model_name?: string;
+    }>;
+  });
+  const enabledConfigs = llmConfigs.filter((config) => config.enabled);
+  test.skip(enabledConfigs.length === 0, "No enabled real LLM config is available in CodeAsk.");
+  const enabledModelNames = new Set(enabledConfigs.map((config) => config.model_name));
+
+  const sessionIds = await page.evaluate(async () => {
+    const now = Date.now();
+    return Promise.all(
+      [0, 1, 2].map(async (index) => {
+        const response = await fetch("/api/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: `OpenCode concurrent live ${now}-${index}` }),
+        });
+        if (!response.ok) {
+          throw new Error(`create session failed: ${response.status} ${await response.text()}`);
+        }
+        return ((await response.json()) as { id: string }).id;
+      }),
+    );
+  });
+
+  const results = await Promise.all(
+    sessionIds.map((sessionId, index) =>
+      postMessage(
+        page,
+        sessionId,
+        `并发验证 ${index + 1}：请用一句话回答，HTTP 和 HTTPS 的核心区别是什么？`,
+      ),
+    ),
+  );
+
+  for (const result of results) {
+    expect(result.text.trim()).not.toEqual("");
+    expect(result.eventTypes).toContain("runtime_state");
+    expect(result.eventTypes).toContain("done");
+    expect(result.eventTypes).not.toContain("error");
+  }
+
+  for (const sessionId of sessionIds) {
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async (id) => {
+            const response = await fetch(`/api/sessions/${id}/turns`);
+            if (!response.ok) {
+              throw new Error(`list turns failed: ${response.status} ${await response.text()}`);
+            }
+            return ((await response.json()) as Array<{ role: string }>).map((turn) => turn.role);
+          }, sessionId),
+        { timeout: 180_000 },
+      )
+      .toEqual(["user", "agent"]);
+
+    const traces = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/sessions/${id}/traces`);
+      if (!response.ok) {
+        throw new Error(`list traces failed: ${response.status} ${await response.text()}`);
+      }
+      return (await response.json()) as Array<{
+        event_type: string;
+        payload: Record<string, unknown>;
+      }>;
+    }, sessionId);
+    expect(
+      traces.some(
+        (trace) =>
+          trace.event_type === "runtime_state" &&
+          trace.payload.backend === "opencode" &&
+          enabledModelNames.has(String(trace.payload.model_name)),
+      ),
+    ).toBe(true);
+    expect(traces.some((trace) => trace.event_type === "error")).toBe(false);
+  }
+});
+
 async function postMessage(
   page: import("@playwright/test").Page,
   sessionId: string,

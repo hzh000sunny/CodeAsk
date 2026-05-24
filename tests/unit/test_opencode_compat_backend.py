@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import codeask.agent.opencode_compat.backend as opencode_backend
 from codeask.agent.opencode_compat.backend import OpenCodeCompat
 from codeask.agent.opencode_compat.process import OpenCodeProcessError, OpenCodeServerHandle
 from codeask.agent.opencode_compat.prompts import build_codeask_system_prompt
@@ -81,6 +82,8 @@ class FakeHttpClient:
         self.session_ids: list[str] = []
         self.list_message_calls: list[dict[str, str]] = []
         self.missing_session_ids: set[str] = set()
+        self.statuses: list[dict[str, object]] = []
+        self.messages: list[dict[str, object]] = []
 
     async def health(self) -> dict[str, object]:
         self.health_calls += 1
@@ -96,7 +99,12 @@ class FakeHttpClient:
         self.list_message_calls.append({"session_id": session_id, "directory": directory})
         if session_id in self.missing_session_ids:
             raise RuntimeError("opencode session not found")
-        return []
+        return self.messages
+
+    async def session_status(self, *, directory: str) -> dict[str, object]:
+        if self.statuses:
+            return self.statuses.pop(0)
+        return {}
 
     async def prompt_async(
         self,
@@ -662,6 +670,125 @@ async def test_run_turn_sends_prompt_and_maps_opencode_events(tmp_path: Path) ->
         "opencode_status",
     ]
     assert summary_lines[-1]["status"] == "idle"
+
+
+@pytest.mark.asyncio
+async def test_run_turn_recovers_text_when_terminal_events_are_missed(tmp_path: Path) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    workspace = workspace_manager.prepare_workspace("sess_1")
+    store = FakeStore()
+    await store.upsert(
+        ExternalAgentSessionCreate(
+            session_id="sess_1",
+            external_session_key="ses_open",
+            session_dir=str(workspace.session_dir),
+            workspace_dir=str(workspace.workspace_dir),
+            server_url="http://127.0.0.1:4100",
+            port=4100,
+            pid=123,
+            config_hash="hash",
+            config_json={},
+        )
+    )
+    http_client = FakeHttpClient()
+    http_client.events = []
+    http_client.statuses = [{"ses_open": {"type": "idle"}}]
+    http_client.messages = [
+        {
+            "info": {"id": "msg_assistant", "role": "assistant"},
+            "parts": [{"type": "text", "text": "snapshot answer"}],
+        }
+    ]
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    events = [
+        event
+        async for event in compat.run_turn(
+            session_id="sess_1",
+            user_message="hi",
+            llm_config=_llm_config(),
+        )
+    ]
+
+    user_visible_events = _without_runtime_observation_events(events)
+    assert [event.type for event in user_visible_events] == ["text_delta", "done"]
+    assert user_visible_events[0].data == {"delta": "snapshot answer"}
+    assert http_client.list_message_calls[-1] == {
+        "session_id": "ses_open",
+        "directory": str(workspace.workspace_dir),
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_turn_errors_when_prompt_has_no_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(opencode_backend, "_EVENT_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(opencode_backend, "_TURN_NO_PROGRESS_TIMEOUT_SECONDS", 0.02)
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    workspace = workspace_manager.prepare_workspace("sess_1")
+    store = FakeStore()
+    await store.upsert(
+        ExternalAgentSessionCreate(
+            session_id="sess_1",
+            external_session_key="ses_open",
+            session_dir=str(workspace.session_dir),
+            workspace_dir=str(workspace.workspace_dir),
+            server_url="http://127.0.0.1:4100",
+            port=4100,
+            pid=123,
+            config_hash="hash",
+            config_json={},
+        )
+    )
+    http_client = FakeHttpClient()
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    events = [
+        event
+        async for event in compat.run_turn(
+            session_id="sess_1",
+            user_message="hi",
+            llm_config=_llm_config(),
+        )
+    ]
+
+    assert events[-1].type == "error"
+    assert events[-1].data == {
+        "backend": "opencode",
+        "error": "opencode accepted the prompt but did not report progress",
+    }
 
 
 @pytest.mark.asyncio

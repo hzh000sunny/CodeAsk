@@ -9,6 +9,7 @@ import json
 import shutil
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -48,6 +49,7 @@ class HttpClientLike(Protocol):
     async def list_messages(
         self, *, session_id: str, directory: str
     ) -> list[dict[str, object]]: ...
+    async def session_status(self, *, directory: str) -> dict[str, object]: ...
     async def prompt_async(
         self,
         *,
@@ -83,6 +85,9 @@ class WikiWorkspaceExporterLike(Protocol):
 ContextBuilder = Callable[[str, Path], str | Awaitable[str]]
 SUPPORTED_OPENCODE_VERSIONS = {"1.14.48"}
 log = structlog.get_logger("codeask.agent.opencode_compat.backend")
+_EVENT_POLL_SECONDS = 0.5
+_TURN_NO_PROGRESS_TIMEOUT_SECONDS = 30.0
+_TURN_WAIT_TIMEOUT_SECONDS = 600.0
 
 
 class OpenCodeCompat:
@@ -386,7 +391,11 @@ class OpenCodeCompat:
                 },
             },
         )
-        async for raw_event in client.stream_global_events(directory=workspace_dir):
+        async for raw_event in _stream_events_with_status_poll(
+            client=client,
+            directory=workspace_dir,
+            session_id=str(binding.external_session_key),
+        ):
             _append_raw_event(binding.session_dir, raw_event)
             _append_summary_from_raw_event(
                 binding.session_dir,
@@ -963,6 +972,251 @@ async def _external_session_is_usable(
     except Exception as exc:  # pragma: no cover - exact opencode failure shape is integration-bound
         return False, str(exc).strip() or exc.__class__.__name__
     return True, None
+
+
+async def _stream_events_with_status_poll(
+    *,
+    client: HttpClientLike,
+    directory: str,
+    session_id: str,
+) -> AsyncIterator[dict[str, object]]:
+    """Yield opencode events and recover if terminal events are missed.
+
+    opencode's own run transport keeps a global event stream open and also
+    polls session status because some transports can miss idle events. CodeAsk
+    uses the same safety net here so a missed event cannot leave the frontend
+    permanently generating.
+    """
+
+    queue: asyncio.Queue[tuple[str, object | None]] = asyncio.Queue()
+
+    async def pump() -> None:
+        try:
+            async for event in client.stream_global_events(directory=directory):
+                await queue.put(("event", event))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # pragma: no cover - transport failures are integration-bound
+            await queue.put(("error", exc))
+        else:
+            await queue.put(("closed", None))
+
+    stream_task = asyncio.create_task(pump())
+    started_at = time.perf_counter()
+    last_progress_at = started_at
+    snapshot_emitted = False
+    try:
+        while True:
+            now = time.perf_counter()
+            if time.perf_counter() - started_at > _TURN_WAIT_TIMEOUT_SECONDS:
+                yield _synthetic_session_error_event(
+                    directory=directory,
+                    session_id=session_id,
+                    message="opencode turn did not finish before timeout",
+                )
+                return
+            try:
+                event_type, payload = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=_EVENT_POLL_SECONDS,
+                )
+            except TimeoutError:
+                event_type, payload = "poll", None
+
+            if event_type == "event" and isinstance(payload, dict):
+                if _event_belongs_to_session(payload, directory=directory, session_id=session_id):
+                    last_progress_at = time.perf_counter()
+                yield payload
+                continue
+            if event_type == "error":
+                yield _synthetic_session_error_event(
+                    directory=directory,
+                    session_id=session_id,
+                    message=str(payload) or payload.__class__.__name__,
+                )
+                return
+
+            status = await _safe_session_status(client, directory=directory)
+            if _status_has_session(status, session_id=session_id):
+                last_progress_at = time.perf_counter()
+            if not _status_is_idle(status, session_id=session_id):
+                if now - last_progress_at > _TURN_NO_PROGRESS_TIMEOUT_SECONDS:
+                    snapshot = await _latest_assistant_text_snapshot_event(
+                        client=client,
+                        directory=directory,
+                        session_id=session_id,
+                    )
+                    if snapshot is not None:
+                        yield snapshot
+                        yield _synthetic_session_status_event(
+                            directory=directory,
+                            session_id=session_id,
+                            status={"type": "idle", "source": "message_snapshot"},
+                        )
+                        return
+                    yield _synthetic_session_error_event(
+                        directory=directory,
+                        session_id=session_id,
+                        message="opencode accepted the prompt but did not report progress",
+                    )
+                    return
+                continue
+
+            if not snapshot_emitted:
+                snapshot_emitted = True
+                snapshot = await _latest_assistant_text_snapshot_event(
+                    client=client,
+                    directory=directory,
+                    session_id=session_id,
+                )
+                if snapshot is not None:
+                    yield snapshot
+            yield _synthetic_session_status_event(
+                directory=directory,
+                session_id=session_id,
+                status={"type": "idle", "source": "poll"},
+            )
+            return
+    finally:
+        stream_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await stream_task
+
+
+async def _safe_session_status(
+    client: HttpClientLike,
+    *,
+    directory: str,
+) -> dict[str, object]:
+    try:
+        return await client.session_status(directory=directory)
+    except Exception:
+        return {}
+
+
+def _status_is_idle(status: dict[str, object], *, session_id: str) -> bool:
+    value = status.get(session_id)
+    if not isinstance(value, dict):
+        return False
+    return value.get("type") == "idle"
+
+
+def _status_has_session(status: dict[str, object], *, session_id: str) -> bool:
+    return isinstance(status.get(session_id), dict)
+
+
+def _event_belongs_to_session(
+    event: dict[str, object],
+    *,
+    directory: str,
+    session_id: str,
+) -> bool:
+    if event.get("directory") != directory:
+        return False
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return False
+    properties = payload.get("properties")
+    if not isinstance(properties, dict):
+        return False
+    prop_session_id = properties.get("sessionID")
+    if prop_session_id == session_id:
+        return True
+    part = properties.get("part")
+    return isinstance(part, dict) and part.get("sessionID") == session_id
+
+
+async def _latest_assistant_text_snapshot_event(
+    *,
+    client: HttpClientLike,
+    directory: str,
+    session_id: str,
+) -> dict[str, object] | None:
+    try:
+        messages = await client.list_messages(session_id=session_id, directory=directory)
+    except Exception:
+        return None
+    snapshot = _latest_assistant_text_snapshot(messages)
+    if snapshot is None:
+        return None
+    message_id, text = snapshot
+    return {
+        "directory": directory,
+        "payload": {
+            "type": "message.part.updated",
+            "properties": {
+                "sessionID": session_id,
+                "part": {
+                    "id": f"snapshot_{message_id}",
+                    "messageID": message_id,
+                    "sessionID": session_id,
+                    "type": "text",
+                    "text": text,
+                },
+            },
+        },
+    }
+
+
+def _latest_assistant_text_snapshot(
+    messages: list[dict[str, object]],
+) -> tuple[str, str] | None:
+    for message in reversed(messages):
+        info = message.get("info")
+        info = info if isinstance(info, dict) else message
+        if info.get("role") != "assistant":
+            continue
+        message_id = info.get("id") or message.get("id")
+        if not isinstance(message_id, str) or not message_id:
+            message_id = "assistant"
+        parts = message.get("parts")
+        if not isinstance(parts, list):
+            parts = info.get("parts")
+        if not isinstance(parts, list):
+            continue
+        text = "".join(
+            str(part.get("text"))
+            for part in parts
+            if isinstance(part, dict)
+            and part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+        )
+        if text:
+            return message_id, text
+    return None
+
+
+def _synthetic_session_status_event(
+    *,
+    directory: str,
+    session_id: str,
+    status: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "directory": directory,
+        "payload": {
+            "type": "session.status",
+            "properties": {"sessionID": session_id, "status": status},
+        },
+    }
+
+
+def _synthetic_session_error_event(
+    *,
+    directory: str,
+    session_id: str,
+    message: str,
+) -> dict[str, object]:
+    return {
+        "directory": directory,
+        "payload": {
+            "type": "session.error",
+            "properties": {
+                "sessionID": session_id,
+                "error": message,
+            },
+        },
+    }
 
 
 def _should_emit_reasoning_observed(

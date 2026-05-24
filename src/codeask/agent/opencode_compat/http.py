@@ -81,6 +81,15 @@ class OpenCodeHttpClient:
                 raise OpenCodeHttpError("opencode message response was not a list")
             return [dict(item) for item in data if isinstance(item, dict)]
 
+    async def session_status(self, *, directory: str) -> dict[str, Any]:
+        async with self._client() as client:
+            response = await client.get("/session/status", params={"directory": directory})
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict):
+                raise OpenCodeHttpError("opencode session status response was not an object")
+            return data
+
     async def abort_session(self, *, session_id: str, directory: str) -> None:
         async with self._client() as client:
             response = await client.post(

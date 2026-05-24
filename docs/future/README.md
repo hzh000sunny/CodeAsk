@@ -24,6 +24,7 @@
 - [特性边界探测与上下文隔离](./scoped-context-boundary-probe.md)
 - [外部 Agent Backend：Claude Code 与 opencode](./external-agent-backends.md)
 - [CodeAsk × OpenCode 对接方案](./opencode-integration.md)（设计前史；当前 v1.0.4 落地契约见 `../v1.0.4/`）
+- [OpenCode Bash 命令白名单规划](./opencode-bash-command-whitelist.md)
 - [结构化思考链处理与上下文隔离](./structured-reasoning-handling.md)（设计前史；当前 v1.0.2 落地计划见 `../v1.0.2/plans/structured-reasoning.md`）
 
 ## 使用规则

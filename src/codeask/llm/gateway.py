@@ -138,7 +138,6 @@ class LLMGateway:
         timeout_seconds: int = 600,
         max_retries: int = 3,
         base_delay: float = 0.5,
-        global_max_sessions: int = 3,
         global_usage_window_seconds: float = 60.0,
         global_session_sticky_seconds: float = 300.0,
         unhealthy_failure_threshold: int = 3,
@@ -153,7 +152,6 @@ class LLMGateway:
         self._max_retries = max_retries
         self._base_delay = base_delay
         self._global_usage = GlobalLLMUsageWindow(
-            max_sessions=global_max_sessions,
             usage_window_seconds=global_usage_window_seconds,
             session_sticky_seconds=global_session_sticky_seconds,
             failure_threshold=unhealthy_failure_threshold,
@@ -374,16 +372,23 @@ class LLMGateway:
                     self._global_usage.record_session(sticky.id, session_id)
                     return sticky, True
 
-        candidates = [
-            config
-            for config in global_configs
-            if config.id not in excluded_global_config_ids
-            and not self._global_usage.is_unhealthy(config.id)
-            and self._global_usage.session_count(config.id) < self._global_usage.max_sessions
+        eligible_configs = [
+            config for config in global_configs if config.id not in excluded_global_config_ids
         ]
+        healthy_candidates = [
+            config for config in eligible_configs if not self._global_usage.is_unhealthy(config.id)
+        ]
+        candidates = healthy_candidates or eligible_configs
         if not candidates:
             return None
-        selected = self._random_choice(candidates)
+        session_counts = {
+            config.id: self._global_usage.session_count(config.id) for config in candidates
+        }
+        min_session_count = min(session_counts.values())
+        least_busy_candidates = [
+            config for config in candidates if session_counts[config.id] == min_session_count
+        ]
+        selected = self._random_choice(least_busy_candidates)
         if session_id:
             self._global_usage.record_session(selected.id, session_id)
         return selected, True
@@ -520,7 +525,6 @@ class GlobalLLMUsageWindow:
     def __init__(
         self,
         *,
-        max_sessions: int,
         usage_window_seconds: float,
         session_sticky_seconds: float,
         failure_threshold: int,
@@ -528,7 +532,6 @@ class GlobalLLMUsageWindow:
         failure_cooldown_seconds: float,
         monotonic: Callable[[], float],
     ) -> None:
-        self.max_sessions = max_sessions
         self._usage_window_seconds = usage_window_seconds
         self._session_sticky_seconds = session_sticky_seconds
         self._failure_threshold = failure_threshold

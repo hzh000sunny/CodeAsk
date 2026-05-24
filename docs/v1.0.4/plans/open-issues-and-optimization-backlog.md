@@ -163,7 +163,7 @@
   - 验证：`uv run pytest tests/integration/test_llm_configs_api.py -q`；`corepack pnpm --dir frontend exec vitest run tests/guest-llm-config.test.ts tests/sse.test.ts tests/settings-page.test.tsx`。
 
 - [x] `P0` 明确并固化三层职责。
-  - `LLMGateway`：只负责选哪条 LLM 配置、全局池随机、会话粘性、失败冷却。
+  - `LLMGateway`：只负责选哪条 LLM 配置、全局池最空闲优先选择、会话粘性、失败冷却和全池冷却时的 degraded 选择。
   - `opencode_compat.profiles`：只负责把已选 LLM 配置映射成 opencode provider。
   - `ExternalAgentSession`：只记录当前 CodeAsk session 绑定的 opencode session/config hash/provider profile。
   - 关闭记录：opencode 会话路径只调用 `LLMGateway.select_runtime_config()` 选择配置；provider 生成仍由 `opencode_compat.profiles/config` 完成；`ExternalAgentSession` 只保存 external session、workspace、config hash 和 provider profile。
