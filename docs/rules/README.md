@@ -22,3 +22,4 @@
 - [问题定位报告规则](./problem-report.md)
 - [UI 反馈规则](./ui-feedback.md)
 - [升级兼容与数据目录规则](./upgrade-compatibility.md)
+- [测试特性 Fixture 规则](./test-features.md)

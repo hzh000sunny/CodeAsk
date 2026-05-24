@@ -21,6 +21,7 @@
 ## 当前规划主题
 
 - [RAG 与知识处理增强路线](./rag-knowledge-pipeline.md)
+- [OpenViking RAG 调研记录 2026-05-20](./openviking-rag-research-2026-05-20.md)
 - [特性边界探测与上下文隔离](./scoped-context-boundary-probe.md)
 - [外部 Agent Backend：Claude Code 与 opencode](./external-agent-backends.md)
 - [CodeAsk × OpenCode 对接方案](./opencode-integration.md)（设计前史；当前 v1.0.4 落地契约见 `../v1.0.4/`）

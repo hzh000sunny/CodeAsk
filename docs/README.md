@@ -2,7 +2,11 @@
 
 ## 当前版本
 
-[**v1.0.4**](./v1.0.4/) — OpenCode Agent Backend 对接（Release Ready；引入 opencode 作为新会话默认 Agent 执行引擎，CodeAsk 负责知识、权限、审计、workspace 和 MCP 适配，自动化、真实浏览器和人工验收已完成）
+[**v1.0.5**](./v1.0.5/) — Wiki 与代码仓 RAG（Draft；引入 OpenViking 作为统一上下文数据库，让 opencode 通过 OpenViking MCP 检索 Wiki / 问题报告 / 代码仓候选；OpenViking 集成边界已声明，无许可证前置门槛）
+
+## 上一稳定版本
+
+[**v1.0.4**](./v1.0.4/) — OpenCode Agent Backend 对接（Manual Acceptance Completed；引入 opencode 作为新会话默认 Agent 执行引擎，CodeAsk 负责知识、权限、审计、workspace 和 MCP 适配，自动化、真实浏览器和人工验收已完成）
 
 进入版本目录后请先读该目录下的 `README.md`。
 
@@ -21,6 +25,8 @@
 [**v1.0.2**](./v1.0.2/) — LLM Agent 会话运行时优化（Completed；默认会话切换为正常聊天优先、RAG 增强、工具调用由模型决策的统一运行时）
 
 [**v1.0.3**](./v1.0.3/) — 鉴权与访问控制（Completed；匿名会话、登录注册、admin、特性管理员、全局配置权限和真实数据升级验收已收口）
+
+（v1.0.4 见上方"上一稳定版本"段落，承载 opencode Agent Backend 对接。）
 
 ## 历史版本
 
@@ -50,7 +56,8 @@ docs/
 ├── v1.0.1/            ← LLM Wiki 专项（Completed）
 ├── v1.0.2/            ← LLM Agent 会话运行时优化（Completed）
 ├── v1.0.3/            ← 鉴权与访问控制（Completed）
-├── v1.0.4/            ← 当前版本：OpenCode Agent Backend 对接（Release Ready）
+├── v1.0.4/            ← OpenCode Agent Backend 对接（Manual Acceptance Completed）
+├── v1.0.5/            ← 当前版本：Wiki 与代码仓 RAG（Draft）
 ├── v1.1/              ← 未来 minor 演进（尚未创建）
 └── v2.0/              ← 未来 major 演进（尚未创建）
 ```
