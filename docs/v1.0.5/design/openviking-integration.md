@@ -47,7 +47,7 @@ alembic/versions/
 
 | 现有文件 | 变更 |
 |---|---|
-| `src/codeask/app.py` | 启动阶段拉起 OpenViking server；注册 keepalive 与同步定时任务；新增 `app.state.openviking_*`；**删除** 所有 native backend wiring（`agent_orchestrator` / `tool_registry` / `agent_wiki_search` / `chat_tool_registry` / `chat_runtime` 构造与注入） |
+| `src/codeask/app.py` | 启动阶段拉起 OpenViking server；注册 keepalive 与同步定时任务；新增 `app.state.openviking_*`；**下线** native backend 请求链路接线（`agent_orchestrator` / `tool_registry` / `agent_wiki_search` / `chat_tool_registry` / `chat_runtime` 的构造与注入移除；对应模块搬入 `native_backend/` 隔离保留，不删除，详见 §1.6） |
 | `src/codeask/agent/opencode_compat/config.py` | 在 `opencode.json` 的 `mcp` 中加入 OpenViking remote MCP endpoint 与 token；OpenViking 不健康时 `mcp` 段不注入（让 opencode 退回 native read/grep/glob） |
 | `src/codeask/agent/opencode_compat/context.py` | `build_dynamic_codeask_context` 加入 OpenViking 资源布局与使用原则段落；OpenViking 不健康时该段落不注入 |
 | `src/codeask/agent/opencode_compat/prompts.py` | `AGENTS.md` 与 system prompt 增加 RAG 使用原则 |
@@ -76,25 +76,13 @@ alembic/versions/
 - 不让 OpenViking 直接读取宿主机绝对路径；所有同步路径通过 sync.py 受控转发，并在导入元数据中只保留 CodeAsk 相对路径
 - **OpenViking 是增强、不是 hard dep**：opencode_compat 注入 OpenViking 上下文 / MCP 配置前必须先探测 OpenViking 健康；不健康时该段落 / 配置缺省，opencode 走 v1.0.4 行为
 
-### 1.5 删除模块（v1.0.5 一次性清理）
+### 1.5 删除模块（FTS5 索引链路，彻底删除）
 
-**FTS5 索引链路（无人调用，已 drift）**：
+FTS5 链路无人调用、已 drift，v1.0.5 彻底删除：
 
 - `src/codeask/wiki/search.py`（`WikiSearchService` FTS5 + n-gram bm25）
 - `src/codeask/wiki/indexer.py`（`WikiIndexer.index_chunk / unindex / index_report`）
 - `src/codeask/wiki/tokenizer.py`（`tokenize` + `to_ngrams`，仅服务 FTS5 写入）
-
-**`agent_backend=native` legacy 路径（默认未启用，唯一调 FTS5 的入口）**：
-
-- `src/codeask/agent/orchestrator.py`（`AgentOrchestrator`）
-- `src/codeask/agent/wiki_tools.py`（`AgentWikiToolService`、`search_wiki` 工具实现）
-- `src/codeask/agent/tools.py`（`ToolRegistry`）
-- `src/codeask/agent/tool_schemas.py`
-- `src/codeask/agent/tool_delegates.py`
-- `src/codeask/agent/stages/`（`knowledge_retrieval.py` / `code_investigation.py` / `scope_detection.py` / `__init__.py` 等整个目录）
-- `src/codeask/agent/chat_runtime/runtime.py` / `loop.py` / `retrieval.py` / `prompt.py` / `compaction.py` / `tool_executor.py` / `tool_registry.py` / `tool_contracts.py`
-- `src/codeask/agent/chat_runtime/tools/`（`wiki.py` / `reports.py` / `code.py` / `attachments.py` / `live_code.py` / `policies.py` / `report_actions.py` / `user_interaction.py` 整个目录）
-- `src/codeask/agent/chat_runtime/__init__.py` 中对上述模块的 re-export 清理（保留 `events.py` / `context.py` 的 re-export）
 
 **alembic migration（新增一条 DROP migration）**：
 
@@ -111,11 +99,50 @@ def downgrade():
 
 > `document_chunks` 物理表暂留（含 legacy 上传文档的 chunk 历史，不再读写），后续版本可在确认无历史依赖后再清。`documents` 表保留（仍由 `LegacyWikiSyncService` 用作上传桥接）。
 
-**对应测试清理**：
+测试清理：`tests/integration/test_wiki_search.py`（直接测 FTS5）删除；新增 `/api/wiki/search` OpenViking-first + ILIKE 兜底集成测试、Wiki publish / Report verify hook 入队单测。
 
-- `tests/integration/test_wiki_search.py`（直接测 FTS5）→ 删除
-- 各种 native backend / chat_runtime / orchestrator 单测与集成测试 → 删除
-- 新增：`/api/wiki/search` OpenViking-first + ILIKE 兜底集成测试；Wiki publish / Report verify hook 入队的单测
+### 1.6 隔离模块（自研 Agent，保留不删，移入隔离命名空间）
+
+v1.0.4 自研的 Agent（`agent_backend=native` 路径）**不删除**，整体搬进隔离命名空间 `src/codeask/agent/native_backend/`，作为冻结的参考代码保留——为将来可能重启自研 Agent 留底。但 v1.0.5 **不把它接入请求链路**（默认且唯一运行 opencode backend）。
+
+**搬迁清单（全部 native-only，仅 `app.py` 是外部接线点）**：
+
+| 现位置 | 迁入 |
+|---|---|
+| `agent/orchestrator.py`（`AgentOrchestrator`） | `agent/native_backend/orchestrator.py` |
+| `agent/wiki_tools.py`（`AgentWikiToolService`） | `agent/native_backend/wiki_tools.py` |
+| `agent/tools.py`（`ToolRegistry` / `ToolContext` / `ToolResult`） | `agent/native_backend/tools.py` |
+| `agent/tool_schemas.py` / `tool_delegates.py` | `agent/native_backend/` |
+| `agent/code_tools.py`（`AgentCodeSearchService`） | `agent/native_backend/code_tools.py` |
+| `agent/answer_links.py` | `agent/native_backend/answer_links.py` |
+| `agent/stages/`（`knowledge_retrieval` / `code_investigation` / `scope_detection` / `answer_finalization` / `Evidence` 等整目录） | `agent/native_backend/stages/` |
+| `agent/chat_runtime/runtime.py` / `loop.py` / `retrieval.py` / `prompt.py` / `compaction.py` / `tool_executor.py` / `tool_registry.py` / `tool_contracts.py` | `agent/native_backend/chat_runtime/` |
+| `agent/chat_runtime/tools/`（整目录） | `agent/native_backend/chat_runtime/tools/` |
+
+**保留在原位（共享层，不属于 native runtime）**：
+
+- `agent/chat_runtime/events.py`（`ChatRuntimeEvent`）—— 被 opencode_compat / api/sessions / sessions/messages 引用
+- `agent/chat_runtime/context.py`（`SessionMessage`）—— 被 sessions/messages 引用
+
+> 迁移后 `agent/chat_runtime/` 仅剩 `events.py` + `context.py` 两个共享类型文件；native runtime 自带的 `chat_runtime/` 子目录在 `native_backend/` 下，import 路径整体改写。
+
+**与 FTS5 解耦（搬迁时一并做）**：
+
+- `native_backend/chat_runtime/tools/reports.py` 当前 `from codeask.wiki.search import WikiSearchService`（唯一 FTS5 依赖）改为 `NativeWikiSearchService`（SQL ILIKE 搜 reports）。这是为了让模块在 FTS5 删除后仍可 import / 冒烟测试，**不是**它的目标检索方案。
+
+**复活指引（写入 `native_backend/README.md`）**：
+
+- 这是冻结参考代码，v1.0.5 不接入请求链路，不随主链路演进维护
+- 若将来重启自研 Agent，其 RAG / 检索层（`retrieval.py` / `wiki_tools.py` / `tools/{wiki,reports}.py`）必须重新接到 `src/codeask/rag/openviking/` 的 client，**不要**接回 `NativeWikiSearchService`（ILIKE 仅为保活而留）；FTS5 已永久删除
+- 复活 = 重新在 `app.py` 接线 + 恢复 `agent_backend` 选择分支
+
+**接线与配置**：
+
+- `app.py` 删除 native backend 的请求链路接线（`AgentOrchestrator` / `ToolRegistry` / `ChatRuntime` / `register_*_tools` 的构造与注入），只保留 opencode 接线
+- `settings.agent_backend` 收敛为 `Literal["opencode"]`（native 不再是运行时可选项；复活时再加回）
+- `native_backend/` 保持可 import；新增冒烟测试 `tests/unit/test_native_backend_importable.py`：import 关键模块 + 用 fake 依赖构造 `AgentOrchestrator`，证明未 bitrot。CI 跑，但不进任何请求路径
+
+**测试处理**：原 native backend / chat_runtime / orchestrator 的单测与集成测试随模块一起迁入 `tests/native_backend/`（保留但标记 legacy），或精简为冒烟测试；不删测试逻辑，避免复活时无参照。
 
 ---
 

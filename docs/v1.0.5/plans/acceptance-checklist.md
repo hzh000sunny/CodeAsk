@@ -106,16 +106,24 @@
 - [ ] Report 在 `verified=true` 状态下编辑（且 hash 不同）→ sync_jobs 入队
 - [ ] scheduled_refresh 24h sweep 也遵守上述过滤：扫描时跳过 drafts 与 unverified reports
 
-### 3.8 FTS5 与 native backend 清理
+### 3.8 FTS5 删除
 
 - [ ] alembic head 之后：`docs_fts` / `docs_ngram_fts` / `reports_fts` 三张虚表不存在
 - [ ] `find src/codeask/wiki -name "search.py" -o -name "indexer.py" -o -name "tokenizer.py"` 无输出
 - [ ] `wiki/chunker.py` 不再 import `tokenizer`，`ParsedChunk` 不含 `tokenized_text` / `ngram_text` 字段
-- [ ] `find src/codeask/agent -name "orchestrator.py" -o -name "wiki_tools.py" -o -name "tools.py" -o -name "tool_schemas.py" -o -name "tool_delegates.py" -o -path "*/stages/*" -o -path "*/chat_runtime/runtime*" -o -path "*/chat_runtime/loop*" -o -path "*/chat_runtime/retrieval*" -o -path "*/chat_runtime/prompt*" -o -path "*/chat_runtime/compaction*" -o -path "*/chat_runtime/tool_*" -o -path "*/chat_runtime/tools/*"` 无输出
-- [ ] `chat_runtime/events.py` + `chat_runtime/context.py` 仍存在（opencode_compat / api/sessions / sessions/messages 共享类型层）
-- [ ] `settings.agent_backend` 为 `Literal["opencode"]`（或字段已删除）
-- [ ] `grep -rn "agent_backend.*native\|AgentOrchestrator\|AgentWikiToolService\|ToolRegistry\(" src/codeask/` 无残留
 - [ ] `grep -rn "docs_fts\|docs_ngram_fts\|reports_fts\|WikiIndexer\|WikiSearchService" src/codeask/ alembic/versions/` 仅出现在新增的 DROP migration 文件中
+
+### 3.9 自研 Agent 隔离（保留不删）
+
+- [ ] `src/codeask/agent/native_backend/` 存在，包含 orchestrator / wiki_tools / tools / tool_schemas / tool_delegates / code_tools / answer_links / stages / chat_runtime（runtime 系列 + tools/）
+- [ ] `src/codeask/agent/native_backend/README.md` 存在，写明"冻结参考、不在请求链路、复活时 RAG 接 OpenViking 不回退 FTS5"
+- [ ] `chat_runtime/events.py` + `chat_runtime/context.py` 仍在 `agent/chat_runtime/` 原位（共享类型层）
+- [ ] `python -c "import codeask.agent.native_backend.orchestrator"` 成功（模块未 bitrot）
+- [ ] 冒烟测试 `tests/unit/test_native_backend_importable.py` 通过：import 关键模块 + 用 fake 依赖构造 `AgentOrchestrator`
+- [ ] `native_backend` 内无 FTS5 依赖：`grep -rn "WikiSearchService\|wiki.search\|wiki.indexer\|wiki.tokenizer" src/codeask/agent/native_backend/` 无输出
+- [ ] `native_backend` **不在请求链路**：`grep -rn "native_backend" src/codeask/app.py src/codeask/api/ src/codeask/sessions/` 无输出
+- [ ] `settings.agent_backend` 为 `Literal["opencode"]`；运行时无法选到 native
+- [ ] `grep -rn "agent_backend.*native" src/codeask/` 仅出现在 native_backend 内部 / 测试 / 注释，不出现在请求路径接线
 
 ---
 

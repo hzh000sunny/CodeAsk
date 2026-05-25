@@ -30,7 +30,7 @@ opencode 与 CodeAsk 的关系不变：opencode 是 Agent 执行引擎，CodeAsk
 | 浏览器 Wiki UI 搜索框 | `/api/wiki/search` 走 `NativeWikiSearchService` (SQL `ILIKE`)；另有 legacy `/api/documents/search` 走 FTS5（前端不调用） | `/api/wiki/search` 改为 **OpenViking 优先 → SQL `ILIKE` 兜底**；OpenViking 0 命中或不可用即回退 |
 | 报告检索 | 文件 `glob/grep ./wiki/<feature>/problem-reports/` + legacy FTS5 `reports_fts`（前端不调用） | 同 v1.0.4 文件路径 + OpenViking 召回；**仅 verified report 入 OpenViking**，unverified / draft 不入 |
 | 代码仓检索 | 用户显式指定仓库 → `prepare_worktree` → opencode 原生 grep/read | OpenViking 先召回候选 repo / 路径 / 符号 → opencode 主动调用 CodeAsk `prepare_worktree` → 真实源码读取；OpenViking 不可用时退回 v1.0.4 显式指定流程 |
-| 后端 | opencode + CodeAsk MCP；存在 legacy `agent_backend=native` 路径（默认未启用，含 FTS5 工具） | **删除整条 native 路径**，`agent_backend` 收敛为 `Literal["opencode"]`；opencode + CodeAsk MCP + OpenViking MCP（OpenViking 是会话内语义检索的唯一入口；CodeAsk MCP 不暴露 FTS / 向量工具） |
+| 后端 | opencode + CodeAsk MCP；存在 legacy `agent_backend=native` 路径（默认未启用，含 FTS5 工具） | **native 路径搬入 `agent/native_backend/` 隔离保留、不接入请求链路**，`agent_backend` 收敛为 `Literal["opencode"]`；opencode + CodeAsk MCP + OpenViking MCP（OpenViking 是会话内语义检索的唯一入口；CodeAsk MCP 不暴露 FTS / 向量工具）；将来若重启自研 Agent，RAG 接 OpenViking、不回退 FTS5 |
 | FTS5 / n-gram 索引 | 三张虚表 + `WikiIndexer` + `WikiSearchService`，仅 legacy 上传路径写入；UI 不调；编辑发布后不重建（drift） | **完全废弃**：alembic drop 三张虚表；删除 `wiki/{search,indexer,tokenizer}.py`；`api/documents_compat.py` `/search` 端点删除，上传路径不再 chunk |
 
 ### 2.2 用户体验承诺
@@ -305,7 +305,7 @@ v1.0.5 把 embedding 模型当作"运行时可切换的 admin 配置"，不是�
 - [ ] OpenViking 召回代码候选 → 模型调用 `codeask_prepare_worktree` → opencode 读取真实文件
 - [ ] OpenViking 不可用时 graceful degrade：Wiki UI 搜索框命中走 SQL ILIKE 兜底；opencode 会话用 native `read/grep/glob`；admin 仪表盘显示 `degraded` 但不弹窗打断普通用户
 - [ ] Wiki 写路径全部 hook OpenViking：上传 / publish / rollback / Report verify 后 sync_job 入队（DB 可查）；草稿与 unverified Report **不**入队
-- [ ] `agent_backend=native` legacy 路径已删除：`grep -r "agent_backend.*native\|orchestrator\|wiki_tools" src/codeask/` 无残留
+- [ ] `agent_backend=native` legacy 路径已搬入 `agent/native_backend/` 隔离：不在请求链路；`settings.agent_backend` 为 `Literal["opencode"]`；`native_backend` 可 import，冒烟测试通过；模块内无 FTS5 依赖（`reports.py` 已改用 `NativeWikiSearchService`）
 - [ ] FTS5 / n-gram 已删除：`docs_fts` / `docs_ngram_fts` / `reports_fts` 虚表通过 alembic drop；`wiki/{search,indexer,tokenizer}.py` 与 `api/documents_compat.py:/search` 端点删除
 - [ ] 同步状态表能记录每条同步任务的 source / uri / status / hash / last_synced_at / error
 

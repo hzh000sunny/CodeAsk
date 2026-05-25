@@ -20,7 +20,7 @@
 
 ## 1. 范围
 
-Phase 1 = 把 OpenViking 接入 CodeAsk 后端，把 Wiki UI 搜索框改成"OpenViking 优先 + ILIKE 兜底"，把 Wiki 写路径 hook 进 OpenViking 增量同步；**不接入 opencode 主链路**。同时一次性清理 FTS5 与 `agent_backend=native` legacy 代码。
+Phase 1 = 把 OpenViking 接入 CodeAsk 后端，把 Wiki UI 搜索框改成"OpenViking 优先 + ILIKE 兜底"，把 Wiki 写路径 hook 进 OpenViking 增量同步；**不接入 opencode 主链路**。同时删除 FTS5 链路、把自研 Agent 搬入 `agent/native_backend/` 隔离保留（不删除，详见 §9 / SDD §1.6）。
 
 包含：
 
@@ -32,8 +32,8 @@ Phase 1 = 把 OpenViking 接入 CodeAsk 后端，把 Wiki UI 搜索框改成"Ope
 - **草稿与 unverified Report 不入队**（SDD §6.3 过滤规则）
 - 同步引擎执行 add-resource / 索引追踪 / 失败重试
 - `/api/wiki/search` 改写为 **OpenViking 优先 + `NativeWikiSearchService` (SQL ILIKE) 兜底**（详见 §9）
-- 删除 FTS5 链路代码（详见 §9 第 11-14 步）
-- 删除 `agent_backend=native` legacy 路径（详见 §9 第 15-17 步）
+- 删除 FTS5 链路代码 + drop 三张虚表（详见 §9 第 14-16 步）
+- 自研 Agent 搬入 `agent/native_backend/` 隔离保留、下线请求链路（详见 §9 第 17-19 步 / SDD §1.6）
 - admin 诊断接口 `GET /api/admin/openviking/status`
 - admin 设置页 OpenViking 仪表盘（详见 §7）
 - 后端单元 / 集成测试
@@ -49,7 +49,7 @@ Phase 1 完成后：
 
 - Wiki UI 搜索框：OpenViking 可用即语义优先，不可用即 ILIKE 兜底，前端零改动
 - opencode 会话：行为与 v1.0.4 相同（用 `workspace/wiki` symlink + native grep）；Phase 2 才注入 OpenViking
-- FTS5 索引、native chat_runtime 路径已从代码库完全清除
+- FTS5 索引已从代码库完全删除；自研 Agent 搬入 `native_backend/` 隔离保留（可 import、冒烟测试通过、不在请求链路）
 
 ---
 
@@ -536,11 +536,11 @@ FTS5 链路清除（步骤 14-16）：
 15. 删除 `src/codeask/wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py`；瘦身 `wiki/chunker.py`（删 tokenizer import、删 `tokenized_text` / `ngram_text` 字段）；删除对应单元 / 集成测试 (`tests/integration/test_wiki_search.py`)
 16. alembic migration drop `docs_fts` / `docs_ngram_fts` / `reports_fts`（详见 §3.2）
 
-`agent_backend=native` legacy 路径清除（步骤 17-19）：
+`agent_backend=native` 自研 Agent 隔离（步骤 17-19，搬迁不删除，详见 SDD §1.6）：
 
-17. `src/codeask/app.py` 删除 native wiring：`AgentWikiToolService` / `ToolRegistry` / `AgentOrchestrator` / `chat_tool_registry` / 各 `register_*_tools` 构造与注入；`scheduler` 中只剩 opencode_keepalive / opencode_session_idle_cleanup
-18. `src/codeask/sessions/messages.py:stream_agent_response` 删除 `if agent_backend != "opencode"` 分支；`api/sessions.py` 同理
-19. 删除文件：`agent/orchestrator.py` / `agent/wiki_tools.py` / `agent/tools.py` / `agent/tool_schemas.py` / `agent/tool_delegates.py` / `agent/stages/` 整目录 / `agent/chat_runtime/{runtime,loop,retrieval,prompt,compaction,tool_executor,tool_registry,tool_contracts}.py` / `agent/chat_runtime/tools/` 整目录；保留 `chat_runtime/events.py` + `chat_runtime/context.py`；清理 `chat_runtime/__init__.py` 的 re-export；`settings.py` 收敛 `agent_backend: Literal["opencode"]`（或直接删除该字段并清理所有引用）；删除对应测试
+17. 新建 `src/codeask/agent/native_backend/`，把 native-only 模块整体搬入（`orchestrator.py` / `wiki_tools.py` / `tools.py` / `tool_schemas.py` / `tool_delegates.py` / `code_tools.py` / `answer_links.py` / `stages/` / `chat_runtime/{runtime,loop,retrieval,prompt,compaction,tool_executor,tool_registry,tool_contracts}.py` / `chat_runtime/tools/`）；`chat_runtime/events.py` + `chat_runtime/context.py` 留原位作共享层；改写所有内部 import 路径；写 `native_backend/README.md`（复活指引：RAG 接 OpenViking 不回退 FTS5）
+18. 解耦 FTS5：`native_backend/chat_runtime/tools/reports.py` 的 `WikiSearchService` 改为 `NativeWikiSearchService`（仅为保活；非目标方案）
+19. 下线请求链路：`app.py` 移除 native wiring（`AgentWikiToolService` / `ToolRegistry` / `AgentOrchestrator` / `chat_tool_registry` / 各 `register_*_tools` 构造与注入），scheduler 只剩 opencode_keepalive / opencode_session_idle_cleanup；`sessions/messages.py:stream_agent_response` 与 `api/sessions.py` 删除 `agent_backend != "opencode"` 分支；`settings.py` 收敛 `agent_backend: Literal["opencode"]`；新增冒烟测试 `tests/unit/test_native_backend_importable.py`；原 native 测试迁入 `tests/native_backend/` 标 legacy（保留逻辑，不删）
 
 Wiki 写路径 hook（步骤 20-22）：
 
