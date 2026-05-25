@@ -32,8 +32,8 @@ Phase 1 = 把 OpenViking 接入 CodeAsk 后端，把 Wiki UI 搜索框改成"Ope
 - **草稿与 unverified Report 不入队**（SDD §6.3 过滤规则）
 - 同步引擎执行 add-resource / 索引追踪 / 失败重试
 - `/api/wiki/search` 改写为 **OpenViking 优先 + `NativeWikiSearchService` (SQL ILIKE) 兜底**（详见 §9）
-- 删除 FTS5 链路代码 + drop 三张虚表（详见 §9 第 14-16 步）
-- 自研 Agent 搬入 `agent/native_backend/` 隔离保留、下线请求链路（详见 §9 第 17-19 步 / SDD §1.6）
+- 自研 Agent 搬入 `agent/native_backend/` 隔离保留、下线请求链路（详见 §9 第 12-14 步 / SDD §1.6）
+- 删除 FTS5 链路代码 + drop 三张虚表（详见 §9 第 15-17 步，**须在 native 解耦之后**）
 - admin 诊断接口 `GET /api/admin/openviking/status`
 - admin 设置页 OpenViking 仪表盘（详见 §7）
 - 后端单元 / 集成测试
@@ -525,22 +525,24 @@ OpenViking 接入 + 仪表盘（步骤 1-11）：
 10. 前端：OpenVikingHealthCard + OpenVikingSyncJobsCard + OpenVikingEventStream + OpenVikingTuningCard（最小可用版本）
 11. 前端：OpenVikingMetricsCard（可后置到 Phase 2）
 
-Wiki UI 搜索框 OpenViking-first + ILIKE 兜底（步骤 12-13）：
+自研 Agent 隔离（步骤 12-14，搬迁不删除，**必须在删 FTS5 之前**，详见 SDD §1.6）：
 
-12. `api/wiki/search.py` 改写：OpenViking healthy 时调 `client.find_or_search(q, scope, filter=feature_uri, limit)`；失败（异常 / 不可达）或 0 命中即 fallthrough 到 `NativeWikiSearchService`；URI → feature_id 反查保留原 `_group_for_hit` 分组；前端零改动
-13. 集成测试：OpenViking 健康有命中 / OpenViking 健康 0 命中 / OpenViking 不可达 / OpenViking 异常——四种 case 验证兜底正确
+> 排期约束：FTS5 删除会移除 `WikiSearchService`，而 native 的 `tools/reports.py` 仍 import 它；必须先把 native 搬走并把 `reports.py` 解耦，否则中间态 import 不了。
 
-FTS5 链路清除（步骤 14-16）：
+12. 新建 `src/codeask/agent/native_backend/`，把 native-only 模块整体搬入（`orchestrator.py` / `wiki_tools.py` / `tools.py` / `tool_schemas.py` / `tool_delegates.py` / `code_tools.py` / `answer_links.py` / `stages/` / `chat_runtime/{runtime,loop,retrieval,prompt,compaction,tool_executor,tool_registry,tool_contracts}.py` / `chat_runtime/tools/`）；`chat_runtime/events.py` + `chat_runtime/context.py` 留原位作共享层；改写所有内部 import 路径；写 `native_backend/README.md`（复活指引：RAG 接 OpenViking 不回退 FTS5）
+13. 解耦 FTS5：`native_backend/chat_runtime/tools/reports.py` 的 `WikiSearchService` 改为 `NativeWikiSearchService`（仅为保活；非目标方案）
+14. 下线请求链路：`app.py` 移除 native wiring（`AgentWikiToolService` / `ToolRegistry` / `AgentOrchestrator` / `chat_tool_registry` / 各 `register_*_tools` 构造与注入），scheduler 只剩 opencode_keepalive / opencode_session_idle_cleanup；`sessions/messages.py:stream_agent_response` 与 `api/sessions.py` 删除 `agent_backend != "opencode"` 分支；`settings.py` 收敛 `agent_backend: Literal["opencode"]`；新增冒烟测试 `tests/unit/test_native_backend_importable.py`；原 native 测试迁入 `tests/native_backend/` 标 legacy（保留逻辑，不删）
 
-14. 改写 `api/documents_compat.py`：`POST /documents` 上传逻辑移除 `DocumentChunker.chunk_file` + `WikiIndexer.index_chunk`；保留 `Document` 写入与 `LegacyWikiSyncService` 桥接；新增 enqueue OpenViking sync 调用；删除 `GET /documents/search` 端点
-15. 删除 `src/codeask/wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py`；瘦身 `wiki/chunker.py`（删 tokenizer import、删 `tokenized_text` / `ngram_text` 字段）；删除对应单元 / 集成测试 (`tests/integration/test_wiki_search.py`)
-16. alembic migration drop `docs_fts` / `docs_ngram_fts` / `reports_fts`（详见 §3.2）
+FTS5 链路清除（步骤 15-17，须在 native 解耦之后）：
 
-`agent_backend=native` 自研 Agent 隔离（步骤 17-19，搬迁不删除，详见 SDD §1.6）：
+15. 改写 `api/documents_compat.py`：`POST /documents` 上传逻辑移除 `DocumentChunker.chunk_file` + `WikiIndexer.index_chunk`；保留 `Document` 写入与 `LegacyWikiSyncService` 桥接；新增 enqueue OpenViking sync 调用；删除 `GET /documents/search` 端点
+16. 删除 `src/codeask/wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py`；瘦身 `wiki/chunker.py`（删 tokenizer import、删 `tokenized_text` / `ngram_text` 字段）；删除对应单元 / 集成测试 (`tests/integration/test_wiki_search.py`)
+17. alembic migration drop `docs_fts` / `docs_ngram_fts` / `reports_fts`（详见 §3.2）
 
-17. 新建 `src/codeask/agent/native_backend/`，把 native-only 模块整体搬入（`orchestrator.py` / `wiki_tools.py` / `tools.py` / `tool_schemas.py` / `tool_delegates.py` / `code_tools.py` / `answer_links.py` / `stages/` / `chat_runtime/{runtime,loop,retrieval,prompt,compaction,tool_executor,tool_registry,tool_contracts}.py` / `chat_runtime/tools/`）；`chat_runtime/events.py` + `chat_runtime/context.py` 留原位作共享层；改写所有内部 import 路径；写 `native_backend/README.md`（复活指引：RAG 接 OpenViking 不回退 FTS5）
-18. 解耦 FTS5：`native_backend/chat_runtime/tools/reports.py` 的 `WikiSearchService` 改为 `NativeWikiSearchService`（仅为保活；非目标方案）
-19. 下线请求链路：`app.py` 移除 native wiring（`AgentWikiToolService` / `ToolRegistry` / `AgentOrchestrator` / `chat_tool_registry` / 各 `register_*_tools` 构造与注入），scheduler 只剩 opencode_keepalive / opencode_session_idle_cleanup；`sessions/messages.py:stream_agent_response` 与 `api/sessions.py` 删除 `agent_backend != "opencode"` 分支；`settings.py` 收敛 `agent_backend: Literal["opencode"]`；新增冒烟测试 `tests/unit/test_native_backend_importable.py`；原 native 测试迁入 `tests/native_backend/` 标 legacy（保留逻辑，不删）
+Wiki UI 搜索框 OpenViking-first + ILIKE 兜底（步骤 18-19）：
+
+18. `api/wiki/search.py` 改写：OpenViking healthy 时调 `client.find_or_search(q, scope, filter=feature_uri, limit)`；失败（异常 / 不可达）或 0 命中即 fallthrough 到 `NativeWikiSearchService`；URI → feature_id 反查保留原 `_group_for_hit` 分组；前端零改动
+19. 集成测试：OpenViking 健康有命中 / OpenViking 健康 0 命中 / OpenViking 不可达 / OpenViking 异常——四种 case 验证兜底正确
 
 Wiki 写路径 hook（步骤 20-22）：
 
@@ -548,9 +550,9 @@ Wiki 写路径 hook（步骤 20-22）：
 21. `wiki/reports.py` + `api/reports.py` verify endpoint：`verified=false → true` 入队；`verified=true → false` 入队 tombstone；`verified=false` 状态下编辑不入队
 22. wiki node 软删 hook（`WikiNode.deleted_at` 标记后）入队 tombstone
 
-每步独立可验证 + 可回滚；建议按 11/13/16/19/22 为里程碑分别打 PR。
-12. 升级路径在真实数据备份上的回归
-13. acceptance-checklist 内 Phase 1 子项打勾
+收尾（每个里程碑合入前必做）：升级路径在真实数据备份上回归一次；勾选 acceptance-checklist 对应 Phase 1 子项。
+
+每步独立可验证 + 可回滚；建议按 **11 / 14 / 17 / 19 / 22** 为里程碑分别交接 review（M1 OpenViking 核心 / M2 native 隔离 / M3 删 FTS5 / M4 UI 搜索兜底 / M5 写路径 hook）。M4、M5 与 M2、M3 可并行（不同代码区），但 M3 必须在 M2 之后。
 
 ---
 
