@@ -7,6 +7,7 @@ import {
   GitBranch,
   KeyRound,
   Paperclip,
+  Radar,
   ScrollText,
   Settings2,
   UserRound,
@@ -23,6 +24,7 @@ import {
   AdminUsersSettings,
   SessionAttachmentSettings,
 } from "./GlobalSettings";
+import { OpenVikingDashboard } from "./OpenVikingDashboard";
 import { UserSettings } from "./UserSettings";
 
 type AdminSettingsPageId = SettingsAdminPageId;
@@ -71,6 +73,12 @@ const adminSettingsPages: SettingsNavItem[] = [
     description: "注入 Agent 的管理策略",
     icon: ScrollText,
   },
+  {
+    id: "openviking",
+    label: "OpenViking",
+    description: "RAG 后端、同步队列和调优",
+    icon: Radar,
+  },
 ];
 
 const pageDescriptions: Record<AdminSettingsPageId, string> = {
@@ -80,6 +88,7 @@ const pageDescriptions: Record<AdminSettingsPageId, string> = {
   llm: "维护全局 LLM 配置、Agent 适配方式和连接测试状态。",
   repos: "维护 Agent 可以准备和读取的全局代码仓库。",
   policies: "维护全局分析策略，约束问题定位、代码调查和最终回答。",
+  openviking: "查看 OpenViking 语义检索后端、同步任务、事件流和调优参数。",
 };
 
 export function SettingsPage({
@@ -219,6 +228,7 @@ function AdminSettingsContent({
       {pageId === "llm" ? <AdminLlmSettings /> : null}
       {pageId === "repos" ? <AdminRepoSettings /> : null}
       {pageId === "policies" ? <AdminPolicySettings /> : null}
+      {pageId === "openviking" ? <OpenVikingDashboard /> : null}
     </div>
   );
 }

@@ -52,6 +52,11 @@ from codeask.api.llm_configs import router as llm_configs_router
 from codeask.api.metrics import router as metrics_router
 from codeask.api.opencode_mcp import router as opencode_mcp_router
 from codeask.api.opencode_status import router as opencode_status_router
+from codeask.api.openviking_admin import ensure_default_embedding_setting
+from codeask.api.openviking_admin import router as openviking_admin_router
+from codeask.api.openviking_status import router as openviking_status_router
+from codeask.api.openviking_tuning import ensure_default_tuning_settings
+from codeask.api.openviking_tuning import router as openviking_tuning_router
 from codeask.api.sessions import router as sessions_router
 from codeask.api.skills import router as skills_router
 from codeask.api.system_settings import router as system_settings_router
@@ -69,6 +74,9 @@ from codeask.llm.gateway import ClientFactory, LLMGateway
 from codeask.llm.repo import LLMConfigRepo
 from codeask.logging_config import configure_logging
 from codeask.migrations import run_migrations
+from codeask.rag.openviking.client import OpenVikingClient
+from codeask.rag.openviking.process import OpenVikingProcessManager
+from codeask.rag.openviking.sync import OpenVikingSyncService
 from codeask.settings import Settings
 from codeask.storage import ensure_layout
 from codeask.wiki.cleanup import build_wiki_cleanup_job
@@ -141,6 +149,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             workspace_root=Path(settings.data_dir) / "wiki_workspace" / "current",
         )
         opencode_session_store = ExternalAgentSessionStore(factory)
+        openviking_process_manager = OpenVikingProcessManager(
+            data_dir=Path(settings.data_dir),
+            host=settings.openviking_host,
+            port=settings.openviking_port,
+        )
+        openviking_sync_service = OpenVikingSyncService(
+            factory,
+            client=OpenVikingClient(
+                base_url=f"http://{settings.openviking_host}:{settings.openviking_port}",
+            ),
+        )
         opencode_compat = OpenCodeCompat(
             workspace_manager=opencode_workspace_manager,
             process_manager=opencode_process_manager,
@@ -229,6 +248,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             coalesce=True,
             max_instances=1,
         )
+        app.state.engine = engine
+        app.state.session_factory = factory
+        app.state.settings = settings
+        await ensure_default_embedding_setting(cast(Request, _StateRequest(app)))
+        await ensure_default_tuning_settings(cast(Request, _StateRequest(app)))
+        if settings.openviking_enabled:
+            _ensure_openviking_server(log, openviking_process_manager, reason="startup")
+            scheduler.add_job(
+                lambda: _ensure_openviking_server(
+                    log,
+                    openviking_process_manager,
+                    reason="keepalive",
+                ),
+                "interval",
+                seconds=settings.openviking_keepalive_interval_seconds,
+                id="openviking_keepalive",
+                misfire_grace_time=settings.openviking_keepalive_interval_seconds,
+                coalesce=True,
+                max_instances=1,
+            )
+            scheduler.add_job(
+                lambda: _run_openviking_pending_sync(
+                    log,
+                    openviking_sync_service,
+                    limit=settings.openviking_sync_workers,
+                ),
+                "interval",
+                seconds=settings.openviking_sync_interval_seconds,
+                id="openviking_sync_pending",
+                misfire_grace_time=settings.openviking_sync_interval_seconds,
+                coalesce=True,
+                max_instances=1,
+            )
         opencode_handle_state: dict[str, int | None] = {"pid": None}
         if settings.agent_backend == "opencode":
             _ensure_opencode_server(
@@ -267,9 +319,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         scheduler.start()
 
-        app.state.engine = engine
-        app.state.session_factory = factory
-        app.state.settings = settings
         app.state.crypto = crypto
         app.state.llm_config_repo = llm_config_repo
         app.state.llm_gateway = llm_gateway
@@ -283,6 +332,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.worktree_manager = worktree_manager
         app.state.opencode_worktree_manager = opencode_worktree_manager
         app.state.opencode_process_manager = opencode_process_manager
+        app.state.openviking_process_manager = openviking_process_manager
+        app.state.openviking_sync_service = openviking_sync_service
         app.state.opencode_workspace_manager = opencode_workspace_manager
         app.state.opencode_session_store = opencode_session_store
         app.state.opencode_compat = opencode_compat
@@ -290,6 +341,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            openviking_process_manager.shutdown()
             opencode_process_manager.shutdown()
             scheduler.shutdown(wait=True)
             await engine.dispose()
@@ -330,6 +382,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sessions_router, prefix="/api")
     app.include_router(opencode_mcp_router, prefix="/api")
     app.include_router(opencode_status_router, prefix="/api")
+    app.include_router(openviking_status_router, prefix="/api")
+    app.include_router(openviking_admin_router, prefix="/api")
+    app.include_router(openviking_tuning_router, prefix="/api")
 
     from fastapi.staticfiles import StaticFiles
 
@@ -389,6 +444,50 @@ def _ensure_opencode_server(
             reason=reason,
             port=handle.port,
             pid=handle.pid,
+        )
+
+
+class _StateRequest:
+    def __init__(self, app: FastAPI) -> None:
+        self.app = app
+
+
+def _ensure_openviking_server(
+    log: structlog.BoundLogger,
+    process_manager: OpenVikingProcessManager,
+    *,
+    reason: str,
+) -> None:
+    try:
+        handle = process_manager.ensure_server()
+    except Exception:
+        log.exception("openviking_server_ensure_failed", reason=reason)
+        return
+    log.info(
+        "openviking_server_ensure_ok",
+        reason=reason,
+        port=handle.port,
+        pid=handle.pid,
+    )
+
+
+def _run_openviking_pending_sync(
+    log: structlog.BoundLogger,
+    service: OpenVikingSyncService,
+    *,
+    limit: int,
+) -> None:
+    try:
+        result = asyncio.run(service.run_pending_jobs(limit=limit))
+    except Exception:
+        log.exception("openviking_sync_pending_failed")
+        return
+    if result.get("processed"):
+        log.info(
+            "openviking_sync_pending_completed",
+            processed=result.get("processed"),
+            indexed=result.get("indexed"),
+            failed=result.get("failed"),
         )
 
 

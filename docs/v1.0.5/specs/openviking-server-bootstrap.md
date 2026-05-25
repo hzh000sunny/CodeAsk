@@ -61,7 +61,9 @@ uvx --from openviking==0.3.17 openviking-server --version
 | `embedding.dense.api_base` | 必须包含 `/v1` OpenAI 兼容路径，不是裸 base URL | 写 `http://127.0.0.1:11434/v1` |
 | `enable_memory_decay` | **0.3.17 拒绝**：`Unknown config field 'enable_memory_decay' in OpenVikingConfig` 并立即退出 | 删除该字段 |
 | `auto_generate_l0` / `auto_generate_l1` | 0.3.17 接受；但仅影响后续资源，不阻止 init 阶段对 preset 目录调用 embedder | 设 false，但准备好 ollama 模型 |
+| `vlm.enabled` | **0.3.17 拒绝**：`Unknown config field 'vlm.enabled'` 并立即退出 | 不生成 `vlm` 字段；v1.0.5 M1 只处理文本 RAG |
 | `vlm` 段未配 | doctor 报 FAIL，但 server 启动 OK | spike 不配 VLM |
+| HTTP 响应 envelope | 0.3.17 的 `temp_upload` / `resources` 返回 `{status, result}`，不是裸 payload | CodeAsk client 必须先解 `result`，再读 `temp_file_id` / `task_id` |
 
 ### 4.2 最小可工作 ov.conf（本次 spike 使用）
 

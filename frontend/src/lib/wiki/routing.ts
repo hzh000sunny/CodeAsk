@@ -5,7 +5,8 @@ export type SettingsAdminPageId =
   | "users"
   | "llm"
   | "repos"
-  | "policies";
+  | "policies"
+  | "openviking";
 export type WikiMode = "view" | "edit";
 export type WikiDrawer = "detail" | "history" | "import" | "sources" | null;
 
@@ -153,7 +154,8 @@ function readSettingsAdminPage(raw: string | null): SettingsAdminPageId | null {
     raw === "users" ||
     raw === "llm" ||
     raw === "repos" ||
-    raw === "policies"
+    raw === "policies" ||
+    raw === "openviking"
   ) {
     return raw;
   }

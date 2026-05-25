@@ -1,14 +1,15 @@
-# Phase 2 — opencode 主链路接入 OpenViking
+# Phase 2 — opencode 主链路接入 OpenViking（交付里程碑 M2）
 
 > 版本：v1.0.5
-> 状态：Framework Draft（待 Phase 0 & Phase 1 完成后细化）
+> 里程碑：**M2**（交付阶梯见 [phase-1 §1](./phase-1-sync-adapter.md)；顺序 M1 → **M2** → M3 → M4 → M5）
+> 状态：Framework Draft（待 **M1** 完成后细化）
 > 关联：[PRD](../prd/rag-knowledge.md) · [设计](../design/openviking-integration.md) · [Phase 0](./phase-0-spike.md) · [Phase 1](./phase-1-sync-adapter.md) · [收口验收](./acceptance-checklist.md)
 
 ---
 
 ## 0. 前置条件
 
-- Phase 1 退出条件满足：CodeAsk 后端能稳定运行 OpenViking server、同步真实数据、admin 诊断可见
+- **M1 完成**（不是整个 Phase 1）：CodeAsk 后端能稳定运行 OpenViking server、手动同步真实数据、admin 诊断可见。M2 只依赖 M1；native 隔离 (M3) / FTS5 删除 (M4) / 写路径 hook (M5) 排在 M2 之后，不阻塞 opencode 接入
 - 锁定 OpenViking 版本、embedding 模型与同步延迟基线
 - v1.0.4 opencode 主链路保持稳定（不允许在 Phase 2 同时改造 opencode_compat 内部协议）
 

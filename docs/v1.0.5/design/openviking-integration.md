@@ -45,6 +45,8 @@ alembic/versions/
 
 ### 1.2 修改模块
 
+M1 只实施 OpenViking 独立适配层、admin API、仪表盘和手动同步闭环。下表中涉及 opencode 主链路、Wiki 搜索替换、写路径 hook、native 隔离和 FTS5 删除的项属于后续里程碑，保留在系统设计中用于版本内衔接，不在 M1 提前改动。
+
 | 现有文件 | 变更 |
 |---|---|
 | `src/codeask/app.py` | 启动阶段拉起 OpenViking server；注册 keepalive 与同步定时任务；新增 `app.state.openviking_*`；**下线** native backend 请求链路接线（`agent_orchestrator` / `tool_registry` / `agent_wiki_search` / `chat_tool_registry` / `chat_runtime` 的构造与注入移除；对应模块搬入 `native_backend/` 隔离保留，不删除，详见 §1.6） |

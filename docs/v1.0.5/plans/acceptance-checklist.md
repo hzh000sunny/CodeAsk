@@ -36,6 +36,8 @@
 
 ## 3. Phase 1 同步适配器
 
+v1.0.5 按交付里程碑 M1–M5 分段验收（M1–M5 跨 Phase 1/Phase 2 两个工作域，阶梯见 [phase-1 §1](./phase-1-sync-adapter.md)）。本节（§3）覆盖落在 Phase 1 工作域的里程碑：**M1** = §3.1–§3.5 + §3.2.1/§3.2.2（边界与本地自测）；**M3 native 隔离** = §3.9；**M4 FTS5 删除 + UI 搜索兜底** = §3.6 + §3.8；**M5 写路径 hook** = §3.7。**M2（opencode 接入）的验收在 §4（Phase 2）。** 交付顺序 M1→M2→M3→M4→M5，M4 必须在 M3 之后。
+
 ### 3.1 模块与表
 
 - [ ] `src/codeask/rag/openviking/` 模块全部就位（含 `dashboard.py` / `tuning.py`）
@@ -60,12 +62,42 @@
 - [ ] events 接口分页可用；每 event_type 保留策略生效（默认 2000 条）
 - [ ] events 接口返回不泄露宿主机绝对路径（沿用 v1.0.4 出口脱敏）
 - [ ] 失败重试与 cancelled 转换符合 SDD §9（指数退避 30s / 2m / 10m / 1h / 6h）
+  - [x] 单次 `add_text_resource` 失败后任务进入 `failed`，`attempts=1`，`next_retry_at≈30s`
+  - [x] `next_retry_at` 到期后 `run_pending_jobs` 会重新尝试 failed 任务
+  - [x] 连续失败 5 次后任务进入 `cancelled`，`next_retry_at=None`
+
+### 3.2.1 M1 边界回归
+
+- [ ] M1 实现后 `api/wiki/search.py` 仍走 v1.0.4 `NativeWikiSearchService`，没有 OpenViking-first 行为
+- [ ] M1 实现后 `src/codeask/wiki/{search,indexer,tokenizer}.py` 仍存在，FTS5 drop migration 尚未新增
+- [ ] M1 实现后 native Agent 文件仍在原路径，未迁入 `agent/native_backend/`
+- [ ] M1 实现后 Wiki publish / rollback / Report verify 不会自动写入 openviking_sync_jobs；只有 admin 手动 enqueue / resync 会写入
+
+### 3.2.2 M1 本地自测记录（2026-05-25）
+
+- [x] Ollama `/api/tags` 已确认存在 `bge-m3:latest`
+- [x] `openviking-server 0.3.17` 已通过 `uvx --from openviking==0.3.17 --with socksio openviking-server --version` 验证
+- [x] CodeAsk 启动后 admin status API surfacing OpenViking `/health`，返回 healthy 与实测版本 `0.3.17`
+- [x] CodeAsk admin status API surfacing Ollama `/api/tags`，返回 `bge-m3:latest` 可用状态与模型列表
+- [x] Admin API 手动 enqueue 一条 Markdown 文档，并通过 `run_pending` 同步到 OpenViking，任务状态更新为 `indexed`
+- [x] Lifespan 注册 OpenViking keepalive 与 `openviking_sync_pending` 后台任务，pending 同步任务按 `openviking_sync_workers` 批量执行
+- [x] Admin status 在 OpenViking 不可达 / 健康探测失败时仍返回 degraded，不向普通用户路径抛错
+- [x] Admin status 的 `last_error`、health error、sync job error 出口脱敏，不向前端返回宿主机绝对路径
+- [x] 真实浏览器打开 `#/settings?page=openviking`，刷新后仍保持在 OpenViking 设置页
+- [x] OpenViking 仪表盘前端显示中未出现 `/home/hzh`、`/home/codeask`、`/tmp/` 等宿主机绝对路径
+- [x] 新增并通过 `frontend/e2e/openviking-dashboard-live.spec.ts` 真实浏览器 e2e（需 `CODEASK_RUN_LIVE_OPENVIKING_E2E=1` 显式开启）
+- [x] OpenViking 仪表盘前端显示 OpenViking health、Ollama / 模型 readiness、Embedding 模型与可用模型列表
+- [x] M1 边界回归测试覆盖：未改 Wiki 搜索、未删 FTS5、未迁 native Agent、未接 Wiki 写路径 hook
+- [x] 新增 OpenViking Python 模块 pyright 子集为 `0 errors`
+- [ ] 全项目 `pyright src/codeask` 仍存在历史遗留错误（当前主要集中在既有 `agent/chat_runtime` 与 `wiki/*` 模块），不作为 M1 新增模块阻塞项，但不能在最终版本验收时误报为已全项目通过
 
 ### 3.3 Embedding 模型管理
 
-（合并入上方"admin 切换 embedding 模型..."项，无独立 checkbox）
+M1 仅交付当前 embedding 配置的只读展示与 Ollama 模型就绪探测；模型切换、切换后 rebuild、live Ollama 调参探测进入后续里程碑，不在 M1 补。
 
 ### 3.4 调优面板
+
+M1 仅交付 tuning 默认配置读取、推荐值展示与 admin API 基础面，不交付参数切换后的 live rebuild / restart 闭环；以下 checkbox 属于后续里程碑验收范围。
 
 - [ ] `openviking_tuning_settings` 表首次启动按主机识别结果填入推荐预设默认值
 - [ ] 仪表盘 OpenVikingTuningCard 显示三个 scope 的当前值、推荐值、回滚按钮
