@@ -28,6 +28,7 @@ _ABSOLUTE_PATH_TOKEN = re.compile(r"(?<![:/])(/[^\s'\"<>]+)")
 class OpenVikingEnqueueRequest(BaseModel):
     source_type: str = Field(min_length=1, max_length=32)
     source_id: str = Field(min_length=1, max_length=128)
+    operation: str = Field(default="upsert", pattern="^(upsert|delete)$")
     feature_slug: str | None = Field(default=None, max_length=128)
     source_hash: str | None = Field(default=None, max_length=64)
     viking_uri: str | None = Field(default=None, max_length=512)
@@ -94,6 +95,7 @@ async def enqueue_openviking_sync_job(
         viking_uri=payload.viking_uri,
         triggered_by=request.state.subject_id,
         payload=_manual_payload(payload),
+        operation="delete" if payload.operation == "delete" else "upsert",
     )
     return _job_to_dict(job, data_dir=request.app.state.settings.data_dir)
 

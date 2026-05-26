@@ -18,6 +18,7 @@ from codeask.api.schemas.wiki import DocumentRead
 from codeask.api.wiki.deps import SessionDep, load_feature
 from codeask.db.models import Document, DocumentReference
 from codeask.metrics.audit import record_audit_log
+from codeask.rag.openviking.hooks import enqueue_legacy_wiki_document_sync
 from codeask.wiki.api_support import (
     kind_from_filename,
     markdown_references,
@@ -108,6 +109,11 @@ async def upload_document(
         )
 
     await session.commit()
+    await enqueue_legacy_wiki_document_sync(
+        request,
+        legacy_document_id=int(document.id),
+        operation="upsert",
+    )
     await session.refresh(document)
     return DocumentRead.model_validate(document)
 
@@ -146,6 +152,11 @@ async def delete_document(document_id: int, request: Request, session: SessionDe
         subject_id=request.state.subject_id,
     )
     await session.commit()
+    await enqueue_legacy_wiki_document_sync(
+        request,
+        legacy_document_id=document_id,
+        operation="delete",
+    )
 
 
 def _require_feature_write(request: Request, feature_id: int) -> None:

@@ -26,6 +26,18 @@ from codeask.wiki.documents.markdown_refs import (
 from codeask.wiki.index import WikiIndexService
 from codeask.wiki.permissions import can_admin_feature, can_write_feature
 
+PENDING_OPENVIKING_WIKI_DOC_IDS = "_pending_openviking_wiki_doc_ids"
+
+
+def stash_pending_openviking_wiki_document_id(session: AsyncSession, document_id: int) -> None:
+    pending_raw = session.info.get(PENDING_OPENVIKING_WIKI_DOC_IDS)
+    if isinstance(pending_raw, list):
+        pending = cast(list[int], pending_raw)
+    else:
+        pending: list[int] = []
+        session.info[PENDING_OPENVIKING_WIKI_DOC_IDS] = pending
+    pending.append(int(document_id))
+
 
 class WikiDocumentService:
     async def load_document_by_node(
@@ -185,6 +197,7 @@ class WikiDocumentService:
         session.add(version)
         await session.flush()
         document.current_version_id = version.id
+        stash_pending_openviking_wiki_document_id(session, int(document.id))
         if draft is not None:
             await session.delete(draft)
         await WikiIndexService().refresh_document(
@@ -288,6 +301,7 @@ class WikiDocumentService:
         session.add(new_version)
         await session.flush()
         document.current_version_id = new_version.id
+        stash_pending_openviking_wiki_document_id(session, int(document.id))
         await WikiIndexService().refresh_document(
             session,
             node=node,

@@ -1,7 +1,7 @@
 # M5 — Wiki / Report 写路径 hook（增量同步 OpenViking）
 
 > 版本：v1.0.5
-> 状态：待开发
+> 状态：开发中（M5-0 + 主写路径 hook + 20c 服务层发布覆盖已实现）
 > 关联：[Phase 1 计划 步骤 20-22](./phase-1-sync-adapter.md) · [验收 checklist §3.7](./acceptance-checklist.md) · [设计](../design/openviking-integration.md)
 
 M5 把 Wiki 文档发布/回滚、legacy 上传、Report verify 生命周期、Wiki 节点软删这些**写路径**接进 OpenViking 增量同步。M1–M4 已交付：M1 提供了同步队列 + 手动 enqueue + 后台 worker，但**不接任何写路径 hook**；M4 的 UI 搜索靠 `openviking_sync_jobs.viking_uri` 反查命中——只有 M5 把写路径喂进队列，搜索才有真实数据可召回。
@@ -34,6 +34,18 @@ M5 把 Wiki 文档发布/回滚、legacy 上传、Report verify 生命周期、W
 2. `OpenVikingClient.delete_resource(viking_uri)`（或 spike 确认的签名），复用 `_client()`（trusted headers + `trust_env=False`）。
 3. 引擎支持 **operation = `"upsert"` | `"delete"`**：建议存进 `progress` JSON（如 `{"op": "delete"}`），**免迁移**；`enqueue` 增加可选 `operation` 形参，默认 `"upsert"`。worker 按 op 调 add 或 delete。
 4. tombstone 的 `viking_uri` 必须能算出来——unverify/软删时 source 可能还在 DB，按 §2 规则生成 URI 即可。
+
+**2026-05-26 delete spike 结论：**
+
+- REST 端点：`DELETE /api/v1/fs?uri={viking_uri}&recursive={bool}`
+- 认证头：沿用 trusted headers：`X-OpenViking-Account/User/Agent`
+- 响应 envelope：`{"status":"ok","result":{"uri":"...","estimated_deleted_count":0},"error":null,"telemetry":null}`
+- 实测样本：先通过 `POST /api/v1/resources/temp_upload` + `POST /api/v1/resources` 写入
+  `viking://resources/codeask/spikes/codeask-delete-spike-1779790626.md`，随后
+  `DELETE /api/v1/fs?...&recursive=true` 返回 200。
+- 注意：同一个样本用 `recursive=false` 返回 412 `FAILED_PRECONDITION`，提示
+  `Cannot remove directory without --recursive`。CodeAsk 的 tombstone 删除统一使用
+  `recursive=true`，保证 OpenViking 将目标作为目录资源时也能删除。
 
 ### D3 — hook 一律放 API 端点 commit 之后
 
@@ -80,11 +92,11 @@ M4 搜索反查（`api/wiki/search.py`）按以下映射把 OpenViking 命中还
 
 ### 步骤 M5-0 —— 引擎底座（D1 + D2，最重，先做）
 
-- **0a delete spike**：实打 OpenViking 删除/移除资源端点，记录端点 / 入参 / 响应 / 成功样本（产出后再写 client）。
-- **0b** `OpenVikingClient.delete_resource(...)`，复用 `_client()`；单测覆盖正常 + 异常。
-- **0c** `enqueue` 增加 `operation: Literal["upsert","delete"] = "upsert"` 形参，存入 `progress`（免迁移）。
-- **0d** `run_pending_jobs` / `_resource_from_job` 改造为按 `source_type` + `source_id` 现查正文（upsert）或调 `delete_resource`（delete）；保留 manual 内联兼容路径。
-- **0e** 引擎单测：upsert 现查最新正文、delete 调用、去重在"现查"模型下不丢更新、source 已删时转 tombstone。
+- **0a delete spike**：实打 OpenViking 删除/移除资源端点，记录端点 / 入参 / 响应 / 成功样本（产出后再写 client）。✅ 2026-05-26 已完成，见 D2 记录。
+- **0b** `OpenVikingClient.delete_resource(...)`，复用 `_client()`；单测覆盖正常 + 异常。✅ 已实现，REST `DELETE /api/v1/fs`，默认 `recursive=true`。
+- **0c** `enqueue` 增加 `operation: Literal["upsert","delete"] = "upsert"` 形参，存入 `progress`（免迁移）。✅ 已实现。
+- **0d** `run_pending_jobs` / `_resource_from_job` 改造为按 `source_type` + `source_id` 现查正文（upsert）或调 `delete_resource`（delete）；保留 manual 内联兼容路径。✅ 已实现。
+- **0e** 引擎单测：upsert 现查最新正文、delete 调用、去重在"现查"模型下不丢更新、source 已删时转 tombstone。✅ 已覆盖 `tests/unit/test_openviking_sync.py`。
 
 ### 步骤 20 —— Wiki 文档发布 / 回滚 → upsert
 
@@ -93,11 +105,18 @@ M4 搜索反查（`api/wiki/search.py`）按以下映射把 OpenViking 命中还
 - `save_draft`（`service.py:108`）/ `delete_draft`（`:134`）对应端点 **不入队**。
 - 端点拿不到 `feature.slug` / `node.path`（`get_document_detail` 返回 dict 不含）——publish/rollback 端点 enqueue 前需补查（node→space→feature，已有 `_load_feature_for_document` 可复用思路），或让 service 返回所需标识。
 
+2026-05-26：已通过 `src/codeask/rag/openviking/hooks.py` 在 commit 后按 `document_id`
+补查 `Feature/WikiNode/current_version`，生成 `wiki_doc_uri` 与正文 hash 后入队；draft 路径不入队。
+
 ### 步骤 20b —— legacy `/documents` 上传 + backfill → upsert
 
 - `api/documents_compat.py:43` upload 端点 commit（`:110`）后入队；source_id 用同步出的 `WikiDocument.id`（与 M4 一致，非 legacy `Document.id`）。
 - `backfill_feature_content`（`wiki/sync/service.py:28`，由 `wiki/tree/service.py:139` 在建空间时调用）循环回填多文档——其调用方 commit 后逐个入队（收集回填出的 `WikiDocument.id` 列表）。只挂 upload 端点会漏 backfill 路径。
 - 两条路径都经过 `sync_legacy_markdown_document`，但 hook **不**放函数内（D3）。
+
+2026-05-26：legacy 上传 commit 后按 `legacy_document_id` 反查 native `WikiDocument.id`
+入队；`backfill_feature_content` 改为返回本次新创建的 native document ids，由
+`GET /api/wiki/tree?feature_id=...` 调用方 commit 后逐个入队。
 
 ### 步骤 21 —— Report verify 生命周期
 
@@ -107,12 +126,50 @@ M4 搜索反查（`api/wiki/search.py`）按以下映射把 OpenViking 命中还
 - `update_draft`（`reports.py:214`，未 verified 态编辑，端点 commit `:91`）**不入队**。
 - verified 态下编辑且 hash 变化 → upsert（若产品允许直接编辑 verified report；否则该路径不存在，dev 核对）。
 
+2026-05-26：已核对当前 `ReportService.update_draft` 仅允许 `draft/rejected` 编辑，verified
+态不可编辑，因此没有 verified edit hook。verify commit 后 upsert；unverify/reject/delete
+commit 后 tombstone，其中 delete 在删除前预计算 `report_uri`，commit 后入队。
+
 ### 步骤 22 —— Wiki 节点软删 → tombstone
 
 - tree 删除端点（`wiki/tree/service.py:465` 所属端点）commit 后：对受影响 doc / 子树逐个发 tombstone。
 - legacy 软删（`documents_compat.py:134` 端点，commit `:148`）→ tombstone。
 - 恢复（`tree/service.py:517` 所属端点）→ 重新 upsert。
 - 导入会话软删（`imports/session_service.py:1126`）**后置，不在 M5**。
+
+2026-05-26：tree 删除 / 恢复端点已在 commit 后按受影响子树文档逐个入队；
+legacy `/api/documents/{id}` 软删 commit 后按 native `WikiDocument.id` 入 tombstone。
+
+### 步骤 20c —— 覆盖服务层发布路径（F1 补齐，验收阻塞项）
+
+> 状态：已实现。验收发现：D3"hook 放端点"漏掉了**从内部调用 `WikiDocumentService.publish_document` 的服务层**——这些路径产出真实已发布 wiki 文档，但不经过已挂 hook 的 publish/rollback 端点，因此**永不入队**，直到有人在 UI 重新发布。
+
+确认的绕过入口（全部 `await ... publish_document(...)`，外层端点都有 commit）：
+
+| 发布来源 | 服务层调用点 | 触发端点（commit 后可挂 drain） |
+|---|---|---|
+| 晋级会话附件 | `wiki/promotions/service.py:161` | `POST /wiki/promotions/session-attachment`（`promotions.py:39`） |
+| 导入 resolve 单项 | `wiki/imports/session_service.py:790`（`resolve_item`） | `POST /wiki/imports/sessions/{id}/items/{item}/resolve`（`imports.py:216`） |
+| 导入 bulk resolve | 同上（`bulk_resolve_items`） | `.../items/bulk-resolve`（`imports.py:234`） |
+| 导入 retry | 同上（`_materialize_or_mark_failed`） | retry item/session 端点（`imports.py:270`/`:286`） |
+| 导入 job apply | `wiki/imports/service.py:287`（`WikiImportJobService.apply_job`） | `POST /wiki/imports/{job_id}/apply`（`imports.py:349`） |
+
+逐端点把 `document_id` 从深层服务方法串上来不现实（≥6 个端点、3 个 `_materialize` 调用点）。**采用集中式 stash + drain**：
+
+1. **service 侧打标（中性、不引 openviking 依赖）**：`WikiDocumentService.publish_document` 与 `rollback_to_version` 在赋值 `document.current_version_id` 后，向 `session.info.setdefault("_pending_openviking_wiki_doc_ids", []).append(int(document.id))`。不 import rag.openviking，保持 wiki→rag 无耦合。
+2. **drain helper（放 `rag/openviking/hooks.py`）**：`async def drain_wiki_document_syncs(request, session)` —— 取出并清空 `session.info["_pending_openviking_wiki_doc_ids"]`，去重后逐个 `enqueue_wiki_document_sync(request, document_id=..., operation="upsert")`；整体 best-effort try/except。
+3. **端点接线**：所有"会触发 publish/rollback"的端点 `session.commit()` 后调 `drain_wiki_document_syncs`：publish、rollback、promotion、import resolve / bulk-resolve / retry(item+session) / apply_job。
+4. **统一机制**：把步骤 20 publish/rollback 端点原先"从 `data["document_id"]` 显式 enqueue"也改为走 drain（避免两套机制 + 重复入队；`enqueue` 去重虽幂等但冗余）。
+
+新入口（晋级/导入）覆盖后，未来任何新调用 `publish_document` 的服务层只要其端点已挂 drain 即自动覆盖；service 侧打标是唯一单点。`enqueue` 的去重保证同一 doc 多次 drain 不产生重复 job。
+
+2026-05-26：已实现集中式 stash + drain。`WikiDocumentService.publish_document` /
+`rollback_to_version` 在设置 `current_version_id` 后写入
+`session.info["_pending_openviking_wiki_doc_ids"]`，不 import `rag.openviking`；
+`rag/openviking/hooks.py` 新增 `drain_wiki_document_syncs`，端点 commit 后统一取标并
+best-effort upsert。已接线 publish、rollback、promotion、import upload / resolve /
+bulk-resolve / retry(item+session) / apply_job。`upload_item` 也接入 drain，因为最后一个
+导入文件上传完成时同样可能触发 `_materialize_or_mark_failed` 并发布文档。
 
 ### 收尾
 
@@ -141,6 +198,7 @@ M4 搜索反查（`api/wiki/search.py`）按以下映射把 OpenViking 命中还
 - unverify / reject / delete report / 节点软删 → tombstone（`operation=delete`）job；恢复 → upsert。
 - draft 保存/删除、unverified 编辑、verified→false 后再编辑 **不增加 upsert job**。
 - 引擎按 source 现查正文，无正文内联进 `progress`；快速二次发布索引到最新正文。
+- **服务层发布路径全覆盖（步骤 20c）**：晋级会话附件、导入 resolve/bulk-resolve/retry/apply_job 产出的已发布文档都入队 upsert（不再依赖 UI 重新发布）。
 - hook 在 commit 之后；OpenViking / delete 端点不可用不阻塞主写路径。
 - pyright 0、pytest 绿、ruff 绿、前端不受影响（写路径 hook 纯后端）。
 

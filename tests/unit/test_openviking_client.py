@@ -94,3 +94,31 @@ async def test_find_uses_rest_search_endpoint_and_parses_resources_envelope() ->
     assert hits[0].uri.endswith("/doc.md/doc.md")
     assert hits[0].score == 0.91
     assert hits[0].abstract == "Doc abstract"
+
+
+@pytest.mark.asyncio
+async def test_delete_resource_uses_fs_delete_recursive_endpoint() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "DELETE"
+        assert request.url.path == "/api/v1/fs"
+        assert request.url.params["uri"] == "viking://resources/codeask/features/f/doc.md"
+        assert request.url.params["recursive"] == "true"
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "result": {
+                    "uri": "viking://resources/codeask/features/f/doc.md",
+                    "estimated_deleted_count": 0,
+                },
+            },
+        )
+
+    client = OpenVikingClient(
+        base_url="http://openviking.local",
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.delete_resource("viking://resources/codeask/features/f/doc.md")
+
+    assert result["uri"] == "viking://resources/codeask/features/f/doc.md"

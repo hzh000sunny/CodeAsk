@@ -74,6 +74,17 @@ class OpenVikingClient:
             response.raise_for_status()
             return _unwrap_result(response.json())
 
+    async def delete_resource(self, viking_uri: str, *, recursive: bool = True) -> dict[str, Any]:
+        async with self._client() as client:
+            response = await client.delete(
+                "/api/v1/fs",
+                params={"uri": viking_uri, "recursive": str(recursive).lower()},
+            )
+            if response.status_code == 404:
+                return {"uri": viking_uri, "not_found": True}
+            response.raise_for_status()
+            return _unwrap_result(response.json())
+
     async def find(
         self,
         *,

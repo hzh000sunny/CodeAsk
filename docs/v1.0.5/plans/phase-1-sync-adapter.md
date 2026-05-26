@@ -613,6 +613,15 @@ M5 Wiki / Report 写路径 hook（步骤 20-22；不在 M1 实施）。**完整�
 
 source_type/source_id 与 M4 反查约定：`wiki_doc`→`WikiDocument.id`、`report`→`Report.id`（见 m5 文档 §2）。
 
+2026-05-26 M5 实现记录：
+
+- delete spike 确认 REST 删除端点为 `DELETE /api/v1/fs?uri=...&recursive=true`，响应 envelope 与其它 OpenViking REST API 一致。
+- `OpenVikingClient.delete_resource`、sync job `operation=upsert|delete`、worker 按 `source_type/source_id` 现查正文已实现；manual inline payload 继续兼容。
+- `src/codeask/rag/openviking/hooks.py` 作为统一 best-effort 写路径 hook：所有 hook 均在 API `commit()` 之后调用，enqueue 失败只写日志，不回滚主业务写入。
+- 已接入 publish / rollback / legacy upload / legacy backfill / report verify-unverify-reject-delete / tree soft-delete-restore / legacy soft-delete。
+- 步骤 20c 已补齐服务层发布路径：`publish_document` / `rollback_to_version` 只在 `session.info` 打标，不 import RAG；publish / rollback / promotion / import upload-resolve-bulk-retry-apply 端点 commit 后统一 `drain_wiki_document_syncs`。
+- 当前产品不允许 verified report 直接编辑，`ReportService.update_draft` 仅允许 `draft/rejected`，因此 verified edit upsert hook 无需实现。
+
 收尾（每个里程碑合入前必做）：升级路径在真实数据备份上回归一次；勾选 acceptance-checklist 对应 Phase 1 子项。
 
 每步独立可验证 + 可回滚。交付里程碑与本文步骤的对应：**M1 = 步骤 1-11**；**M3 = 步骤 12-14**（native 隔离）；**M4 = 步骤 15-19**（删 FTS5 + UI 搜索兜底）；**M5 = 步骤 20-22**（写路径 hook）。**M2（opencode 接入）不在本文，见 [phase-2 文档](./phase-2-opencode-integration.md)，排在 M1 之后交付。** 硬依赖：M4 必须在 M3 之后（步骤 12-14 把 `reports.py` 从 `WikiSearchService` 解耦后，步骤 15-17 才能删 FTS5）。

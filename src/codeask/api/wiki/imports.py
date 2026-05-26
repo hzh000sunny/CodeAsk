@@ -21,6 +21,7 @@ from codeask.api.wiki.schemas import (
     WikiImportSessionScanWrite,
     WikiImportSessionUploadRead,
 )
+from codeask.rag.openviking.hooks import drain_wiki_document_syncs
 from codeask.wiki.imports import (
     WikiImportJobService,
     WikiImportPreflightService,
@@ -191,6 +192,7 @@ async def upload_import_session_item(
         file=file,
     )
     await session.commit()
+    await drain_wiki_document_syncs(request, session)
     return WikiImportSessionUploadRead.model_validate(data)
 
 
@@ -214,6 +216,7 @@ async def resolve_import_session_item(
         action=payload.action,
     )
     await session.commit()
+    await drain_wiki_document_syncs(request, session)
     return WikiImportSessionUploadRead.model_validate(data)
 
 
@@ -232,6 +235,7 @@ async def bulk_resolve_import_session_items(
         action=payload.action,
     )
     await session.commit()
+    await drain_wiki_document_syncs(request, session)
     return WikiImportSessionRead.model_validate(data)
 
 
@@ -268,6 +272,7 @@ async def retry_import_session_item(
         item_id=item_id,
     )
     await session.commit()
+    await drain_wiki_document_syncs(request, session)
     return WikiImportSessionUploadRead.model_validate(data)
 
 
@@ -284,6 +289,7 @@ async def retry_import_session(
         session_id=session_id,
     )
     await session.commit()
+    await drain_wiki_document_syncs(request, session)
     return WikiImportSessionRead.model_validate(data)
 
 
@@ -347,4 +353,5 @@ async def apply_import_job(job_id: int, request: Request, session: SessionDep) -
         job_id=job_id,
     )
     await session.commit()
+    await drain_wiki_document_syncs(request, session)
     return WikiImportJobRead.model_validate(data)

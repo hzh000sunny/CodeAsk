@@ -477,14 +477,22 @@ async def _index_openviking_mapping(
     uri: str,
 ) -> None:  # type: ignore[no-untyped-def]
     async with app.state.session_factory() as session:
-        session.add(
-            OpenVikingSyncJob(
+        existing = (
+            await session.execute(
+                select(OpenVikingSyncJob).where(
+                    OpenVikingSyncJob.source_type == source_type,
+                    OpenVikingSyncJob.source_id == source_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            existing = OpenVikingSyncJob(
                 id=f"ovjob_{source_type}_{source_id}",
                 source_type=source_type,
                 source_id=source_id,
-                viking_uri=uri,
-                status="indexed",
-                attempts=1,
             )
-        )
+            session.add(existing)
+        existing.viking_uri = uri
+        existing.status = "indexed"
+        existing.attempts = 1
         await session.commit()

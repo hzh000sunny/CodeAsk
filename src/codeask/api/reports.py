@@ -9,6 +9,11 @@ from codeask.api.schemas.wiki import ReportCreate, ReportRead, ReportUpdate
 from codeask.api.wiki.deps import SessionDep
 from codeask.db.models import FeatureAdmin, Report
 from codeask.features.permissions import can_manage_feature
+from codeask.rag.openviking.hooks import (
+    build_report_delete_job,
+    enqueue_prebuilt_sync_job,
+    enqueue_report_sync,
+)
 from codeask.wiki.reports import ReportService, ReportVerificationError
 from codeask.wiki.sync import LegacyWikiSyncService
 
@@ -110,6 +115,7 @@ async def verify_report(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     await session.commit()
+    await enqueue_report_sync(request, report_id=report_id, operation="upsert")
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
 
@@ -126,6 +132,7 @@ async def unverify_report(
         session, report_id=report_id, subject_id=request.state.subject_id
     )
     await session.commit()
+    await enqueue_report_sync(request, report_id=report_id, operation="delete")
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
 
@@ -140,6 +147,7 @@ async def reject_report(
     await _require_feature_report_manager(request, session, report.feature_id)
     await ReportService().reject(session, report_id=report_id, subject_id=request.state.subject_id)
     await session.commit()
+    await enqueue_report_sync(request, report_id=report_id, operation="delete")
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
 
@@ -148,6 +156,7 @@ async def reject_report(
 async def delete_report(report_id: int, request: Request, session: SessionDep) -> None:
     report = await _load_report(report_id, session)
     await _require_feature_report_manager(request, session, report.feature_id)
+    openviking_job = await build_report_delete_job(session, report_id=report_id)
     from_status = report.status
     from codeask.metrics.audit import record_audit_log
 
@@ -163,6 +172,8 @@ async def delete_report(report_id: int, request: Request, session: SessionDep) -
     await LegacyWikiSyncService().delete_report_ref(session, report_id=report_id)
     await session.delete(report)
     await session.commit()
+    if openviking_job is not None:
+        await enqueue_prebuilt_sync_job(request, openviking_job)
 
 
 async def _load_report(report_id: int, session: SessionDep) -> Report:
