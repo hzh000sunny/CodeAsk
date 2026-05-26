@@ -149,3 +149,45 @@ async def test_dynamic_context_includes_session_features_repos_and_workspace(
     assert "继续查源码确认一下" not in context
     assert "bind_session_features" in context
     assert "prepare_worktree" in context
+
+
+@pytest.mark.asyncio
+async def test_dynamic_context_includes_openviking_knowledge_when_available(
+    db_factory,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    context = await build_dynamic_codeask_context(
+        db_factory,
+        session_id="sess_ctx",
+        workspace_dir=tmp_path / "workspace",
+        openviking_available=True,
+    )
+
+    assert "## OpenViking Knowledge" in context
+    assert "viking://resources/codeask" in context
+    assert "openviking_find" in context
+    assert "openviking_search" in context
+    assert "openviking_read" in context
+    assert "OpenViking read results are knowledge snapshots, not prepared source files" in context
+    assert "call prepare_worktree before reading repository files" in context
+    assert (
+        "Do not claim a semantic hit exists when OpenViking returns no relevant result" in context
+    )
+    assert "verified problem reports" in context
+
+
+@pytest.mark.asyncio
+async def test_dynamic_context_omits_openviking_knowledge_when_degraded(
+    db_factory,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    context = await build_dynamic_codeask_context(
+        db_factory,
+        session_id="sess_ctx",
+        workspace_dir=tmp_path / "workspace",
+        openviking_available=False,
+    )
+
+    assert "## OpenViking Knowledge" not in context
+    assert "viking://resources/codeask" not in context
+    assert "openviking_search" not in context

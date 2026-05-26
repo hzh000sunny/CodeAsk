@@ -161,11 +161,21 @@ M1 仅交付 tuning 默认配置读取、推荐值展示与 admin API 基础面�
 
 ## 4. Phase 2 opencode 接入
 
-- [ ] `opencode.json` 中加入 OpenViking remote MCP，工具白名单按 PRD §6.2 限定
-- [ ] 动态上下文与 `AGENTS.md` 包含 RAG 使用原则
-- [ ] 前端 action-trace 展示 OpenViking 工具事件，路径脱敏正常
-- [ ] OpenViking 失败语义按 SDD §9 / PRD §8 落地：用户路径 graceful degrade（opencode 走 native `read/grep/glob`），admin 仪表盘 Health 卡显示 degraded；不向普通用户弹窗
-- [ ] OpenViking 不可用时 opencode 仍可完成会话（基于 `workspace/wiki/` symlink + native grep 检索 Markdown）
+- [x] M2.0 spike 完成：确认 OpenViking MCP endpoint 为 `http://127.0.0.1:1933/mcp`，transport 为 streamable HTTP，CodeAsk 管理的 trusted 模式使用 `X-OpenViking-*` 身份头
+- [x] M2.0 spike 完成：真实 `tools/list` 返回 `find/search/read/list/remember/add_resource/grep/glob/forget/health`，并已记录一次 `health` 与 `find` 成功调用样本
+- [x] M2.0 spike 完成：确认 opencode remote MCP 工具名为 `openviking_<tool>` 前缀形式，例如 `openviking_find`
+- [x] M2.0 spike 完成：确认 opencode 1.14.48 可通过 `permission` 对 `openviking_remember` / `openviking_add_resource` / `openviking_forget` 做 per-tool deny；M2.2 采用 permission deny，不先做 proxy
+- [x] `opencode.json` 中加入 OpenViking remote MCP，工具白名单按 PRD §6.2 限定（单测覆盖 `oauth:false`、trusted headers、3 个写工具 deny）
+- [x] 动态上下文与系统提示包含 RAG 使用原则；OpenViking degraded 时不注入 OpenViking 上下文段
+- [x] 前端 action-trace 展示 OpenViking 工具事件，路径脱敏正常；详情展示 `viking://` URI、score、耗时
+- [x] OpenViking 失败语义按 SDD §9 / PRD §8 落地：不健康时 `opencode.json` 与动态上下文均不注入 OpenViking，用户路径 graceful degrade；admin 仪表盘 Health 卡显示 degraded
+- [x] OpenViking 不可用时 opencode 仍可完成会话（基于 `workspace/wiki/` symlink + native grep/read 检索 Markdown），已由 degraded fallback live E2E 复核
+- [x] 全局 LLM 池在坏 provider 先失败时可继续轮转，不会因为同 workspace 重写 `opencode.json` 导致 opencode 无响应
+- [x] opencode 的 user text part 不会被误判为 assistant 正文输出；provider error 发生在真正正文前时仍允许全局池轮转
+- [x] `CODEASK_RUN_LIVE_OPENVIKING_E2E=1` 跑通 `frontend/e2e/openviking-rag-live.spec.ts`：Wiki 语义召回、源码桥接、OpenViking degraded fallback、写工具未执行
+- [x] 每轮会话只复用 `initialize_session` 的 OpenViking 可用性判断；动态上下文构建不再二次 `/health` 探针，避免 degraded health timeout 路径叠加延迟
+- [x] 新增 OpenViking Python 模块 `pyright` 子集为 `0 errors`；`opencode_compat` 旧目录在严格模式下仍有历史类型债，不能在 M2 验收报告中误报为全目录 pyright 通过
+- [ ] 真实库 9 条 LLM 配置全量 smoke：2026-05-25 复核为 4 条 DeepSeek 通过、5 条火山配置返回 `InvalidSubscription`，需要修复外部账号订阅 / 权限后复跑
 
 ---
 
@@ -176,8 +186,9 @@ M1 仅交付 tuning 默认配置读取、推荐值展示与 admin API 基础面�
 | 临时空库 `start.sh` | 空数据目录 → OpenViking server 拉起、首次同步、admin 卡片可见 | TBD |
 | 真实数据只读 | 连接真实数据备份 → admin 看到全量同步状态；不写 Wiki / 仓库 | TBD |
 | 真实数据可写沙箱 | 在沙箱中触发 Wiki / 报告 / 仓库变更，验证增量同步 | TBD |
-| 真实 LLM / opencode / OpenViking / Ollama live | `CODEASK_RUN_LIVE_OPENVIKING_E2E=1` 跑 Phase 2 §5 全部用例 | TBD |
-| OpenViking 不可用降级 | 关停 OpenViking → 新会话立即弹错；恢复后会话可继续 | TBD |
+| 真实 LLM / opencode / OpenViking / Ollama live | `CODEASK_RUN_LIVE_OPENVIKING_E2E=1` 跑 Phase 2 §5 全部用例 | Passed 2026-05-25：4/4 |
+| 真实 LLM 配置 smoke | `CODEASK_LIVE_LLM_CONFIG_SMOKE=1` 跑数据库 9 条 LLM 配置 | Partial 2026-05-25：4 DeepSeek passed；5 火山 failed with `InvalidSubscription` |
+| OpenViking 不可用降级 | OpenViking degraded → 会话不注入 OpenViking MCP / 上下文段，退回 workspace wiki native read/grep/glob | Passed 2026-05-25 |
 | Ollama 不可用降级 | 关停 Ollama → 同步任务 failed；admin 卡片提示 embedding 不可用 | TBD |
 | 升级部署 | `start.sh` 升级 v1.0.4 → v1.0.5；首次 sweep 自动补齐 | TBD |
 | 长对话 | 真实 LLM 多轮、跨会话切换、刷新继续追问 | TBD |

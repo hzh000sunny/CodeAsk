@@ -23,14 +23,16 @@ from codeask.llm.repo import LLMConfigWithSecret
 
 def _llm_config(
     *,
+    cfg_id: str = "cfg_test",
+    name: str = "Test Config",
     protocol: str,
     base_url: str = "https://gateway.example.test/api",
     model_name: str = "model-a",
     api_key: str = "secret-key",
 ) -> LLMConfigWithSecret:
     return LLMConfigWithSecret(
-        id="cfg_test",
-        name="Test Config",
+        id=cfg_id,
+        name=name,
         scope="global",
         owner_subject_id=None,
         protocol=protocol,
@@ -144,6 +146,99 @@ def test_build_opencode_config_contains_provider_mcp_and_readonly_permissions() 
     }
 
 
+def test_build_opencode_config_can_keep_global_pool_providers_stable() -> None:
+    primary = _llm_config(
+        cfg_id="cfg_a",
+        name="Pool A",
+        protocol="openai",
+        model_name="model-a",
+        api_key="sk-a",
+    )
+    fallback = _llm_config(
+        cfg_id="cfg_b",
+        name="Pool B",
+        protocol="anthropic",
+        model_name="model-b",
+        api_key="sk-b",
+    )
+
+    cfg = build_opencode_config(
+        OpenCodeConfigInput(
+            llm_config=primary,
+            additional_provider_configs=(primary, fallback),
+            mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
+            mcp_token="token-1",
+            session_id="sess_1",
+        )
+    )
+
+    assert list(cfg["provider"]) == ["codeask_cfg_a", "codeask_cfg_b"]
+    assert cfg["provider"]["codeask_cfg_a"]["models"] == {
+        "model-a": {"name": "model-a", "tool_call": True}
+    }
+    assert cfg["provider"]["codeask_cfg_b"]["models"] == {
+        "model-b": {"name": "model-b", "tool_call": True}
+    }
+
+
+def test_build_opencode_config_injects_openviking_mcp_with_readonly_write_tool_denies() -> None:
+    cfg = build_opencode_config(
+        OpenCodeConfigInput(
+            llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
+            mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
+            mcp_token="token-1",
+            session_id="sess_1",
+            openviking_enabled=True,
+            openviking_mcp_url="http://127.0.0.1:1933/mcp",
+            openviking_mcp_headers={
+                "X-OpenViking-Account": "codeask",
+                "X-OpenViking-User": "admin",
+                "X-OpenViking-Agent": "sess_1",
+            },
+        )
+    )
+
+    assert cfg["mcp"]["openviking"] == {
+        "type": "remote",
+        "url": "http://127.0.0.1:1933/mcp",
+        "headers": {
+            "X-OpenViking-Account": "codeask",
+            "X-OpenViking-User": "admin",
+            "X-OpenViking-Agent": "sess_1",
+        },
+        "oauth": False,
+        "timeout": 30000,
+    }
+    permission = cfg["permission"]
+    assert permission["openviking_remember"] == "deny"
+    assert permission["openviking_add_resource"] == "deny"
+    assert permission["openviking_forget"] == "deny"
+    keys = list(permission)
+    assert keys.index("openviking_remember") > keys.index("glob")
+    assert keys.index("openviking_add_resource") > keys.index("glob")
+    assert keys.index("openviking_forget") > keys.index("glob")
+    assert "*" not in permission
+
+
+def test_build_opencode_config_omits_openviking_when_degraded_or_disabled() -> None:
+    cfg = build_opencode_config(
+        OpenCodeConfigInput(
+            llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
+            mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
+            mcp_token="token-1",
+            session_id="sess_1",
+            openviking_enabled=False,
+            openviking_mcp_url="http://127.0.0.1:1933/mcp",
+            openviking_mcp_headers={"X-OpenViking-Account": "codeask"},
+        )
+    )
+
+    assert set(cfg["mcp"]) == {"codeask"}
+    assert "openviking_remember" not in cfg["permission"]
+    assert "openviking_add_resource" not in cfg["permission"]
+    assert "openviking_forget" not in cfg["permission"]
+
+
 def test_provider_entry_builder_is_shared_by_session_and_probe_configs() -> None:
     cfg = _llm_config(protocol="anthropic")
     profile = select_provider_profile(cfg, profile_id="anthropic-compatible-v1-bearer")
@@ -203,6 +298,10 @@ def test_codeask_system_prompt_instructs_model_to_bind_features_and_use_wiki_fir
     assert "Treat conceptual questions" in prompt
     assert "answer from the wiki/report evidence first" in prompt
     assert "prepare_worktree" in prompt
+    assert "OpenViking" in prompt
+    assert "OpenViking read results" in prompt
+    assert "knowledge snapshots" in prompt
+    assert "Never use OpenViking write tools" in prompt
     assert "Do not narrate hidden reasoning" in prompt
     assert "Final answers must start with the answer itself" in prompt
 

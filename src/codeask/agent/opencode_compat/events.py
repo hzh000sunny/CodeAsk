@@ -107,14 +107,22 @@ def _map_part_updated(part: dict[str, Any]) -> ChatRuntimeEvent | None:
                 },
             )
         if status in {"completed", "error"}:
+            output = state.get("output")
             return ChatRuntimeEvent(
                 type="tool_result",
                 data={
                     "tool_call_id": part_id,
                     "tool_name": tool_name,
                     "ok": status == "completed",
-                    "summary": str(state.get("title") or state.get("output") or status),
+                    "summary": str(state.get("title") or _output_summary(output) or status),
                     "message": str(state.get("error")) if state.get("error") else None,
+                    **(
+                        {"result": output}
+                        if isinstance(output, (dict, list))
+                        else {"raw_output": output}
+                        if isinstance(output, str) and output
+                        else {}
+                    ),
                 },
             )
         return None
@@ -132,4 +140,14 @@ def _map_part_updated(part: dict[str, Any]) -> ChatRuntimeEvent | None:
             },
         )
 
+    return None
+
+
+def _output_summary(output: object) -> str | None:
+    if isinstance(output, str):
+        return output
+    if isinstance(output, dict):
+        summary = output.get("summary") or output.get("message")
+        if isinstance(summary, str) and summary:
+            return summary
     return None

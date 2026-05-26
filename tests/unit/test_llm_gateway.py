@@ -689,6 +689,60 @@ async def test_gateway_does_not_cool_down_config_for_context_length_errors() -> 
 
 
 @pytest.mark.asyncio
+async def test_gateway_does_not_cool_down_config_for_nested_context_length_errors() -> None:
+    selected_models: list[str] = []
+    context_error = LLMEvent(
+        type="error",
+        data={
+            "backend": "opencode",
+            "error": {
+                "name": "BadRequestError",
+                "data": {"message": "Input length exceeds the maximum length"},
+            },
+        },
+    )
+
+    def build_client(**kwargs: object) -> _ScriptedClient:
+        selected_models.append(str(kwargs["model_name"]))
+        if kwargs["model_name"] == "model-a":
+            return _ScriptedClient([[context_error], [context_error], [context_error]])
+        return _CapturingFactoryClient()
+
+    repo = _FakeRepo(
+        global_configs=[
+            _Config(id="cfg_a", model_name="model-a"),
+            _Config(id="cfg_b", model_name="model-b"),
+        ]
+    )
+    gateway = LLMGateway(
+        repo,
+        ClientFactory(provider_clients={"openai": build_client}),
+        random_choice=lambda configs: configs[0],
+        unhealthy_failure_threshold=3,
+        base_delay=0.0,
+    )  # type: ignore[arg-type]
+
+    for _ in range(3):
+        out = [
+            event
+            async for event in gateway.stream(
+                _request(subject_id="alice@dev", session_id="sess_nested_ctx_same")
+            )
+        ]
+        assert out[-1].type == "error"
+
+    out = [
+        event
+        async for event in gateway.stream(
+            _request(subject_id="alice@dev", session_id="sess_nested_ctx_same")
+        )
+    ]
+
+    assert selected_models == ["model-a", "model-a", "model-a", "model-a"]
+    assert out[-1].type == "error"
+
+
+@pytest.mark.asyncio
 async def test_gateway_returns_last_error_when_all_global_candidates_fail() -> None:
     selected_models: list[str] = []
 
@@ -725,6 +779,67 @@ async def test_gateway_returns_last_error_when_all_global_candidates_fail() -> N
     assert selected_models == ["model-a", "model-b"]
     assert out[-1].type == "error"
     assert "b failed" in str(out[-1].data["message"])
+
+
+@pytest.mark.asyncio
+async def test_gateway_rotates_global_config_for_nested_opencode_api_error() -> None:
+    selected_models: list[str] = []
+
+    def build_client(**kwargs: object) -> _ScriptedClient:
+        selected_models.append(str(kwargs["model_name"]))
+        if kwargs["model_name"] == "model-a":
+            return _ScriptedClient(
+                [
+                    [
+                        LLMEvent(
+                            type="error",
+                            data={
+                                "backend": "opencode",
+                                "error": {
+                                    "name": "APIError",
+                                    "data": {
+                                        "message": (
+                                            "InvalidSubscription: account has no valid plan"
+                                        )
+                                    },
+                                },
+                            },
+                        )
+                    ]
+                ]
+            )
+        return _ScriptedClient(
+            [
+                [
+                    LLMEvent(type="message_start", data={}),
+                    LLMEvent(type="text_delta", data={"delta": "ok"}),
+                    LLMEvent(type="message_stop", data={"stop_reason": "end_turn"}),
+                ]
+            ]
+        )
+
+    repo = _FakeRepo(
+        global_configs=[
+            _Config(id="cfg_a", model_name="model-a"),
+            _Config(id="cfg_b", model_name="model-b"),
+        ]
+    )
+    gateway = LLMGateway(
+        repo,
+        ClientFactory(provider_clients={"openai": build_client}),
+        random_choice=lambda configs: configs[0],
+        base_delay=0.0,
+    )  # type: ignore[arg-type]
+
+    out = [
+        event
+        async for event in gateway.stream(
+            _request(subject_id="alice@dev", session_id="sess_nested_opencode_error")
+        )
+    ]
+
+    assert selected_models == ["model-a", "model-b"]
+    assert out[-1].type == "message_stop"
 
 
 @pytest.mark.asyncio

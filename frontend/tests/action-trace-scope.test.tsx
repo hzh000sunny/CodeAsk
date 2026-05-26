@@ -175,6 +175,78 @@ describe("action trace code scope display", () => {
     expect(event?.detail).toContain("Explore AnythingLLM Embedding");
   });
 
+  it("labels OpenViking MCP tool calls with semantic query and URI context", () => {
+    const event = actionTraceFromAgentEvent({
+      type: "tool_call",
+      data: {
+        tool_call_id: "call_openviking_search",
+        tool_name: "openviking_search",
+        arguments_summary: {
+          query: "主备重建 build 失败",
+          uri: "viking://resources/codeask/features/ha-rebuild",
+          limit: 5,
+        },
+      },
+    });
+
+    expect(event).not.toBeNull();
+    expect(event?.title).toBe("准备使用 OpenViking 语义检索");
+    expect(event?.detail).toContain("query=主备重建 build 失败");
+    expect(event?.detail).toContain(
+      "viking://resources/codeask/features/ha-rebuild",
+    );
+  });
+
+  it("shows OpenViking result URI, score and duration in the action trace popover", () => {
+    const event = actionTraceFromAgentEvent({
+      type: "tool_result",
+      data: {
+        tool_call_id: "call_openviking_search",
+        tool_name: "openviking_search",
+        ok: true,
+        result: {
+          summary: "语义召回 2 条结果",
+          duration_ms: 42.3,
+          data: {
+            hits: [
+              {
+                uri: "viking://resources/codeask/features/ha-rebuild/knowledge-base/index.md",
+                score: 0.8764,
+                title: "主备重建索引",
+              },
+              {
+                uri: "viking://resources/codeask/features/ha-rebuild/problem-reports/verified/build-timeout.md",
+                score: 0.732,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(event).not.toBeNull();
+    expect(event?.title).toBe("OpenViking 语义检索完成");
+    expect(event?.detail).toContain("语义召回 2 条结果");
+    expect(event?.detail).toContain("2 条命中");
+    expect(event?.detail).toContain("score=0.876");
+    expect(event?.detail).toContain("42.30 ms");
+
+    render(<ActionTraceEvent event={event as ActionTraceEventModel} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "OpenViking 语义检索完成 详情" }),
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
+    expect(dialog).toHaveTextContent("OpenViking URI");
+    expect(dialog).toHaveTextContent(
+      "viking://resources/codeask/features/ha-rebuild/knowledge-base/index.md",
+    );
+    expect(dialog).toHaveTextContent("相似度");
+    expect(dialog).toHaveTextContent("0.876");
+    expect(dialog).toHaveTextContent("工具耗时");
+    expect(dialog).toHaveTextContent("42.30 ms");
+  });
+
   it("shows agent event timing diagnostics in the action trace popover", () => {
     const event: ActionTraceEventModel = {
       id: "runtime_state_1",

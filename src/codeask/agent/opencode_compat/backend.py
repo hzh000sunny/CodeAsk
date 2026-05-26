@@ -19,6 +19,7 @@ import structlog
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
 from codeask.agent.opencode_compat.config import (
     OpenCodeConfigInput,
+    OpenVikingMCPConfig,
     build_opencode_config,
     build_opencode_provider_entry,
     build_session_external_directory_allowlist,
@@ -82,7 +83,10 @@ class WikiWorkspaceExporterLike(Protocol):
     async def export_current(self): ...  # type: ignore[no-untyped-def]
 
 
-ContextBuilder = Callable[[str, Path], str | Awaitable[str]]
+ContextBuilder = Callable[[str, Path, bool], str | Awaitable[str]]
+OpenVikingMCPResolver = Callable[
+    [str], OpenVikingMCPConfig | None | Awaitable[OpenVikingMCPConfig | None]
+]
 SUPPORTED_OPENCODE_VERSIONS = {"1.14.48"}
 log = structlog.get_logger("codeask.agent.opencode_compat.backend")
 _EVENT_POLL_SECONDS = 0.5
@@ -105,6 +109,7 @@ class OpenCodeCompat:
         wiki_workspace_exporter: WikiWorkspaceExporterLike | None = None,
         data_dir: Path | None = None,
         context_builder: ContextBuilder | None = None,
+        openviking_mcp_resolver: OpenVikingMCPResolver | None = None,
     ) -> None:
         self._workspace_manager = workspace_manager
         self._process_manager = process_manager
@@ -115,11 +120,15 @@ class OpenCodeCompat:
         self._wiki_workspace_exporter = wiki_workspace_exporter
         self._data_dir = data_dir
         self._context_builder = context_builder
+        self._openviking_mcp_resolver = openviking_mcp_resolver
 
     async def initialize_session(
         self,
         session_id: str,
         llm_config: LLMConfigWithSecret,
+        *,
+        provider_config_pool: tuple[LLMConfigWithSecret, ...] = (),
+        force_new_external_session: bool = False,
     ):
         if self._wiki_workspace_exporter is not None:
             await self._wiki_workspace_exporter.export_current()
@@ -130,12 +139,15 @@ class OpenCodeCompat:
         await _wait_for_health(client)
         _record_process_health_ok(self._process_manager)
         existing = await self._session_store.get_by_session_id_or_none(session_id)
+        openviking_mcp = await self._resolve_openviking_mcp(session_id)
         config_input = _config_input(
             llm_config=llm_config,
             mcp_url=mcp_url,
             mcp_token=self._mcp_token_resolver(session_id),
             session_id=session_id,
             data_dir=self._data_dir,
+            openviking_mcp=openviking_mcp,
+            provider_config_pool=provider_config_pool,
         )
         selected_profile = select_provider_profile(llm_config)
         config = build_opencode_config(
@@ -145,6 +157,7 @@ class OpenCodeCompat:
         _write_workspace_files(workspace.workspace_dir, config)
         if (
             existing is not None
+            and not force_new_external_session
             and getattr(existing, "status", "active") == "active"
             and existing.config_hash == config_hash
             and existing.workspace_dir == str(workspace.workspace_dir)
@@ -285,12 +298,15 @@ class OpenCodeCompat:
         visible_text_by_message: dict[str, str] = {}
         think_filters: dict[str, ThinkTagContentFilter] = {}
         text_part_ids: set[str] = set()
+        message_roles: dict[str, str] = {}
         last_usage_total: int | None = None
 
+        openviking_available = _binding_has_openviking_mcp(binding)
         system_prompt = await self._build_turn_system_prompt(
             session_id=session_id,
             workspace_dir=Path(workspace_dir),
             system=system,
+            openviking_available=openviking_available,
         )
         context_snapshot = _context_snapshot_event(
             workspace_dir=Path(workspace_dir),
@@ -403,6 +419,13 @@ class OpenCodeCompat:
                 directory=workspace_dir,
                 session_id=str(binding.external_session_key),
             )
+            message_role = _opencode_message_role(
+                raw_event,
+                session_id=str(binding.external_session_key),
+            )
+            if message_role is not None:
+                message_id, role = message_role
+                message_roles[message_id] = role
             part_class = _opencode_part_class(
                 raw_event,
                 session_id=str(binding.external_session_key),
@@ -420,6 +443,8 @@ class OpenCodeCompat:
             )
             if text_delta is not None:
                 message_id, part_id, delta = text_delta
+                if message_roles.get(message_id) == "user":
+                    continue
                 if part_id is not None and part_id not in text_part_ids:
                     continue
                 raw_text_by_message[message_id] = raw_text_by_message.get(message_id, "") + delta
@@ -454,6 +479,8 @@ class OpenCodeCompat:
             )
             if text_update is not None:
                 message_id, text = text_update
+                if message_roles.get(message_id) == "user":
+                    continue
                 for filtered_event in _reconcile_text_part_update(
                     message_id=message_id,
                     text=text,
@@ -572,11 +599,12 @@ class OpenCodeCompat:
         session_id: str,
         workspace_dir: Path,
         system: str | None,
+        openviking_available: bool,
     ) -> str:
         base = system or build_codeask_system_prompt()
         if self._context_builder is None:
             return base
-        context = self._context_builder(session_id, workspace_dir)
+        context = self._context_builder(session_id, workspace_dir, openviking_available)
         if inspect.isawaitable(context):
             context = await context  # type: ignore[assignment]
         context_text = str(context).strip()
@@ -584,6 +612,14 @@ class OpenCodeCompat:
             return base
         _write_dynamic_context_file(workspace_dir, context_text)
         return f"{base.rstrip()}\n\n{context_text}"
+
+    async def _resolve_openviking_mcp(self, session_id: str) -> OpenVikingMCPConfig | None:
+        if self._openviking_mcp_resolver is None:
+            return None
+        result = self._openviking_mcp_resolver(session_id)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
 
 
 def _write_workspace_files(workspace_dir, config: dict[str, object]) -> None:  # type: ignore[no-untyped-def]
@@ -680,6 +716,14 @@ def _record_process_health_ok(process_manager: ProcessManagerLike) -> None:
         record()
 
 
+def _binding_has_openviking_mcp(binding: Any) -> bool:
+    config_json = getattr(binding, "config_json", None)
+    if not isinstance(config_json, dict):
+        return False
+    mcp = config_json.get("mcp")
+    return isinstance(mcp, dict) and isinstance(mcp.get("openviking"), dict)
+
+
 class OpenCodeProviderTestError(RuntimeError):
     """Raised when the explicitly selected opencode provider test fails."""
 
@@ -691,12 +735,15 @@ def _config_input(
     mcp_token: str,
     session_id: str,
     data_dir: Path | None,
+    openviking_mcp: OpenVikingMCPConfig | None = None,
+    provider_config_pool: tuple[LLMConfigWithSecret, ...] = (),
 ) -> OpenCodeConfigInput:
-    return OpenCodeConfigInput(
+    base = OpenCodeConfigInput(
         llm_config=llm_config,
         mcp_url=mcp_url,
         mcp_token=mcp_token,
         session_id=session_id,
+        additional_provider_configs=provider_config_pool,
         external_directory_allowlist=(
             build_session_external_directory_allowlist(
                 data_dir=data_dir,
@@ -706,6 +753,7 @@ def _config_input(
             else ()
         ),
     )
+    return OpenCodeConfigInput.with_openviking(base=base, openviking=openviking_mcp)
 
 
 def _with_profile(
@@ -717,9 +765,14 @@ def _with_profile(
         mcp_url=config_input.mcp_url,
         mcp_token=config_input.mcp_token,
         session_id=config_input.session_id,
+        additional_provider_configs=config_input.additional_provider_configs,
         external_directory_allowlist=config_input.external_directory_allowlist,
         mcp_timeout_ms=config_input.mcp_timeout_ms,
         provider_profile=profile,
+        openviking_enabled=config_input.openviking_enabled,
+        openviking_mcp_url=config_input.openviking_mcp_url,
+        openviking_mcp_token=config_input.openviking_mcp_token,
+        openviking_mcp_headers=dict(config_input.openviking_mcp_headers),
     )
 
 
@@ -1386,6 +1439,24 @@ def _opencode_text_delta(
     if not isinstance(message_id, str) or not isinstance(delta, str) or not delta:
         return None
     return message_id, part_id if isinstance(part_id, str) else None, delta
+
+
+def _opencode_message_role(
+    event: dict[str, object],
+    *,
+    session_id: str,
+) -> tuple[str, str] | None:
+    properties = _opencode_properties(event, event_type="message.updated")
+    if properties is None or properties.get("sessionID") != session_id:
+        return None
+    info = properties.get("info")
+    if not isinstance(info, dict):
+        return None
+    message_id = info.get("id")
+    role = info.get("role")
+    if not isinstance(message_id, str) or not isinstance(role, str):
+        return None
+    return message_id, role
 
 
 def _opencode_text_part_update(

@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from secrets import token_hex
 from typing import Any
 
+import structlog
 from fastapi import HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
@@ -31,6 +32,8 @@ from codeask.llm.gateway import LLMConfigSelection
 from codeask.llm.types import LLMEvent
 from codeask.sessions.title_generation import maybe_generate_session_title
 from codeask.sessions.trace_redaction import redact_trace_payload_for_frontend
+
+log = structlog.get_logger("codeask.sessions.messages")
 
 
 def _event_data_dict(data: object) -> dict[str, object]:
@@ -361,8 +364,8 @@ async def stream_opencode_response(
     assistant_chunks: list[str] = []
     completed = False
     excluded_global_config_ids: set[str] = set()
-    attempt = 0
     last_initial_error: ChatRuntimeEvent | None = None
+    pooled_provider_configs: tuple[Any, ...] = ()
     timing = timing or AgentTurnTiming()
 
     while True:
@@ -389,6 +392,10 @@ async def stream_opencode_response(
             return
 
         llm_config = selection.config
+        if selection.pooled_global and not pooled_provider_configs:
+            pooled_provider_configs = tuple(
+                await request.app.state.llm_config_repo.list_runtime_global_configs()
+            )
         initializing_event = ChatRuntimeEvent(
             type="assistant_action",
             data={
@@ -417,7 +424,13 @@ async def stream_opencode_response(
         )
 
         try:
-            binding = await compat.initialize_session(session_id, llm_config)
+            binding = await compat.initialize_session(
+                session_id,
+                llm_config,
+                provider_config_pool=pooled_provider_configs if selection.pooled_global else (),
+                force_new_external_session=selection.pooled_global
+                and bool(excluded_global_config_ids),
+            )
             context_window = int(
                 getattr(request.app.state.settings, "model_context_window_tokens", 200_000)
             )
@@ -455,13 +468,20 @@ async def stream_opencode_response(
                         selection,
                         event_data,
                         session_id=session_id,
-                        attempt=attempt,
                         excluded_global_config_ids=excluded_global_config_ids,
                     ):
-                        attempt += 1
                         assistant_chunks.clear()
                         retrying_with_next_config = True
                         break
+                elif event.type == "error":
+                    log.info(
+                        "opencode_global_pool_retry_skipped",
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        config_id=getattr(selection.config, "id", None),
+                        pooled_global=selection.pooled_global,
+                        emitted_text=emitted_text,
+                    )
                     await persist_runtime_event_trace(
                         request,
                         session_id,
@@ -612,19 +632,29 @@ def _retry_next_opencode_global_config(
     error_data: dict[str, Any],
     *,
     session_id: str,
-    attempt: int,
     excluded_global_config_ids: set[str],
 ) -> bool:
-    counted = request.app.state.llm_gateway.record_runtime_config_failure(
+    should_count = request.app.state.llm_gateway.runtime_error_counts_for_config_health(error_data)
+    log.info(
+        "opencode_global_pool_retry_decision",
+        session_id=session_id,
+        config_id=getattr(selection.config, "id", None),
+        pooled_global=selection.pooled_global,
+        should_count=should_count,
+        excluded_count=len(excluded_global_config_ids),
+    )
+    if not selection.pooled_global:
+        return False
+    if not should_count:
+        return False
+    request.app.state.llm_gateway.record_runtime_config_failure(
         selection,
         error_data,
         session_id=session_id,
         clear_sticky=True,
     )
-    if not counted:
-        return False
     excluded_global_config_ids.add(selection.config.id)
-    return attempt < request.app.state.llm_gateway.max_runtime_retries
+    return True
 
 
 def _llm_error_to_chat_error(event: LLMEvent) -> ChatRuntimeEvent:

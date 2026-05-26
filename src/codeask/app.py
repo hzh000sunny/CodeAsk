@@ -4,7 +4,7 @@
 
 import asyncio
 import ipaddress
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -26,6 +26,7 @@ from codeask.agent.chat_runtime.tools.wiki import register_wiki_tools
 from codeask.agent.code_tools import AgentCodeSearchService
 from codeask.agent.opencode_compat.backend import OpenCodeCompat
 from codeask.agent.opencode_compat.cleanup import cleanup_idle_sessions
+from codeask.agent.opencode_compat.config import OpenVikingMCPConfig
 from codeask.agent.opencode_compat.context import build_dynamic_codeask_context
 from codeask.agent.opencode_compat.http import OpenCodeHttpClient
 from codeask.agent.opencode_compat.mcp.auth import make_session_mcp_token
@@ -75,6 +76,7 @@ from codeask.llm.repo import LLMConfigRepo
 from codeask.logging_config import configure_logging
 from codeask.migrations import run_migrations
 from codeask.rag.openviking.client import OpenVikingClient
+from codeask.rag.openviking.health import OpenVikingHealthStatus, probe_openviking_health
 from codeask.rag.openviking.process import OpenVikingProcessManager
 from codeask.rag.openviking.sync import OpenVikingSyncService
 from codeask.settings import Settings
@@ -88,6 +90,10 @@ class _Scheduler(Protocol):
     def start(self) -> None: ...
 
     def shutdown(self, wait: bool = True) -> None: ...
+
+
+class _OpenVikingProcessStatus(Protocol):
+    def describe(self) -> dict[str, object]: ...
 
 
 def _sync_database_url(async_url: str) -> str:
@@ -160,6 +166,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 base_url=f"http://{settings.openviking_host}:{settings.openviking_port}",
             ),
         )
+
+        async def resolve_openviking_mcp(session_id: str) -> OpenVikingMCPConfig | None:
+            return await _resolve_openviking_mcp_config(
+                settings,
+                openviking_process_manager,
+                session_id=session_id,
+            )
+
+        async def build_opencode_context(
+            session_id: str,
+            workspace_dir: Path,
+            openviking_available: bool,
+        ) -> str:
+            return await build_dynamic_codeask_context(
+                factory,
+                session_id=session_id,
+                workspace_dir=workspace_dir,
+                openviking_available=openviking_available,
+            )
+
         opencode_compat = OpenCodeCompat(
             workspace_manager=opencode_workspace_manager,
             process_manager=opencode_process_manager,
@@ -177,11 +203,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             wiki_workspace_exporter=opencode_wiki_workspace_exporter,
             data_dir=Path(settings.data_dir),
-            context_builder=lambda session_id, workspace_dir: build_dynamic_codeask_context(
-                factory,
-                session_id=session_id,
-                workspace_dir=workspace_dir,
-            ),
+            context_builder=build_opencode_context,
+            openviking_mcp_resolver=resolve_openviking_mcp,
         )
         agent_orchestrator = AgentOrchestrator(
             gateway=llm_gateway,
@@ -468,6 +491,34 @@ def _ensure_openviking_server(
         reason=reason,
         port=handle.port,
         pid=handle.pid,
+    )
+
+
+async def _resolve_openviking_mcp_config(
+    settings: Settings,
+    process_manager: _OpenVikingProcessStatus,
+    *,
+    session_id: str,
+    health_probe: Callable[..., Awaitable[OpenVikingHealthStatus]] = probe_openviking_health,
+) -> OpenVikingMCPConfig | None:
+    if not settings.openviking_enabled:
+        return None
+    status = process_manager.describe()
+    if not status.get("running"):
+        return None
+    base_url = str(
+        status.get("base_url") or f"http://{settings.openviking_host}:{settings.openviking_port}"
+    )
+    health = await health_probe(base_url, timeout=2.0)
+    if not health.healthy:
+        return None
+    return OpenVikingMCPConfig(
+        url=f"{base_url.rstrip('/')}/mcp",
+        headers={
+            "X-OpenViking-Account": "codeask",
+            "X-OpenViking-User": "codeask",
+            "X-OpenViking-Agent": session_id,
+        },
     )
 
 

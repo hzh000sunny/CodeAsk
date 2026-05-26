@@ -214,6 +214,9 @@ class LLMGateway:
             self._global_usage.clear_sticky_session(session_id, selection.config.id)
         return True
 
+    def runtime_error_counts_for_config_health(self, error_data: dict[str, Any]) -> bool:
+        return _counts_against_config_health(error_data)
+
     async def stream(self, request: LLMRequest) -> AsyncIterator[LLMEvent]:
         subject_id = request.metadata.get("subject_id")
         session_id = request.metadata.get("session_id")
@@ -498,11 +501,7 @@ def _invalid_runtime_config_event(message: str) -> LLMEvent:
 
 
 def _counts_against_config_health(data: dict[str, Any]) -> bool:
-    text = " ".join(
-        str(data.get(key, ""))
-        for key in ("error_code", "message", "provider")
-        if data.get(key) is not None
-    ).lower()
+    text = _flatten_error_text(data).lower()
     request_error_markers = (
         "input length",
         "context length",
@@ -519,6 +518,27 @@ def _counts_against_config_health(data: dict[str, Any]) -> bool:
         "invalid request body",
     )
     return not any(marker in text for marker in request_error_markers)
+
+
+def _flatten_error_text(value: Any) -> str:
+    parts: list[str] = []
+
+    def visit(item: Any) -> None:
+        if item is None:
+            return
+        if isinstance(item, dict):
+            for nested in item.values():
+                visit(nested)
+            return
+        if isinstance(item, list | tuple | set):
+            for nested in item:
+                visit(nested)
+            return
+        if isinstance(item, str | int | float | bool):
+            parts.append(str(item))
+
+    visit(value)
+    return " ".join(parts)
 
 
 class GlobalLLMUsageWindow:

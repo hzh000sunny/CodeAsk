@@ -26,6 +26,7 @@ async def build_dynamic_codeask_context(
     *,
     session_id: str,
     workspace_dir: Path,
+    openviking_available: bool = False,
     feature_limit: int = 80,
     repo_limit: int = 120,
     recent_turn_limit: int = 12,
@@ -139,6 +140,28 @@ async def build_dynamic_codeask_context(
             )
     else:
         lines.append("- No previous completed turns are currently stored.")
+
+    if openviking_available:
+        lines.extend(
+            [
+                "",
+                "## OpenViking Knowledge",
+                "- Semantic knowledge root: viking://resources/codeask",
+                "- Use openviking_find/openviking_search for semantic recall across "
+                "published wiki pages and verified problem reports.",
+                "- Use openviking_list/openviking_read/openviking_grep/openviking_glob "
+                "only for read-only inspection of returned knowledge resources.",
+                "- OpenViking read results are knowledge snapshots, not prepared source "
+                "files. If source-code evidence is required, call prepare_worktree "
+                "before reading repository files.",
+                "- Verified problem reports have higher evidence weight than draft or "
+                "unverified material. Treat reports as reference only unless the "
+                "symptom, scene, and root cause match exactly.",
+                "- Do not claim a semantic hit exists when OpenViking returns no "
+                "relevant result. Fall back to ./wiki/ glob/grep/read or ask a concise "
+                "clarification when evidence is insufficient.",
+            ]
+        )
 
     lines.extend(
         [
