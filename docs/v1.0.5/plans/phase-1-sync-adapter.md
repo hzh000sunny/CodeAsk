@@ -591,6 +591,14 @@ M4 Wiki UI 搜索框 OpenViking-first + ILIKE 兜底（步骤 18-19；不在 M1 
     - **18c 改写 `api/wiki/search.py`**：OpenViking healthy（复用 M1/M2 已有健康判断，**不新开 /health 探针**）→ 调 client 查询；异常 / 不可达 / 0 命中 → fallthrough 到现有 `NativeWikiSearchService`；URI → feature_id 反查保留原 `_group_for_hit` 分组；命中发 `openviking_search_hit`、0 命中发 `openviking_search_miss`，长期不可用要去重/限速防刷屏；前端零改动（`frontend/src/lib/wiki/api.ts` 不动）
 19. 集成测试：OpenViking 健康有命中 / 健康 0 命中 / 不可达 / 异常——四种 case 验证兜底正确，断言分组在两条路径下一致
 
+2026-05-26 M4 阶段一实现记录：
+
+- FTS5 活消费者已切断：`/api/documents` 上传不再 chunk / 写 `document_chunks` / 写 FTS5；`/documents/search` 与 `/reports/search` REST 端点删除；Report verify / unverify / reject / delete 不再触碰 `WikiIndexer`。
+- FTS5 模块已删除：`wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py` 不再存在；`tokenize` 迁入 `wiki/text_utils.py` 供 `path_resolver.py` 继续使用；`wiki/chunker.py` 删除 `tokenized_text` / `ngram_text` 运行时字段。`document_chunks` 物理表及历史列保留，不再由上传路径写入。
+- Alembic 新增 `0031` drop migration 删除三张旧虚表；历史 `0005` 迁移保留 revision 链但改为 no-op，避免新库安装再创建已废弃虚表。
+- OpenViking 查询 spike 结论：使用 REST `POST /api/v1/search/find`，入参 `{query,target_uri,limit,score_threshold}`，trusted headers 仍为 `X-OpenViking-Account/User/Agent`；响应为 `{status:"ok", result:{resources:[{uri,score,context_type,level,abstract,overview}], total}}`。实测成功样本命中 `viking://resources/codeask/features/m4-spike/knowledge-base/m4-spike.md/m4-spike.md`，score `0.6444`。读取正文端点实测为 `GET /api/v1/content/read`，不是旧文档里的 `/api/v1/fs/read`。
+- Wiki UI 搜索已改为 OpenViking-first：进程 running 且可查询时调用 `OpenVikingClient.find`；命中 URI 通过 `openviking_sync_jobs.viking_uri` 映射回 `WikiDocument` / `Report` 后复用原分组语义；0 命中、异常、未启动、无法映射都回退 `NativeWikiSearchService`；长期 unavailable 事件按 60s 限速，避免 dashboard 被刷屏。前端 `frontend/src/lib/wiki/api.ts` 未改。
+
 M5 Wiki 写路径 hook（步骤 20-22；不在 M1 实施）：
 
 20. `wiki/documents/service.py:publish_document` / `rollback_to_version` 完成后调 `rag.openviking.sync.enqueue(source_type="wiki_doc", source_id=str(document.id))`（`enqueue` 签名 `source_id: str`，需转字符串）；`save_draft` / `delete_draft` 不调。**legacy `/documents` 上传单独接**：`sync_legacy_markdown_document` 不走 `publish_document`，hook 入队要放在 `wiki/sync/service.py:sync_legacy_markdown_document` 内（这样 `upload_document` POST 与 `backfill_feature_content` 全量回填两条调用方一起覆盖；仅放 `upload_document` 会漏 backfill）

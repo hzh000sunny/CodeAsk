@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, cast
 
 import httpx
@@ -11,6 +12,17 @@ from codeask.rag.openviking.sync import SyncResource
 
 class OpenVikingClientError(RuntimeError):
     """Raised when OpenViking returns an unexpected response."""
+
+
+@dataclass(frozen=True, slots=True)
+class OpenVikingSearchHit:
+    uri: str
+    score: float
+    context_type: str | None = None
+    level: int | None = None
+    abstract: str | None = None
+    overview: str | None = None
+    content: str | None = None
 
 
 class OpenVikingClient:
@@ -62,6 +74,28 @@ class OpenVikingClient:
             response.raise_for_status()
             return _unwrap_result(response.json())
 
+    async def find(
+        self,
+        *,
+        query: str,
+        target_uri: str,
+        limit: int = 20,
+        score_threshold: float = 0.0,
+    ) -> list[OpenVikingSearchHit]:
+        async with self._client() as client:
+            response = await client.post(
+                "/api/v1/search/find",
+                json={
+                    "query": query,
+                    "target_uri": target_uri,
+                    "limit": limit,
+                    "score_threshold": score_threshold,
+                },
+            )
+            response.raise_for_status()
+            result = _unwrap_result(response.json())
+        return _parse_search_hits(result)
+
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             base_url=self._base_url,
@@ -84,3 +118,50 @@ def _unwrap_result(data: object) -> dict[str, Any]:
             return cast(dict[str, Any], result)
         return payload
     raise OpenVikingClientError("OpenViking response was not an object")
+
+
+def _parse_search_hits(data: dict[str, Any]) -> list[OpenVikingSearchHit]:
+    raw_items = data.get("results")
+    if raw_items is None:
+        raw_items = data.get("resources")
+    if raw_items is None:
+        raw_items = []
+    if not isinstance(raw_items, list):
+        raise OpenVikingClientError("OpenViking search result items were not a list")
+
+    hits: list[OpenVikingSearchHit] = []
+    for raw_item in cast(list[object], raw_items):
+        if not isinstance(raw_item, dict):
+            continue
+        item = cast(dict[str, Any], raw_item)
+        uri = item.get("uri")
+        if not isinstance(uri, str) or not uri:
+            continue
+        hits.append(
+            OpenVikingSearchHit(
+                uri=uri,
+                score=_float_or_default(item.get("score"), 0.0),
+                context_type=_str_or_none(item.get("context_type")),
+                level=_int_or_none(item.get("level")),
+                abstract=_str_or_none(item.get("abstract")),
+                overview=_str_or_none(item.get("overview")),
+                content=_str_or_none(item.get("content")),
+            )
+        )
+    return hits
+
+
+def _str_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _int_or_none(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    return None
+
+
+def _float_or_default(value: object, default: float) -> float:
+    if isinstance(value, int | float):
+        return float(value)
+    return default

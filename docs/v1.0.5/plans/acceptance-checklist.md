@@ -118,14 +118,14 @@ M1 仅交付 tuning 默认配置读取、推荐值展示与 admin API 基础面�
 
 ### 3.6 Wiki UI 搜索框（OpenViking 优先 + ILIKE 兜底）
 
-- [ ] **spike 前置**：已确认 OpenViking 查询走 REST 还是 MCP，记录端点 / 入参 / 响应结构 + 一次成功样本（`find_or_search` 在 M2 前不存在，须 spike 落地）
-- [ ] `OpenVikingClient` 新增查询方法（复用 trusted headers / `trust_env=False`），有单测覆盖正常命中与异常
-- [ ] OpenViking 健康有命中 → 命中走 OpenViking；事件流可见 `openviking_search_hit`（统计）
-- [ ] OpenViking 健康 0 命中 → 自动回退 SQL ILIKE；前端不区分来源；事件流可见 `openviking_search_miss`
-- [ ] OpenViking 不可达 / 异常 → 自动回退 SQL ILIKE；不弹窗；admin 仪表盘 Health 卡显示 degraded
-- [ ] 分组（current_feature / other_current_features / history_features / current_feature_reports）在两条路径下行为一致
-- [ ] 前端 `frontend/src/lib/wiki/api.ts` 无改动，证明后端是无缝替换
-- [ ] OpenViking 长期不可用时连续搜索多次：仪表盘事件流不被搜索失败刷屏（去重 / 速率限制生效）
+- [x] **spike 前置**：已确认 OpenViking 查询走 REST 还是 MCP，记录端点 / 入参 / 响应结构 + 一次成功样本（`find_or_search` 在 M2 前不存在，须 spike 落地）
+- [x] `OpenVikingClient` 新增查询方法（复用 trusted headers / `trust_env=False`），有单测覆盖正常命中与异常
+- [x] OpenViking 健康有命中 → 命中走 OpenViking；事件流可见 `openviking_search_hit`（统计）
+- [x] OpenViking 健康 0 命中 → 自动回退 SQL ILIKE；前端不区分来源；事件流可见 `openviking_search_miss`
+- [x] OpenViking 不可达 / 异常 → 自动回退 SQL ILIKE；不弹窗；admin 仪表盘 Health 卡显示 degraded
+- [x] 分组（current_feature / other_current_features / history_features / current_feature_reports）在两条路径下行为一致
+- [x] 前端 `frontend/src/lib/wiki/api.ts` 无改动，证明后端是无缝替换
+- [x] OpenViking 长期不可用时连续搜索多次：仪表盘事件流不被搜索失败刷屏（去重 / 速率限制生效）
 
 ### 3.7 Wiki 写路径 hook（同步过滤规则）
 
@@ -143,13 +143,13 @@ M1 仅交付 tuning 默认配置读取、推荐值展示与 admin API 基础面�
 
 ### 3.8 FTS5 删除
 
-- [ ] alembic head 之后：`docs_fts` / `docs_ngram_fts` / `reports_fts` 三张虚表不存在
-- [ ] `find src/codeask/wiki -name "search.py" -o -name "indexer.py" -o -name "tokenizer.py"` 无输出
-- [ ] `wiki/chunker.py` 不再 import `tokenizer`，`ParsedChunk` 不含 `tokenized_text` / `ngram_text` 字段
-- [ ] `tokenize` 已迁出 tokenizer.py：`grep -rn "from codeask.wiki.tokenizer\|wiki\.tokenizer" src/codeask` 无输出；`/api/wiki/resolve`（`path_resolver` 路径模糊匹配）仍正常工作
-- [ ] `wiki/reports.py:ReportService` 无 `WikiIndexer` 引用：verify / unverify / reject 不再写 FTS5（这三处是仅有的 indexer 调用点）
-- [ ] `api/reports.py` 已删 `GET /reports/search` 端点、无 `WikiIndexer` 引用；`api/documents_compat.py` 已删 `GET /documents/search`、上传与 delete 路径无 `WikiIndexer`
-- [ ] `grep -rn "docs_fts\|docs_ngram_fts\|reports_fts\|WikiIndexer\|WikiSearchService" src/codeask/ alembic/versions/` 仅出现在新增的 DROP migration 文件中
+- [x] alembic head 之后：`docs_fts` / `docs_ngram_fts` / `reports_fts` 三张虚表不存在
+- [x] `find src/codeask/wiki -name "search.py" -o -name "indexer.py" -o -name "tokenizer.py"` 无输出
+- [x] `wiki/chunker.py` 不再 import `tokenizer`，`ParsedChunk` 不含 `tokenized_text` / `ngram_text` 字段
+- [x] `tokenize` 已迁出 tokenizer.py：`grep -rn "from codeask.wiki.tokenizer\|wiki\.tokenizer" src/codeask` 无输出；`/api/wiki/resolve`（`path_resolver` 路径模糊匹配）仍正常工作
+- [x] `wiki/reports.py:ReportService` 无 `WikiIndexer` 引用：verify / unverify / reject 不再写 FTS5（这三处是仅有的 indexer 调用点）
+- [x] `api/reports.py` 已删 `GET /reports/search` 端点、无 `WikiIndexer` 引用；`api/documents_compat.py` 已删 `GET /documents/search`、上传与 delete 路径无 `WikiIndexer`
+- [x] 旧 `WikiIndexer` / FTS `WikiSearchService` 活代码已删除；`docs_fts` / `docs_ngram_fts` / `reports_fts` 仅保留在新增 DROP migration 与验收测试断言中。注：`NativeWikiSearchService` 是 SQL ILIKE 兜底服务，名称包含 `WikiSearchService` 子串，不属于已删除的 FTS 服务。
 
 ### 3.9 自研 Agent 隔离（保留不删）
 

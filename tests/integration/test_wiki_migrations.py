@@ -38,7 +38,7 @@ async def test_wiki_migrations_idempotent(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_fts_tables_created(tmp_path: Path) -> None:
+async def test_fts_tables_dropped_at_head(tmp_path: Path) -> None:
     db_path = tmp_path / "fts.db"
     sync_url = f"sqlite:///{db_path}"
     async_url = f"sqlite+aiosqlite:///{db_path}"
@@ -58,8 +58,7 @@ async def test_fts_tables_created(tmp_path: Path) -> None:
         ).all()
     await engine.dispose()
 
-    names = {row[0] for row in rows}
-    assert names == {"docs_fts", "docs_ngram_fts", "reports_fts"}
+    assert rows == []
 
 
 def _alembic_config(sync_url: str) -> Config:

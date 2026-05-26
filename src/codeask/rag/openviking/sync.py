@@ -155,7 +155,11 @@ class OpenVikingSyncService:
                 indexed += 1
                 job.status = "indexed"
                 job.task_id = _string_or_none(result.get("task_id"))
-                job.viking_uri = _string_or_none(result.get("uri")) or resource.viking_uri
+                job.viking_uri = (
+                    _string_or_none(result.get("uri"))
+                    or _string_or_none(result.get("root_uri"))
+                    or resource.viking_uri
+                )
                 job.last_indexed_at = datetime.now(UTC)
                 job.next_retry_at = None
                 job.error = None

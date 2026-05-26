@@ -8,7 +8,6 @@ from pathlib import Path
 from markdown_it import MarkdownIt
 
 from codeask.wiki.signals import extract_signals
-from codeask.wiki.tokenizer import to_ngrams, tokenize
 
 MAX_CHUNK_CHARS = 3000
 
@@ -19,8 +18,6 @@ class ParsedChunk:
     heading_path: str
     raw_text: str
     normalized_text: str
-    tokenized_text: str
-    ngram_text: str
     signals_json: dict[str, list[str]]
     start_offset: int
     end_offset: int
@@ -33,8 +30,6 @@ def _build(index: int, heading_path: str, raw: str, start: int, end: int) -> Par
         heading_path=heading_path,
         raw_text=raw,
         normalized_text=normalized,
-        tokenized_text=tokenize(normalized),
-        ngram_text=to_ngrams(normalized),
         signals_json=extract_signals(raw),
         start_offset=start,
         end_offset=end,

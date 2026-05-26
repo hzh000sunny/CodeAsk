@@ -35,11 +35,13 @@ async def test_full_wiki_flow(client: AsyncClient, tmp_path: Path) -> None:
             headers={"X-Subject-Id": "alice@dev-1"},
         )
     assert response.status_code == 201
-    document_id = response.json()["id"]
 
-    response = await client.get("/api/documents/search?q=ERR_ORDER_CONTEXT_EMPTY")
-    hits = response.json()
-    assert any(hit["document_id"] == document_id for hit in hits)
+    response = await client.get(
+        f"/api/wiki/search?q=ERR_ORDER_CONTEXT_EMPTY&feature_id={feature_id}"
+    )
+    assert response.status_code == 200
+    hits = response.json()["items"]
+    assert any(hit["document_id"] is not None for hit in hits)
 
     response = await client.post(
         "/api/reports",
@@ -72,7 +74,7 @@ async def test_full_wiki_flow(client: AsyncClient, tmp_path: Path) -> None:
     report_id = response.json()["id"]
 
     response = await client.get("/api/reports/search?q=ERR_ORDER_CONTEXT_EMPTY")
-    assert all(hit["report_id"] != report_id for hit in response.json())
+    assert response.status_code in {404, 422}
 
     response = await client.post(
         f"/api/reports/{report_id}/verify",
@@ -80,17 +82,15 @@ async def test_full_wiki_flow(client: AsyncClient, tmp_path: Path) -> None:
     )
     assert response.status_code == 200
 
-    response = await client.get("/api/reports/search?q=ERR_ORDER_CONTEXT_EMPTY")
-    hits = response.json()
-    found = next(hit for hit in hits if hit["report_id"] == report_id)
-    assert found["verified_by"] == "admin"
-    assert found["verified_at"] is not None
-    assert found["commit_sha"] == "abc1234"
+    response = await client.get(
+        f"/api/wiki/search?q=ERR_ORDER_CONTEXT_EMPTY&feature_id={feature_id}"
+    )
+    assert response.status_code == 200
+    hits = response.json()["items"]
+    assert any(hit["report_id"] == report_id for hit in hits)
 
     response = await client.post(
         f"/api/reports/{report_id}/unverify",
         headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert response.status_code == 200
-    response = await client.get("/api/reports/search?q=ERR_ORDER_CONTEXT_EMPTY")
-    assert all(hit["report_id"] != report_id for hit in response.json())

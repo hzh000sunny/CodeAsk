@@ -1,4 +1,6 @@
-"""Tokenization and n-gram helpers for Wiki FTS5 indexing."""
+"""Small text helpers for native wiki matching."""
+
+from __future__ import annotations
 
 import re
 
@@ -7,7 +9,8 @@ _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 
 
 def tokenize(text: str) -> str:
-    """Convert source text into lower-cased, space-separated tokens."""
+    """Convert source text into lower-cased, space-separated matching tokens."""
+
     if not text:
         return ""
     tokens: list[str] = []
@@ -28,13 +31,3 @@ def tokenize(text: str) -> str:
                 continue
             index += 1
     return " ".join(tokens)
-
-
-def to_ngrams(text: str, n: int = 3) -> str:
-    """Build whitespace-stripped sliding-window n-grams."""
-    if not text:
-        return ""
-    compact = re.sub(r"\s+", "", text)
-    if len(compact) <= n:
-        return compact
-    return " ".join(compact[index : index + n] for index in range(len(compact) - n + 1))

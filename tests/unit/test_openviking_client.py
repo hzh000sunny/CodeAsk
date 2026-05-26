@@ -50,3 +50,47 @@ async def test_add_text_resource_uses_temp_upload_then_add_resource() -> None:
         ("POST", "/api/v1/resources/temp_upload"),
         ("POST", "/api/v1/resources"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_find_uses_rest_search_endpoint_and_parses_resources_envelope() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/api/v1/search/find"
+        body = request.read().decode()
+        assert '"query":"marker"' in body
+        assert '"target_uri":"viking://resources/codeask/features/f"' in body
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "result": {
+                    "resources": [
+                        {
+                            "uri": "viking://resources/codeask/features/f/knowledge-base/doc.md/doc.md",
+                            "score": 0.91,
+                            "context_type": "resource",
+                            "level": 2,
+                            "abstract": "Doc abstract",
+                        }
+                    ],
+                    "total": 1,
+                },
+            },
+        )
+
+    client = OpenVikingClient(
+        base_url="http://openviking.local",
+        transport=httpx.MockTransport(handler),
+    )
+
+    hits = await client.find(
+        query="marker",
+        target_uri="viking://resources/codeask/features/f",
+        limit=5,
+    )
+
+    assert len(hits) == 1
+    assert hits[0].uri.endswith("/doc.md/doc.md")
+    assert hits[0].score == 0.91
+    assert hits[0].abstract == "Doc abstract"
