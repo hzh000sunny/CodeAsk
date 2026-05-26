@@ -7,9 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Literal
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.datastructures import UploadFile
 
 from codeask.db.models import Feature, WikiNode, WikiSpace
 from codeask.wiki.actor import WikiActor
@@ -39,12 +40,16 @@ class PreflightIssue:
         }
 
 
+def _new_issue_list() -> list[PreflightIssue]:
+    return []
+
+
 @dataclass(slots=True)
 class PreflightItem:
     relative_path: str
     kind: ImportItemKind
     target_path: str
-    issues: list[PreflightIssue] = field(default_factory=list)
+    issues: list[PreflightIssue] = field(default_factory=_new_issue_list)
     markdown_body: str | None = None
 
     @property
@@ -95,7 +100,7 @@ class WikiImportPreflightService:
     ) -> tuple[list[PreflightItem], dict[str, int], bool]:
         feature = await self._load_feature_for_space(session, space_id=space.id)
         self._require_write(actor, feature)
-        self._validate_parent(space=space, parent=parent)
+        self.validate_parent(space=space, parent=parent)
         if not files:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -104,9 +109,9 @@ class WikiImportPreflightService:
 
         items: list[PreflightItem] = []
         for file in files:
-            relative_path = self._normalize_relative_path(file.filename)
-            kind = self._classify_kind(relative_path)
-            target_path = self._target_path(
+            relative_path = self.normalize_relative_path(file.filename)
+            kind = self.classify_kind(relative_path)
+            target_path = self.target_path(
                 base_path=parent.path if parent is not None else None,
                 relative_path=relative_path,
                 kind=kind,
@@ -175,7 +180,7 @@ class WikiImportPreflightService:
         )
         return {row.path: row for row in rows}
 
-    def _validate_parent(self, *, space: WikiSpace, parent: WikiNode | None) -> None:
+    def validate_parent(self, *, space: WikiSpace, parent: WikiNode | None) -> None:
         if parent is None:
             return
         if parent.deleted_at is not None:
@@ -198,7 +203,7 @@ class WikiImportPreflightService:
                 detail="write access denied for this wiki feature",
             )
 
-    def _normalize_relative_path(self, value: str | None) -> str:
+    def normalize_relative_path(self, value: str | None) -> str:
         if not value:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -213,13 +218,13 @@ class WikiImportPreflightService:
             )
         return "/".join(parts)
 
-    def _classify_kind(self, relative_path: str) -> ImportItemKind:
+    def classify_kind(self, relative_path: str) -> ImportItemKind:
         suffix = PurePosixPath(relative_path).suffix.lower()
         if suffix in {".md", ".markdown"}:
             return "document"
         return "asset"
 
-    def _target_path(
+    def target_path(
         self,
         *,
         base_path: str | None,

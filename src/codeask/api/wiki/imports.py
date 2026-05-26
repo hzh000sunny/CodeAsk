@@ -37,7 +37,7 @@ WIKI_IMPORT_MAX_PART_SIZE = 8 * 1024 * 1024
 class ParsedImportForm:
     space_id: int
     parent_id: int | None
-    files: list[UploadFile]
+    files: list[StarletteUploadFile]
 
 
 def _parse_int_field(form: FormData, field: str, *, required: bool) -> int | None:
@@ -63,7 +63,7 @@ def _parse_int_field(form: FormData, field: str, *, required: bool) -> int | Non
         ) from exc
 
 
-def _parse_file_list(form: FormData) -> list[UploadFile]:
+def _parse_file_list(form: FormData) -> list[StarletteUploadFile]:
     files = form.getlist("files")
     parsed = [item for item in files if isinstance(item, StarletteUploadFile)]
     if len(parsed) != len(files):
@@ -104,7 +104,7 @@ async def import_preflight(
             parent=parent,
             files=parsed.files,
         )
-        return WikiImportPreflightRead(**data)
+        return WikiImportPreflightRead.model_validate(data)
 
 
 @router.post("/import-sessions", response_model=WikiImportSessionRead, status_code=201)
@@ -123,7 +123,7 @@ async def create_import_session(
         mode=payload.mode,
     )
     await session.commit()
-    return WikiImportSessionRead(**data)
+    return WikiImportSessionRead.model_validate(data)
 
 
 @router.get("/import-sessions/{session_id}", response_model=WikiImportSessionRead)
@@ -137,7 +137,7 @@ async def get_import_session(
         actor=wiki_actor_from_request(request),
         session_id=session_id,
     )
-    return WikiImportSessionRead(**data)
+    return WikiImportSessionRead.model_validate(data)
 
 
 @router.post("/import-sessions/{session_id}/scan", response_model=WikiImportSessionRead)
@@ -154,7 +154,7 @@ async def scan_import_session(
         items=[item.model_dump() for item in payload.items],
     )
     await session.commit()
-    return WikiImportSessionRead(**data)
+    return WikiImportSessionRead.model_validate(data)
 
 
 @router.get("/import-sessions/{session_id}/items", response_model=WikiImportSessionItemsRead)
@@ -168,7 +168,7 @@ async def list_import_session_items(
         actor=wiki_actor_from_request(request),
         session_id=session_id,
     )
-    return WikiImportSessionItemsRead(**data)
+    return WikiImportSessionItemsRead.model_validate(data)
 
 
 @router.post(
@@ -191,7 +191,7 @@ async def upload_import_session_item(
         file=file,
     )
     await session.commit()
-    return WikiImportSessionUploadRead(**data)
+    return WikiImportSessionUploadRead.model_validate(data)
 
 
 @router.post(
@@ -214,7 +214,7 @@ async def resolve_import_session_item(
         action=payload.action,
     )
     await session.commit()
-    return WikiImportSessionUploadRead(**data)
+    return WikiImportSessionUploadRead.model_validate(data)
 
 
 @router.post("/import-sessions/{session_id}/bulk-resolve", response_model=WikiImportSessionRead)
@@ -232,7 +232,7 @@ async def bulk_resolve_import_session_items(
         action=payload.action,
     )
     await session.commit()
-    return WikiImportSessionRead(**data)
+    return WikiImportSessionRead.model_validate(data)
 
 
 @router.post("/import-sessions/{session_id}/cancel", response_model=WikiImportSessionRead)
@@ -247,7 +247,7 @@ async def cancel_import_session(
         session_id=session_id,
     )
     await session.commit()
-    return WikiImportSessionRead(**data)
+    return WikiImportSessionRead.model_validate(data)
 
 
 @router.post(
@@ -268,7 +268,7 @@ async def retry_import_session_item(
         item_id=item_id,
     )
     await session.commit()
-    return WikiImportSessionUploadRead(**data)
+    return WikiImportSessionUploadRead.model_validate(data)
 
 
 @router.post("/import-sessions/{session_id}/retry", response_model=WikiImportSessionRead)
@@ -284,7 +284,7 @@ async def retry_import_session(
         session_id=session_id,
     )
     await session.commit()
-    return WikiImportSessionRead(**data)
+    return WikiImportSessionRead.model_validate(data)
 
 
 @router.post("/imports", response_model=WikiImportJobRead, status_code=201)
@@ -311,7 +311,7 @@ async def create_import_job(
             files=parsed.files,
         )
         await session.commit()
-        return WikiImportJobRead(**data)
+        return WikiImportJobRead.model_validate(data)
 
 
 @router.get("/imports/{job_id}", response_model=WikiImportJobRead)
@@ -321,7 +321,7 @@ async def get_import_job(job_id: int, request: Request, session: SessionDep) -> 
         actor=wiki_actor_from_request(request),
         job_id=job_id,
     )
-    return WikiImportJobRead(**data)
+    return WikiImportJobRead.model_validate(data)
 
 
 @router.get("/imports/{job_id}/items", response_model=WikiImportJobItemsRead)
@@ -335,7 +335,7 @@ async def list_import_job_items(
         actor=wiki_actor_from_request(request),
         job_id=job_id,
     )
-    return WikiImportJobItemsRead(**data)
+    return WikiImportJobItemsRead.model_validate(data)
 
 
 @router.post("/imports/{job_id}/apply", response_model=WikiImportJobRead)
@@ -347,4 +347,4 @@ async def apply_import_job(job_id: int, request: Request, session: SessionDep) -
         job_id=job_id,
     )
     await session.commit()
-    return WikiImportJobRead(**data)
+    return WikiImportJobRead.model_validate(data)
