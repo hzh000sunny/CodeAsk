@@ -165,6 +165,15 @@ M1 仅交付 tuning 默认配置读取、推荐值展示与 admin API 基础面�
 - [ ] `settings.agent_backend` 为 `Literal["opencode"]`；运行时无法选到 native
 - [ ] `grep -rn "agent_backend.*native" src/codeask/` 仅出现在 native_backend 内部 / 测试 / 注释，不出现在请求路径接线
 
+### 3.10 M4 阶段二 pyright strict 清债（详见 [m4-phase-2-pyright-cleanup.md](./m4-phase-2-pyright-cleanup.md)）
+
+- [ ] `uv run pyright src/codeask evals` = **0 errors**
+- [ ] `.github/workflows/backend.yml` 的 Pyright step 仍是硬 gate（未加 `continue-on-error`）
+- [ ] `pyproject.toml [tool.pyright]` 的 `strict` 范围未被收窄；`native_backend` 仍在 `exclude`（唯一例外）
+- [ ] 全量 `pytest` 绿、ruff check / format 绿、前端 tsc / vitest 不受影响；`frontend/src` 与 `api.ts` 未改
+- [ ] diff 抽查无"假绿"：无新增 `# type: ignore`、未全局禁用任何 `reportXxx` 规则、无静默逻辑变更（纯类型修复）
+- [ ] 分批推进，每批退出条件（该批 pyright 0 + pytest 绿 + ruff 绿）均满足
+
 ---
 
 ## 4. Phase 2 opencode 接入

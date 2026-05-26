@@ -591,6 +591,8 @@ M4 Wiki UI 搜索框 OpenViking-first + ILIKE 兜底（步骤 18-19；不在 M1 
     - **18c 改写 `api/wiki/search.py`**：OpenViking healthy（复用 M1/M2 已有健康判断，**不新开 /health 探针**）→ 调 client 查询；异常 / 不可达 / 0 命中 → fallthrough 到现有 `NativeWikiSearchService`；URI → feature_id 反查保留原 `_group_for_hit` 分组；命中发 `openviking_search_hit`、0 命中发 `openviking_search_miss`，长期不可用要去重/限速防刷屏；前端零改动（`frontend/src/lib/wiki/api.ts` 不动）
 19. 集成测试：OpenViking 健康有命中 / 健康 0 命中 / 不可达 / 异常——四种 case 验证兜底正确，断言分组在两条路径下一致
 
+> M4 拆两阶段：步骤 15-19 是**阶段一**（删 FTS5 + UI 搜索），已交付（commit `ec1414e`）。**阶段二**是把 `src/codeask` 历史 pyright strict 债清零、让 pyright gate 恢复硬约束，独立 commit、按目录分批，详见 [m4-phase-2-pyright-cleanup.md](./m4-phase-2-pyright-cleanup.md)、验收 acceptance §3.10。
+
 2026-05-26 M4 阶段一实现记录：
 
 - FTS5 活消费者已切断：`/api/documents` 上传不再 chunk / 写 `document_chunks` / 写 FTS5；`/documents/search` 与 `/reports/search` REST 端点删除；Report verify / unverify / reject / delete 不再触碰 `WikiIndexer`。
