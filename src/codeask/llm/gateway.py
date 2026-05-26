@@ -5,7 +5,7 @@ import random
 import time
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from codeask.llm.client import (
     AnthropicClient,
@@ -425,35 +425,36 @@ def _runtime_config_from_metadata(raw: Any) -> LLMConfigWithSecret | LLMEvent | 
         return None
     if not isinstance(raw, dict):
         return _invalid_runtime_config_event("runtime LLM config must be an object")
-    protocol = _required_string(raw, "protocol")
-    api_key = _required_string(raw, "api_key")
-    model_name = _required_string(raw, "model_name")
+    raw_config = cast(dict[str, Any], raw)
+    protocol = _required_string(raw_config, "protocol")
+    api_key = _required_string(raw_config, "api_key")
+    model_name = _required_string(raw_config, "model_name")
     if protocol is None or api_key is None or model_name is None:
         return _invalid_runtime_config_event("runtime LLM config is incomplete")
     if protocol not in {"openai", "openai_compatible", "anthropic"}:
         return _invalid_runtime_config_event("runtime LLM config protocol is not supported")
     agent_runtime_profile = (
-        _optional_string(raw, "agent_runtime_profile")
-        or _optional_string(raw, "opencode_provider_profile")
+        _optional_string(raw_config, "agent_runtime_profile")
+        or _optional_string(raw_config, "opencode_provider_profile")
         or "default"
     )
     return LLMConfigWithSecret(
         id="runtime_guest",
-        name=_optional_string(raw, "name") or "访客 LLM",
+        name=_optional_string(raw_config, "name") or "访客 LLM",
         scope="runtime",
         owner_subject_id=None,
         protocol=protocol,
-        base_url=_optional_string(raw, "base_url"),
+        base_url=_optional_string(raw_config, "base_url"),
         api_key=api_key,
         model_name=model_name,
-        max_tokens=_optional_int(raw, "max_tokens", 4096),
-        temperature=_optional_float(raw, "temperature", 0.0),
+        max_tokens=_optional_int(raw_config, "max_tokens", 4096),
+        temperature=_optional_float(raw_config, "temperature", 0.0),
         is_default=False,
         enabled=True,
         rpm_limit=None,
         quota_remaining=None,
-        reasoning_profile=_optional_string(raw, "reasoning_profile") or "none",
-        reasoning_profile_json=_optional_string(raw, "reasoning_profile_json"),
+        reasoning_profile=_optional_string(raw_config, "reasoning_profile") or "none",
+        reasoning_profile_json=_optional_string(raw_config, "reasoning_profile_json"),
         agent_runtime_backend="opencode",
         agent_runtime_profile=agent_runtime_profile,
         opencode_provider_profile=agent_runtime_profile,
@@ -520,18 +521,18 @@ def _counts_against_config_health(data: dict[str, Any]) -> bool:
     return not any(marker in text for marker in request_error_markers)
 
 
-def _flatten_error_text(value: Any) -> str:
+def _flatten_error_text(value: object) -> str:
     parts: list[str] = []
 
-    def visit(item: Any) -> None:
+    def visit(item: object) -> None:
         if item is None:
             return
         if isinstance(item, dict):
-            for nested in item.values():
+            for nested in cast(dict[object, object], item).values():
                 visit(nested)
             return
         if isinstance(item, list | tuple | set):
-            for nested in item:
+            for nested in cast(list[object] | tuple[object, ...] | set[object], item):
                 visit(nested)
             return
         if isinstance(item, str | int | float | bool):

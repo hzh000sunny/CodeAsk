@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 ReasoningEventName = Literal["reasoning_start", "reasoning_delta", "reasoning_stop", "text_delta"]
 
@@ -210,8 +210,9 @@ def _reasoning_text(value: Any) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
+        data = cast(dict[str, Any], value)
         for key in ("text", "thinking", "content", "reasoning"):
-            item = value.get(key)
+            item = data.get(key)
             if isinstance(item, str) and item:
                 return item
     return ""
@@ -247,4 +248,4 @@ def _suffix_length(text: str, tag: str) -> int:
 
 
 def _dict_value(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+    return cast(dict[str, Any], value) if isinstance(value, dict) else {}

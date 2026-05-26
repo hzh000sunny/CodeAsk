@@ -9,6 +9,7 @@ from typing import Any, Literal
 from fastapi import HTTPException, Request, status
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.api.schemas.llm_config import LLMConfigCreate, LLMConfigResponse, LLMConfigUpdate
 from codeask.db.models import LLMConfig, LLMRuntimeAdapter
@@ -316,7 +317,7 @@ def _mask_key(key: str) -> str:
 
 
 async def upsert_runtime_adapter(
-    session,
+    session: AsyncSession,
     *,
     llm_config_id: str,
     runtime_backend: str,
