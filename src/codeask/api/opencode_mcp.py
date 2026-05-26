@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
@@ -26,12 +26,13 @@ async def handle_opencode_mcp(session_id: str, request: Request) -> Response | d
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="JSON-RPC payload must be an object",
         )
+    payload_data = cast(dict[str, Any], payload)
 
     try:
         result = await server.handle_json_rpc(
             session_id=session_id,
             authorization=request.headers.get("authorization"),
-            payload=payload,
+            payload=payload_data,
         )
     except MCPAuthError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc

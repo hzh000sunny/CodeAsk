@@ -1,5 +1,7 @@
 """Promotion routes for turning session evidence into formal wiki content."""
 
+from typing import cast
+
 from fastapi import APIRouter, Request, status
 
 from codeask.api.wiki.deps import SessionDep, wiki_actor_from_request
@@ -37,6 +39,6 @@ async def promote_session_attachment(
     await session.commit()
     return WikiPromotionRead(
         node=WikiNodeRead.model_validate(data["node"]),
-        document_id=data["document_id"],
-        source_id=data["source_id"],
+        document_id=cast(int | None, data["document_id"]),
+        source_id=cast(int | None, data["source_id"]),
     )

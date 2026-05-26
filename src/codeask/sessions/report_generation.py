@@ -6,7 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import date
-from typing import Any
+from typing import Any, cast
 
 from codeask.db.models import Feature, Report, SessionTurn
 from codeask.llm.gateway import LLMGateway
@@ -86,7 +86,7 @@ def parse_prepared_report_payload(raw_text: str) -> dict[str, Any]:
         if value is None:
             continue
         if isinstance(value, dict):
-            return value
+            return cast(dict[str, Any], value)
     for candidate in candidates:
         value = _extract_json_like_report_payload(candidate)
         if value is not None:

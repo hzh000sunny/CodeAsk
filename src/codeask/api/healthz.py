@@ -1,6 +1,7 @@
 """Liveness + DB readiness endpoint."""
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, cast
 
 from fastapi import APIRouter, Request
 from sqlalchemy import text
@@ -33,4 +34,5 @@ def _opencode_status(request: Request) -> dict[str, Any] | None:
     describe = getattr(process_manager, "describe", None)
     if not callable(describe):
         return None
-    return dict(describe())
+    value = describe()
+    return dict(cast(Mapping[str, Any], value)) if isinstance(value, Mapping) else None

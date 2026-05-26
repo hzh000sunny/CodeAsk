@@ -350,7 +350,7 @@ async def _test_scoped_llm_config(
         result = await request.app.state.opencode_compat.test_llm_config(config)
     except Exception as exc:  # pragma: no cover - covered by integration behavior
         error_summary = _summarize_error(exc)
-        result = {
+        result: dict[str, object] = {
             "profile_id": config.opencode_provider_profile or "default",
             "error": error_summary,
         }
