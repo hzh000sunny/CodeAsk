@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 
 class MCPAuthError(PermissionError):
@@ -88,15 +88,16 @@ class OpenCodeMCPServer:
     ) -> dict[str, Any]:
         if not isinstance(params, dict):
             return _error(request_id, -32602, "tools/call params must be an object")
-        name = params.get("name")
-        arguments = params.get("arguments")
+        params_data = cast(dict[str, object], params)
+        name = params_data.get("name")
+        arguments = params_data.get("arguments")
         if not isinstance(name, str) or name not in self._tools:
             return _error(request_id, -32602, f"unknown tool: {name}")
         if not isinstance(arguments, dict):
             return _error(request_id, -32602, "tool arguments must be a JSON object")
 
         try:
-            output = await self._tools[name].handler(arguments, ctx)
+            output = await self._tools[name].handler(cast(dict[str, Any], arguments), ctx)
         except Exception as exc:  # pragma: no cover - defensive conversion
             return _error(request_id, -32000, str(exc))
 

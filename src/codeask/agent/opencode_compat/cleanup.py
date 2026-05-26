@@ -8,7 +8,7 @@ from typing import Protocol
 
 class IdleSessionStoreLike(Protocol):
     async def list_idle_session_ids(self, *, before: datetime, limit: int) -> list[str]: ...
-    async def mark_cleaned(self, session_id: str): ...  # type: ignore[no-untyped-def]
+    async def mark_cleaned(self, session_id: str) -> object: ...
 
 
 class SessionCleanupLike(Protocol):

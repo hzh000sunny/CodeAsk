@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -195,8 +195,9 @@ def _read_text_file(path: str, *, max_chars: int) -> str:
 def _int_list(value: object) -> list[int]:
     if not isinstance(value, list):
         raise ValueError("feature_ids must be an array of integers")
+    items = cast(list[object], value)
     result: list[int] = []
-    for item in value:
+    for item in items:
         if isinstance(item, bool) or not isinstance(item, int):
             raise ValueError("feature_ids must be an array of integers")
         if item not in result:

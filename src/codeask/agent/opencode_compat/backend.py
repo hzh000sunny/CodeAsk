@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import structlog
 
@@ -32,16 +32,19 @@ from codeask.agent.opencode_compat.profiles import (
 )
 from codeask.agent.opencode_compat.prompts import build_codeask_system_prompt
 from codeask.agent.opencode_compat.sessions import ExternalAgentSessionCreate
+from codeask.agent.opencode_compat.wiki_workspace import WikiWorkspaceExportResult
+from codeask.agent.opencode_compat.workspace import OpenCodeWorkspace
+from codeask.db.models import ExternalAgentSession
 from codeask.llm.reasoning import ThinkTagContentFilter
 from codeask.llm.repo import LLMConfigWithSecret
 
 
 class WorkspaceManagerLike(Protocol):
-    def prepare_workspace(self, session_id: str): ...  # type: ignore[no-untyped-def]
+    def prepare_workspace(self, session_id: str) -> OpenCodeWorkspace: ...
 
 
 class ProcessManagerLike(Protocol):
-    def ensure_server(self): ...  # type: ignore[no-untyped-def]
+    def ensure_server(self) -> OpenCodeServerHandle: ...
 
 
 class HttpClientLike(Protocol):
@@ -66,21 +69,21 @@ class HttpClientLike(Protocol):
 
 
 class SessionStoreLike(Protocol):
-    async def upsert(self, data: ExternalAgentSessionCreate): ...  # type: ignore[no-untyped-def]
-    async def get_by_session_id(self, session_id: str): ...  # type: ignore[no-untyped-def]
-    async def get_by_session_id_or_none(self, session_id: str): ...  # type: ignore[no-untyped-def]
-    async def update_server_binding(  # type: ignore[no-untyped-def]
+    async def upsert(self, data: ExternalAgentSessionCreate) -> ExternalAgentSession: ...
+    async def get_by_session_id(self, session_id: str) -> ExternalAgentSession: ...
+    async def get_by_session_id_or_none(self, session_id: str) -> ExternalAgentSession | None: ...
+    async def update_server_binding(
         self,
         *,
         session_id: str,
         server_url: str,
         port: int,
         pid: int | None,
-    ): ...
+    ) -> ExternalAgentSession: ...
 
 
 class WikiWorkspaceExporterLike(Protocol):
-    async def export_current(self): ...  # type: ignore[no-untyped-def]
+    async def export_current(self) -> WikiWorkspaceExportResult: ...
 
 
 ContextBuilder = Callable[[str, Path, bool], str | Awaitable[str]]
@@ -92,6 +95,18 @@ log = structlog.get_logger("codeask.agent.opencode_compat.backend")
 _EVENT_POLL_SECONDS = 0.5
 _TURN_NO_PROGRESS_TIMEOUT_SECONDS = 30.0
 _TURN_WAIT_TIMEOUT_SECONDS = 600.0
+
+
+def _object_dict(value: object) -> dict[str, object]:
+    if isinstance(value, dict):
+        return cast(dict[str, object], value)
+    return {}
+
+
+def _object_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return cast(list[object], value)
+    return []
 
 
 class OpenCodeCompat:
@@ -622,7 +637,7 @@ class OpenCodeCompat:
         return result
 
 
-def _write_workspace_files(workspace_dir, config: dict[str, object]) -> None:  # type: ignore[no-untyped-def]
+def _write_workspace_files(workspace_dir: Path, config: dict[str, object]) -> None:
     (workspace_dir / "opencode.json").write_text(
         json.dumps(config, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -707,7 +722,7 @@ def _read_wiki_manifest(path: Path) -> dict[str, object]:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
-    return value if isinstance(value, dict) else {}
+    return _object_dict(value)
 
 
 def _record_process_health_ok(process_manager: ProcessManagerLike) -> None:
@@ -717,11 +732,11 @@ def _record_process_health_ok(process_manager: ProcessManagerLike) -> None:
 
 
 def _binding_has_openviking_mcp(binding: Any) -> bool:
-    config_json = getattr(binding, "config_json", None)
-    if not isinstance(config_json, dict):
+    config_json = _object_dict(getattr(binding, "config_json", None))
+    if not config_json:
         return False
-    mcp = config_json.get("mcp")
-    return isinstance(mcp, dict) and isinstance(mcp.get("openviking"), dict)
+    mcp = _object_dict(config_json.get("mcp"))
+    return bool(_object_dict(mcp.get("openviking")))
 
 
 class OpenCodeProviderTestError(RuntimeError):
@@ -834,8 +849,8 @@ async def _wait_for_probe_result(
                 continue
             status_props = _opencode_properties(event, event_type="session.status")
             if status_props is not None and status_props.get("sessionID") == session_id:
-                status = status_props.get("status")
-                status_type = status.get("type") if isinstance(status, dict) else None
+                status = _object_dict(status_props.get("status"))
+                status_type = status.get("type")
                 if status_type == "retry":
                     retries.append(_preview_probe_text(str(status)))
                 elif status_type == "idle":
@@ -847,14 +862,14 @@ async def _wait_for_probe_result(
 
             updated_props = _opencode_properties(event, event_type="message.part.updated")
             if updated_props is not None and updated_props.get("sessionID") == session_id:
-                part = updated_props.get("part")
-                if isinstance(part, dict):
-                    part_id = part.get("id")
-                    part_type = part.get("type")
-                    if isinstance(part_id, str) and isinstance(part_type, str):
-                        part_types[part_id] = part_type
-                        if part_type == "text" and isinstance(part.get("text"), str):
-                            text_by_part[part_id] = part["text"]
+                part = _object_dict(updated_props.get("part"))
+                part_id = part.get("id")
+                part_type = part.get("type")
+                if isinstance(part_id, str) and isinstance(part_type, str):
+                    part_types[part_id] = part_type
+                    text = part.get("text")
+                    if part_type == "text" and isinstance(text, str):
+                        text_by_part[part_id] = text
 
             delta_props = _opencode_properties(event, event_type="message.part.delta")
             if delta_props is not None and delta_props.get("sessionID") == session_id:
@@ -1077,9 +1092,14 @@ async def _stream_events_with_status_poll(
                 event_type, payload = "poll", None
 
             if event_type == "event" and isinstance(payload, dict):
-                if _event_belongs_to_session(payload, directory=directory, session_id=session_id):
+                event_payload = cast(dict[str, object], payload)
+                if _event_belongs_to_session(
+                    event_payload,
+                    directory=directory,
+                    session_id=session_id,
+                ):
                     last_progress_at = time.perf_counter()
-                yield payload
+                yield event_payload
                 continue
             if event_type == "error":
                 yield _synthetic_session_error_event(
@@ -1148,8 +1168,8 @@ async def _safe_session_status(
 
 
 def _status_is_idle(status: dict[str, object], *, session_id: str) -> bool:
-    value = status.get(session_id)
-    if not isinstance(value, dict):
+    value = _object_dict(status.get(session_id))
+    if not value:
         return False
     return value.get("type") == "idle"
 
@@ -1166,17 +1186,17 @@ def _event_belongs_to_session(
 ) -> bool:
     if event.get("directory") != directory:
         return False
-    payload = event.get("payload")
-    if not isinstance(payload, dict):
+    payload = _object_dict(event.get("payload"))
+    if not payload:
         return False
-    properties = payload.get("properties")
-    if not isinstance(properties, dict):
+    properties = _object_dict(payload.get("properties"))
+    if not properties:
         return False
     prop_session_id = properties.get("sessionID")
     if prop_session_id == session_id:
         return True
-    part = properties.get("part")
-    return isinstance(part, dict) and part.get("sessionID") == session_id
+    part = _object_dict(properties.get("part"))
+    return part.get("sessionID") == session_id
 
 
 async def _latest_assistant_text_snapshot_event(
@@ -1215,24 +1235,23 @@ def _latest_assistant_text_snapshot(
     messages: list[dict[str, object]],
 ) -> tuple[str, str] | None:
     for message in reversed(messages):
-        info = message.get("info")
-        info = info if isinstance(info, dict) else message
+        info = _object_dict(message.get("info")) or message
         if info.get("role") != "assistant":
             continue
         message_id = info.get("id") or message.get("id")
         if not isinstance(message_id, str) or not message_id:
             message_id = "assistant"
-        parts = message.get("parts")
-        if not isinstance(parts, list):
-            parts = info.get("parts")
-        if not isinstance(parts, list):
+        parts = _object_list(message.get("parts"))
+        if not parts:
+            parts = _object_list(info.get("parts"))
+        if not parts:
             continue
         text = "".join(
-            str(part.get("text"))
+            str(part_data.get("text"))
             for part in parts
-            if isinstance(part, dict)
-            and part.get("type") == "text"
-            and isinstance(part.get("text"), str)
+            if (part_data := _object_dict(part))
+            and part_data.get("type") == "text"
+            and isinstance(part_data.get("text"), str)
         )
         if text:
             return message_id, text
@@ -1278,7 +1297,7 @@ def _should_emit_reasoning_observed(
     *,
     min_growth: int = 1024,
 ) -> bool:
-    data = event.data if isinstance(event.data, dict) else {}
+    data = _object_dict(event.data)
     part_id = str(data.get("part_id") or "unknown")
     raw_length = data.get("content_length") or data.get("length") or 0
     length = raw_length if isinstance(raw_length, int) else 0
@@ -1295,7 +1314,7 @@ def _should_emit_reasoning_leak_detected(
     event: ChatRuntimeEvent,
     seen_part_ids: set[str],
 ) -> bool:
-    data = event.data if isinstance(event.data, dict) else {}
+    data = _object_dict(event.data)
     part_id = str(data.get("part_id") or "unknown")
     if part_id in seen_part_ids:
         return False
@@ -1344,14 +1363,13 @@ def _append_summary_from_raw_event(
         )
         return
 
-    payload = event.get("payload")
-    if not isinstance(payload, dict):
+    payload = _object_dict(event.get("payload"))
+    if not payload:
         return
     event_type = payload.get("type")
     if event_type == "sync":
         return
-    properties = payload.get("properties")
-    properties = properties if isinstance(properties, dict) else {}
+    properties = _object_dict(payload.get("properties"))
     prop_session_id = properties.get("sessionID")
     if isinstance(prop_session_id, str) and prop_session_id != session_id:
         _append_summary_event(
@@ -1373,13 +1391,14 @@ def _append_summary_from_raw_event(
 
     if event_type == "session.status":
         status = properties.get("status")
-        status_type = status.get("type") if isinstance(status, dict) else status
+        status_data = _object_dict(status)
+        status_type = status_data.get("type") if status_data else status
         _append_summary_event(
             session_dir,
             {
                 "type": "opencode_status",
                 "status": status_type,
-                "metadata": status if isinstance(status, dict) else {},
+                "metadata": status_data,
             },
         )
         return
@@ -1393,11 +1412,10 @@ def _append_summary_from_raw_event(
 
     if event_type != "message.part.updated":
         return
-    part = properties.get("part")
-    if not isinstance(part, dict) or part.get("type") != "tool":
+    part = _object_dict(properties.get("part"))
+    if not part or part.get("type") != "tool":
         return
-    state = part.get("state")
-    state = state if isinstance(state, dict) else {}
+    state = _object_dict(part.get("state"))
     status = state.get("status")
     if status == "running":
         _append_summary_event(
@@ -1406,7 +1424,7 @@ def _append_summary_from_raw_event(
                 "type": "tool_call",
                 "tool_name": str(part.get("tool") or "unknown"),
                 "tool_call_id": str(part.get("id") or ""),
-                "arguments": state.get("input") if isinstance(state.get("input"), dict) else {},
+                "arguments": _object_dict(state.get("input")),
             },
         )
     elif status in {"completed", "error"}:
@@ -1449,8 +1467,8 @@ def _opencode_message_role(
     properties = _opencode_properties(event, event_type="message.updated")
     if properties is None or properties.get("sessionID") != session_id:
         return None
-    info = properties.get("info")
-    if not isinstance(info, dict):
+    info = _object_dict(properties.get("info"))
+    if not info:
         return None
     message_id = info.get("id")
     role = info.get("role")
@@ -1467,8 +1485,8 @@ def _opencode_text_part_update(
     properties = _opencode_properties(event, event_type="message.part.updated")
     if properties is None or properties.get("sessionID") != session_id:
         return None
-    part = properties.get("part")
-    if not isinstance(part, dict) or part.get("type") != "text":
+    part = _object_dict(properties.get("part"))
+    if not part or part.get("type") != "text":
         return None
     message_id = part.get("messageID")
     text = part.get("text")
@@ -1485,8 +1503,8 @@ def _opencode_part_class(
     properties = _opencode_properties(event, event_type="message.part.updated")
     if properties is None or properties.get("sessionID") != session_id:
         return None
-    part = properties.get("part")
-    if not isinstance(part, dict):
+    part = _object_dict(properties.get("part"))
+    if not part:
         return None
     part_id = part.get("id")
     part_type = part.get("type")
@@ -1503,8 +1521,8 @@ def _opencode_message_finish(
     properties = _opencode_properties(event, event_type="message.updated")
     if properties is None or properties.get("sessionID") != session_id:
         return None
-    info = properties.get("info")
-    if not isinstance(info, dict) or info.get("role") != "assistant":
+    info = _object_dict(properties.get("info"))
+    if not info or info.get("role") != "assistant":
         return None
     message_id = info.get("id")
     finish = info.get("finish")
@@ -1527,11 +1545,11 @@ def _opencode_usage_runtime_state(
     properties = _opencode_properties(event, event_type="message.updated")
     if properties is None or properties.get("sessionID") != session_id:
         return None
-    info = properties.get("info")
-    if not isinstance(info, dict) or info.get("role") != "assistant":
+    info = _object_dict(properties.get("info"))
+    if not info or info.get("role") != "assistant":
         return None
-    tokens = info.get("tokens")
-    if not isinstance(tokens, dict):
+    tokens = _object_dict(info.get("tokens"))
+    if not tokens:
         return None
     total = _token_count(tokens.get("total"))
     if total is None:
@@ -1581,8 +1599,8 @@ def _token_count(value: object) -> int | None:
 
 
 def _nested_token_count(data: dict[str, object], key: str, nested_key: str) -> int | None:
-    nested = data.get(key)
-    if not isinstance(nested, dict):
+    nested = _object_dict(data.get(key))
+    if not nested:
         return None
     return _token_count(nested.get(nested_key))
 
@@ -1593,7 +1611,8 @@ def _opencode_properties(
     event_type: str,
 ) -> dict[str, object] | None:
     payload = event.get("payload")
-    if not isinstance(payload, dict) or payload.get("type") != event_type:
+    payload_data = _object_dict(payload)
+    if not payload_data or payload_data.get("type") != event_type:
         return None
-    properties = payload.get("properties")
-    return properties if isinstance(properties, dict) else None
+    properties = _object_dict(payload_data.get("properties"))
+    return properties or None

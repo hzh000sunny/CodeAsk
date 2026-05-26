@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -32,7 +32,10 @@ class OpenCodeHttpClient:
         async with self._client() as client:
             response = await client.get("/global/health")
             response.raise_for_status()
-            return dict(response.json())
+            data = response.json()
+            if not isinstance(data, dict):
+                raise OpenCodeHttpError("opencode health response was not an object")
+            return cast(dict[str, Any], data)
 
     async def create_session(self, *, directory: str) -> str:
         async with self._client() as client:
@@ -79,7 +82,8 @@ class OpenCodeHttpClient:
             data = response.json()
             if not isinstance(data, list):
                 raise OpenCodeHttpError("opencode message response was not a list")
-            return [dict(item) for item in data if isinstance(item, dict)]
+            items = cast(list[object], data)
+            return [cast(dict[str, Any], item) for item in items if isinstance(item, dict)]
 
     async def session_status(self, *, directory: str) -> dict[str, Any]:
         async with self._client() as client:
@@ -88,7 +92,7 @@ class OpenCodeHttpClient:
             data = response.json()
             if not isinstance(data, dict):
                 raise OpenCodeHttpError("opencode session status response was not an object")
-            return data
+            return cast(dict[str, Any], data)
 
     async def abort_session(self, *, session_id: str, directory: str) -> None:
         async with self._client() as client:
@@ -143,4 +147,4 @@ def _parse_sse_line(line: str) -> dict[str, Any] | None:
     if not payload:
         return None
     data = json.loads(payload)
-    return data if isinstance(data, dict) else None
+    return cast(dict[str, Any], data) if isinstance(data, dict) else None

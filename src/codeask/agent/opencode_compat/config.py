@@ -27,10 +27,14 @@ OPENVIKING_WRITE_TOOL_DENIES = {
 }
 
 
+def _empty_string_dict() -> dict[str, str]:
+    return {}
+
+
 @dataclass(frozen=True)
 class OpenVikingMCPConfig:
     url: str
-    headers: dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=_empty_string_dict)
     token: str | None = None
 
 
@@ -47,7 +51,7 @@ class OpenCodeConfigInput:
     openviking_enabled: bool = False
     openviking_mcp_url: str | None = None
     openviking_mcp_token: str | None = None
-    openviking_mcp_headers: dict[str, str] = field(default_factory=dict)
+    openviking_mcp_headers: dict[str, str] = field(default_factory=_empty_string_dict)
 
     @classmethod
     def with_openviking(
