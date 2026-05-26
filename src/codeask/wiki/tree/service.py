@@ -230,7 +230,7 @@ class WikiTreeService:
         *,
         space_id: int,
     ) -> list[WikiNode]:
-        return (
+        return list(
             (
                 await session.execute(
                     select(WikiNode)
@@ -252,7 +252,7 @@ class WikiTreeService:
         *,
         space_id: int,
     ) -> list[WikiNode]:
-        return (
+        return list(
             (
                 await session.execute(
                     select(WikiNode)

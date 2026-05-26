@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from difflib import unified_diff
+from typing import cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -69,11 +70,17 @@ class WikiDocumentService:
                 source_node_path=node.path,
                 body_markdown=current_version.body_markdown,
             )
-            broken_refs_json = refs["broken_refs"]
-            resolved_refs_json = refs["resolved_refs"]
+            broken_refs_json = cast(dict[str, object], refs["broken_refs"])
+            resolved_refs_json = cast(list[dict[str, object]], refs["resolved_refs"])
         else:
-            broken_refs_json = document.broken_refs_json or {"links": [], "assets": []}
-            resolved_refs_json = []
+            stored_broken_refs: object = document.broken_refs_json
+            default_broken_refs: dict[str, object] = {"links": [], "assets": []}
+            broken_refs_json = (
+                cast(dict[str, object], stored_broken_refs)
+                if isinstance(stored_broken_refs, dict)
+                else default_broken_refs
+            )
+            resolved_refs_json: list[dict[str, object]] = []
         return {
             "document_id": document.id,
             "node_id": node.id,
@@ -197,7 +204,7 @@ class WikiDocumentService:
     ) -> list[WikiDocumentVersion]:
         _node, document = await self.load_document_by_node(session, node_id=node_id)
         await self._load_feature_for_document(session, document=document)
-        return (
+        return list(
             (
                 await session.execute(
                     select(WikiDocumentVersion)
@@ -402,19 +409,20 @@ class WikiDocumentService:
     ) -> dict[str, object] | None:
         if not isinstance(provenance_json, dict):
             return None
-        source_name = provenance_json.get("source")
+        provenance = cast(dict[str, object], provenance_json)
+        source_name = provenance.get("source")
         summary: dict[str, object] = {
             "source": source_name,
             "source_label": self._provenance_label(
                 source_name if isinstance(source_name, str) else None
             ),
-            "source_path": provenance_json.get("source_path"),
-            "import_job_id": provenance_json.get("import_job_id"),
-            "import_session_id": provenance_json.get("import_session_id"),
-            "legacy_document_id": provenance_json.get("legacy_document_id"),
-            "source_id": provenance_json.get("source_id"),
+            "source_path": provenance.get("source_path"),
+            "import_job_id": provenance.get("import_job_id"),
+            "import_session_id": provenance.get("import_session_id"),
+            "legacy_document_id": provenance.get("legacy_document_id"),
+            "source_id": provenance.get("source_id"),
         }
-        source_id = provenance_json.get("source_id")
+        source_id = provenance.get("source_id")
         if isinstance(source_id, int):
             source = (
                 await session.execute(select(WikiSource).where(WikiSource.id == source_id))

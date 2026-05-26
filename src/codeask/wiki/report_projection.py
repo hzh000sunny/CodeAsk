@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -32,7 +33,7 @@ class WikiReportDetail:
     feature_id: int | None
     title: str
     body_markdown: str
-    metadata_json: dict
+    metadata_json: dict[str, object]
     status: str
     verified: bool
     verified_by: str | None
@@ -104,7 +105,10 @@ class WikiReportProjectionService:
             )
 
         node, report_ref, report = row
-        metadata_json = report.metadata_json if isinstance(report.metadata_json, dict) else {}
+        metadata_raw: object = report.metadata_json
+        metadata_json = (
+            cast(dict[str, object], metadata_raw) if isinstance(metadata_raw, dict) else {}
+        )
         return WikiReportDetail(
             node_id=int(node.id),
             report_id=int(report_ref.report_id),

@@ -160,7 +160,7 @@ class ReportService:
         session_id: str,
         keep_report_id: int,
     ) -> list[Report]:
-        return (
+        return list(
             (
                 await session.execute(
                     select(Report)
