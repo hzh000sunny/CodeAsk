@@ -15,6 +15,10 @@ def _empty_list() -> list[Any]:
     return []
 
 
+def _empty_dict_list() -> list[dict[str, Any]]:
+    return []
+
+
 class EvidenceRef(BaseModel):
     type: Literal["wiki", "report", "attachment", "code", "feature", "policy"]
     title: str | None = None
@@ -27,6 +31,14 @@ class EvidenceRef(BaseModel):
     commit: str | None = None
     line: int | None = None
     metadata: dict[str, Any] = Field(default_factory=_empty_dict)
+
+
+def _empty_evidence_ref_list() -> list[EvidenceRef]:
+    return []
+
+
+def _empty_str_list() -> list[str]:
+    return []
 
 
 class RetrievalContextEventData(BaseModel):
@@ -68,9 +80,9 @@ class ToolResultEventData(BaseModel):
     ok: bool
     summary: str
     items_count: int = 0
-    items_preview: list[dict[str, Any]] = Field(default_factory=list)
-    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
+    items_preview: list[dict[str, Any]] = Field(default_factory=_empty_dict_list)
+    evidence_refs: list[EvidenceRef] = Field(default_factory=_empty_evidence_ref_list)
+    warnings: list[str] = Field(default_factory=_empty_str_list)
     truncated: bool = False
     raw_result_ref: str | None = None
     audit_raw_result: dict[str, Any] | None = Field(default=None, exclude=True)
@@ -81,13 +93,13 @@ class ToolResultEventData(BaseModel):
 
 
 class EvidenceEventData(BaseModel):
-    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    evidence_refs: list[EvidenceRef] = Field(default_factory=_empty_evidence_ref_list)
 
 
 class ClarificationEventData(BaseModel):
     question: str
     reason: str | None = None
-    options: list[dict[str, Any]] = Field(default_factory=list)
+    options: list[dict[str, Any]] = Field(default_factory=_empty_dict_list)
     allow_free_text: bool = True
 
 

@@ -16,8 +16,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from codeask.agent.opencode_compat.backend import OpenCodeCompat
-from codeask.agent.opencode_compat.cleanup import cleanup_idle_sessions
+from codeask.agent.opencode_compat.backend import (
+    OpenCodeCompat,
+    ProcessManagerLike,
+    SessionStoreLike,
+    WikiWorkspaceExporterLike,
+    WorkspaceManagerLike,
+)
+from codeask.agent.opencode_compat.cleanup import IdleSessionStoreLike, cleanup_idle_sessions
 from codeask.agent.opencode_compat.config import OpenVikingMCPConfig
 from codeask.agent.opencode_compat.context import build_dynamic_codeask_context
 from codeask.agent.opencode_compat.http import OpenCodeHttpClient
@@ -166,21 +172,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         opencode_compat = OpenCodeCompat(
-            workspace_manager=opencode_workspace_manager,
-            process_manager=opencode_process_manager,
+            workspace_manager=cast(WorkspaceManagerLike, opencode_workspace_manager),
+            process_manager=cast(ProcessManagerLike, opencode_process_manager),
             http_client_factory=lambda server: OpenCodeHttpClient(
                 base_url=server.base_url,
                 username=settings.opencode_server_username,
                 password=settings.opencode_server_password,
                 timeout=settings.opencode_http_timeout_seconds,
             ),
-            session_store=opencode_session_store,
+            session_store=cast(SessionStoreLike, opencode_session_store),
             mcp_base_url=_opencode_mcp_base_url(settings),
             mcp_token_resolver=lambda session_id: make_session_mcp_token(
                 settings.data_key,
                 session_id,
             ),
-            wiki_workspace_exporter=opencode_wiki_workspace_exporter,
+            wiki_workspace_exporter=cast(
+                WikiWorkspaceExporterLike,
+                opencode_wiki_workspace_exporter,
+            ),
             data_dir=Path(settings.data_dir),
             context_builder=build_opencode_context,
             openviking_mcp_resolver=resolve_openviking_mcp,
@@ -495,7 +504,13 @@ def _run_opencode_idle_cleanup(
 ) -> None:
     before = datetime.now(UTC) - timedelta(seconds=ttl_seconds)
     try:
-        result = asyncio.run(cleanup_idle_sessions(store=store, compat=compat, before=before))
+        result = asyncio.run(
+            cleanup_idle_sessions(
+                store=cast(IdleSessionStoreLike, store),
+                compat=compat,
+                before=before,
+            )
+        )
     except Exception:
         log.exception("opencode_idle_cleanup_failed")
         return
