@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from typing import Any
+import json
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Any, cast
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from codeask.agent.chat_runtime.events import EvidenceRef
@@ -18,7 +21,18 @@ from codeask.agent.native_backend.chat_runtime.tool_contracts import (
 )
 from codeask.agent.native_backend.chat_runtime.tool_registry import ToolRegistry
 from codeask.db.models import Report, WikiNode, WikiReportRef
-from codeask.wiki.search import ReportSearchHit, WikiSearchService
+
+
+@dataclass(slots=True)
+class ReportSearchHit:
+    report_id: int
+    title: str
+    feature_id: int | None
+    verified_by: str | None
+    verified_at: datetime | None
+    commit_sha: str | None
+    snippet: str
+    score: float
 
 
 class SearchReportsInput(BaseModel):
@@ -40,11 +54,10 @@ def register_report_tools(
     fake_reports: list[dict[str, Any]] | None = None,
 ) -> None:
     reports = fake_reports or []
-    search_service = WikiSearchService()
 
     async def search_reports(args: SearchReportsInput, ctx: ToolContext) -> ToolResult:
         if session_factory is not None:
-            return await _search_real_reports(session_factory, search_service, args)
+            return await _search_real_reports(session_factory, args)
 
         sorted_reports = sorted(
             reports,
@@ -127,7 +140,6 @@ def register_report_tools(
 
 async def _search_real_reports(
     session_factory: async_sessionmaker[AsyncSession],
-    search_service: WikiSearchService,
     args: SearchReportsInput,
 ) -> ToolResult:
     feature_ids = _ordered_unique(args.feature_ids)
@@ -136,7 +148,7 @@ async def _search_real_reports(
             hits: list[ReportSearchHit] = []
             for feature_id in feature_ids:
                 hits.extend(
-                    await search_service.search_reports(
+                    await _search_report_hits(
                         session,
                         args.query,
                         feature_id=feature_id,
@@ -144,7 +156,7 @@ async def _search_real_reports(
                     )
                 )
         else:
-            hits = await search_service.search_reports(
+            hits = await _search_report_hits(
                 session,
                 args.query,
                 feature_id=None,
@@ -259,6 +271,52 @@ async def _load_report_nodes(
     }
 
 
+async def _search_report_hits(
+    session: AsyncSession,
+    query: str,
+    *,
+    feature_id: int | None = None,
+    limit: int = 20,
+) -> list[ReportSearchHit]:
+    needle = query.strip()
+    if not needle:
+        return []
+
+    lowered = needle.lower()
+    pattern = f"%{needle}%"
+    rows = (
+        await session.execute(
+            select(Report)
+            .where(
+                Report.verified.is_(True),
+                Report.feature_id == feature_id if feature_id is not None else True,
+                or_(Report.title.ilike(pattern), Report.body_markdown.ilike(pattern)),
+            )
+            .order_by(Report.updated_at.desc(), Report.id.desc())
+            .limit(max(limit * 4, limit))
+        )
+    ).scalars()
+
+    hits: list[ReportSearchHit] = []
+    for report in rows:
+        metadata = _metadata(report.metadata_json)
+        hits.append(
+            ReportSearchHit(
+                report_id=int(report.id),
+                title=report.title,
+                feature_id=report.feature_id,
+                verified_by=report.verified_by,
+                verified_at=_parse_datetime(report.verified_at),
+                commit_sha=_first_commit_sha(metadata),
+                snippet=_snippet(report.body_markdown, lowered),
+                score=_score(report.title, report.body_markdown, lowered),
+            )
+        )
+
+    hits.sort(key=lambda hit: hit.score, reverse=True)
+    return hits[:limit]
+
+
 def _dedupe_hits(hits: list[ReportSearchHit]) -> list[ReportSearchHit]:
     deduped: list[ReportSearchHit] = []
     seen: set[int] = set()
@@ -279,3 +337,57 @@ def _ordered_unique(values: list[int]) -> list[int]:
         seen.add(value)
         ordered.append(value)
     return ordered
+
+
+def _metadata(value: object) -> Mapping[str, object]:
+    if isinstance(value, dict):
+        return cast(Mapping[str, object], value)
+    if isinstance(value, str) and value:
+        try:
+            parsed: object = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return cast(Mapping[str, object], parsed) if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _first_commit_sha(metadata: Mapping[str, object]) -> str | None:
+    raw_repo_commits = metadata.get("repo_commits")
+    if not isinstance(raw_repo_commits, list):
+        return None
+    repo_commits = cast(list[object], raw_repo_commits)
+    if repo_commits and isinstance(repo_commits[0], dict):
+        first_commit = cast(Mapping[str, object], repo_commits[0])
+        commit = first_commit.get("commit_sha")
+        return str(commit) if commit else None
+    return None
+
+
+def _parse_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _score(title: str, body: str, lowered_query: str) -> float:
+    score = 1.0
+    if lowered_query in title.lower():
+        score += 3.0
+    if lowered_query in body.lower():
+        score += 1.0
+    return score
+
+
+def _snippet(body: str, lowered_query: str, *, radius: int = 64) -> str:
+    lowered_body = body.lower()
+    index = lowered_body.find(lowered_query)
+    if index < 0:
+        return body[: radius * 2].strip()
+    start = max(index - radius, 0)
+    end = min(index + len(lowered_query) + radius, len(body))
+    return body[start:end].strip()
