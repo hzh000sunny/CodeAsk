@@ -33,7 +33,7 @@ async def upload_asset(
         file=file,
     )
     await session.commit()
-    return WikiAssetRead(**data)
+    return WikiAssetRead.model_validate(data)
 
 
 @router.get("/assets/{node_id}/content")

@@ -64,7 +64,7 @@ async def diff_versions(
         to_version_id=to_version_id,
         actor=wiki_actor_from_request(request),
     )
-    return WikiDocumentDiffRead(**data)
+    return WikiDocumentDiffRead.model_validate(data)
 
 
 @router.post(
@@ -83,4 +83,4 @@ async def rollback_version(
         actor=wiki_actor_from_request(request),
     )
     await session.commit()
-    return WikiDocumentDetailRead(**data)
+    return WikiDocumentDetailRead.model_validate(data)
