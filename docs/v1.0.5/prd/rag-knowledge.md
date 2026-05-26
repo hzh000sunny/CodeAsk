@@ -81,7 +81,7 @@ CodeAsk 持久化 turn + 行动轨迹（含 OpenViking 工具事件，若有）
   ↓
 后端 try {
   if (openviking.is_healthy()) {
-    hits = openviking.find_or_search(q, scope="viking://resources/codeask/", filter=feature_uri)
+    hits = openviking.query(q, scope="viking://resources/codeask/", filter=feature_uri)  // 方法名/接口待 M4 spike 定
     if (hits.length > 0) return hits  ← OpenViking 命中
   }
 } catch (OpenVikingError) { /* fall through */ }

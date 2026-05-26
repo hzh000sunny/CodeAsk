@@ -53,10 +53,10 @@ M1 只实施 OpenViking 独立适配层、admin API、仪表盘和手动同步�
 | `src/codeask/agent/opencode_compat/config.py` | 在 `opencode.json` 的 `mcp` 中加入 OpenViking remote MCP endpoint 与 token；OpenViking 不健康时 `mcp` 段不注入（让 opencode 退回 native read/grep/glob） |
 | `src/codeask/agent/opencode_compat/context.py` | `build_dynamic_codeask_context` 加入 OpenViking 资源布局与使用原则段落；OpenViking 不健康时该段落不注入 |
 | `src/codeask/agent/opencode_compat/prompts.py` | `AGENTS.md` 与 system prompt 增加 RAG 使用原则 |
-| `src/codeask/api/wiki/search.py` | `GET /api/wiki/search` 改写为 **OpenViking 优先 → `NativeWikiSearchService` (SQL ILIKE) 兜底**（PRD §3.2）；URI → feature_id 反查后复用现有分组逻辑 |
-| `src/codeask/api/documents_compat.py` | `POST /documents` 上传：移除 chunk + FTS5 索引写入，改为入队 `openviking_sync_jobs`；`GET /documents/search` 端点**删除** |
-| `src/codeask/wiki/documents/service.py` | `publish_document` / `rollback_to_version` 完成后 hook OpenViking 同步入队（PRD §3.3）；草稿路径 `save_draft` / `delete_draft` 不入队 |
-| `src/codeask/wiki/reports.py` 及 `src/codeask/api/reports.py` verify endpoint | Report `verified=false → true` 入队同步；`true → false` 入队 tombstone；unverified 状态下任何编辑都不入队 |
+| `src/codeask/api/wiki/search.py` | `GET /api/wiki/search` 改写为 **OpenViking 优先 → `NativeWikiSearchService` (SQL ILIKE) 兜底**（PRD §3.2）；URI → feature_id 反查后复用现有分组逻辑。⚠️ **查询侧 client 方法尚不存在**：`OpenVikingClient` 现仅 `add_text_resource` / `task_status`，M2 只验证过 MCP 的 `find`，**未验证 OpenViking 有 REST 查询端点**。M4 须先 spike 确认查询走 REST 还是 MCP，再决定 client 查询方法签名（详见 Phase-1 步骤 18） |
+| `src/codeask/api/documents_compat.py` | `POST /documents` 上传：**M4** 仅移除 chunk + FTS5 索引写入（`DocumentChunker.chunk_file` + `WikiIndexer.index_chunk`），保留 `Document` 写入与 `LegacyWikiSyncService` 桥接；OpenViking 入队**不在 M4**，改在 M5 hook `wiki/sync/service.py:sync_legacy_markdown_document`（覆盖 upload + backfill，详见 Phase-1 步骤 20）。`GET /documents/search` 端点**删除**（M4）；`delete_document` 移除 `unindex_chunks_for_document`（M4） |
+| `src/codeask/wiki/documents/service.py` | `publish_document` / `rollback_to_version` 完成后 hook OpenViking 同步入队（PRD §3.3，M5）；草稿路径 `save_draft` / `delete_draft` 不入队 |
+| `src/codeask/wiki/reports.py` 及 `src/codeask/api/reports.py` | **M4 先删 FTS5 写入**：`ReportService` 的 verify / unverify / reject 移除 `WikiIndexer.index_report/unindex_report` 调用（仅这三处有，`create_draft`/`update_draft` 无 indexer 调用）+ 构造里的 `_indexer`；`api/reports.py` 删 `GET /reports/search` 端点（无产品消费者，前端仅 action-trace 标签引用同名 native 工具）+ `delete_report` 的 `unindex_report`。**M5 再接 OpenViking**：Report `verified=false → true` 入队同步；`true → false` 入队 tombstone；unverified 状态下任何编辑都不入队 |
 | `src/codeask/sessions/messages.py` | `stream_agent_response` 删除 `agent_backend != "opencode"` 分支，单条路径走 opencode |
 | `src/codeask/api/sessions.py` | 删除所有 `agent_backend == "opencode"` 条件分支判断；abort_turn 等直接调用 opencode_compat |
 | `src/codeask/code_index/cloner.py` & `worktree.py` | 代码仓 ready / 更新后写入同步队列 |
@@ -80,13 +80,15 @@ M1 只实施 OpenViking 独立适配层、admin API、仪表盘和手动同步�
 
 ### 1.5 删除模块（FTS5 索引链路，彻底删除）
 
-FTS5 链路无人调用、已 drift，v1.0.5 彻底删除：
+FTS5 链路 v1.0.5 彻底删除。⚠️ 这些模块**仍有活消费者**，删除前必须先在 M4 step15 全部切断（不止 `documents_compat.py`）：
 
-- `src/codeask/wiki/search.py`（`WikiSearchService` FTS5 + n-gram bm25）
-- `src/codeask/wiki/indexer.py`（`WikiIndexer.index_chunk / unindex / index_report`）
-- `src/codeask/wiki/tokenizer.py`（`tokenize` + `to_ngrams`，仅服务 FTS5 写入）
+| 待删模块 | 活消费者（删前必须先处理） |
+|---|---|
+| `wiki/search.py`（`WikiSearchService` FTS5 + n-gram bm25） | `api/documents_compat.py:search_documents`（删 `/documents/search` 端点）；`api/reports.py:search_reports`（删 `/reports/search` 端点） |
+| `wiki/indexer.py`（`WikiIndexer.index_chunk / unindex / index_report`） | `api/documents_compat.py` 上传 `index_chunk` + delete `unindex_chunks_for_document`；`wiki/reports.py:ReportService` verify/unverify/reject 的 `index_report/unindex_report`（仅这三处）；`api/reports.py:delete_report` 的 `unindex_report` |
+| `wiki/tokenizer.py` | ⚠️ **不是纯 FTS5**：`to_ngrams` 仅服务 FTS5 可随模块删，但 `tokenize` 还被 **`wiki/path_resolver.py`（活端点 `/api/wiki/resolve`）** 用于路径模糊匹配。删 `tokenizer.py` 前必须先把 `tokenize` **迁出**（挪进 `path_resolver.py` 或新建 `wiki/text_utils.py`），否则打断路径解析 |
 
-**alembic migration（新增一条 DROP migration）**：
+**alembic migration（新增一条 DROP migration，`revision = "0031"`、`down_revision = "0030"`；本仓用短数字 revision id，非文件名）**：
 
 ```python
 def upgrade():

@@ -118,6 +118,8 @@ M1 仅交付 tuning 默认配置读取、推荐值展示与 admin API 基础面�
 
 ### 3.6 Wiki UI 搜索框（OpenViking 优先 + ILIKE 兜底）
 
+- [ ] **spike 前置**：已确认 OpenViking 查询走 REST 还是 MCP，记录端点 / 入参 / 响应结构 + 一次成功样本（`find_or_search` 在 M2 前不存在，须 spike 落地）
+- [ ] `OpenVikingClient` 新增查询方法（复用 trusted headers / `trust_env=False`），有单测覆盖正常命中与异常
 - [ ] OpenViking 健康有命中 → 命中走 OpenViking；事件流可见 `openviking_search_hit`（统计）
 - [ ] OpenViking 健康 0 命中 → 自动回退 SQL ILIKE；前端不区分来源；事件流可见 `openviking_search_miss`
 - [ ] OpenViking 不可达 / 异常 → 自动回退 SQL ILIKE；不弹窗；admin 仪表盘 Health 卡显示 degraded
@@ -127,7 +129,8 @@ M1 仅交付 tuning 默认配置读取、推荐值展示与 admin API 基础面�
 
 ### 3.7 Wiki 写路径 hook（同步过滤规则）
 
-- [ ] `POST /api/documents` 上传 Markdown / PDF / 文本：sync_jobs 表新增一条 pending，`source_type=wiki_doc`
+- [ ] `POST /api/documents` 上传 Markdown / PDF / 文本：sync_jobs 表新增一条 pending，`source_type=wiki_doc`（hook 在 `sync_legacy_markdown_document`，非 `publish_document`）
+- [ ] `backfill_feature_content` 全量回填 legacy 文档时也入队（与上传共用 `sync_legacy_markdown_document` hook，不漏 backfill 路径）
 - [ ] `POST /api/wiki/documents/{node_id}/publish`：sync_jobs 表新增一条；`source_hash` 与新版本 markdown sha 对齐
 - [ ] `POST /api/wiki/documents/{node_id}/rollback`：sync_jobs 入队
 - [ ] `PUT /api/wiki/documents/{node_id}/draft` + `DELETE .../draft`：**sync_jobs 表不增加新行**
@@ -143,6 +146,9 @@ M1 仅交付 tuning 默认配置读取、推荐值展示与 admin API 基础面�
 - [ ] alembic head 之后：`docs_fts` / `docs_ngram_fts` / `reports_fts` 三张虚表不存在
 - [ ] `find src/codeask/wiki -name "search.py" -o -name "indexer.py" -o -name "tokenizer.py"` 无输出
 - [ ] `wiki/chunker.py` 不再 import `tokenizer`，`ParsedChunk` 不含 `tokenized_text` / `ngram_text` 字段
+- [ ] `tokenize` 已迁出 tokenizer.py：`grep -rn "from codeask.wiki.tokenizer\|wiki\.tokenizer" src/codeask` 无输出；`/api/wiki/resolve`（`path_resolver` 路径模糊匹配）仍正常工作
+- [ ] `wiki/reports.py:ReportService` 无 `WikiIndexer` 引用：verify / unverify / reject 不再写 FTS5（这三处是仅有的 indexer 调用点）
+- [ ] `api/reports.py` 已删 `GET /reports/search` 端点、无 `WikiIndexer` 引用；`api/documents_compat.py` 已删 `GET /documents/search`、上传与 delete 路径无 `WikiIndexer`
 - [ ] `grep -rn "docs_fts\|docs_ngram_fts\|reports_fts\|WikiIndexer\|WikiSearchService" src/codeask/ alembic/versions/` 仅出现在新增的 DROP migration 文件中
 
 ### 3.9 自研 Agent 隔离（保留不删）

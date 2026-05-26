@@ -40,7 +40,8 @@ v1.0.5 新增：
 
 v1.0.5 废弃（删除）：
 
-- **整条 FTS5 / n-gram 索引链路**：删除 `wiki/search.py`、`wiki/indexer.py`、`wiki/tokenizer.py`；alembic drop `docs_fts` / `docs_ngram_fts` / `reports_fts` 三张虚表；`api/documents_compat.py` 的 `/search` 端点与 chunk-index 写入删除
+- **整条 FTS5 / n-gram 索引链路**：删除 `wiki/search.py`、`wiki/indexer.py`、`wiki/tokenizer.py`；alembic drop `docs_fts` / `docs_ngram_fts` / `reports_fts` 三张虚表；`api/documents_compat.py` 的 `/documents/search` 与 `api/reports.py` 的 `/reports/search` 端点 + chunk-index 写入删除；`wiki/reports.py:ReportService` 的 `WikiIndexer` 写入删除
+- ⚠️ `tokenizer.py` 非纯 FTS5：`tokenize` 还被 `path_resolver.py`（活端点 `/api/wiki/resolve`）用，删 tokenizer 前先迁出 `tokenize`（只有 `to_ngrams` 是 FTS5 专用）
 - 保留 `wiki/native_search.py`（SQL ILIKE）作为 UI 搜索框的兜底；`wiki/chunker.py` 瘦身保留（仅 `NativeWikiSearchService` 抽 heading 用，不再依赖 tokenizer）
 
 v1.0.5 隔离（保留不删，搬入 `agent/native_backend/`）：
@@ -48,7 +49,7 @@ v1.0.5 隔离（保留不删，搬入 `agent/native_backend/`）：
 - v1.0.4 自研 Agent（`agent_backend=native` 路径）整体搬进隔离命名空间 `src/codeask/agent/native_backend/`，作为冻结参考保留；v1.0.5 **不接入请求链路**（默认且唯一运行 opencode）
 - 搬迁：`orchestrator.py` / `wiki_tools.py` / `tools.py` / `tool_schemas.py` / `tool_delegates.py` / `code_tools.py` / `answer_links.py` / `stages/` / `chat_runtime/{runtime,loop,retrieval,prompt,compaction,tool_executor,tool_registry,tool_contracts}.py` + `chat_runtime/tools/`
 - 保留原位：`chat_runtime/events.py` + `chat_runtime/context.py`（opencode_compat / api/sessions 共享类型层）
-- 解耦 FTS5：`native_backend` 内唯一的 FTS5 依赖（`tools/reports.py` 的 `WikiSearchService`）改为 `NativeWikiSearchService`，使模块在 FTS5 删除后仍可 import；ILIKE 仅为保活，**不是**目标方案
+- 解耦 FTS5：`native_backend` 内唯一的 FTS5 依赖（`tools/reports.py` 的 `WikiSearchService`）改为**模块内自包含的本地 ILIKE report 搜索**（不复用共享 `NativeWikiSearchService`，活主链路零改动），使模块在 FTS5 删除后仍可 import；ILIKE 仅为保活，**不是**目标方案
 - 复活约定：将来重启自研 Agent，RAG 必须接到独立的 OpenViking client，不回退 ILIKE / FTS5
 - `settings.agent_backend` 收敛为 `Literal["opencode"]`（复活时再加回 native 选项）；新增冒烟测试防 bitrot
 

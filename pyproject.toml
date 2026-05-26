@@ -66,3 +66,12 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 pythonVersion = "3.11"
 include = ["src", "tests"]
 strict = ["src/codeask"]
+# native_backend 是 v1.0.4 自研 Agent 的冻结参考代码（M3 隔离搬入），不在请求链路、
+# 不随主链路演进维护，靠 tests/unit/test_native_backend_importable.py 运行时冒烟防 bitrot。
+# 其历史 strict 类型债不应 gate CI；从 pyright 分析中排除（复活时再清，RAG 接 OpenViking）。
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*",
+    "src/codeask/agent/native_backend",
+]

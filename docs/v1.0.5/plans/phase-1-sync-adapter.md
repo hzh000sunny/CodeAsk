@@ -566,20 +566,34 @@ M3 自研 Agent 隔离（步骤 12-14，搬迁不删除，**必须在删 FTS5 �
     - `settings.py` 收敛 `agent_backend: Literal["opencode"]`
     - 新增冒烟测试 `tests/unit/test_native_backend_importable.py`；原 native 测试迁入 `tests/native_backend/` 标 legacy（保留逻辑，不删；共享层 `tests/unit/chat_runtime/test_events.py` 留原位）
 
-M4 FTS5 链路清除（步骤 15-17，须在 native 解耦之后；不在 M1 实施）：
+M4 FTS5 链路清除（步骤 15-17，须在 native 解耦之后；不在 M1 实施）。纪律同 M3：**先切断所有活消费者 → 再删模块/虚表 → 再上新搜索路径**，每步独立可跑、可回滚。
 
-15. 改写 `api/documents_compat.py`：`POST /documents` 上传逻辑移除 `DocumentChunker.chunk_file` + `WikiIndexer.index_chunk`；保留 `Document` 写入与 `LegacyWikiSyncService` 桥接；新增 enqueue OpenViking sync 调用；删除 `GET /documents/search` 端点
-16. 删除 `src/codeask/wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py`；瘦身 `wiki/chunker.py`（删 tokenizer import、删 `tokenized_text` / `ngram_text` 字段）；删除对应单元 / 集成测试 (`tests/integration/test_wiki_search.py`)
-17. alembic migration drop `docs_fts` / `docs_ngram_fts` / `reports_fts`（详见 §3.2）
+> 真实改面比 SDD 初稿大：`WikiSearchService` / `WikiIndexer` 的活消费者不止 `documents_compat.py`，还包括 `api/reports.py` 与 `wiki/reports.py:ReportService`；`tokenizer.py` 的 `tokenize` 还被 `path_resolver.py` 用（非 FTS5）。详见 SDD §1.5 消费者表。
+
+15. **（D1）切断 FTS5 写/读的活消费者** —— 做完后无任何活代码引用 `WikiSearchService`/`WikiIndexer`，模块成孤儿但 app 仍绿：
+    - `api/documents_compat.py`：上传 `upload_document` 移除 `DocumentChunker.chunk_file` + `DocumentChunk` 写入 + `indexer.index_chunk`（含 `tokenized_text`/`ngram_text`），保留 `Document` 写入与 `LegacyWikiSyncService` 桥接（**OpenViking 入队不在此处加，挪到 M5 step20**）；删 `GET /documents/search` 端点；`delete_document` 移除 `unindex_chunks_for_document`
+    - `wiki/reports.py:ReportService`：移除 verify / unverify / reject 上所有 `self._indexer.index_report/unindex_report` 调用 + 构造里的 `_indexer`（这三处是仅有的调用点，`create_draft`/`update_draft` 无）
+    - `api/reports.py`：删 `GET /reports/search` 端点（无产品消费者；前端仅 action-trace 标签引用同名 native 工具，非 REST 调用）；`delete_report` 移除 `unindex_report`
+    - 调整/删除打 `/documents/search`、`/reports/search` 的后端测试
+16. **（D2）删模块 + 瘦身 chunker**：
+    - **先迁 `tokenize`**：把 `tokenizer.py:tokenize` 挪到 `path_resolver.py`（或新建 `wiki/text_utils.py`）并改 `path_resolver.py` 的 import；`to_ngrams` 不迁（FTS5 专用）
+    - 删 `wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py`
+    - 瘦身 `wiki/chunker.py`（删 tokenizer import、删 `ParsedChunk.tokenized_text`/`ngram_text` 字段及 `_build` 两处赋值；保留 `heading_path`/`raw_text`/`normalized_text`/`signals_json`，`NativeWikiSearchService._best_heading_path` 要用）
+    - 删 `tests/integration/test_wiki_search.py` 及其它直测 FTS5 的单测
+    - 注：`document_chunks` 表保留（历史数据，删后不再读写），其 NOT NULL 的 `tokenized_text`/`ngram_text` 列无害，**不需要** migration 动它
+17. **（D2）alembic drop migration**：`revision = "0031"`、`down_revision = "0030"`（本仓用短数字 revision id，当前 head 是 `0030`，非文件名），drop `docs_fts` / `docs_ngram_fts` / `reports_fts`；`downgrade` raise `NotImplementedError`（详见 §3.2）
 
 M4 Wiki UI 搜索框 OpenViking-first + ILIKE 兜底（步骤 18-19；不在 M1 实施）：
 
-18. `api/wiki/search.py` 改写：OpenViking healthy 时调 `client.find_or_search(q, scope, filter=feature_uri, limit)`；失败（异常 / 不可达）或 0 命中即 fallthrough 到 `NativeWikiSearchService`；URI → feature_id 反查保留原 `_group_for_hit` 分组；前端零改动
-19. 集成测试：OpenViking 健康有命中 / OpenViking 健康 0 命中 / OpenViking 不可达 / OpenViking 异常——四种 case 验证兜底正确
+18. **（D3）先 spike 再开工** —— OpenViking 查询侧 client 方法不存在，且查询走 REST 还是 MCP 未验证（M2 只验过 MCP `find`）：
+    - **18a 半天 spike**：对运行中的 OpenViking server 实打查询，产出「查询接口（REST `/api/v1/...` 还是 MCP）+ 端点路径 + 入参（scope/filter/limit）+ 响应结构 + 一次成功样本」。这是 M4 唯一真实未知，不出结论后续全是返工
+    - **18b 加 client 查询方法**：spike 确认后给 `OpenVikingClient` 加查询方法（如 `async def search(...)`），复用现有 `_client()`（trusted headers + `trust_env=False`）
+    - **18c 改写 `api/wiki/search.py`**：OpenViking healthy（复用 M1/M2 已有健康判断，**不新开 /health 探针**）→ 调 client 查询；异常 / 不可达 / 0 命中 → fallthrough 到现有 `NativeWikiSearchService`；URI → feature_id 反查保留原 `_group_for_hit` 分组；命中发 `openviking_search_hit`、0 命中发 `openviking_search_miss`，长期不可用要去重/限速防刷屏；前端零改动（`frontend/src/lib/wiki/api.ts` 不动）
+19. 集成测试：OpenViking 健康有命中 / 健康 0 命中 / 不可达 / 异常——四种 case 验证兜底正确，断言分组在两条路径下一致
 
 M5 Wiki 写路径 hook（步骤 20-22；不在 M1 实施）：
 
-20. `wiki/documents/service.py:publish_document` / `rollback_to_version` 完成后调 `rag.openviking.sync.enqueue(source_type="wiki_doc", source_id=document.id)`；`save_draft` / `delete_draft` 不调
+20. `wiki/documents/service.py:publish_document` / `rollback_to_version` 完成后调 `rag.openviking.sync.enqueue(source_type="wiki_doc", source_id=str(document.id))`（`enqueue` 签名 `source_id: str`，需转字符串）；`save_draft` / `delete_draft` 不调。**legacy `/documents` 上传单独接**：`sync_legacy_markdown_document` 不走 `publish_document`，hook 入队要放在 `wiki/sync/service.py:sync_legacy_markdown_document` 内（这样 `upload_document` POST 与 `backfill_feature_content` 全量回填两条调用方一起覆盖；仅放 `upload_document` 会漏 backfill）
 21. `wiki/reports.py` + `api/reports.py` verify endpoint：`verified=false → true` 入队；`verified=true → false` 入队 tombstone；`verified=false` 状态下编辑不入队
 22. wiki node 软删 hook（`WikiNode.deleted_at` 标记后）入队 tombstone
 
