@@ -16,14 +16,17 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from codeask.agent.chat_runtime.retrieval import DatabaseRetrievalService
-from codeask.agent.chat_runtime.runtime import ChatRuntime, GatewayStreamingLLM
-from codeask.agent.chat_runtime.tool_registry import ToolRegistry as ChatToolRegistry
-from codeask.agent.chat_runtime.tools.attachments import register_attachment_tools
-from codeask.agent.chat_runtime.tools.live_code import register_live_code_tools
-from codeask.agent.chat_runtime.tools.reports import register_report_tools
-from codeask.agent.chat_runtime.tools.wiki import register_wiki_tools
-from codeask.agent.code_tools import AgentCodeSearchService
+from codeask.agent.native_backend.chat_runtime.retrieval import DatabaseRetrievalService
+from codeask.agent.native_backend.chat_runtime.runtime import ChatRuntime, GatewayStreamingLLM
+from codeask.agent.native_backend.chat_runtime.tool_registry import ToolRegistry as ChatToolRegistry
+from codeask.agent.native_backend.chat_runtime.tools.attachments import register_attachment_tools
+from codeask.agent.native_backend.chat_runtime.tools.live_code import register_live_code_tools
+from codeask.agent.native_backend.chat_runtime.tools.reports import register_report_tools
+from codeask.agent.native_backend.chat_runtime.tools.wiki import register_wiki_tools
+from codeask.agent.native_backend.code_tools import AgentCodeSearchService
+from codeask.agent.native_backend.orchestrator import AgentOrchestrator
+from codeask.agent.native_backend.tools import ToolRegistry
+from codeask.agent.native_backend.wiki_tools import AgentWikiToolService
 from codeask.agent.opencode_compat.backend import OpenCodeCompat
 from codeask.agent.opencode_compat.cleanup import cleanup_idle_sessions
 from codeask.agent.opencode_compat.config import OpenVikingMCPConfig
@@ -41,10 +44,7 @@ from codeask.agent.opencode_compat.sessions import ExternalAgentSessionStore
 from codeask.agent.opencode_compat.wiki_workspace import WikiWorkspaceExporter
 from codeask.agent.opencode_compat.workspace import OpenCodeWorkspaceManager
 from codeask.agent.opencode_compat.worktrees import OpenCodeWorktreeManager
-from codeask.agent.orchestrator import AgentOrchestrator
-from codeask.agent.tools import ToolRegistry
 from codeask.agent.trace import AgentTraceLogger
-from codeask.agent.wiki_tools import AgentWikiToolService
 from codeask.api.auth import router as auth_router
 from codeask.api.code_index import router as code_index_router
 from codeask.api.feature_admins import router as feature_admins_router
