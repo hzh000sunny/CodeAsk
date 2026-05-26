@@ -147,9 +147,11 @@ M1 仅交付 tuning 默认配置读取、推荐值展示与 admin API 基础面�
 
 ### 3.9 自研 Agent 隔离（保留不删）
 
-- [ ] `src/codeask/agent/native_backend/` 存在，包含 orchestrator / wiki_tools / tools / tool_schemas / tool_delegates / code_tools / answer_links / stages / chat_runtime（runtime 系列 + tools/）
+- [ ] `src/codeask/agent/native_backend/` 存在，包含 orchestrator / wiki_tools / tools / tool_schemas / tool_delegates / tool_models / state / prompts / code_tools / answer_links / stages / chat_runtime（runtime 系列 + tools/）
 - [ ] `src/codeask/agent/native_backend/README.md` 存在，写明"冻结参考、不在请求链路、复活时 RAG 接 OpenViking 不回退 FTS5"
 - [ ] `chat_runtime/events.py` + `chat_runtime/context.py` 仍在 `agent/chat_runtime/` 原位（共享类型层）
+- [ ] 顶层 `agent/sse.py`（`SSEMultiplexer`）+ `agent/trace.py`（`AgentTraceLogger`）仍在 `agent/` 原位（共享层，opencode 路径引用，未误搬入 native_backend）
+- [ ] `reports.py` 解耦走自包含方案：`grep -rn "search_reports\|ReportSearchHit" src/codeask/wiki/native_search.py` 无输出（report 搜索未渗入活的共享服务）
 - [ ] `python -c "import codeask.agent.native_backend.orchestrator"` 成功（模块未 bitrot）
 - [ ] 冒烟测试 `tests/unit/test_native_backend_importable.py` 通过：import 关键模块 + 用 fake 依赖构造 `AgentOrchestrator`
 - [ ] `native_backend` 内无 FTS5 依赖：`grep -rn "WikiSearchService\|wiki.search\|wiki.indexer\|wiki.tokenizer" src/codeask/agent/native_backend/` 无输出

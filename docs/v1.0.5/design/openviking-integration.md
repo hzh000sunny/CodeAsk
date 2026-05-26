@@ -114,7 +114,8 @@ v1.0.4 自研的 Agent（`agent_backend=native` 路径）**不删除**，整体�
 | `agent/orchestrator.py`（`AgentOrchestrator`） | `agent/native_backend/orchestrator.py` |
 | `agent/wiki_tools.py`（`AgentWikiToolService`） | `agent/native_backend/wiki_tools.py` |
 | `agent/tools.py`（`ToolRegistry` / `ToolContext` / `ToolResult`） | `agent/native_backend/tools.py` |
-| `agent/tool_schemas.py` / `tool_delegates.py` | `agent/native_backend/` |
+| `agent/tool_schemas.py` / `tool_delegates.py` / `tool_models.py` | `agent/native_backend/` |
+| `agent/state.py` / `agent/prompts.py`（顶层 native prompts，**非** `opencode_compat/prompts.py`） | `agent/native_backend/` |
 | `agent/code_tools.py`（`AgentCodeSearchService`） | `agent/native_backend/code_tools.py` |
 | `agent/answer_links.py` | `agent/native_backend/answer_links.py` |
 | `agent/stages/`（`knowledge_retrieval` / `code_investigation` / `scope_detection` / `answer_finalization` / `Evidence` 等整目录） | `agent/native_backend/stages/` |
@@ -125,22 +126,28 @@ v1.0.4 自研的 Agent（`agent_backend=native` 路径）**不删除**，整体�
 
 - `agent/chat_runtime/events.py`（`ChatRuntimeEvent`）—— 被 opencode_compat / api/sessions / sessions/messages 引用
 - `agent/chat_runtime/context.py`（`SessionMessage`）—— 被 sessions/messages 引用
+- `agent/sse.py`（`SSEMultiplexer`）—— opencode 流（`sessions/messages.py:stream_opencode_response`）与 `api/sessions.py` 引用；不是 native 专属
+- `agent/trace.py`（`AgentTraceLogger`）—— opencode 路径写 trace（`sessions/messages.py` 的 `persist_runtime_event_trace` 等）+ `app.state.trace_logger` 全局基建引用；不是 native 专属
 
-> 迁移后 `agent/chat_runtime/` 仅剩 `events.py` + `context.py` 两个共享类型文件；native runtime 自带的 `chat_runtime/` 子目录在 `native_backend/` 下，import 路径整体改写。
+> 迁移后 `agent/` 顶层仅剩 `__init__.py` / `sse.py` / `trace.py`；`agent/chat_runtime/` 仅剩 `events.py` + `context.py` 两个共享类型文件；native runtime 自带的 `chat_runtime/` 子目录在 `native_backend/` 下，import 路径整体改写。
 
-**与 FTS5 解耦（搬迁时一并做）**：
+**与 FTS5 解耦（搬迁时一并做，采用自包含方案）**：
 
-- `native_backend/chat_runtime/tools/reports.py` 当前 `from codeask.wiki.search import WikiSearchService`（唯一 FTS5 依赖）改为 `NativeWikiSearchService`（SQL ILIKE 搜 reports）。这是为了让模块在 FTS5 删除后仍可 import / 冒烟测试，**不是**它的目标检索方案。
+- `native_backend/chat_runtime/tools/reports.py` 当前 `from codeask.wiki.search import ReportSearchHit, WikiSearchService`（唯一 FTS5 依赖；`wiki/search.py` 在 M4 会被删）。改为**在 `native_backend` 内部自写最小 ILIKE report 搜索**：本地定义 report-hit dataclass（沿用字段 `report_id` / `title` / `feature_id` / `verified_by` / `verified_at` / `commit_sha` / `snippet` / `score`，保证 `asdict(hit)` 工具输出契约不变）+ 本地 ILIKE 查询（复刻 `verified=1` 过滤、feature 过滤、从 `metadata_json` 取 `commit_sha`；bm25 snippet 换成普通子串 snippet）。
+- **不**把 report 搜索加进共享的 `wiki/native_search.py:NativeWikiSearchService`——那是活的主链路文件（opencode wiki 工具 + M4 Wiki UI 搜索兜底引用），不为冻结模块扩面。允许与 `native_search.py` 的 doc-ILIKE 有少量重复 SQL，换取冻结模块自包含、活主链路零改动。
+- 这段 ILIKE 仅为让模块在 FTS5 删除后仍可 import / 冒烟测试，**不是**目标检索方案；复活时按下文接 OpenViking。
 
 **复活指引（写入 `native_backend/README.md`）**：
 
 - 这是冻结参考代码，v1.0.5 不接入请求链路，不随主链路演进维护
-- 若将来重启自研 Agent，其 RAG / 检索层（`retrieval.py` / `wiki_tools.py` / `tools/{wiki,reports}.py`）必须重新接到 `src/codeask/rag/openviking/` 的 client，**不要**接回 `NativeWikiSearchService`（ILIKE 仅为保活而留）；FTS5 已永久删除
+- 若将来重启自研 Agent，其 RAG / 检索层（`retrieval.py` / `wiki_tools.py` / `tools/{wiki,reports}.py`）必须重新接到 `src/codeask/rag/openviking/` 的 client，**不要**接回 ILIKE（`retrieval.py` / `wiki.py` 用的共享 `NativeWikiSearchService`、`reports.py` 内自包含的本地 ILIKE report 搜索都仅为保活而留）；FTS5 已永久删除
 - 复活 = 重新在 `app.py` 接线 + 恢复 `agent_backend` 选择分支
 
 **接线与配置**：
 
-- `app.py` 删除 native backend 的请求链路接线（`AgentOrchestrator` / `ToolRegistry` / `ChatRuntime` / `register_*_tools` 的构造与注入），只保留 opencode 接线
+- `app.py` 删除 native 请求链路接线：`AgentWikiToolService` / `AgentCodeSearchService` / `ToolRegistry.bootstrap` / `AgentOrchestrator` / `chat_tool_registry` + 各 `register_*_tools` / `ChatRuntime` 的构造与注入，以及 `app.state.{tool_registry,agent_orchestrator,chat_runtime}`。**保留** `trace_logger`（`AgentTraceLogger`，opencode 路径用）与 `worktree_manager` / `opencode_worktree_manager`（opencode + cleanup_job 用），别误删
+- `sessions/messages.py`：`stream_agent_response` 收敛为只走 opencode（删 `agent_backend` 判断 + native `ChatRuntime` fall-through 整段）；删除已无调用方的 `stream_legacy_orchestrator_response`（用 `app.state.agent_orchestrator`）。`from codeask.agent.sse import SSEMultiplexer` 保留
+- `api/sessions.py`：删 `agent_backend != "opencode"` 分支，`== "opencode"` 简化为恒真
 - `settings.agent_backend` 收敛为 `Literal["opencode"]`（native 不再是运行时可选项；复活时再加回）
 - `native_backend/` 保持可 import；新增冒烟测试 `tests/unit/test_native_backend_importable.py`：import 关键模块 + 用 fake 依赖构造 `AgentOrchestrator`，证明未 bitrot。CI 跑，但不进任何请求路径
 

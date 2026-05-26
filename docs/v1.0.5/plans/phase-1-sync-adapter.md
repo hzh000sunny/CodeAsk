@@ -557,9 +557,14 @@ M3 自研 Agent 隔离（步骤 12-14，搬迁不删除，**必须在删 FTS5 �
 
 > 排期约束：FTS5 删除会移除 `WikiSearchService`，而 native 的 `tools/reports.py` 仍 import 它；必须先把 native 搬走并把 `reports.py` 解耦，否则中间态 import 不了。
 
-12. 新建 `src/codeask/agent/native_backend/`，把 native-only 模块整体搬入（`orchestrator.py` / `wiki_tools.py` / `tools.py` / `tool_schemas.py` / `tool_delegates.py` / `code_tools.py` / `answer_links.py` / `stages/` / `chat_runtime/{runtime,loop,retrieval,prompt,compaction,tool_executor,tool_registry,tool_contracts}.py` / `chat_runtime/tools/`）；`chat_runtime/events.py` + `chat_runtime/context.py` 留原位作共享层；改写所有内部 import 路径；写 `native_backend/README.md`（复活指引：RAG 接 OpenViking 不回退 FTS5）
-13. 解耦 FTS5：`native_backend/chat_runtime/tools/reports.py` 的 `WikiSearchService` 改为 `NativeWikiSearchService`（仅为保活；非目标方案）
-14. 下线请求链路：`app.py` 移除 native wiring（`AgentWikiToolService` / `ToolRegistry` / `AgentOrchestrator` / `chat_tool_registry` / 各 `register_*_tools` 构造与注入），scheduler 只剩 opencode_keepalive / opencode_session_idle_cleanup；`sessions/messages.py:stream_agent_response` 与 `api/sessions.py` 删除 `agent_backend != "opencode"` 分支；`settings.py` 收敛 `agent_backend: Literal["opencode"]`；新增冒烟测试 `tests/unit/test_native_backend_importable.py`；原 native 测试迁入 `tests/native_backend/` 标 legacy（保留逻辑，不删）
+12. 新建 `src/codeask/agent/native_backend/`，把 native-only 模块整体搬入（`orchestrator.py` / `wiki_tools.py` / `tools.py` / `tool_schemas.py` / `tool_delegates.py` / `tool_models.py` / `state.py` / `prompts.py`（顶层 native prompts，**非** `opencode_compat/prompts.py`）/ `code_tools.py` / `answer_links.py` / `stages/` / `chat_runtime/{runtime,loop,retrieval,prompt,compaction,tool_executor,tool_registry,tool_contracts}.py` / `chat_runtime/tools/`）；`chat_runtime/events.py` + `chat_runtime/context.py` + 顶层 `sse.py`（`SSEMultiplexer`）+ `trace.py`（`AgentTraceLogger`）留原位作共享层（opencode 路径引用，**不搬**）；改写所有内部 import 路径；写 `native_backend/README.md`（复活指引：RAG 接 OpenViking 不回退 FTS5）
+13. 解耦 FTS5（**自包含方案**）：`native_backend/chat_runtime/tools/reports.py` 删除 `from codeask.wiki.search import ReportSearchHit, WikiSearchService`，改为在 `native_backend` 内部自写最小 ILIKE report 搜索 + 本地 report-hit dataclass（沿用原字段保证 `asdict` 输出契约；复刻 `verified=1`/feature 过滤、metadata 取 `commit_sha`、子串 snippet）；**不**复用、**不**扩展共享的 `wiki/native_search.py:NativeWikiSearchService`（活主链路零改动；允许少量重复 SQL）。仅为保活，非目标方案
+14. 下线请求链路：
+    - `app.py` 移除 native 构造与注入（`AgentWikiToolService` / `AgentCodeSearchService` / `ToolRegistry.bootstrap` / `AgentOrchestrator` / `chat_tool_registry` + 各 `register_*_tools` / `ChatRuntime`），删 `app.state.{tool_registry,agent_orchestrator,chat_runtime}`；**保留** `trace_logger` 与 `worktree_manager`（opencode 仍用）；scheduler 只剩 opencode_keepalive / opencode_session_idle_cleanup
+    - `sessions/messages.py`：`stream_agent_response` 收敛为只走 opencode（删 `agent_backend` 判断 + native `ChatRuntime` fall-through 整段）；删除已无调用方的 `stream_legacy_orchestrator_response`；保留 `SSEMultiplexer` import
+    - `api/sessions.py`：删 `agent_backend != "opencode"` 分支，`== "opencode"` 简化恒真
+    - `settings.py` 收敛 `agent_backend: Literal["opencode"]`
+    - 新增冒烟测试 `tests/unit/test_native_backend_importable.py`；原 native 测试迁入 `tests/native_backend/` 标 legacy（保留逻辑，不删；共享层 `tests/unit/chat_runtime/test_events.py` 留原位）
 
 M4 FTS5 链路清除（步骤 15-17，须在 native 解耦之后；不在 M1 实施）：
 
