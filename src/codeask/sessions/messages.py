@@ -13,7 +13,6 @@ from fastapi import HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 
-from codeask.agent.chat_runtime.context import SessionMessage
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
 from codeask.agent.opencode_compat.process import OpenCodeProcessError
 from codeask.agent.sse import SSEMultiplexer
@@ -22,7 +21,6 @@ from codeask.code_index.worktree import InvalidRefError, WorktreeError
 from codeask.db.models import (
     AgentTrace,
     Repo,
-    SessionAttachment,
     SessionConversationSummary,
     SessionFeature,
     SessionRepoBinding,
@@ -265,89 +263,19 @@ async def stream_agent_response(
     turn_id: str,
     content: str,
     *,
-    force_code_investigation: bool,
     runtime_llm_config: dict[str, Any] | None = None,
     timing: AgentTurnTiming | None = None,
 ) -> AsyncIterator[bytes]:
     timing = timing or AgentTurnTiming()
-    if getattr(request.app.state.settings, "agent_backend", "opencode") == "opencode":
-        async for chunk in stream_opencode_response(
-            request,
-            session_id,
-            turn_id,
-            content,
-            runtime_llm_config=runtime_llm_config,
-            timing=timing,
-        ):
-            yield chunk
-        return
-
-    runtime = request.app.state.chat_runtime
-    multiplexer = SSEMultiplexer()
-    assistant_chunks: list[str] = []
-    completed = False
-    (
-        history,
-        tool_action_summary,
-        attachments,
-        conversation_summary,
-    ) = await load_chat_runtime_context(
+    async for chunk in stream_opencode_response(
         request,
         session_id,
-        current_turn_id=turn_id,
-    )
-    try:
-        async for event in runtime.run(
-            session_id,
-            turn_id,
-            content,
-            subject_id=request.state.subject_id,
-            history=history,
-            attachments=attachments,
-            conversation_summary=conversation_summary,
-            tool_action_summary=tool_action_summary,
-            runtime_llm_config=runtime_llm_config,
-        ):
-            await persist_runtime_audit_payload(
-                request,
-                session_id,
-                turn_id,
-                event.type,
-                event.data,
-            )
-            event_data = timing.annotate(event.type, _event_data_dict(event.data))
-            await persist_runtime_event_trace(request, session_id, turn_id, event.type, event_data)
-            if event.type == "text_delta":
-                delta = event_data.get("delta") or event_data.get("text")
-                if isinstance(delta, str):
-                    assistant_chunks.append(delta)
-            if event.type == "done":
-                completed = True
-            yield multiplexer.format(
-                _frontend_event(event, event_data, session_id=session_id, turn_id=turn_id)
-            )
-    except asyncio.CancelledError:
-        await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
-        raise
-    if completed:
-        assistant_content = "".join(assistant_chunks).strip()
-        if assistant_content:
-            await persist_agent_turn(
-                request,
-                session_id,
-                assistant_content,
-                parent_turn_id=turn_id,
-            )
-            asyncio.create_task(
-                maybe_generate_session_title(
-                    request.app.state.session_factory,
-                    request.app.state.llm_gateway,
-                    session_id=session_id,
-                    subject_id=request.state.subject_id,
-                    user_content=content,
-                    assistant_content=assistant_content,
-                )
-            )
+        turn_id,
+        content,
+        runtime_llm_config=runtime_llm_config,
+        timing=timing,
+    ):
+        yield chunk
 
 
 async def stream_opencode_response(
@@ -714,79 +642,6 @@ async def rollback_session_turn(
         await session.commit()
 
 
-async def load_chat_runtime_context(
-    request: Request,
-    session_id: str,
-    *,
-    current_turn_id: str,
-    max_history_messages: int = 12,
-    max_tool_events: int = 12,
-) -> tuple[list[SessionMessage], str | None, list[dict[str, Any]], str | None]:
-    factory = request.app.state.session_factory
-    async with factory() as session:
-        summary_row = await _ensure_conversation_summary(
-            session,
-            session_id=session_id,
-            current_turn_id=current_turn_id,
-            keep_recent_messages=max_history_messages,
-        )
-        turn_query = select(SessionTurn).where(
-            SessionTurn.session_id == session_id,
-            SessionTurn.id != current_turn_id,
-        )
-        if summary_row is not None:
-            turn_query = turn_query.where(SessionTurn.turn_index > summary_row.covered_turn_index)
-        turn_rows = (
-            (
-                await session.execute(
-                    turn_query.order_by(
-                        SessionTurn.turn_index.desc(), SessionTurn.created_at.desc()
-                    ).limit(max_history_messages)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        trace_rows = (
-            (
-                await session.execute(
-                    select(AgentTrace)
-                    .where(
-                        AgentTrace.session_id == session_id,
-                        AgentTrace.turn_id != current_turn_id,
-                        AgentTrace.event_type.in_(["tool_call", "tool_result"]),
-                    )
-                    .order_by(AgentTrace.created_at.desc(), AgentTrace.id.desc())
-                    .limit(max_tool_events)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        attachment_rows = (
-            (
-                await session.execute(
-                    select(SessionAttachment)
-                    .where(SessionAttachment.session_id == session_id)
-                    .order_by(SessionAttachment.created_at.asc(), SessionAttachment.id.asc())
-                )
-            )
-            .scalars()
-            .all()
-        )
-    history = [
-        SessionMessage(
-            role="assistant" if row.role == "agent" else "user",
-            content=row.content,
-        )
-        for row in reversed(turn_rows)
-    ]
-    tool_action_summary = summarize_tool_actions(list(reversed(trace_rows)))
-    attachments = [_attachment_context(row) for row in attachment_rows]
-    conversation_summary = summary_row.summary if summary_row is not None else None
-    return history, tool_action_summary, attachments, conversation_summary
-
-
 async def _ensure_conversation_summary(
     session: Any,
     *,
@@ -936,22 +791,6 @@ def _truncate_summary(text: str, limit: int) -> str:
     return cleaned[: max(0, limit - 15)] + "...[truncated]"
 
 
-def _attachment_context(row: SessionAttachment) -> dict[str, Any]:
-    return {
-        "id": row.id,
-        "attachment_id": row.id,
-        "display_name": row.display_name,
-        "original_filename": row.original_filename,
-        "aliases": row.aliases,
-        "reference_names": row.reference_names,
-        "description": row.description,
-        "kind": row.kind,
-        "mime_type": row.mime_type,
-        "size_bytes": row.size_bytes,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
-    }
-
-
 def summarize_tool_actions(rows: list[AgentTrace]) -> str | None:
     if not rows:
         return None
@@ -1031,25 +870,6 @@ async def persist_runtime_event_trace(
         event_type,
         event_data,
     )
-
-
-async def stream_legacy_orchestrator_response(
-    request: Request,
-    session_id: str,
-    turn_id: str,
-    content: str,
-    *,
-    force_code_investigation: bool,
-) -> AsyncIterator[bytes]:
-    orchestrator = request.app.state.agent_orchestrator
-    multiplexer = SSEMultiplexer()
-    async for event in orchestrator.run(
-        session_id,
-        turn_id,
-        content,
-        force_code_investigation=force_code_investigation,
-    ):
-        yield multiplexer.format(event)
 
 
 async def persist_agent_turn(

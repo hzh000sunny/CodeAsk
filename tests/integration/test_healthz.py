@@ -123,7 +123,6 @@ async def test_lifespan_registers_openviking_keepalive_and_sync(
 
     monkeypatch.setenv("CODEASK_DATA_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("CODEASK_AGENT_BACKEND", "native")
     monkeypatch.setenv("CODEASK_OPENVIKING_ENABLED", "true")
     monkeypatch.setenv("CODEASK_OPENVIKING_KEEPALIVE_INTERVAL_SECONDS", "13")
     monkeypatch.setenv("CODEASK_OPENVIKING_SYNC_INTERVAL_SECONDS", "11")

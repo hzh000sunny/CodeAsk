@@ -11,6 +11,8 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from codeask.agent.chat_runtime.events import ChatRuntimeEvent
+from codeask.agent.opencode_compat.context import build_dynamic_codeask_context
 from codeask.db.models import (
     AgentTrace,
     Report,
@@ -26,6 +28,52 @@ from codeask.sessions.messages import (
     rollback_session_turn,
 )
 from tests.mocks.mock_llm import MockLLMClient, text_message
+
+
+class _FakeOpenCodeCompat:
+    def __init__(self, answer: str) -> None:
+        self.answer = answer
+        self.calls: list[dict[str, object]] = []
+
+    async def initialize_session(  # type: ignore[no-untyped-def]
+        self,
+        session_id,
+        llm_config,
+        *,
+        provider_config_pool=(),
+        force_new_external_session=False,
+    ):
+        self.calls.append(
+            {
+                "method": "initialize_session",
+                "session_id": session_id,
+                "model": llm_config.model_name,
+                "provider_config_pool": [config.model_name for config in provider_config_pool],
+                "force_new_external_session": force_new_external_session,
+            }
+        )
+        return object()
+
+    async def run_turn(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        session_id,
+        user_message,
+        llm_config,
+        binding,
+        context_window_tokens=200_000,
+    ):
+        self.calls.append(
+            {
+                "method": "run_turn",
+                "session_id": session_id,
+                "user_message": user_message,
+                "model": llm_config.model_name,
+                "context_window_tokens": context_window_tokens,
+            }
+        )
+        yield ChatRuntimeEvent(type="text_delta", data={"delta": self.answer})
+        yield ChatRuntimeEvent(type="done", data={"backend": "opencode"})
 
 
 async def _session_title(app: FastAPI, session_id: str) -> tuple[str, str]:
@@ -102,8 +150,7 @@ async def test_session_message_sse_and_attachment(
     session_id = created.json()["id"]
     assert created.json()["created_by_subject_id"] == "alice@dev-1"
 
-    mock = MockLLMClient([text_message("结论：订单 500 可以先检查上下文。")])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    app.state.opencode_compat = _FakeOpenCodeCompat("结论：订单 500 可以先检查上下文。")
 
     message = await client.post(
         f"/api/sessions/{session_id}/messages",
@@ -117,7 +164,8 @@ async def test_session_message_sse_and_attachment(
     assert message.status_code == 200, message.text
     assert message.headers["X-CodeAsk-Turn-Id"] == "turn_client_contract"
     body = message.text
-    assert "event: retrieval_context" in body
+    assert "event: assistant_action" in body
+    assert "event: runtime_state" in body
     assert "event: text_delta" in body
     assert "event: done" in body
     assert "event: scope_detection" not in body
@@ -168,12 +216,8 @@ async def test_default_session_title_is_generated_after_first_completed_exchange
     assert created.json()["title_source"] == "default"
     session_id = created.json()["id"]
 
-    mock = MockLLMClient(
-        [
-            text_message("list 是可变序列，tuple 是不可变序列。"),
-            text_message("Python list 与 tuple 区别"),
-        ]
-    )
+    app.state.opencode_compat = _FakeOpenCodeCompat("list 是可变序列，tuple 是不可变序列。")
+    mock = MockLLMClient([text_message("Python list 与 tuple 区别")])
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     message = await client.post(
@@ -188,11 +232,11 @@ async def test_default_session_title_is_generated_after_first_completed_exchange
     assert "event: done" in message.text
 
     await _wait_for_session_title(app, session_id, "Python list 与 tuple 区别")
-    assert len(mock.calls) == 2
-    assert mock.calls[1]["tools"] == []
+    assert len(mock.calls) == 1
+    assert mock.calls[0]["tools"] == []
     title_prompt = "\n".join(
         block["text"]
-        for message in mock.calls[1]["messages"]
+        for message in mock.calls[0]["messages"]
         for block in message["content"]
         if block["type"] == "text"
     )
@@ -247,7 +291,8 @@ async def test_manual_session_title_is_not_overwritten_by_auto_generation(
     assert renamed.status_code == 200, renamed.text
     assert renamed.json()["title_source"] == "manual"
 
-    mock = MockLLMClient([text_message("这里是正常回答。")])
+    app.state.opencode_compat = _FakeOpenCodeCompat("这里是正常回答。")
+    mock = MockLLMClient([])
     app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     message = await client.post(
@@ -264,7 +309,7 @@ async def test_manual_session_title_is_not_overwritten_by_auto_generation(
     title, source = await _session_title(app, session_id)
     assert title == "我手动命名的会话"
     assert source == "manual"
-    assert len(mock.calls) == 1
+    assert len(mock.calls) == 0
 
 
 @pytest.mark.asyncio
@@ -364,9 +409,10 @@ async def test_explicit_session_title_generation_returns_updated_session(
 
 
 @pytest.mark.asyncio
-async def test_session_message_injects_current_session_attachments_into_llm_context(
+async def test_dynamic_opencode_context_includes_current_session_attachments(
     app: FastAPI,
     client: AsyncClient,
+    tmp_path: Path,
 ) -> None:
     login = await client.post("/api/auth/admin/login", json={"password": "admin"})
     assert login.status_code == 200
@@ -410,26 +456,15 @@ async def test_session_message_injects_current_session_attachments_into_llm_cont
     )
     assert renamed.status_code == 200, renamed.text
 
-    mock = MockLLMClient([text_message("我会先查看 db-node-a.log。")])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
-
-    message = await client.post(
-        f"/api/sessions/{session_id}/messages",
-        json={"content": "请先看上传的日志"},
-        headers={"X-Subject-Id": "alice@dev-1"},
+    context = await build_dynamic_codeask_context(
+        app.state.session_factory,
+        session_id=session_id,
+        workspace_dir=tmp_path / "workspace",
     )
-    assert message.status_code == 200, message.text
-
-    first_call_text = "\n".join(
-        block["text"]
-        for message in mock.calls[0]["messages"]
-        for block in message["content"]
-        if block["type"] == "text"
-    )
-    assert "【会话附件候选】" in first_call_text
-    assert "db-node-a.log" in first_call_text
-    assert "service.log" in first_call_text
-    assert "数据库节点 A 日志" in first_call_text
+    assert "## Session Attachments" in context
+    assert "db-node-a.log" in context
+    assert "service.log" in context
+    assert "数据库节点 A 日志" in context
 
 
 @pytest.mark.asyncio
@@ -955,10 +990,9 @@ async def test_session_message_persists_repo_binding_and_streams_answer(
     assert created.status_code == 201, created.text
     session_id = created.json()["id"]
 
-    mock = MockLLMClient(
-        [text_message("结论：payment timeout 可以先查看 app.py 的 handle_payment。")]
+    app.state.opencode_compat = _FakeOpenCodeCompat(
+        "结论：payment timeout 可以先查看 app.py 的 handle_payment。"
     )
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
 
     message = await client.post(
         f"/api/sessions/{session_id}/messages",
@@ -966,13 +1000,12 @@ async def test_session_message_persists_repo_binding_and_streams_answer(
             "content": "请调查 payment timeout 是在哪里处理的",
             "feature_ids": [feature_id],
             "repo_bindings": [{"repo_id": repo_id, "ref": "HEAD"}],
-            "force_code_investigation": True,
         },
         headers={"X-Subject-Id": "alice@dev-1"},
     )
     assert message.status_code == 200, message.text
     body = message.text
-    assert "event: retrieval_context" in body
+    assert "event: runtime_state" in body
     assert "event: text_delta" in body
     assert "TOOL_NOT_CONFIGURED" not in body
     assert "payment timeout" in body

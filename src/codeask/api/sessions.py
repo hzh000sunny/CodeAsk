@@ -435,7 +435,6 @@ async def _stream_post_message_response(
             session_id,
             turn_id,
             payload.content,
-            force_code_investigation=payload.force_code_investigation,
             runtime_llm_config=(
                 payload.guest_llm_config.model_dump()
                 if payload.guest_llm_config is not None
@@ -485,8 +484,6 @@ async def _stream_post_message_response(
 
 
 def _record_opencode_server_status_if_configured(request: Request) -> None:
-    if getattr(request.app.state.settings, "agent_backend", "opencode") != "opencode":
-        return
     process_manager = getattr(request.app.state, "opencode_process_manager", None)
     describe = getattr(process_manager, "describe", None)
     if not callable(describe):
@@ -533,9 +530,8 @@ async def abort_session_turn(session_id: str, turn_id: str, request: Request) ->
     await _load_session(request, session_id)
     from codeask.sessions.messages import rollback_session_turn
 
-    if getattr(request.app.state.settings, "agent_backend", "opencode") == "opencode":
-        with suppress(Exception):
-            await request.app.state.opencode_compat.abort_turn(session_id)
+    with suppress(Exception):
+        await request.app.state.opencode_compat.abort_turn(session_id)
     await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
 
 

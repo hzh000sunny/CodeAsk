@@ -118,12 +118,9 @@ class Settings(BaseSettings):
     openviking_embedding_model: str = "bge-m3"
     openviking_embedding_dimension: int = Field(default=1024, ge=1)
     openviking_embedding_max_concurrent: int = Field(default=1, ge=1, le=128)
-    agent_backend: Literal["opencode", "native"] = Field(
+    agent_backend: Literal["opencode"] = Field(
         default="opencode",
-        description=(
-            "Agent backend used by /sessions/{id}/messages. Production default is opencode; "
-            "native is retained for legacy regression tests and compatibility diagnostics."
-        ),
+        description="Agent backend used by /sessions/{id}/messages.",
     )
 
     @model_validator(mode="after")

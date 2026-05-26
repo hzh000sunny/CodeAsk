@@ -16,17 +16,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from codeask.agent.native_backend.chat_runtime.retrieval import DatabaseRetrievalService
-from codeask.agent.native_backend.chat_runtime.runtime import ChatRuntime, GatewayStreamingLLM
-from codeask.agent.native_backend.chat_runtime.tool_registry import ToolRegistry as ChatToolRegistry
-from codeask.agent.native_backend.chat_runtime.tools.attachments import register_attachment_tools
-from codeask.agent.native_backend.chat_runtime.tools.live_code import register_live_code_tools
-from codeask.agent.native_backend.chat_runtime.tools.reports import register_report_tools
-from codeask.agent.native_backend.chat_runtime.tools.wiki import register_wiki_tools
-from codeask.agent.native_backend.code_tools import AgentCodeSearchService
-from codeask.agent.native_backend.orchestrator import AgentOrchestrator
-from codeask.agent.native_backend.tools import ToolRegistry
-from codeask.agent.native_backend.wiki_tools import AgentWikiToolService
 from codeask.agent.opencode_compat.backend import OpenCodeCompat
 from codeask.agent.opencode_compat.cleanup import cleanup_idle_sessions
 from codeask.agent.opencode_compat.config import OpenVikingMCPConfig
@@ -123,22 +112,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ClientFactory.default(),
             timeout_seconds=settings.llm_timeout_seconds,
         )
-        agent_wiki_search = AgentWikiToolService(factory)
         trace_logger = AgentTraceLogger(factory)
         scheduler = cast(_Scheduler, BackgroundScheduler())
         repo_cloner = RepoCloner(factory)
         repo_root = Path(settings.data_dir) / "repos"
         worktree_manager = WorktreeManager(repo_root=repo_root)
         opencode_worktree_manager = OpenCodeWorktreeManager(worktree_manager=worktree_manager)
-        agent_code_search = AgentCodeSearchService(
-            factory,
-            worktree_manager,
-            index_dir=Path(settings.data_dir) / "index",
-        )
-        tool_registry = ToolRegistry.bootstrap(
-            wiki_search_service=agent_wiki_search,
-            code_search_service=agent_code_search,
-        )
         opencode_process_manager = OpenCodeProcessManager(
             opencode_bin=settings.opencode_bin,
             data_dir=Path(settings.data_dir),
@@ -205,37 +184,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             data_dir=Path(settings.data_dir),
             context_builder=build_opencode_context,
             openviking_mcp_resolver=resolve_openviking_mcp,
-        )
-        agent_orchestrator = AgentOrchestrator(
-            gateway=llm_gateway,
-            tool_registry=tool_registry,
-            trace_logger=trace_logger,
-            session_factory=factory,
-            wiki_search_service=agent_wiki_search,
-            code_search_service=agent_code_search,
-        )
-        chat_tool_registry = ChatToolRegistry()
-        register_wiki_tools(
-            chat_tool_registry,
-            session_factory=factory,
-        )
-        register_report_tools(
-            chat_tool_registry,
-            session_factory=factory,
-        )
-        register_attachment_tools(
-            chat_tool_registry,
-            session_factory=factory,
-        )
-        register_live_code_tools(
-            chat_tool_registry,
-            session_factory=factory,
-            worktree_manager=worktree_manager,
-        )
-        chat_runtime = ChatRuntime(
-            llm=GatewayStreamingLLM(llm_gateway),
-            tool_registry=chat_tool_registry,
-            retrieval_service=DatabaseRetrievalService(factory),
         )
         opencode_mcp_server = OpenCodeMCPServer(
             token_resolver=lambda session_id: make_session_mcp_token(settings.data_key, session_id),
@@ -305,50 +253,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 max_instances=1,
             )
         opencode_handle_state: dict[str, int | None] = {"pid": None}
-        if settings.agent_backend == "opencode":
-            _ensure_opencode_server(
+        _ensure_opencode_server(
+            log,
+            opencode_process_manager,
+            reason="startup",
+            handle_state=opencode_handle_state,
+        )
+        scheduler.add_job(
+            lambda: _ensure_opencode_server(
                 log,
                 opencode_process_manager,
-                reason="startup",
+                reason="keepalive",
                 handle_state=opencode_handle_state,
-            )
-            scheduler.add_job(
-                lambda: _ensure_opencode_server(
-                    log,
-                    opencode_process_manager,
-                    reason="keepalive",
-                    handle_state=opencode_handle_state,
-                ),
-                "interval",
-                seconds=settings.opencode_keepalive_interval_seconds,
-                id="opencode_keepalive",
-                misfire_grace_time=settings.opencode_keepalive_interval_seconds,
-                coalesce=True,
-                max_instances=1,
-            )
-            scheduler.add_job(
-                lambda: _run_opencode_idle_cleanup(
-                    log,
-                    opencode_session_store,
-                    opencode_compat,
-                    ttl_seconds=settings.opencode_session_idle_ttl_seconds,
-                ),
-                "interval",
-                seconds=settings.opencode_session_cleanup_interval_seconds,
-                id="opencode_session_idle_cleanup",
-                misfire_grace_time=settings.opencode_session_cleanup_interval_seconds,
-                coalesce=True,
-                max_instances=1,
-            )
+            ),
+            "interval",
+            seconds=settings.opencode_keepalive_interval_seconds,
+            id="opencode_keepalive",
+            misfire_grace_time=settings.opencode_keepalive_interval_seconds,
+            coalesce=True,
+            max_instances=1,
+        )
+        scheduler.add_job(
+            lambda: _run_opencode_idle_cleanup(
+                log,
+                opencode_session_store,
+                opencode_compat,
+                ttl_seconds=settings.opencode_session_idle_ttl_seconds,
+            ),
+            "interval",
+            seconds=settings.opencode_session_cleanup_interval_seconds,
+            id="opencode_session_idle_cleanup",
+            misfire_grace_time=settings.opencode_session_cleanup_interval_seconds,
+            coalesce=True,
+            max_instances=1,
+        )
         scheduler.start()
 
         app.state.crypto = crypto
         app.state.llm_config_repo = llm_config_repo
         app.state.llm_gateway = llm_gateway
         app.state.trace_logger = trace_logger
-        app.state.tool_registry = tool_registry
-        app.state.agent_orchestrator = agent_orchestrator
-        app.state.chat_runtime = chat_runtime
         app.state.opencode_mcp_server = opencode_mcp_server
         app.state.scheduler = scheduler
         app.state.repo_cloner = repo_cloner
