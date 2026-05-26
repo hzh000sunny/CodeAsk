@@ -6,7 +6,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator
 from secrets import token_hex
-from typing import Any
+from typing import Any, TypedDict, cast
 
 import structlog
 from fastapi import HTTPException, Request, status
@@ -15,13 +15,12 @@ from sqlalchemy import delete, func, select
 
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
 from codeask.agent.opencode_compat.process import OpenCodeProcessError
-from codeask.agent.sse import SSEMultiplexer
+from codeask.agent.sse import AgentEvent, SSEMultiplexer
 from codeask.api.schemas.session import MessageCreate
 from codeask.code_index.worktree import InvalidRefError, WorktreeError
 from codeask.db.models import (
     AgentTrace,
     Repo,
-    SessionConversationSummary,
     SessionFeature,
     SessionRepoBinding,
     SessionTurn,
@@ -34,12 +33,21 @@ from codeask.sessions.trace_redaction import redact_trace_payload_for_frontend
 log = structlog.get_logger("codeask.sessions.messages")
 
 
+class _ToolActionBucket(TypedDict, total=False):
+    call: dict[str, object]
+    result: dict[str, object]
+
+
 def _event_data_dict(data: object) -> dict[str, object]:
     if isinstance(data, BaseModel):
-        return data.model_dump(mode="json")
+        return cast(dict[str, object], data.model_dump(mode="json"))
     if isinstance(data, dict):
-        return data
+        return cast(dict[str, object], data)
     return {}
+
+
+def _format_runtime_event(multiplexer: SSEMultiplexer, event: ChatRuntimeEvent) -> bytes:
+    return multiplexer.format(cast(AgentEvent, event))
 
 
 def _frontend_event(
@@ -314,8 +322,9 @@ async def stream_opencode_response(
                 selection.type,
                 event_data,
             )
-            yield multiplexer.format(
-                _frontend_event(selection, event_data, session_id=session_id, turn_id=turn_id)
+            yield _format_runtime_event(
+                multiplexer,
+                _frontend_event(selection, event_data, session_id=session_id, turn_id=turn_id),
             )
             return
 
@@ -342,13 +351,14 @@ async def stream_opencode_response(
             initializing_event.type,
             initializing_data,
         )
-        yield multiplexer.format(
+        yield _format_runtime_event(
+            multiplexer,
             _frontend_event(
                 initializing_event,
                 initializing_data,
                 session_id=session_id,
                 turn_id=turn_id,
-            )
+            ),
         )
 
         try:
@@ -371,13 +381,14 @@ async def stream_opencode_response(
                 runtime_event.type,
                 runtime_data,
             )
-            yield multiplexer.format(
+            yield _format_runtime_event(
+                multiplexer,
                 _frontend_event(
                     runtime_event,
                     runtime_data,
                     session_id=session_id,
                     turn_id=turn_id,
-                )
+                ),
             )
             emitted_text = False
             retrying_with_next_config = False
@@ -417,13 +428,14 @@ async def stream_opencode_response(
                         event.type,
                         event_data,
                     )
-                    yield multiplexer.format(
+                    yield _format_runtime_event(
+                        multiplexer,
                         _frontend_event(
                             event,
                             event_data,
                             session_id=session_id,
                             turn_id=turn_id,
-                        )
+                        ),
                     )
                     return
 
@@ -442,8 +454,9 @@ async def stream_opencode_response(
                 if event.type == "done":
                     completed = True
                     request.app.state.llm_gateway.record_runtime_config_success(selection)
-                yield multiplexer.format(
-                    _frontend_event(event, event_data, session_id=session_id, turn_id=turn_id)
+                yield _format_runtime_event(
+                    multiplexer,
+                    _frontend_event(event, event_data, session_id=session_id, turn_id=turn_id),
                 )
                 if event.type == "done":
                     break
@@ -475,13 +488,14 @@ async def stream_opencode_response(
                 error_event.type,
                 error_data,
             )
-            yield multiplexer.format(
+            yield _format_runtime_event(
+                multiplexer,
                 _frontend_event(
                     error_event,
                     error_data,
                     session_id=session_id,
                     turn_id=turn_id,
-                )
+                ),
             )
             return
 
@@ -642,162 +656,13 @@ async def rollback_session_turn(
         await session.commit()
 
 
-async def _ensure_conversation_summary(
-    session: Any,
-    *,
-    session_id: str,
-    current_turn_id: str,
-    keep_recent_messages: int,
-) -> SessionConversationSummary | None:
-    turn_rows = (
-        (
-            await session.execute(
-                select(SessionTurn)
-                .where(
-                    SessionTurn.session_id == session_id,
-                    SessionTurn.id != current_turn_id,
-                )
-                .order_by(SessionTurn.turn_index.asc(), SessionTurn.created_at.asc())
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if len(turn_rows) <= keep_recent_messages:
-        return await session.get(SessionConversationSummary, session_id)
-
-    covered_rows = list(turn_rows[:-keep_recent_messages])
-    if not covered_rows:
-        return await session.get(SessionConversationSummary, session_id)
-    covered_turn_index = max(row.turn_index for row in covered_rows)
-
-    summary_row = await session.get(SessionConversationSummary, session_id)
-    if (
-        summary_row is not None
-        and summary_row.consecutive_failures >= 3
-        and summary_row.covered_turn_index >= 0
-    ):
-        return summary_row
-    if summary_row is not None and summary_row.covered_turn_index >= covered_turn_index:
-        return summary_row
-
-    trace_rows = await _load_summary_trace_rows(
-        session,
-        session_id=session_id,
-        covered_turn_ids=[row.id for row in covered_rows],
-    )
-    try:
-        summary_text = _build_extractive_conversation_summary(
-            previous_summary=summary_row.summary if summary_row is not None else None,
-            covered_rows=covered_rows,
-            trace_rows=trace_rows,
-            covered_turn_index=covered_turn_index,
-        )
-    except Exception:
-        if summary_row is not None:
-            summary_row.consecutive_failures = min(
-                summary_row.consecutive_failures + 1,
-                3,
-            )
-            await session.commit()
-            return summary_row
-        return None
-    if summary_row is None:
-        summary_row = SessionConversationSummary(
-            session_id=session_id,
-            summary=summary_text,
-            covered_turn_index=covered_turn_index,
-            covered_turn_count=len(covered_rows),
-            covered_trace_count=len(trace_rows),
-            consecutive_failures=0,
-        )
-        session.add(summary_row)
-    else:
-        summary_row.summary = summary_text
-        summary_row.covered_turn_index = covered_turn_index
-        summary_row.covered_turn_count = len(covered_rows)
-        summary_row.covered_trace_count = len(trace_rows)
-        summary_row.consecutive_failures = 0
-    await session.commit()
-    return summary_row
-
-
-async def _load_summary_trace_rows(
-    session: Any,
-    *,
-    session_id: str,
-    covered_turn_ids: list[str],
-    limit: int = 30,
-) -> list[AgentTrace]:
-    if not covered_turn_ids:
-        return []
-    rows = (
-        (
-            await session.execute(
-                select(AgentTrace)
-                .where(
-                    AgentTrace.session_id == session_id,
-                    AgentTrace.turn_id.in_(covered_turn_ids),
-                    AgentTrace.event_type.in_(["tool_call", "tool_result"]),
-                )
-                .order_by(AgentTrace.created_at.asc(), AgentTrace.id.asc())
-                .limit(limit)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return list(rows)
-
-
-def _build_extractive_conversation_summary(
-    *,
-    previous_summary: str | None,
-    covered_rows: list[SessionTurn],
-    trace_rows: list[AgentTrace],
-    covered_turn_index: int,
-) -> str:
-    lines = [
-        f"覆盖 turn_index <= {covered_turn_index}。",
-        "摘要类型：extractive；事实来自历史会话 turn 和工具行动摘要。",
-    ]
-    if previous_summary:
-        lines.extend(["", "上一版摘要：", _truncate_summary(previous_summary, 1800)])
-    if covered_rows:
-        lines.extend(["", "较早对话要点："])
-        for row in covered_rows[-8:]:
-            label = "用户" if row.role == "user" else "CodeAsk"
-            lines.append(
-                f"- turn_index={row.turn_index} {label}: {_truncate_summary(row.content, 360)}"
-            )
-    tool_summary = summarize_tool_actions(trace_rows)
-    if tool_summary:
-        lines.extend(["", "较早工具行动事实：", _truncate_summary(tool_summary, 1800)])
-    lines.extend(
-        [
-            "",
-            "使用要求：继续对话时必须把这段摘要视为历史上下文；",
-            "如果用户追问刚刚、上一轮、是否查过代码或用了什么证据，",
-            "需要结合本摘要和最近 turns 回答，不能回答成第一次交流。",
-        ]
-    )
-    return "\n".join(lines)
-
-
-def _truncate_summary(text: str, limit: int) -> str:
-    cleaned = " ".join(text.split())
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: max(0, limit - 15)] + "...[truncated]"
-
-
 def summarize_tool_actions(rows: list[AgentTrace]) -> str | None:
     if not rows:
         return None
-    calls: dict[str, dict[str, Any]] = {}
+    calls: dict[str, _ToolActionBucket] = {}
     order: list[str] = []
     for row in rows:
-        payload = row.payload if isinstance(row.payload, dict) else {}
+        payload = _event_data_dict(row.payload)
         call_id = _trace_call_id(payload)
         if not call_id:
             continue
@@ -812,8 +677,8 @@ def summarize_tool_actions(rows: list[AgentTrace]) -> str | None:
     lines: list[str] = []
     for call_id in order:
         item = calls[call_id]
-        call = item.get("call") or {}
-        result = item.get("result") or {}
+        call = item.get("call", {})
+        result = item.get("result", {})
         tool_name = _text(call.get("tool_name") or result.get("tool_name"))
         if not tool_name:
             continue
@@ -831,7 +696,7 @@ def summarize_tool_actions(rows: list[AgentTrace]) -> str | None:
     return "\n".join(lines) if lines else None
 
 
-def _trace_call_id(payload: dict[str, Any]) -> str | None:
+def _trace_call_id(payload: dict[str, object]) -> str | None:
     value = payload.get("tool_call_id") or payload.get("id")
     return value if isinstance(value, str) and value.strip() else None
 
