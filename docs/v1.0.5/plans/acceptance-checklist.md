@@ -127,19 +127,31 @@ M1 仅交付 tuning 默认配置读取、推荐值展示与 admin API 基础面�
 - [x] 前端 `frontend/src/lib/wiki/api.ts` 无改动，证明后端是无缝替换
 - [x] OpenViking 长期不可用时连续搜索多次：仪表盘事件流不被搜索失败刷屏（去重 / 速率限制生效）
 
-### 3.7 Wiki 写路径 hook（同步过滤规则）
+### 3.7 Wiki / Report 写路径 hook（M5，详见 [m5-write-path-hooks.md](./m5-write-path-hooks.md)）
 
-- [ ] `POST /api/documents` 上传 Markdown / PDF / 文本：sync_jobs 表新增一条 pending，`source_type=wiki_doc`（hook 在 `sync_legacy_markdown_document`，非 `publish_document`）
-- [ ] `backfill_feature_content` 全量回填 legacy 文档时也入队（与上传共用 `sync_legacy_markdown_document` hook，不漏 backfill 路径）
-- [ ] `POST /api/wiki/documents/{node_id}/publish`：sync_jobs 表新增一条；`source_hash` 与新版本 markdown sha 对齐
-- [ ] `POST /api/wiki/documents/{node_id}/rollback`：sync_jobs 入队
-- [ ] `PUT /api/wiki/documents/{node_id}/draft` + `DELETE .../draft`：**sync_jobs 表不增加新行**
-- [ ] WikiNode 软删 → sync_jobs 入队 `tombstone=true`；OpenViking 资源被 `forget`
-- [ ] Report `verified=false → true` → sync_jobs 入队 `source_type=report`
-- [ ] Report `verified=true → false` → sync_jobs 入队 `source_type=report, tombstone=true`
+引擎底座（M5-0，D1 + D2）：
+
+- [ ] delete spike 已记录 OpenViking 删除/移除资源端点（端点 / 入参 / 响应 / 成功样本）
+- [ ] `OpenVikingClient.delete_resource` 已加（复用 trusted headers / `trust_env=False`），单测覆盖正常 + 异常
+- [ ] `enqueue` 支持 `operation=upsert|delete`（存 `progress`，无新迁移）
+- [ ] `run_pending_jobs` / `_resource_from_job` 按 `source_type`+`source_id` **现查最新正文**（upsert）或调 `delete_resource`（tombstone）；保留 manual 内联兼容路径
+- [ ] 正文不内联进 `progress`；**快速二次发布索引到最新正文**（验证去重不再导致 staleness）
+
+hook 接入（D3：均在 API 端点 `session.commit()` 之后，enqueue 失败只 log 不阻塞主写路径）：
+
+- [ ] `POST /api/documents` 上传 → sync_jobs 新增 pending，`source_type=wiki_doc`、`source_id=str(WikiDocument.id)`（hook 在上传端点 commit 后，非 `sync_legacy_markdown_document` 内部）
+- [ ] `backfill_feature_content` 全量回填也入队（其调用方 commit 后逐个，不漏 backfill 路径）
+- [ ] `POST /api/wiki/documents/{node_id}/publish`：sync_jobs 新增一条；`source_hash` 与新版本 markdown sha 对齐
+- [ ] `POST /api/wiki/documents/{node_id}/versions/{version_id}/rollback`：sync_jobs 入队
+- [ ] `PUT /api/wiki/documents/{node_id}/draft` + `DELETE .../draft`：**sync_jobs 不增加新行**
+- [ ] WikiNode 软删（tree 删除 / legacy 软删）→ tombstone job（`operation=delete`）；恢复（`deleted_at=None`）→ 重新 upsert；子树批量删除逐个 doc 入队
+- [ ] Report `verified=false → true` → upsert，`source_type=report`、`source_id=str(Report.id)`
+- [ ] Report `verified=true → false`（unverify / reject）+ delete report → tombstone
 - [ ] Report 在 `verified=false` 状态下编辑 → **sync_jobs 不增加新行**
-- [ ] Report 在 `verified=true` 状态下编辑（且 hash 不同）→ sync_jobs 入队
+- [ ] Report 在 `verified=true` 状态下编辑（且 hash 不同）→ upsert
+- [ ] 导入会话软删（`imports/session_service.py`）后置，不在 M5 范围
 - [ ] scheduled_refresh 24h sweep 也遵守上述过滤：扫描时跳过 drafts 与 unverified reports
+- [ ] OpenViking / delete 端点不可用时主写路径仍 2xx；tombstone job 走退避重试
 
 ### 3.8 FTS5 删除
 

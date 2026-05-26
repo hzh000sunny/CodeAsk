@@ -601,11 +601,17 @@ M4 Wiki UI 搜索框 OpenViking-first + ILIKE 兜底（步骤 18-19；不在 M1 
 - OpenViking 查询 spike 结论：使用 REST `POST /api/v1/search/find`，入参 `{query,target_uri,limit,score_threshold}`，trusted headers 仍为 `X-OpenViking-Account/User/Agent`；响应为 `{status:"ok", result:{resources:[{uri,score,context_type,level,abstract,overview}], total}}`。实测成功样本命中 `viking://resources/codeask/features/m4-spike/knowledge-base/m4-spike.md/m4-spike.md`，score `0.6444`。读取正文端点实测为 `GET /api/v1/content/read`，不是旧文档里的 `/api/v1/fs/read`。
 - Wiki UI 搜索已改为 OpenViking-first：进程 running 且可查询时调用 `OpenVikingClient.find`；命中 URI 通过 `openviking_sync_jobs.viking_uri` 映射回 `WikiDocument` / `Report` 后复用原分组语义；0 命中、异常、未启动、无法映射都回退 `NativeWikiSearchService`；长期 unavailable 事件按 60s 限速，避免 dashboard 被刷屏。前端 `frontend/src/lib/wiki/api.ts` 未改。
 
-M5 Wiki 写路径 hook（步骤 20-22；不在 M1 实施）：
+M5 Wiki / Report 写路径 hook（步骤 20-22；不在 M1 实施）。**完整计划见 [m5-write-path-hooks.md](./m5-write-path-hooks.md)**，下列为概要。
 
-20. `wiki/documents/service.py:publish_document` / `rollback_to_version` 完成后调 `rag.openviking.sync.enqueue(source_type="wiki_doc", source_id=str(document.id))`（`enqueue` 签名 `source_id: str`，需转字符串）；`save_draft` / `delete_draft` 不调。**legacy `/documents` 上传单独接**：`sync_legacy_markdown_document` 不走 `publish_document`，hook 入队要放在 `wiki/sync/service.py:sync_legacy_markdown_document` 内（这样 `upload_document` POST 与 `backfill_feature_content` 全量回填两条调用方一起覆盖；仅放 `upload_document` 会漏 backfill）
-21. `wiki/reports.py` + `api/reports.py` verify endpoint：`verified=false → true` 入队；`verified=true → false` 入队 tombstone；`verified=false` 状态下编辑不入队
-22. wiki node 软删 hook（`WikiNode.deleted_at` 标记后）入队 tombstone
+四个已锁定决策（详见 m5 文档 §1）：① **D1 content 现查**——引擎按 `source_type`+`source_id` 现查正文，不内联快照（消除 `enqueue` 去重导致的 staleness）；② **D2 tombstone 净新增**——client 无删除方法、引擎只有 add，需 spike OpenViking 删除端点 + `client.delete_resource` + 引擎 `operation=upsert|delete`；③ **D3 hook 放 API 端点 commit 之后**（service 只 flush，commit 在 API 层；修正旧措辞"放进 `sync_legacy_markdown_document` 内"）；④ **D4 软删覆盖主路径**——tree 删除 + legacy 软删发 tombstone、恢复重新 upsert，导入会话软删后置。
+
+- **M5-0（先做，最重）**：delete spike → `client.delete_resource` → `enqueue` 加 `operation` 形参（存 `progress`，免迁移）→ `run_pending_jobs`/`_resource_from_job` 改为现查正文（upsert）或调 delete（tombstone）。
+20. publish（`api/wiki/documents.py:34`，commit `:40`）/ rollback（`api/wiki/versions.py:79`，commit `:85`）端点 commit 后 `enqueue(source_type="wiki_doc", source_id=str(document.id), …)`；`save_draft`/`delete_draft` 不入队。
+20b. legacy `/documents` 上传（`documents_compat.py:43`，commit `:110`）+ `backfill_feature_content`（`wiki/sync/service.py:28`，调用方 commit 后逐个）入队，覆盖上传 + 全量回填；source_id 用同步出的 `WikiDocument.id`（与 M4 反查一致）。
+21. Report verify 端点（`api/reports.py:96`，commit `:112`）`false→true` upsert；unverify/reject/delete report → tombstone；unverified 编辑不入队。
+22. Wiki 节点软删（`tree/service.py:465` / `sync/service.py:149` 所属端点 commit 后）→ tombstone；恢复（`tree/service.py:517`）→ 重新 upsert。
+
+source_type/source_id 与 M4 反查约定：`wiki_doc`→`WikiDocument.id`、`report`→`Report.id`（见 m5 文档 §2）。
 
 收尾（每个里程碑合入前必做）：升级路径在真实数据备份上回归一次；勾选 acceptance-checklist 对应 Phase 1 子项。
 
