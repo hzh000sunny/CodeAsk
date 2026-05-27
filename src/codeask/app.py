@@ -145,12 +145,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             host=settings.openviking_host,
             port=settings.openviking_port,
         )
-        openviking_sync_service = OpenVikingSyncService(
-            factory,
-            client=OpenVikingClient(
-                base_url=f"http://{settings.openviking_host}:{settings.openviking_port}",
-            ),
+        openviking_client = OpenVikingClient(
+            base_url=f"http://{settings.openviking_host}:{settings.openviking_port}",
         )
+        openviking_sync_service = OpenVikingSyncService(factory, client=openviking_client)
 
         async def resolve_openviking_mcp(session_id: str) -> OpenVikingMCPConfig | None:
             return await _resolve_openviking_mcp_config(
@@ -308,6 +306,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.worktree_manager = worktree_manager
         app.state.opencode_worktree_manager = opencode_worktree_manager
         app.state.opencode_process_manager = opencode_process_manager
+        app.state.openviking_client = openviking_client
         app.state.openviking_process_manager = openviking_process_manager
         app.state.openviking_sync_service = openviking_sync_service
         app.state.opencode_workspace_manager = opencode_workspace_manager

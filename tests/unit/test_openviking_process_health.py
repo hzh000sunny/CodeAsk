@@ -3,6 +3,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from codeask.rag.openviking.config import OpenVikingRuntimeConfig
 from codeask.rag.openviking.health import (
     OpenVikingHealthStatus,
     check_ollama_models,
@@ -56,6 +57,60 @@ def test_process_manager_builds_uvx_command_without_unsetting_proxy(
         str(tmp_path / "openviking" / "ov.conf"),
     ]
     assert captured["env"]["HTTPS_PROXY"] == "socks5://127.0.0.1:7890"
+
+
+def test_process_manager_regenerates_ov_conf_with_updated_runtime_config(tmp_path: Path) -> None:
+    manager = OpenVikingProcessManager(data_dir=tmp_path, port=1933)
+    config = OpenVikingRuntimeConfig(
+        data_dir=tmp_path,
+        port=1933,
+        embedding_model="bge-m3",
+        embedding_max_concurrent=4,
+        max_input_tokens=8192,
+    )
+
+    config_path = manager.regenerate_ov_conf(config)
+
+    assert config_path == tmp_path / "openviking" / "ov.conf"
+    body = config_path.read_text(encoding="utf-8")
+    assert '"max_concurrent": 4' in body
+    assert '"max_input_tokens": 8192' in body
+
+
+def test_process_manager_restart_shutdowns_existing_process_and_starts_new(tmp_path: Path) -> None:
+    started: list[list[str]] = []
+    terminated: list[int] = []
+
+    class FakeProcess:
+        _next_pid = 2000
+
+        def __init__(self) -> None:
+            self.pid = FakeProcess._next_pid
+            FakeProcess._next_pid += 1
+            self._running = True
+
+        def poll(self) -> int | None:
+            return None if self._running else 0
+
+        def terminate(self) -> None:
+            terminated.append(self.pid)
+            self._running = False
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    def fake_popen(cmd, env):
+        started.append(list(cmd))
+        return FakeProcess()
+
+    manager = OpenVikingProcessManager(data_dir=tmp_path, port=1933, popen_factory=fake_popen)
+
+    first = manager.ensure_server()
+    second = manager.restart_openviking()
+
+    assert first.pid != second.pid
+    assert terminated == [first.pid]
+    assert len(started) == 2
 
 
 @pytest.mark.asyncio

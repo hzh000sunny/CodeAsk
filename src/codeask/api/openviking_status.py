@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import re
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -12,6 +11,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from codeask.identity import require_admin
+from codeask.metrics.audit import record_audit_log
+from codeask.rag.openviking.dashboard import emit_event
 from codeask.rag.openviking.health import (
     OllamaModelStatus,
     OpenVikingHealthStatus,
@@ -22,7 +23,7 @@ from codeask.rag.openviking.models import OpenVikingDashboardEvent, OpenVikingSy
 from codeask.rag.openviking.sync import OpenVikingSyncService
 
 router = APIRouter()
-_ABSOLUTE_PATH_TOKEN = re.compile(r"(?<![:/])(/[^\s'\"<>]+)")
+_OPENVIKING_ROOT_URI = "viking://resources/codeask"
 
 
 class OpenVikingEnqueueRequest(BaseModel):
@@ -36,23 +37,25 @@ class OpenVikingEnqueueRequest(BaseModel):
     filename: str | None = Field(default=None, max_length=255)
 
 
+class OpenVikingResyncRequest(BaseModel):
+    source_type: str | None = Field(default=None, max_length=32)
+    feature_slug: str | None = Field(default=None, max_length=128)
+
+
 @router.get("/admin/openviking/status")
 async def get_openviking_status(request: Request) -> dict[str, Any]:
     require_admin(request)
     process_manager = getattr(request.app.state, "openviking_process_manager", None)
     status_payload = _describe_process(process_manager)
-    status_payload = _redact_status_paths(
-        status_payload,
-        data_dir=request.app.state.settings.data_dir,
-    )
     health = await _probe_status_health(request, status_payload)
     ollama = await _probe_ollama_status(request)
-    status_payload["health"] = _health_to_dict(health, data_dir=request.app.state.settings.data_dir)
+    status_payload["health"] = _health_to_dict(health)
     status_payload["ollama"] = _ollama_to_dict(ollama, request)
     if health.version:
         status_payload["version"] = health.version
     queue = await _queue_counts(request)
     status_payload["queue"] = queue
+    status_payload["metrics_5min"] = _metrics_snapshot()
     status_payload["degraded"] = (
         not bool(status_payload.get("running"))
         or not health.healthy
@@ -72,7 +75,7 @@ async def list_openviking_sync_jobs(
     service = _sync_service(request)
     jobs = await service.list_jobs(status=status_filter, limit=limit)
     return {
-        "items": [_job_to_dict(job, data_dir=request.app.state.settings.data_dir) for job in jobs],
+        "items": [_job_to_dict(job) for job in jobs],
         "total": len(jobs),
     }
 
@@ -97,7 +100,7 @@ async def enqueue_openviking_sync_job(
         payload=_manual_payload(payload),
         operation="delete" if payload.operation == "delete" else "upsert",
     )
-    return _job_to_dict(job, data_dir=request.app.state.settings.data_dir)
+    return _job_to_dict(job)
 
 
 @router.post("/admin/openviking/sync_jobs/run_pending")
@@ -107,10 +110,149 @@ async def run_pending_openviking_sync_jobs(request: Request) -> dict[str, int]:
     return await service.run_pending_jobs(limit=10)
 
 
+@router.post("/admin/openviking/sync_jobs/{job_id}/retry")
+async def retry_openviking_sync_job(job_id: str, request: Request) -> dict[str, Any]:
+    require_admin(request)
+    async with request.app.state.session_factory() as session:
+        job = await session.get(OpenVikingSyncJob, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="OpenViking sync job not found")
+        previous_status = job.status
+        _reset_job_for_retry(job)
+        await record_audit_log(
+            session,
+            entity_type="openviking_sync_job",
+            entity_id=job_id,
+            action="retry",
+            subject_id=str(request.state.subject_id),
+            from_status=previous_status,
+            to_status="pending",
+        )
+        await session.commit()
+        await session.refresh(job)
+        payload = _job_to_dict(job)
+    await emit_event(
+        request.app.state.session_factory,
+        event_type="manual_retry",
+        source_type=payload["source_type"],
+        source_id=payload["source_id"],
+        sync_job_id=job_id,
+        triggered_by=request.state.subject_id,
+        payload={"job_id": job_id},
+        outcome="info",
+    )
+    return payload
+
+
+@router.post("/admin/openviking/sync_jobs/retry_failed")
+async def retry_failed_openviking_sync_jobs(request: Request) -> dict[str, int]:
+    require_admin(request)
+    async with request.app.state.session_factory() as session:
+        jobs = (
+            (
+                await session.execute(
+                    select(OpenVikingSyncJob).where(OpenVikingSyncJob.status == "failed")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for job in jobs:
+            _reset_job_for_retry(job)
+        await record_audit_log(
+            session,
+            entity_type="openviking_sync_jobs",
+            entity_id="failed",
+            action="retry_failed",
+            subject_id=str(request.state.subject_id),
+            from_status="failed",
+            to_status="pending",
+        )
+        await session.commit()
+    await emit_event(
+        request.app.state.session_factory,
+        event_type="manual_retry_failed",
+        triggered_by=request.state.subject_id,
+        payload={"count": len(jobs)},
+        outcome="info",
+    )
+    return {"queued": len(jobs)}
+
+
+@router.post("/admin/openviking/resync")
+async def resync_openviking_jobs(
+    payload: OpenVikingResyncRequest,
+    request: Request,
+) -> dict[str, int]:
+    require_admin(request)
+    stmt = select(OpenVikingSyncJob)
+    if payload.source_type:
+        stmt = stmt.where(OpenVikingSyncJob.source_type == payload.source_type)
+    if payload.feature_slug:
+        stmt = stmt.where(OpenVikingSyncJob.feature_slug == payload.feature_slug)
+    async with request.app.state.session_factory() as session:
+        jobs = (await session.execute(stmt)).scalars().all()
+        for job in jobs:
+            if job.status != "running":
+                _reset_job_for_retry(job)
+        await record_audit_log(
+            session,
+            entity_type="openviking_sync_jobs",
+            entity_id=f"{payload.source_type or '*'}:{payload.feature_slug or '*'}",
+            action="resync",
+            subject_id=str(request.state.subject_id),
+            from_status=None,
+            to_status="pending",
+        )
+        await session.commit()
+    await emit_event(
+        request.app.state.session_factory,
+        event_type="manual_resync",
+        triggered_by=request.state.subject_id,
+        payload={
+            "source_type": payload.source_type,
+            "feature_slug": payload.feature_slug,
+            "count": len(jobs),
+        },
+        outcome="info",
+    )
+    return {"queued": len(jobs)}
+
+
+@router.post("/admin/openviking/rebuild_index")
+async def rebuild_openviking_index(request: Request) -> dict[str, int]:
+    require_admin(request)
+    clear_result = await _clear_openviking_root(request)
+    async with request.app.state.session_factory() as session:
+        jobs = (await session.execute(select(OpenVikingSyncJob))).scalars().all()
+        for job in jobs:
+            if job.status != "running":
+                _reset_job_for_retry(job)
+        await record_audit_log(
+            session,
+            entity_type="openviking_index",
+            entity_id=_OPENVIKING_ROOT_URI,
+            action="rebuild",
+            subject_id=str(request.state.subject_id),
+            from_status="indexed",
+            to_status="pending",
+        )
+        await session.commit()
+    await emit_event(
+        request.app.state.session_factory,
+        event_type="manual_rebuild_index",
+        triggered_by=request.state.subject_id,
+        payload={"count": len(jobs), "clear_result": clear_result},
+        outcome="warning" if clear_result.get("ok") else "error",
+    )
+    return {"queued": len(jobs), "rebuild_status": 1 if jobs else 0}
+
+
 @router.get("/admin/openviking/events")
 async def list_openviking_events(
     request: Request,
     event_type: str | None = Query(default=None, min_length=1, max_length=64),
+    outcome: str | None = Query(default=None, pattern="^(info|success|warning|error)$"),
     limit: int = Query(default=100, ge=1, le=500),
     before_id: int | None = Query(default=None, ge=1),
 ) -> dict[str, Any]:
@@ -121,6 +263,8 @@ async def list_openviking_events(
     )
     if event_type is not None:
         stmt = stmt.where(OpenVikingDashboardEvent.event_type == event_type)
+    if outcome is not None:
+        stmt = stmt.where(OpenVikingDashboardEvent.outcome == outcome)
     if before_id is not None:
         stmt = stmt.where(OpenVikingDashboardEvent.id < before_id)
     async with factory() as session:
@@ -151,38 +295,25 @@ def _manual_payload(payload: OpenVikingEnqueueRequest) -> dict[str, Any] | None:
     }
 
 
-def _redact_status_paths(
-    status_payload: dict[str, Any],
-    *,
-    data_dir: str | Path,
-) -> dict[str, Any]:
-    redacted = dict(status_payload)
-    for key in ("config_file", "workspace_path", "log_file"):
-        value = redacted.get(key)
-        if isinstance(value, str):
-            redacted[key] = _safe_display_path(value, data_dir=data_dir)
-    for key in ("last_error",):
-        value = redacted.get(key)
-        if isinstance(value, str):
-            redacted[key] = _redact_error_text(value, data_dir=data_dir)
-    return redacted
+def _reset_job_for_retry(job: OpenVikingSyncJob) -> None:
+    job.status = "pending"
+    job.attempts = 0
+    job.next_retry_at = None
+    job.error = None
+    job.task_id = None
 
 
-def _safe_display_path(value: str, *, data_dir: str | Path) -> str:
-    path = Path(value)
+async def _clear_openviking_root(request: Request) -> dict[str, Any]:
+    client = getattr(request.app.state, "openviking_client", None)
+    delete_resource = getattr(client, "delete_resource", None)
+    if not callable(delete_resource):
+        return {"ok": False, "error": "OpenViking client is not registered"}
+    delete = cast(Callable[[str], Awaitable[dict[str, Any]]], delete_resource)
     try:
-        return path.relative_to(Path(data_dir)).as_posix()
-    except ValueError:
-        if path.is_absolute():
-            return "[absolute-path-redacted]"
-    return value
-
-
-def _redact_error_text(value: str, *, data_dir: str | Path) -> str:
-    return _ABSOLUTE_PATH_TOKEN.sub(
-        lambda match: _safe_display_path(match.group(1), data_dir=data_dir),
-        value,
-    )
+        result = await delete(_OPENVIKING_ROOT_URI)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "result": result}
 
 
 def _describe_process(process_manager: object | None) -> dict[str, Any]:
@@ -213,6 +344,17 @@ async def _queue_counts(request: Request) -> dict[str, int]:
     return counts
 
 
+def _metrics_snapshot() -> dict[str, Any]:
+    return {
+        "collected": False,
+        "window_seconds": 300,
+        "throughput_per_min": None,
+        "latency_p95_ms": None,
+        "breaker_trips": None,
+        "message": "未采集",
+    }
+
+
 async def _probe_status_health(
     request: Request,
     status_payload: dict[str, Any],
@@ -238,15 +380,11 @@ async def _probe_ollama_status(request: Request) -> OllamaModelStatus:
     )
 
 
-def _health_to_dict(
-    health: OpenVikingHealthStatus,
-    *,
-    data_dir: str | Path,
-) -> dict[str, Any]:
+def _health_to_dict(health: OpenVikingHealthStatus) -> dict[str, Any]:
     return {
         "healthy": health.healthy,
         "version": health.version,
-        "error": _redact_error_text(health.error, data_dir=data_dir) if health.error else None,
+        "error": health.error,
     }
 
 
@@ -257,13 +395,11 @@ def _ollama_to_dict(status: OllamaModelStatus, request: Request) -> dict[str, An
         "model_available": status.model_available,
         "required_model": settings.openviking_embedding_model,
         "models": status.models,
-        "error": (
-            _redact_error_text(status.error, data_dir=settings.data_dir) if status.error else None
-        ),
+        "error": status.error,
     }
 
 
-def _job_to_dict(job: OpenVikingSyncJob, *, data_dir: str | Path) -> dict[str, Any]:
+def _job_to_dict(job: OpenVikingSyncJob) -> dict[str, Any]:
     return {
         "id": job.id,
         "source_type": job.source_type,
@@ -275,7 +411,7 @@ def _job_to_dict(job: OpenVikingSyncJob, *, data_dir: str | Path) -> dict[str, A
         "next_retry_at": _iso(job.next_retry_at),
         "last_synced_at": _iso(job.last_synced_at),
         "last_indexed_at": _iso(job.last_indexed_at),
-        "error": _redact_error_text(job.error, data_dir=data_dir) if job.error else None,
+        "error": job.error,
         "task_id": job.task_id,
         "progress": job.progress,
         "created_at": _iso(job.created_at),

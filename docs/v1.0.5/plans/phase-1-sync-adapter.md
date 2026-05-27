@@ -371,7 +371,7 @@ GET  /api/admin/openviking/tuning/history?scope=...&key=...&limit=50
 }
 
 GET  /api/admin/openviking/tuning/ollama_snippet
-→ {"snippet": str, "current_recommended": {"num_parallel": int, "num_thread": int}}
+→ {"snippet": str, "num_parallel": str, "num_thread": str}  # 当前配置值对应的 systemd snippet
 ```
 
 **调参应用实现**（SDD §13.6.3）：
@@ -633,7 +633,7 @@ source_type/source_id 与 M4 反查约定：`wiki_doc`→`WikiDocument.id`、`re
 - 临时空库 `start.sh` 跑通；OpenViking server 自动拉起，sync 队列从空开始
 - 真实数据备份升级路径完成；老数据无回归
 - 全量 sweep 后所有现存 Feature / Wiki / verified 报告 / ready 仓库都在 OpenViking 中可见
-- admin 诊断接口与卡片可读 / 可看 / 不显示宿主机绝对路径
+- admin 诊断接口与卡片可读 / 可看 / 显示完整宿主机绝对路径；路径脱敏只约束会话事件流和普通用户可见链路
 - 仪表盘三个核心组件（Health / SyncJobs / EventStream）展示真实数据：当前 embedding 配置、进行中任务进度 + ETA、最近 100 条事件
 - kill OpenViking server 后重启，仪表盘自动恢复显示进度，不需要 admin 手动刷新
 - Ollama 重启后仪表盘出现 `ollama_recovery` 事件，sync_jobs 在 1–2 分钟内自动追上进度

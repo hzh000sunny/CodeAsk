@@ -8,7 +8,7 @@ from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 from typing import BinaryIO, Protocol
 
 from codeask.rag.openviking.config import OpenVikingRuntimeConfig, write_ov_conf
@@ -53,7 +53,7 @@ class OpenVikingProcessManager:
         self._process: ProcessLike | None = None
         self._handle: OpenVikingServerHandle | None = None
         self._log_file: BinaryIO | None = None
-        self._lock = Lock()
+        self._lock = RLock()
         self._last_error: str | None = None
         self._last_error_code: str | None = None
         self._version: str | None = None
@@ -106,6 +106,28 @@ class OpenVikingProcessManager:
                 with suppress(Exception):
                     self._process.wait(timeout=5)
             self._close_log_file()
+
+    def regenerate_ov_conf(self, runtime_config: OpenVikingRuntimeConfig | None = None) -> Path:
+        with self._lock:
+            if runtime_config is not None:
+                self._runtime_config = runtime_config
+                self._host = runtime_config.host
+                self._port = runtime_config.port
+            return write_ov_conf(self._runtime_config)
+
+    def restart_openviking(
+        self,
+        runtime_config: OpenVikingRuntimeConfig | None = None,
+    ) -> OpenVikingServerHandle:
+        with self._lock:
+            if runtime_config is not None:
+                self._runtime_config = runtime_config
+                self._host = runtime_config.host
+                self._port = runtime_config.port
+            self.shutdown()
+            self._process = None
+            self._handle = None
+            return self.ensure_server()
 
     def describe(self) -> dict[str, object]:
         with self._lock:

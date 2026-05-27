@@ -158,9 +158,39 @@ const openvikingEmbedding = {
 
 const openvikingTuning = {
   scopes: {
-    openviking: [{ key: "embedding.max_concurrent", value: "1" }],
-    codeask: [{ key: "sync_workers", value: "2" }],
-    ollama_recommend: [{ key: "num_parallel", value: "1" }],
+    openviking: [
+      {
+        key: "embedding.max_concurrent",
+        value: "1",
+        activated_at: "2026-05-25T08:00:00Z",
+        activated_by: null,
+        previous_value: null,
+        recommended: "1",
+        notes: "default",
+      },
+    ],
+    codeask: [
+      {
+        key: "sync_workers",
+        value: "2",
+        activated_at: "2026-05-25T08:00:00Z",
+        activated_by: null,
+        previous_value: null,
+        recommended: "2",
+        notes: "default",
+      },
+    ],
+    ollama_recommend: [
+      {
+        key: "num_parallel",
+        value: "1",
+        activated_at: "2026-05-25T08:00:00Z",
+        activated_by: null,
+        previous_value: null,
+        recommended: "1",
+        notes: "default",
+      },
+    ],
   },
   preset: "small_machine",
 };
@@ -284,6 +314,9 @@ describe("SettingsPage LLM configuration", () => {
               viking_uri: "viking://resources/codeask/features/anything-llm/knowledge-base/doc.md",
               status: "pending",
               attempts: 0,
+              next_retry_at: null,
+              last_synced_at: null,
+              last_indexed_at: null,
               error: null,
               progress: null,
               created_at: "2026-05-25T08:00:00Z",
@@ -293,7 +326,7 @@ describe("SettingsPage LLM configuration", () => {
           total: 1,
         });
       }
-      if (path === "/api/admin/openviking/events") {
+      if (path.startsWith("/api/admin/openviking/events")) {
         return jsonResponse({
           items: [
             {
@@ -311,11 +344,34 @@ describe("SettingsPage LLM configuration", () => {
           next_before_id: null,
         });
       }
+      if (path === "/api/admin/openviking/embedding/candidates") {
+        return jsonResponse({
+          items: [
+            {
+              provider: "ollama",
+              base_url: "http://127.0.0.1:11434",
+              model: "bge-m3",
+              source: "ollama",
+            },
+          ],
+          ollama: { healthy: true, model_available: true, error: null },
+        });
+      }
       if (path === "/api/admin/openviking/embedding") {
         return jsonResponse(openvikingEmbedding);
       }
       if (path === "/api/admin/openviking/tuning") {
         return jsonResponse(openvikingTuning);
+      }
+      if (path === "/api/admin/openviking/tuning/preset") {
+        return jsonResponse({ preset: "small_machine", detected_host: {}, preset_values: [] });
+      }
+      if (path === "/api/admin/openviking/tuning/ollama_snippet") {
+        return jsonResponse({
+          snippet: 'Environment="OLLAMA_NUM_PARALLEL=1"',
+          num_parallel: "1",
+          num_thread: "4",
+        });
       }
       throw new Error(`unexpected request ${path}`);
     });
@@ -326,11 +382,12 @@ describe("SettingsPage LLM configuration", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: "OpenViking" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("OpenViking RAG 状态")).toBeInTheDocument();
-    expect(await screen.findAllByText("bge-m3")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "健康状态" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Embedding 模型" })).toBeInTheDocument();
+    expect((await screen.findAllByText("bge-m3")).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Ollama / 模型")).toBeInTheDocument();
-    expect(screen.getAllByText("ready")).toHaveLength(2);
-    expect(await screen.findByText("sync_job_enqueued")).toBeInTheDocument();
+    expect(screen.getAllByText("ready").length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText("sync_job_enqueued")).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("/home/hzh")).not.toBeInTheDocument();
 
     unmount();

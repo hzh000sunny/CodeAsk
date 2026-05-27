@@ -3497,11 +3497,421 @@ textarea:focus-visible {
   line-height: 1.55;
 }
 
+.openviking-dashboard {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 18px;
+}
+
+.openviking-status-pill {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.openviking-status-pill span {
+  overflow: hidden;
+  color: #697586;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.openviking-status-pill strong {
+  overflow: hidden;
+  color: #182230;
+  font-size: 13px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.openviking-status-pill[data-outcome="success"] {
+  border-color: #abefc6;
+  background: #f6fef9;
+}
+
+.openviking-status-pill[data-outcome="warning"] {
+  border-color: #fedf89;
+  background: #fffcf5;
+}
+
+.openviking-status-pill[data-outcome="error"] {
+  border-color: #fecdca;
+  background: #fffbfa;
+}
+
 .settings-diagnostic-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 12px;
+}
+
+.settings-diagnostic-grid-compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-diagnostic-grid-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-diagnostic-grid-fixed {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-openviking-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.openviking-card {
+  align-self: start;
+  min-width: 0;
+  overflow: visible;
+}
+
+.settings-openviking-card-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+  margin-bottom: 12px;
+}
+
+.settings-openviking-card-title {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.settings-openviking-card-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 1px;
+  border: 1px solid #e4e9f2;
+  border-radius: 7px;
+  background: #fbfcfe;
+  color: #344054;
+}
+
+.settings-openviking-card-title h2 {
+  margin: 0;
+  color: #101828;
+  font-size: 18px;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.settings-openviking-card-title p {
+  margin: 3px 0 0;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.settings-openviking-card-actions {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.openviking-card-health {
+  grid-column: span 7;
+  align-self: stretch;
+}
+
+.openviking-card-embedding,
+.openviking-card-metrics {
+  grid-column: span 5;
+}
+
+.openviking-card-embedding {
+  align-self: stretch;
+}
+
+.openviking-card-sync,
+.openviking-card-tuning {
+  grid-column: 1 / -1;
+}
+
+.openviking-card-events {
+  grid-column: span 7;
+}
+
+.settings-openviking-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.settings-openviking-embedding-controls {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.settings-openviking-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settings-openviking-field input,
+.settings-openviking-field select {
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #182230;
+  padding: 0 10px;
+  font: inherit;
+}
+
+.settings-openviking-muted {
+  margin: 8px 0 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-openviking-snippet {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #e4e9f2;
+}
+
+.settings-openviking-snippet p {
+  margin: 5px 0 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-openviking-snippet code {
+  display: block;
+  min-width: 0;
+  max-height: 130px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #fbfcfe;
+  white-space: pre-wrap;
+}
+
+.settings-openviking-job-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.settings-openviking-job-list,
+.settings-openviking-event-list {
+  margin-top: 12px;
+}
+
+.settings-openviking-job-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 0.9fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  max-width: 100%;
+}
+
+.settings-openviking-job-row .button {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.settings-openviking-row-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-openviking-row-main strong,
+.settings-openviking-row-main span,
+.settings-openviking-row-main small,
+.settings-openviking-error {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-openviking-progress {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-openviking-progress-block {
+  margin-top: 12px;
+}
+
+.settings-openviking-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #2563eb;
+}
+
+.settings-openviking-progress small,
+.settings-openviking-error {
+  color: #667085;
+  font-size: 12px;
+}
+
+.settings-openviking-status-only {
+  align-content: center;
+  min-height: 30px;
+}
+
+.settings-openviking-load-more {
+  margin-top: 10px;
+}
+
+.settings-openviking-filter-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.settings-openviking-tuning-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.settings-openviking-scope-section {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.settings-openviking-scope-heading {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  min-width: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e4e9f2;
+}
+
+.settings-openviking-scope-heading h3 {
+  margin: 0;
+  color: #182230;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.settings-openviking-tuning-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 104px 112px 122px;
+  gap: 8px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.settings-openviking-tuning-row[data-recommendation="changed"] {
+  border-color: #fedf89;
+  background: #fffcf5;
+}
+
+.settings-openviking-tuning-meta {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-openviking-tuning-meta strong {
+  overflow: hidden;
+  color: #182230;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-openviking-tuning-meta span,
+.settings-openviking-tuning-meta small {
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.settings-openviking-tuning-field input {
+  width: 100%;
+}
+
+.settings-openviking-recommended {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-openviking-recommended span {
+  color: #697586;
+  font-size: 12px;
+}
+
+.settings-openviking-recommended strong {
+  overflow: hidden;
+  color: #182230;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-openviking-recommendation-delta {
+  display: inline-flex;
+  width: max-content;
+  min-height: 18px;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid #fedf89;
+  border-radius: 999px;
+  background: #fffaeb;
+  color: #b54708;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settings-openviking-tuning-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .settings-diagnostic-item {
@@ -3683,6 +4093,29 @@ textarea:focus-visible {
   min-width: 0;
 }
 
+.settings-openviking-event-main {
+  gap: 5px;
+}
+
+.settings-openviking-event-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.settings-openviking-event-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #3538cd;
+  font-size: 11px;
+  font-weight: 750;
+}
+
 .settings-openviking-row strong,
 .settings-openviking-row span,
 .settings-openviking-row small {
@@ -3702,6 +4135,11 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
+.settings-openviking-row time {
+  color: #98a2b3;
+  font-size: 11px;
+}
+
 .settings-openviking-badge {
   display: inline-flex;
   align-items: center;
@@ -3714,6 +4152,61 @@ textarea:focus-visible {
   color: #344054;
   font-size: 12px;
   font-weight: 650;
+}
+
+.settings-openviking-badge[data-outcome="success"] {
+  border-color: #abefc6;
+  background: #ecfdf3;
+  color: #067647;
+}
+
+.settings-openviking-badge[data-outcome="warning"] {
+  border-color: #fedf89;
+  background: #fffaeb;
+  color: #b54708;
+}
+
+.settings-openviking-badge[data-outcome="error"] {
+  border-color: #fecdca;
+  background: #fef3f2;
+  color: #b42318;
+}
+
+@media (max-width: 1180px) {
+  .openviking-card-health,
+  .openviking-card-sync,
+  .openviking-card-tuning,
+  .openviking-card-embedding,
+  .openviking-card-events,
+  .openviking-card-metrics {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 980px) {
+  .settings-openviking-card-header {
+    display: grid;
+  }
+
+  .settings-openviking-card-actions {
+    justify-content: flex-start;
+  }
+
+  .settings-openviking-grid,
+  .settings-openviking-controls,
+  .settings-openviking-job-row,
+  .settings-openviking-tuning-row,
+  .settings-openviking-snippet,
+  .settings-openviking-filter-row,
+  .settings-openviking-job-summary,
+  .settings-diagnostic-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-runtime-summary,
+  .settings-runtime-path-item {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-status-ok,
@@ -5096,6 +5589,10 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .settings-workspace {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
   .source-sidebar {
     min-height: auto;
     border-right: 0;
@@ -5128,6 +5625,37 @@ textarea:focus-visible {
     max-height: 340px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .settings-index {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 6px;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 10px 12px;
+    scrollbar-gutter: auto;
+  }
+
+  .settings-index-section-label {
+    display: none;
+  }
+
+  .settings-index-item {
+    flex: 0 0 auto;
+    align-items: center;
+    width: auto;
+    min-height: 42px;
+    padding: 8px 10px;
+  }
+
+  .settings-index-item svg {
+    margin-top: 0;
+  }
+
+  .settings-index-item-copy small {
+    display: none;
   }
 
   .page-header,

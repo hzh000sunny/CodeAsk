@@ -859,7 +859,7 @@ POST /api/admin/openviking/tuning              # 改一个或多个参数
 POST /api/admin/openviking/tuning/rollback     # 回滚某个 scope.key 到上一版
 POST /api/admin/openviking/tuning/apply_preset # 一次应用推荐预设（不含 ollama_recommend）
 GET  /api/admin/openviking/tuning/history?scope=...&key=...&limit=...   # 历史变更
-GET  /api/admin/openviking/tuning/ollama_snippet  # 返回当前推荐的 systemd snippet 文本
+GET  /api/admin/openviking/tuning/ollama_snippet  # 返回当前配置值对应的 systemd snippet 文本
 ```
 
 #### 13.6.3 只展示当前事实数据
