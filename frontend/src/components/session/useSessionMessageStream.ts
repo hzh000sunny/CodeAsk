@@ -171,22 +171,27 @@ export function useSessionMessageStream({
     }
   }
 
-  async function rollbackActiveStream(active: ActiveStreamState) {
+  async function stopActiveStream(active: ActiveStreamState) {
     if (!active) {
       return;
     }
-    setMessages((current) =>
-      current.filter(
-        (message) =>
-          message.id !== active.userMessageId &&
-          message.id !== active.assistantMessageId,
-      ),
-    );
-    setInsights((current) =>
-      current.filter((insight) => insight.turnId !== active.liveTurnId),
-    );
-    setStages(createInitialStages());
-    activeStreamSnapshotsBySession.delete(active.sessionId);
+    const stoppedAt = new Date().toISOString();
+    const markStopped = (current: ConversationMessage[]) =>
+      current.map((message) =>
+        message.id === active.assistantMessageId
+          ? {
+              ...message,
+              status: "done" as const,
+              stoppedAt,
+            }
+          : message,
+      );
+    setMessages(markStopped);
+    updateActiveStreamSnapshot(active.sessionId, (snapshot) => ({
+      ...snapshot,
+      messages: markStopped(snapshot.messages),
+      insights: removeOpencodeRunningInsight(snapshot.insights, active.liveTurnId),
+    }));
     clearActiveStreamState(active.sessionId);
     markSessionIdle(active.sessionId);
     if (active.serverTurnId) {
@@ -455,7 +460,7 @@ export function useSessionMessageStream({
     } catch (error) {
       if (isAbortError(error)) {
         try {
-          await rollbackActiveStream(streamState);
+          await stopActiveStream(streamState);
           showActionNotice("已停止生成");
         } catch (rollbackError) {
           showActionNotice(`停止生成失败：${messageFromError(rollbackError)}`, "error");

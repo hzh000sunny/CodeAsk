@@ -49,6 +49,7 @@ class SessionTurnResponse(BaseModel):
     role: Literal["user", "agent"]
     content: str
     evidence: Any | None
+    stopped_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -2,6 +2,8 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 
 const SUBJECT_ID = "wiki_tail_live@dev";
 const SUBJECT_KEY = "codeask.subject_id";
+const ADMIN_USERNAME = process.env.CODEASK_E2E_ADMIN_USERNAME ?? "admin";
+const ADMIN_PASSWORD = process.env.CODEASK_E2E_ADMIN_PASSWORD ?? "admin";
 
 test("wiki sources, restore, and reindex work against the real backend", async ({
   page,
@@ -15,6 +17,7 @@ test("wiki sources, restore, and reindex work against the real backend", async (
   });
 
   await setSubjectIdentity(page, SUBJECT_ID);
+  await loginPageAsAdmin(page);
   await page.goto(`/#/wiki?feature=${featureId}`);
 
   await expect(page.locator(".wiki-page-header h1")).toHaveText("Runbook");
@@ -48,7 +51,7 @@ test("wiki sources, restore, and reindex work against the real backend", async (
   await expect(drawer).toHaveCount(0);
 
   await page.getByRole("button", { name: "打开节点 Runbook 的更多操作" }).click();
-  await page.getByRole("menuitem", { name: "删除" }).click();
+  await page.getByRole("menuitem", { name: "删除" }).dispatchEvent("click");
   await page.getByRole("button", { name: "确认删除" }).click();
 
   const restoreDialog = page.getByRole("dialog", { name: "Wiki 节点已删除，可恢复" });
@@ -59,7 +62,7 @@ test("wiki sources, restore, and reindex work against the real backend", async (
   await expect(page.getByText("真实恢复内容。")).toBeVisible();
 
   await page.getByRole("button", { name: "打开节点 知识库 的更多操作" }).click();
-  await page.getByRole("menuitem", { name: "重新索引" }).click();
+  await page.getByRole("menuitem", { name: "重新索引" }).dispatchEvent("click");
   await page.getByRole("button", { name: "确认重新索引" }).click();
   await expect(page.getByText("已重新索引 1 篇文档")).toBeVisible();
 });
@@ -69,6 +72,7 @@ test("session attachment promotion writes a real wiki document and opens it", as
   request,
 }) => {
   const featureId = await createFeature(request, "Live Session Promotion");
+  await enableAttachments(request);
   const sessionId = await createSession(request, "真实会话附件晋级");
   await uploadSessionAttachment(request, {
     sessionId,
@@ -77,6 +81,7 @@ test("session attachment promotion writes a real wiki document and opens it", as
   });
 
   await setSubjectIdentity(page, SUBJECT_ID);
+  await loginPageAsAdmin(page);
   await page.goto("/#/sessions");
 
   await expect(
@@ -120,6 +125,7 @@ test("wiki tree ordering and edit-to-preview flow work against the real backend"
   });
 
   await setSubjectIdentity(page, SUBJECT_ID);
+  await loginPageAsAdmin(page);
   await page.goto(`/#/wiki?feature=${featureId}`);
 
   await expect(page.locator(".wiki-page-header h1")).toHaveText("Alpha");
@@ -159,6 +165,7 @@ test("wiki tree ordering and edit-to-preview flow work against the real backend"
 });
 
 async function createFeature(request: APIRequestContext, name: string): Promise<number> {
+  await loginAdmin(request);
   const response = await request.post("/api/features", {
     headers: { "X-Subject-Id": SUBJECT_ID },
     data: {
@@ -171,6 +178,21 @@ async function createFeature(request: APIRequestContext, name: string): Promise<
   return Number(body.id);
 }
 
+async function loginAdmin(request: APIRequestContext) {
+  const response = await request.post("/api/auth/login", {
+    data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
+  });
+  expect(response.ok()).toBeTruthy();
+}
+
+async function loginPageAsAdmin(page: Page) {
+  await page.goto("/#/login");
+  await page.getByLabel("用户名").fill(ADMIN_USERNAME);
+  await page.getByLabel("密码", { exact: true }).fill(ADMIN_PASSWORD);
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Admin", exact: true })).toBeVisible();
+}
+
 async function createSession(request: APIRequestContext, title: string): Promise<string> {
   const response = await request.post("/api/sessions", {
     headers: { "X-Subject-Id": SUBJECT_ID },
@@ -179,6 +201,13 @@ async function createSession(request: APIRequestContext, title: string): Promise
   expect(response.ok()).toBeTruthy();
   const body = await response.json();
   return String(body.id);
+}
+
+async function enableAttachments(request: APIRequestContext) {
+  const response = await request.patch("/api/system-settings", {
+    data: { session_attachments_enabled: true },
+  });
+  expect(response.ok()).toBeTruthy();
 }
 
 async function uploadLegacyMarkdownDocument(

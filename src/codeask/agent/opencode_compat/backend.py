@@ -93,8 +93,8 @@ OpenVikingMCPResolver = Callable[
 SUPPORTED_OPENCODE_VERSIONS = {"1.14.48"}
 log = structlog.get_logger("codeask.agent.opencode_compat.backend")
 _EVENT_POLL_SECONDS = 0.5
-_TURN_NO_PROGRESS_TIMEOUT_SECONDS = 30.0
-_TURN_WAIT_TIMEOUT_SECONDS = 600.0
+_TURN_NO_PROGRESS_TIMEOUT_SECONDS = 600.0
+_TURN_WAIT_TIMEOUT_SECONDS = 3600.0
 
 
 def _object_dict(value: object) -> dict[str, object]:
@@ -1076,11 +1076,13 @@ async def _stream_events_with_status_poll(
     try:
         while True:
             now = time.perf_counter()
-            if time.perf_counter() - started_at > _TURN_WAIT_TIMEOUT_SECONDS:
+            absolute_wait_seconds = now - started_at
+            if absolute_wait_seconds > _TURN_WAIT_TIMEOUT_SECONDS:
                 yield _synthetic_session_error_event(
                     directory=directory,
                     session_id=session_id,
                     message="opencode turn did not finish before timeout",
+                    diagnostics={"absolute_wait_seconds": int(absolute_wait_seconds)},
                 )
                 return
             try:
@@ -1113,7 +1115,8 @@ async def _stream_events_with_status_poll(
             if _status_has_session(status, session_id=session_id):
                 last_progress_at = time.perf_counter()
             if not _status_is_idle(status, session_id=session_id):
-                if now - last_progress_at > _TURN_NO_PROGRESS_TIMEOUT_SECONDS:
+                no_progress_seconds = now - last_progress_at
+                if no_progress_seconds > _TURN_NO_PROGRESS_TIMEOUT_SECONDS:
                     snapshot = await _latest_assistant_text_snapshot_event(
                         client=client,
                         directory=directory,
@@ -1131,6 +1134,7 @@ async def _stream_events_with_status_poll(
                         directory=directory,
                         session_id=session_id,
                         message="opencode accepted the prompt but did not report progress",
+                        diagnostics={"no_progress_seconds": int(no_progress_seconds)},
                     )
                     return
                 continue
@@ -1278,6 +1282,7 @@ def _synthetic_session_error_event(
     directory: str,
     session_id: str,
     message: str,
+    diagnostics: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "directory": directory,
@@ -1286,6 +1291,7 @@ def _synthetic_session_error_event(
             "properties": {
                 "sessionID": session_id,
                 "error": message,
+                **(diagnostics or {}),
             },
         },
     }

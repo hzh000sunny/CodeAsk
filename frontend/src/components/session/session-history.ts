@@ -81,6 +81,7 @@ export function messagesFromSessionTurns(
     content: turn.content,
     status: turn.role === "agent" ? "done" : undefined,
     turnId: turn.role === "agent" ? turn.id : undefined,
+    stoppedAt: turn.role === "agent" ? (turn.stopped_at ?? null) : null,
   }));
 }
 

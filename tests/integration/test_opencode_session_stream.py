@@ -918,7 +918,7 @@ async def test_post_message_stream_preserves_classified_opencode_error_code(
 
 
 @pytest.mark.asyncio
-async def test_abort_session_turn_calls_opencode_before_rollback(
+async def test_abort_session_turn_calls_opencode_and_keeps_turn(
     app: FastAPI,
     client: AsyncClient,
 ) -> None:
@@ -952,11 +952,12 @@ async def test_abort_session_turn_calls_opencode_before_rollback(
     assert fake.calls == [{"method": "abort_turn", "session_id": session_id}]
     async with app.state.session_factory() as session:
         turn = await session.get(SessionTurn, "turn_abort")
-    assert turn is None
+    assert turn is not None
+    assert turn.content == "abort me"
 
 
 @pytest.mark.asyncio
-async def test_abort_session_turn_rolls_back_even_when_opencode_abort_fails(
+async def test_abort_session_turn_keeps_turn_even_when_opencode_abort_fails(
     app: FastAPI,
     client: AsyncClient,
 ) -> None:
@@ -988,7 +989,8 @@ async def test_abort_session_turn_rolls_back_even_when_opencode_abort_fails(
     assert response.status_code == 204, response.text
     async with app.state.session_factory() as session:
         turn = await session.get(SessionTurn, "turn_abort_failed_upstream")
-    assert turn is None
+    assert turn is not None
+    assert turn.content == "abort me"
 
 
 @pytest.mark.asyncio

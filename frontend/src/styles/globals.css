@@ -1436,6 +1436,13 @@ textarea:focus-visible {
   background: #fff7f6;
 }
 
+.message-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
 .plain-message-content {
   margin: 5px 0 0;
   color: #1f2937;

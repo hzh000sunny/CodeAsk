@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("stopping an active generation aborts and rolls back the visible turn", async ({ page }) => {
+test("stopping an active generation aborts and keeps the truncated visible turn", async ({ page }) => {
   await page.addInitScript(() => {
     const originalFetch = window.fetch.bind(window);
     const encoder = new TextEncoder();
@@ -98,9 +98,9 @@ test("stopping an active generation aborts and rolls back the visible turn", asy
 
   await page.getByRole("button", { name: "停止", exact: true }).click();
 
-  await expect(page.getByText("需要中断的长回答")).toHaveCount(0);
-  await expect(page.getByText("正在生成一个很长的回答")).toHaveCount(0);
-  await expect(page.getByText("上下文已准备")).toHaveCount(0);
+  await expect(page.getByText("需要中断的长回答")).toBeVisible();
+  await expect(page.getByText("正在生成一个很长的回答")).toBeVisible();
+  await expect(page.getByText("已停止", { exact: true })).toBeVisible();
   await expect(page.getByText("已停止生成")).toBeVisible();
   await expect
     .poll(() =>

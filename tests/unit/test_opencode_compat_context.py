@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -55,9 +56,27 @@ async def db_factory(tmp_path: Path):  # type: ignore[no-untyped-def]
             bare_path="/tmp/bare/anything",
             status=Repo.STATUS_READY,
         )
-        session.add_all([feature, other, archived, repo])
+        companion_repo = Repo(
+            id="repo_anything_docs",
+            name="anything-llm-docs",
+            source="local_dir",
+            local_path="/opt/anything-llm-docs",
+            bare_path="/tmp/bare/anything-docs",
+            status=Repo.STATUS_READY,
+        )
+        pending_repo = Repo(
+            id="repo_anything_pending",
+            name="anything-llm-pending",
+            source="local_dir",
+            local_path="/opt/anything-llm-pending",
+            bare_path="/tmp/bare/anything-pending",
+            status=Repo.STATUS_REGISTERED,
+        )
+        session.add_all([feature, other, archived, repo, companion_repo, pending_repo])
         await session.flush()
         session.add(FeatureRepo(feature_id=feature.id, repo_id=repo.id))
+        session.add(FeatureRepo(feature_id=feature.id, repo_id=companion_repo.id))
+        session.add(FeatureRepo(feature_id=feature.id, repo_id=pending_repo.id))
         session.add(
             Session(
                 id="sess_ctx",
@@ -95,6 +114,7 @@ async def db_factory(tmp_path: Path):  # type: ignore[no-untyped-def]
                     turn_index=1,
                     role="agent",
                     content="AnythingLLM 会基于 workspace 文档向量检索相关 chunks。",
+                    stopped_at=datetime(2026, 5, 28, tzinfo=UTC),
                 ),
                 SessionTurn(
                     id="turn_current",
@@ -136,7 +156,13 @@ async def test_dynamic_context_includes_session_features_repos_and_workspace(
     assert "anything-llm" in context
     assert "AnythingLLM Reference" in context
     assert "./wiki/anything-llm" in context
+    assert (
+        "Linked ready repos: [repo_anything:anything-llm, repo_anything_docs:anything-llm-docs]"
+        in context
+    )
     assert "repo_anything" in context
+    assert "repo_anything_docs" in context
+    assert "repo_anything_pending:anything-llm-pending" not in context
     assert "小米" in context
     assert "Archived" not in context
     assert "客户端日志" in context
@@ -145,6 +171,7 @@ async def test_dynamic_context_includes_session_features_repos_and_workspace(
     assert "Conversation Recovery Context" in context
     assert "用户正在围绕 AnythingLLM 的 RAG 召回链路进行连续追问" in context
     assert "AnythingLLM 是怎么处理召回的" in context
+    assert "Assistant turn 1 (stopped)" in context
     assert "workspace 文档向量检索" in context
     assert "继续查源码确认一下" not in context
     assert "bind_session_features" in context

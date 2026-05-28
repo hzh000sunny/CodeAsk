@@ -105,6 +105,14 @@ export function MessageStream({
           data-role={message.role}
           key={message.id}
         >
+          {message.role === "assistant" && message.stoppedAt ? (
+            <div
+              className="message-status-row"
+              title={`停止时间：${formatStoppedAt(message.stoppedAt)}`}
+            >
+              <Badge>已停止</Badge>
+            </div>
+          ) : null}
           {message.content ? (
             message.role === "user" ? (
               <p className="plain-message-content">{message.content}</p>
@@ -114,6 +122,10 @@ export function MessageStream({
                 onCopyCode={onCopyCode}
               />
             )
+          ) : message.role === "assistant" && message.stoppedAt ? (
+            <p className="streaming-placeholder">
+              用户在模型回复前停止了这一轮
+            </p>
           ) : (
             <p className="streaming-placeholder">正在生成...</p>
           )}
@@ -174,6 +186,14 @@ function messageRoleLabel(message: ConversationMessage) {
     return "CodeAsk";
   }
   return "系统";
+}
+
+function formatStoppedAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
 }
 
 function FeedbackBar({

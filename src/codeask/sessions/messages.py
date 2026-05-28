@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from secrets import token_hex
 from typing import Any, TypedDict, cast
 
 import structlog
 from fastapi import HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
 from codeask.agent.opencode_compat.process import OpenCodeProcessError
@@ -468,7 +470,12 @@ async def stream_opencode_response(
                 continue
             return
         except asyncio.CancelledError:
-            await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
+            await persist_stopped_agent_turn(
+                request,
+                session_id,
+                "".join(assistant_chunks).strip(),
+                parent_turn_id=turn_id,
+            )
             raise
         except Exception as exc:
             error_code = exc.code if isinstance(exc, OpenCodeProcessError) else None
@@ -635,27 +642,6 @@ async def persist_runtime_audit_payload(
     )
 
 
-async def rollback_session_turn(
-    session_factory: Any,
-    session_id: str,
-    turn_id: str,
-) -> None:
-    async with session_factory() as session:
-        await session.execute(
-            delete(AgentTrace).where(
-                AgentTrace.session_id == session_id,
-                AgentTrace.turn_id == turn_id,
-            )
-        )
-        await session.execute(
-            delete(SessionTurn).where(
-                SessionTurn.session_id == session_id,
-                SessionTurn.id == turn_id,
-            )
-        )
-        await session.commit()
-
-
 def summarize_tool_actions(rows: list[AgentTrace]) -> str | None:
     if not rows:
         return None
@@ -750,6 +736,8 @@ async def persist_agent_turn(
             parent_turn = await session.get(SessionTurn, parent_turn_id)
             if parent_turn is None or parent_turn.session_id != session_id:
                 return
+            if await _has_stopped_agent_turn_after_parent(session, session_id, parent_turn):
+                return
         max_index = (
             await session.execute(
                 select(func.max(SessionTurn.turn_index)).where(SessionTurn.session_id == session_id)
@@ -768,6 +756,40 @@ async def persist_agent_turn(
         await session.commit()
 
 
+async def persist_stopped_agent_turn(
+    request: Request,
+    session_id: str,
+    content: str,
+    *,
+    parent_turn_id: str | None = None,
+) -> None:
+    factory = request.app.state.session_factory
+    async with factory() as session:
+        if parent_turn_id is not None:
+            parent_turn = await session.get(SessionTurn, parent_turn_id)
+            if parent_turn is None or parent_turn.session_id != session_id:
+                return
+            if await _has_stopped_agent_turn_after_parent(session, session_id, parent_turn):
+                return
+        max_index = (
+            await session.execute(
+                select(func.max(SessionTurn.turn_index)).where(SessionTurn.session_id == session_id)
+            )
+        ).scalar_one()
+        session.add(
+            SessionTurn(
+                id=f"turn_{token_hex(8)}",
+                session_id=session_id,
+                turn_index=(int(max_index) + 1) if max_index is not None else 0,
+                role="agent",
+                content=content,
+                evidence=None,
+                stopped_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+
 async def session_turn_exists(
     session_factory: Any,
     session_id: str,
@@ -775,4 +797,26 @@ async def session_turn_exists(
 ) -> bool:
     async with session_factory() as session:
         row = await session.get(SessionTurn, turn_id)
-        return row is not None and row.session_id == session_id
+        if row is None or row.session_id != session_id:
+            return False
+        return not await _has_stopped_agent_turn_after_parent(session, session_id, row)
+
+
+async def _has_stopped_agent_turn_after_parent(
+    session: AsyncSession,
+    session_id: str,
+    parent_turn: SessionTurn,
+) -> bool:
+    existing = (
+        await session.execute(
+            select(SessionTurn.id)
+            .where(
+                SessionTurn.session_id == session_id,
+                SessionTurn.role == "agent",
+                SessionTurn.stopped_at.is_not(None),
+                SessionTurn.turn_index > parent_turn.turn_index,
+            )
+            .limit(1)
+        )
+    ).first()
+    return existing is not None

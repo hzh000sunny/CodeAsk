@@ -2,6 +2,8 @@ import { expect, test, type APIRequestContext, type Page, type TestInfo } from "
 
 const SUBJECT_ID = "refresh_live@dev";
 const SUBJECT_KEY = "codeask.subject_id";
+const ADMIN_USERNAME = process.env.CODEASK_E2E_ADMIN_USERNAME ?? "admin";
+const ADMIN_PASSWORD = process.env.CODEASK_E2E_ADMIN_PASSWORD ?? "admin";
 
 test("top-level pages keep their route after reload against the real app", async ({
   page,
@@ -40,6 +42,7 @@ test("top-level pages keep their route after reload against the real app", async
 });
 
 async function createFeature(request: APIRequestContext, name: string): Promise<number> {
+  await loginAdmin(request);
   const response = await request.post("/api/features", {
     headers: { "X-Subject-Id": SUBJECT_ID },
     data: {
@@ -50,6 +53,13 @@ async function createFeature(request: APIRequestContext, name: string): Promise<
   expect(response.ok()).toBeTruthy();
   const body = await response.json();
   return Number(body.id);
+}
+
+async function loginAdmin(request: APIRequestContext) {
+  const response = await request.post("/api/auth/login", {
+    data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
+  });
+  expect(response.ok()).toBeTruthy();
 }
 
 async function setSubjectIdentity(page: Page, subjectId: string) {

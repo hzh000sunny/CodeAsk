@@ -228,6 +228,17 @@ hook 接入（D3：均在 API 端点 `session.commit()` 之后，enqueue 失败�
 - [x] 新增 OpenViking Python 模块 `pyright` 子集为 `0 errors`；`opencode_compat` 旧目录在严格模式下仍有历史类型债，不能在 M2 验收报告中误报为全目录 pyright 通过
 - [ ] 真实库 9 条 LLM 配置全量 smoke：2026-05-25 复核为 4 条 DeepSeek 通过、5 条火山配置返回 `InvalidSubscription`，需要修复外部账号订阅 / 权限后复跑
 
+### 4.1 M7 会话控制与多代码仓上下文
+
+- [x] opencode 单轮绝对墙钟超时从 600s 调整为 3600s；无进展超时从 30s 调整为 600s，仍保留两层守护。
+- [x] no-progress / absolute-timeout 合成错误事件分别带 `no_progress_seconds` / `absolute_wait_seconds` 诊断字段，便于定位卡死类型。
+- [x] Stop 语义从"回滚清空"调整为"截断保留"：用户 turn 保留，已发生 AgentTrace 保留，已生成 assistant partial 写入 agent turn；空内容也写入 stopped 占位。
+- [x] `SessionTurn.stopped_at` 已通过 migration `0032` 增加并透出 API；前端会话气泡显示"已停止"chip，空 stopped 内容显示"用户在模型回复前停止了这一轮"。
+- [x] Abort endpoint 不再删除 turn / trace；取消流中的迟到 agent turn 与迟到 tool_result 会被阻止写入，避免截断后上下文被旧轮次污染。
+- [x] 动态上下文的最近会话片段会标注 stopped agent turn，下一轮模型能看到截断内容或停止占位。
+- [x] opencode system prompt 明确：绑定特性有多个 ready repository 时，跨仓交互 / 端到端流程 / 组件边界问题应准备并检查全部相关 ready 仓，只有用户明确指定或问题明显单组件时才收敛到单仓。
+- [x] 动态上下文 `Bound Features` 段为每个已绑定特性列出 `Linked ready repos: [repo_id:name, ...]`；只列 ready 仓，不把未 ready 仓作为可读证据。
+
 ---
 
 ## 5. 多环境 E2E 矩阵

@@ -7,6 +7,8 @@ import { makeCodeAskE2eTempDir } from "./test-temp";
 
 const SUBJECT_ID = "live_e2e@dev";
 const SUBJECT_KEY = "codeask.subject_id";
+const ADMIN_USERNAME = process.env.CODEASK_E2E_ADMIN_USERNAME ?? "admin";
+const ADMIN_PASSWORD = process.env.CODEASK_E2E_ADMIN_PASSWORD ?? "admin";
 
 test("wiki import succeeds against the real backend and opens the imported document", async ({
   page,
@@ -26,6 +28,7 @@ test("wiki import succeeds against the real backend and opens the imported docum
   });
 
   await setSubjectIdentity(page, SUBJECT_ID);
+  await loginPageAsAdmin(page);
   await page.goto(`/#/wiki?feature=${featureId}`);
 
   await expect(page.getByRole("heading", { name: "开始建设这个特性的 Wiki" })).toBeVisible();
@@ -65,6 +68,7 @@ test("wiki import shows a real conflict queue and can overwrite to finish", asyn
   });
 
   await setSubjectIdentity(page, SUBJECT_ID);
+  await loginPageAsAdmin(page);
   await page.goto(`/#/wiki?feature=${featureId}`);
 
   await openKnowledgeBaseImportDialog(page);
@@ -95,6 +99,7 @@ test("wiki import shows a real conflict queue and can overwrite to finish", asyn
 });
 
 async function createFeature(request: APIRequestContext, name: string): Promise<number> {
+  await loginAdmin(request);
   const response = await request.post("/api/features", {
     headers: { "X-Subject-Id": SUBJECT_ID },
     data: {
@@ -105,6 +110,21 @@ async function createFeature(request: APIRequestContext, name: string): Promise<
   expect(response.ok()).toBeTruthy();
   const body = await response.json();
   return Number(body.id);
+}
+
+async function loginAdmin(request: APIRequestContext) {
+  const response = await request.post("/api/auth/login", {
+    data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
+  });
+  expect(response.ok()).toBeTruthy();
+}
+
+async function loginPageAsAdmin(page: Page) {
+  await page.goto("/#/login");
+  await page.getByLabel("用户名").fill(ADMIN_USERNAME);
+  await page.getByLabel("密码", { exact: true }).fill(ADMIN_PASSWORD);
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Admin", exact: true })).toBeVisible();
 }
 
 async function uploadLegacyMarkdownDocument(

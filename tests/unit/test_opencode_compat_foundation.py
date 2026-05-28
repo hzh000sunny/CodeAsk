@@ -302,6 +302,8 @@ def test_codeask_system_prompt_instructs_model_to_bind_features_and_use_wiki_fir
     assert "OpenViking read results" in prompt
     assert "knowledge snapshots" in prompt
     assert "Never use OpenViking write tools" in prompt
+    assert "multi-repo system" in prompt
+    assert "ALL linked ready repositories" in prompt
     assert "Do not narrate hidden reasoning" in prompt
     assert "Final answers must start with the answer itself" in prompt
 

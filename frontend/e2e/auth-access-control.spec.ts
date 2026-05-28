@@ -198,8 +198,8 @@ test.describe("v1.0.3 auth access control", () => {
       .click();
     await expect(page.getByText("特性管理员已移除")).toBeVisible();
 
-    await page.goto("/#/settings");
-    await expect(page.getByRole("button", { name: "全局配置" })).toBeVisible();
+    await page.goto("/#/settings?page=attachments");
+    await expect(page.getByRole("button", { name: "会话附件" })).toBeVisible();
     await page.getByText("允许上传附件").click();
     await expect(page.getByText("全局配置已保存")).toBeVisible();
 

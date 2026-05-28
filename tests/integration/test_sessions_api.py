@@ -25,7 +25,7 @@ from codeask.sessions.messages import (
     persist_agent_turn,
     persist_runtime_audit_payload,
     persist_runtime_event_trace,
-    rollback_session_turn,
+    persist_stopped_agent_turn,
 )
 from tests.mocks.mock_llm import MockLLMClient, text_message
 
@@ -523,7 +523,7 @@ async def test_session_turns_can_be_listed_for_the_session_owner(
 
 
 @pytest.mark.asyncio
-async def test_rollback_session_turn_removes_interrupted_turn_and_traces(
+async def test_stopped_agent_turn_preserves_interrupted_user_turn_and_traces(
     app: FastAPI,
     client: AsyncClient,
 ) -> None:
@@ -559,11 +559,23 @@ async def test_rollback_session_turn_removes_interrupted_turn_and_traces(
         )
         await db.commit()
 
-    await rollback_session_turn(app.state.session_factory, session_id, "turn_interrupted")
+    request = SimpleNamespace(app=SimpleNamespace(state=app.state))
+    await persist_stopped_agent_turn(
+        request,
+        session_id,
+        "",
+        parent_turn_id="turn_interrupted",
+    )
 
     async with app.state.session_factory() as db:
         turns = (
-            (await db.execute(select(SessionTurn).where(SessionTurn.session_id == session_id)))
+            (
+                await db.execute(
+                    select(SessionTurn)
+                    .where(SessionTurn.session_id == session_id)
+                    .order_by(SessionTurn.turn_index.asc())
+                )
+            )
             .scalars()
             .all()
         )
@@ -572,8 +584,12 @@ async def test_rollback_session_turn_removes_interrupted_turn_and_traces(
             .scalars()
             .all()
         )
-    assert turns == []
-    assert traces == []
+    assert len(turns) == 2
+    assert turns[0].id == "turn_interrupted"
+    assert turns[1].role == "agent"
+    assert turns[1].content == ""
+    assert turns[1].stopped_at is not None
+    assert [trace.id for trace in traces] == ["tr_interrupted"]
 
 
 @pytest.mark.asyncio
@@ -674,7 +690,7 @@ async def test_list_session_traces_compacts_legacy_reasoning_diagnostics(
 
 
 @pytest.mark.asyncio
-async def test_abort_session_turn_endpoint_removes_interrupted_turn_and_traces(
+async def test_abort_session_turn_endpoint_keeps_interrupted_turn_and_traces(
     app: FastAPI,
     client: AsyncClient,
 ) -> None:
@@ -724,7 +740,13 @@ async def test_abort_session_turn_endpoint_removes_interrupted_turn_and_traces(
 
     async with app.state.session_factory() as db:
         turns = (
-            (await db.execute(select(SessionTurn).where(SessionTurn.session_id == session_id)))
+            (
+                await db.execute(
+                    select(SessionTurn)
+                    .where(SessionTurn.session_id == session_id)
+                    .order_by(SessionTurn.turn_index.asc())
+                )
+            )
             .scalars()
             .all()
         )
@@ -733,8 +755,8 @@ async def test_abort_session_turn_endpoint_removes_interrupted_turn_and_traces(
             .scalars()
             .all()
         )
-    assert turns == []
-    assert traces == []
+    assert [turn.id for turn in turns] == ["turn_abort_api"]
+    assert [trace.id for trace in traces] == ["tr_abort_api"]
 
 
 @pytest.mark.asyncio
@@ -763,8 +785,13 @@ async def test_interrupted_turn_cannot_persist_late_agent_response(
         )
         await db.commit()
 
-    await rollback_session_turn(app.state.session_factory, session_id, "turn_late_abort")
     request = SimpleNamespace(app=SimpleNamespace(state=app.state))
+    await persist_stopped_agent_turn(
+        request,
+        session_id,
+        "",
+        parent_turn_id="turn_late_abort",
+    )
     await persist_agent_turn(
         request,
         session_id,
@@ -774,11 +801,19 @@ async def test_interrupted_turn_cannot_persist_late_agent_response(
 
     async with app.state.session_factory() as db:
         turns = (
-            (await db.execute(select(SessionTurn).where(SessionTurn.session_id == session_id)))
+            (
+                await db.execute(
+                    select(SessionTurn)
+                    .where(SessionTurn.session_id == session_id)
+                    .order_by(SessionTurn.turn_index.asc())
+                )
+            )
             .scalars()
             .all()
         )
-    assert turns == []
+    assert [turn.role for turn in turns] == ["user", "agent"]
+    assert turns[1].content == ""
+    assert turns[1].stopped_at is not None
 
 
 @pytest.mark.asyncio
@@ -822,8 +857,13 @@ async def test_interrupted_turn_cannot_persist_late_tool_results(
         )
         await db.commit()
 
-    await rollback_session_turn(app.state.session_factory, session_id, "turn_late_tool_abort")
     request = SimpleNamespace(app=SimpleNamespace(state=app.state))
+    await persist_stopped_agent_turn(
+        request,
+        session_id,
+        "",
+        parent_turn_id="turn_late_tool_abort",
+    )
     await persist_runtime_event_trace(
         request,
         session_id,
@@ -855,7 +895,7 @@ async def test_interrupted_turn_cannot_persist_late_tool_results(
             .scalars()
             .all()
         )
-    assert traces == []
+    assert [trace.id for trace in traces] == ["tr_late_tool_call"]
 
 
 @pytest.mark.asyncio

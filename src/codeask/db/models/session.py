@@ -107,6 +107,10 @@ class SessionTurn(Base, TimestampMixin):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     evidence: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    stopped_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
 
 class SessionConversationSummary(Base, TimestampMixin):

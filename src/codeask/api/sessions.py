@@ -552,11 +552,9 @@ async def _cleanup_opencode_session_resources(
 @router.post("/sessions/{session_id}/turns/{turn_id}/abort", status_code=status.HTTP_204_NO_CONTENT)
 async def abort_session_turn(session_id: str, turn_id: str, request: Request) -> None:
     await _load_session(request, session_id)
-    from codeask.sessions.messages import rollback_session_turn
 
     with suppress(Exception):
         await request.app.state.opencode_compat.abort_turn(session_id)
-    await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
 
 
 @router.post(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -68,6 +68,13 @@ async def build_dynamic_codeask_context(
                 f"(id={feature['feature_id']}, slug={feature['slug']}, "
                 f"source={feature['source']}, wiki={feature['wiki_path']})"
             )
+            ready_repos = feature.get("ready_repos")
+            if isinstance(ready_repos, list) and ready_repos:
+                typed_repos = cast(list[dict[str, str]], ready_repos)
+                repos = ", ".join(f"{repo['repo_id']}:{repo['name']}" for repo in typed_repos)
+                lines.append(f"    Linked ready repos: [{repos}]")
+            else:
+                lines.append("    Linked ready repos: (none)")
     else:
         lines.append("- None yet. The model should decide and bind relevant features.")
 
@@ -134,9 +141,13 @@ async def build_dynamic_codeask_context(
         lines.append("### Recent Completed Turns")
         for turn in recent_turns:
             role = "Assistant" if turn["role"] == "agent" else "User"
+            stopped_label = " (stopped)" if turn.get("stopped_at") else ""
+            content = str(turn["content"])
+            if turn.get("stopped_at") and not content:
+                content = "[stopped before assistant text]"
             lines.append(
-                f"- {role} turn {turn['turn_index']}: "
-                f"{_truncate_inline(str(turn['content']), limit=1200)}"
+                f"- {role} turn {turn['turn_index']}{stopped_label}: "
+                f"{_truncate_inline(content, limit=1200)}"
             )
     else:
         lines.append("- No previous completed turns are currently stored.")
@@ -222,6 +233,7 @@ async def _load_conversation_recovery_context(
                 "turn_index": row.turn_index,
                 "role": row.role,
                 "content": row.content,
+                "stopped_at": row.stopped_at,
             }
             for row in recent
         ],
@@ -251,6 +263,32 @@ async def _load_bound_features(
             .order_by(Feature.id.asc())
         )
     ).all()
+    if not rows:
+        return []
+    feature_ids = [int(row.id) for row in rows]
+    repo_rows = (
+        await session.execute(
+            select(
+                FeatureRepo.feature_id,
+                Repo.id,
+                Repo.name,
+            )
+            .join(Repo, Repo.id == FeatureRepo.repo_id)
+            .where(
+                FeatureRepo.feature_id.in_(feature_ids),
+                Repo.status == Repo.STATUS_READY,
+            )
+            .order_by(FeatureRepo.feature_id.asc(), Repo.id.asc())
+        )
+    ).all()
+    ready_repos_by_feature: dict[int, list[dict[str, str]]] = {}
+    for row in repo_rows:
+        ready_repos_by_feature.setdefault(int(row.feature_id), []).append(
+            {
+                "repo_id": str(row.id),
+                "name": str(row.name),
+            }
+        )
     return [
         {
             "feature_id": int(row.id),
@@ -260,6 +298,7 @@ async def _load_bound_features(
             "summary": row.summary_text,
             "source": row.source,
             "wiki_path": f"./wiki/{row.slug}",
+            "ready_repos": ready_repos_by_feature.get(int(row.id), []),
         }
         for row in rows
     ]

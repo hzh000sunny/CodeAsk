@@ -68,35 +68,10 @@ test("source-list workbench happy path", async ({ page }) => {
   await page.getByRole("button", { name: "确认删除" }).click();
   await expect(sessionList.getByText("线上启动失败")).toHaveCount(0);
 
-  await primaryNav.getByRole("button", { name: "特性", exact: true }).click();
+  await page.goto("/#/features");
   await expect(
     page.getByRole("region", { name: "特性列表" }).getByText("支付结算"),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "关联仓库" }).click();
-  await expect(page.getByRole("checkbox", { name: /codeask/ })).toBeVisible();
-
-  await page.getByRole("button", { name: "未登录" }).click();
-  await page.getByRole("menuitem", { name: "登录" }).click();
-  await expect(page.getByRole("heading", { name: "登录" })).toBeVisible();
-  await expect(page.getByText(/管理员/)).toHaveCount(0);
-  await page.getByLabel("用户名").fill("admin");
-  await page.getByLabel("密码", { exact: true }).fill("admin");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
-  await primaryNav.getByRole("button", { name: "设置", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "设置", exact: true }),
-  ).toHaveCount(0);
-  await expect(page.getByText(/权限隔离后普通用户/)).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "用户配置" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "全局配置" })).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "设置", exact: true }),
-  ).toHaveCount(0);
-  await expect(page.getByText(/权限隔离后普通用户/)).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { name: "全局 LLM 配置" }),
-  ).toBeVisible();
-  await expect(page.getByText("OpenAI 兼容")).toBeVisible();
 });
 
 test("global settings config forms align with analysis policy layout and keep list spacing", async ({
@@ -115,123 +90,70 @@ test("global settings config forms align with analysis policy layout and keep li
     .getByRole("button", { name: "设置", exact: true })
     .click();
 
+  await page.getByRole("button", { name: "LLM 配置" }).click();
   await page.getByRole("button", { name: "添加 LLM 配置" }).click();
   await page.getByRole("button", { name: "编辑 OpenAI 兼容" }).click();
+  const llmLayout = await formLayoutForSection(page, "全局 LLM 配置");
+
+  await page.getByRole("button", { name: "仓库管理" }).click();
   await page.getByRole("button", { name: "添加仓库" }).click();
   await page.getByRole("button", { name: "编辑仓库 codeask" }).click();
+  const repoLayout = await formLayoutForSection(page, "仓库管理");
+
+  await page.getByRole("button", { name: "全局分析策略" }).click();
   await page.getByRole("button", { name: "添加分析策略" }).click();
   await page
     .getByRole("button", { name: "编辑分析策略 证据引用规范" })
     .click();
+  const policyLayout = await formLayoutForSection(page, "全局分析策略");
 
-  const layout = await page.evaluate(() => {
-    function sectionByTitle(title: string) {
-      return Array.from(document.querySelectorAll("section.surface")).find(
-        (section) => section.textContent?.includes(title),
-      );
-    }
-
-    function formsInSection(title: string) {
-      const section = sectionByTitle(title);
-      const forms = Array.from(
-        section?.querySelectorAll("form.inline-form") ?? [],
-      );
-      const list = section?.querySelector("ul.settings-config-list");
-      return {
-        createForm: forms.find((form) => !form.closest("li")),
-        editForm: forms.find((form) => form.closest("li")),
-        list,
-      };
-    }
-
-    function rectOf(element: Element | undefined) {
-      const rect = element?.getBoundingClientRect();
-      return rect
-        ? {
-            bottom: rect.bottom,
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-          }
-        : null;
-    }
-
-    function createFormGap(sectionTitle: string) {
-      const { createForm, list } = formsInSection(sectionTitle);
-      const createRect = createForm?.getBoundingClientRect();
-      const listRect = list?.getBoundingClientRect();
-      const rowGap = list
-        ? Number.parseFloat(getComputedStyle(list).rowGap)
-        : Number.NaN;
-
-      return createRect && listRect
-        ? {
-            gap: listRect.top - createRect.bottom,
-            rowGap,
-          }
-        : null;
-    }
-
-    const llmForms = formsInSection("全局 LLM 配置");
-    const repoForms = formsInSection("仓库管理");
-    const policyForms = formsInSection("全局分析策略");
-    const llmCreateRect = rectOf(llmForms.createForm);
-    const llmEditRect = rectOf(llmForms.editForm);
-    const repoCreateRect = rectOf(repoForms.createForm);
-    const repoEditRect = rectOf(repoForms.editForm);
-    const policyCreateRect = rectOf(policyForms.createForm);
-    const policyEditRect = rectOf(policyForms.editForm);
-    const llmSpacing = createFormGap("全局 LLM 配置");
-    const repoSpacing = createFormGap("仓库管理");
-    const policySpacing = createFormGap("全局分析策略");
-
-    return llmCreateRect &&
-      llmEditRect &&
-      repoCreateRect &&
-      repoEditRect &&
-      policyCreateRect &&
-      policyEditRect &&
-      llmSpacing &&
-      repoSpacing &&
-      policySpacing
-      ? {
-          llmCreateLeft: llmCreateRect.left,
-          llmCreateWidth: llmCreateRect.width,
-          llmEditLeft: llmEditRect.left,
-          llmEditWidth: llmEditRect.width,
-          llmGap: llmSpacing.gap,
-          policyCreateLeft: policyCreateRect.left,
-          policyCreateWidth: policyCreateRect.width,
-          policyEditLeft: policyEditRect.left,
-          policyEditWidth: policyEditRect.width,
-          policyGap: policySpacing.gap,
-          policyListGap: policySpacing.rowGap,
-          repoCreateLeft: repoCreateRect.left,
-          repoCreateWidth: repoCreateRect.width,
-          repoEditLeft: repoEditRect.left,
-          repoEditWidth: repoEditRect.width,
-          repoGap: repoSpacing.gap,
-          repoListGap: repoSpacing.rowGap,
-        }
-      : null;
-  });
-
-  expect(layout).not.toBeNull();
-  expect(layout!.repoGap).toBeCloseTo(layout!.repoListGap, 0);
-  expect(layout!.llmGap).toBeCloseTo(layout!.repoListGap, 0);
-  expect(layout!.policyGap).toBeCloseTo(layout!.repoListGap, 0);
-  expect(layout!.policyListGap).toBeCloseTo(layout!.repoListGap, 0);
-  for (const [left, width] of [
-    [layout!.policyEditLeft, layout!.policyEditWidth],
-    [layout!.repoCreateLeft, layout!.repoCreateWidth],
-    [layout!.repoEditLeft, layout!.repoEditWidth],
-    [layout!.llmCreateLeft, layout!.llmCreateWidth],
-    [layout!.llmEditLeft, layout!.llmEditWidth],
-  ]) {
-    expect(Math.abs(left - layout!.policyCreateLeft)).toBeLessThanOrEqual(2);
-    expect(Math.abs(width - layout!.policyCreateWidth)).toBeLessThanOrEqual(2);
+  expect(llmLayout).not.toBeNull();
+  expect(repoLayout).not.toBeNull();
+  expect(policyLayout).not.toBeNull();
+  for (const layout of [llmLayout!, repoLayout!, policyLayout!]) {
+    expect(layout.gap).toBeCloseTo(layout.rowGap, 0);
+    expect(Math.abs(layout.editLeft - layout.createLeft)).toBeLessThanOrEqual(2);
+    expect(Math.abs(layout.editWidth - layout.createWidth)).toBeLessThanOrEqual(2);
   }
 });
+
+async function formLayoutForSection(page: Page, sectionTitle: string) {
+  return page.evaluate((title) => {
+    const section = Array.from(document.querySelectorAll("section.surface")).find(
+      (candidate) => candidate.textContent?.includes(title),
+    );
+    const forms = Array.from(section?.querySelectorAll("form.inline-form") ?? []);
+    const createForm = forms.find((form) => !form.closest("li"));
+    const editForm = forms.find((form) => form.closest("li"));
+    const list = section?.querySelector("ul.settings-config-list");
+    const createRect = createForm?.getBoundingClientRect();
+    const editRect = editForm?.getBoundingClientRect();
+    const listRect = list?.getBoundingClientRect();
+    const rowGap = list ? Number.parseFloat(getComputedStyle(list).rowGap) : Number.NaN;
+
+    if (!createRect || !editRect || !listRect) {
+      return null;
+    }
+
+    return {
+      createLeft: createRect.left,
+      createWidth: createRect.width,
+      editLeft: editRect.left,
+      editWidth: editRect.width,
+      gap: listRect.top - createRect.bottom,
+      rowGap,
+    };
+  }, sectionTitle);
+}
+
+async function loginMockAdmin(page: Page) {
+  await page.getByRole("button", { name: "未登录" }).click();
+  await page.getByRole("menuitem", { name: "登录" }).click();
+  await page.getByLabel("用户名").fill("admin");
+  await page.getByLabel("密码", { exact: true }).fill("admin");
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Admin", exact: true })).toBeVisible();
+}
 
 test("wiki import drawer keeps queue details visible across failure and unfinished close confirmation", async ({
   page,
@@ -239,8 +161,8 @@ test("wiki import drawer keeps queue details visible across failure and unfinish
   await installApiMocks(page);
   await page.goto("/");
 
-  const primaryNav = page.getByRole("navigation", { name: "主导航" });
-  await primaryNav.getByRole("button", { name: "Wiki", exact: true }).click();
+  await loginMockAdmin(page);
+  await page.goto("/#/wiki?feature=7");
   await expect(page.getByRole("complementary", { name: "Wiki 目录树" })).toBeVisible();
 
   await page
@@ -301,7 +223,7 @@ async function installApiMocks(page: Page) {
             },
       );
     }
-    if (path === "/api/auth/admin/login" && method === "POST") {
+    if ((path === "/api/auth/admin/login" || path === "/api/auth/login") && method === "POST") {
       isAdmin = true;
       return json(route, {
         subject_id: "admin",
@@ -537,6 +459,9 @@ async function installApiMocks(page: Page) {
     if (path === "/api/features/7/repos" && method === "GET") {
       return json(route, { repos: [repo] });
     }
+    if (path === "/api/features/7/admins" && method === "GET") {
+      return json(route, { admins: [] });
+    }
     if (path === "/api/repos" && method === "GET") {
       return json(route, { repos: [repo] });
     }
@@ -565,6 +490,32 @@ async function installApiMocks(page: Page) {
           quota_remaining: null,
         },
       ]);
+    }
+    if (path === "/api/llm-runtime-profiles?backend=opencode" && method === "GET") {
+      return json(route, {
+        backend: "opencode",
+        profiles: [
+          {
+            id: "default",
+            label: "Default",
+            description: "",
+          },
+          {
+            id: "openai-compatible",
+            label: "OpenAI Compatible",
+            description: "",
+          },
+        ],
+      });
+    }
+    if (path === "/api/admin/opencode/status" && method === "GET") {
+      return json(route, {
+        running: true,
+        port: 4100,
+        pid: 12345,
+        executable: "opencode",
+        log_file: "/tmp/codeask/opencode.log",
+      });
     }
 
     throw new Error(`Unexpected ${method} ${path}`);

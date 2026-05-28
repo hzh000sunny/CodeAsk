@@ -12,6 +12,7 @@ export interface ConversationMessage {
   content: string;
   status?: "streaming" | "done" | "error";
   turnId?: string;
+  stoppedAt?: string | null;
 }
 
 export interface RuntimeStage {

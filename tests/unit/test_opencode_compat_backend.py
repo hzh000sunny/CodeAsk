@@ -1104,6 +1104,7 @@ async def test_run_turn_errors_when_prompt_has_no_progress(
     assert events[-1].data == {
         "backend": "opencode",
         "error": "opencode accepted the prompt but did not report progress",
+        "no_progress_seconds": 0,
     }
 
 
@@ -2274,7 +2275,7 @@ async def test_run_turn_uses_initialized_binding_after_llm_config_switch(
 
 
 @pytest.mark.asyncio
-async def test_abort_turn_delegates_to_opencode_and_rolls_back_turn(tmp_path: Path) -> None:
+async def test_abort_turn_delegates_to_opencode(tmp_path: Path) -> None:
     wiki_root = tmp_path / "wiki"
     wiki_root.mkdir()
     workspace_manager = OpenCodeWorkspaceManager(

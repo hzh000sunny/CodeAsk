@@ -2250,7 +2250,7 @@ describe("SessionWorkspace streaming interaction", () => {
     });
   });
 
-  it("stops an active generation and rolls back the local turn", async () => {
+  it("stops an active generation and keeps the truncated local turn", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input);
@@ -2327,9 +2327,10 @@ describe("SessionWorkspace streaming interaction", () => {
     fireEvent.click(screen.getByRole("button", { name: "停止" }));
 
     await waitFor(() => {
-      expect(screen.queryByText("需要中断的长任务")).not.toBeInTheDocument();
-      expect(screen.queryByText("正在分析")).not.toBeInTheDocument();
-      expect(screen.queryByText("上下文已准备")).not.toBeInTheDocument();
+      expect(screen.getByText("需要中断的长任务")).toBeInTheDocument();
+      expect(screen.getByText("正在分析")).toBeInTheDocument();
+      expect(screen.getByText("已停止")).toBeInTheDocument();
+      expect(screen.getByText("上下文已准备")).toBeInTheDocument();
     });
     expect(
       fetchMock.mock.calls.some(

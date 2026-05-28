@@ -72,7 +72,12 @@ def map_global_event(
 
     if event_type == "session.error":
         error = properties.get("error")
-        return ChatRuntimeEvent(type="error", data={"backend": "opencode", "error": error})
+        data: dict[str, object] = {"backend": "opencode", "error": error}
+        for key in ("no_progress_seconds", "absolute_wait_seconds"):
+            value = properties.get(key)
+            if isinstance(value, int):
+                data[key] = value
+        return ChatRuntimeEvent(type="error", data=data)
 
     return None
 
