@@ -26,13 +26,15 @@ type ScenarioStep = {
   codeToolsExpected?: boolean;
 };
 
-const CODE_TOOLS = new Set([
+const REPOSITORY_TOOLS = new Set([
+  "codeask_prepare_worktree",
   "list_code_repos",
   "search_code",
   "inspect_repo_tree",
   "list_code_paths",
   "read_code_file",
 ]);
+const FILE_INSPECTION_TOOLS = new Set(["glob", "grep", "read"]);
 
 const SCENARIO: ScenarioStep[] = [
   {
@@ -103,7 +105,8 @@ test("agent keeps feature context while answering inserted technical questions d
   for (const step of SCENARIO) {
     const result = await postMessage(page, sessionId, step.question);
     const uniqueTools = Array.from(new Set(result.toolNames));
-    const codeTools = uniqueTools.filter((tool) => CODE_TOOLS.has(tool));
+    const repositoryTools = uniqueTools.filter((tool) => REPOSITORY_TOOLS.has(tool));
+    const fileInspectionTools = uniqueTools.filter((tool) => FILE_INSPECTION_TOOLS.has(tool));
 
     expect(result.text.trim(), step.id).not.toEqual("");
     expect(result.text, step.id).not.toMatch(
@@ -116,17 +119,17 @@ test("agent keeps feature context while answering inserted technical questions d
 
     if (step.codeToolsExpected) {
       expect(
-        codeTools.length,
+        repositoryTools.length + fileInspectionTools.length,
         `${step.id} should use code tools; actual tools=${JSON.stringify(uniqueTools)}`,
       ).toBeGreaterThan(0);
       continue;
     }
 
-    if (codeTools.length > 0) {
+    if (repositoryTools.length > 0) {
       deviations.push({
         id: step.id,
         reason: "code tool was used for a topic/contextual concept question",
-        tools: codeTools,
+        tools: repositoryTools,
       });
     }
   }

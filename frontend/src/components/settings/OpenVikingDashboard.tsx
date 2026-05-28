@@ -31,6 +31,7 @@ import {
   retrySyncJob,
   rollbackOpenVikingTuning,
   switchEmbeddingModel,
+  verifyOllamaSettings,
 } from "../../lib/api";
 import type {
   OpenVikingDashboardEvent,
@@ -66,7 +67,7 @@ const TUNING_DESCRIPTIONS: Record<string, { description: string; impact: string 
   },
   "codeask.scheduled_refresh_hours": {
     description: "补偿性全量刷新间隔。",
-    impact: "调度项后续接入",
+    impact: "定时任务生效",
   },
   "codeask.sync_workers": {
     description: "CodeAsk 同步队列的并发 worker 数。",
@@ -683,10 +684,12 @@ function OpenVikingTuningCard({
     mutationFn: applyOpenVikingTuningPreset,
     onSuccess: onRefresh,
   });
+  const ollamaVerifyMutation = useMutation({ mutationFn: verifyOllamaSettings, onSuccess: onRefresh });
   const mutationError =
     mutationErrorMessage(applyMutation.error) ??
     mutationErrorMessage(rollbackMutation.error) ??
-    mutationErrorMessage(presetMutation.error);
+    mutationErrorMessage(presetMutation.error) ??
+    mutationErrorMessage(ollamaVerifyMutation.error);
   const rejectedChanges = [
     ...rejectedFromMutation(applyMutation.data),
     ...rejectedFromMutation(rollbackMutation.data),
@@ -803,14 +806,30 @@ function OpenVikingTuningCard({
           <p>用于在宿主机 Ollama 服务中应用当前配置的并发参数。</p>
         </div>
         <code>{snippet || "正在读取 snippet"}</code>
-        <button
-          className="button button-secondary"
-          type="button"
-          onClick={() => void navigator.clipboard?.writeText(snippet)}
-        >
-          <Copy size={15} />
-          复制
-        </button>
+        <div className="settings-openviking-snippet-actions">
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => void navigator.clipboard?.writeText(snippet)}
+          >
+            <Copy size={15} />
+            复制
+          </button>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => ollamaVerifyMutation.mutate()}
+          >
+            验证 Ollama 设置
+          </button>
+          {ollamaVerifyMutation.data ? (
+            <span className="settings-openviking-verify-result">
+              {ollamaVerifyMutation.data.verified ? "验证通过" : "验证未通过"} · expected{" "}
+              {ollamaVerifyMutation.data.expected_num_parallel} / observed{" "}
+              {displayValue(ollamaVerifyMutation.data.observed_parallel)}
+            </span>
+          ) : null}
+        </div>
       </div>
     </section>
   );

@@ -147,3 +147,7 @@ corepack pnpm --dir frontend build
 
 - `uv run pytest tests/unit/test_session_report_generation.py tests/integration/test_session_report_generation.py -q` -> `18 passed`
 - `uv run ruff check src/codeask/sessions/report_generation.py tests/unit/test_session_report_generation.py` -> `All checks passed!`
+
+## 后续版本
+
+v1.0.4 之后由 [v1.0.5](../v1.0.5/) 接续。v1.0.5 在 opencode 主链路不变的前提下，引入 OpenViking 作为 Wiki / 问题报告 / 代码仓 RAG 的统一上下文数据库，并删除旧 FTS5 链路、隔离保留 native Agent。

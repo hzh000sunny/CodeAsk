@@ -193,15 +193,15 @@ Phase 2 spike 已确认 opencode 1.14.48 支持按 prefixed tool name 做 per-to
 
 - 真实 LLM、真实 opencode、真实 OpenViking、真实 Ollama
 - 真实 Feature Wiki 已同步
-- 用例：用户描述业务问题 → 模型调用 `openviking_search` → 读 Wiki → 给出带 `viking://` 来源的回答
-- 用例：用户问代码问题 → 模型先 `openviking_search` 命中 repo 候选 → 调 `codeask_prepare_worktree` → opencode 原生 read 真实文件 → 输出
-- 用例：OpenViking server 关停 → 模型自动退回 native `read/grep/glob`，会话继续；admin 仪表盘标 degraded；用户路径不弹窗中断
+- 用例：用户描述业务问题 → 模型可自主选择 OpenViking 语义召回或 workspace wiki 原生文件工具 → 给出正确回答；测试不强制正向工具调用链
+- 用例：用户问代码问题 → 模型可自主选择 OpenViking / CodeAsk MCP / opencode 原生文件工具；若需要读取源码，应先准备 worktree，再读取真实文件 → 输出正确答案
+- 用例：OpenViking server 关停 → 不注入 OpenViking MCP / 上下文段，模型可退回 workspace wiki / native `read/grep/glob` 或基于已有上下文回答；会话继续；admin 仪表盘标 degraded；用户路径不弹窗中断
 
 当前实现已新增 live spec 框架，并覆盖：
 
-- 手动同步一条 Wiki 知识 → 会话自然语言提问 → 期望模型调用 `openviking_*` 只读工具，且不调用三个写工具
-- OpenViking 召回源码候选 → `codeask_prepare_worktree` → opencode 原生 `grep/read` 读取准备好的真实仓库
-- OpenViking degraded / 不健康 → opencode 会话不注入 OpenViking MCP 与上下文段，模型通过 workspace wiki 的 native `read/grep/glob` 继续回答
+- 手动同步一条 Wiki 知识 → 会话自然语言提问 → 以答案正确性为硬判据；仍断言不执行三个 OpenViking 写工具
+- 源码问题 → 以答案正确性为硬判据；工具调用采样用于复盘，不强制 `openviking_* → codeask_prepare_worktree → grep/read` 三连
+- OpenViking degraded / 不健康 → opencode 会话不注入 OpenViking MCP 与上下文段；仍硬断言不调用 `openviking_*`，但不强制必须出现 `grep/read/glob`
 
 2026-05-25 实测记录：
 
@@ -218,6 +218,13 @@ corepack pnpm --dir frontend exec playwright test \
 
 结果：4 passed（admin dashboard、Wiki semantic recall、source bridge、degraded fallback）。
 
+2026-05-28 补充修正：
+
+- `openviking-rag-live.spec.ts` 与 `admin-agent-source-live.spec.ts` 已对齐 contextual-QA 的契约：模型能力可直接回答时不强制工具调用，工具正向调用只记录采样；保留写工具拒绝、degraded 不调用 `openviking_*`、错误边界等硬约束。
+- `openviking-rag-live.spec.ts` 使用 `DeepSeek-OpenAI-Pro` 真实栈复跑：3/3 passed。
+- `admin-agent-source-live.spec.ts` 真实栈复跑：1/1 passed。
+- `references/anything-llm` 不再依赖人工保留 `.git`；Playwright globalSetup 会在 fixture 目录存在但缺 `.git` 时幂等初始化。删除 `.git` 后复跑 continuity + feature-scoped live：3/3 passed。
+
 同日补充执行真实库 LLM 配置 smoke：
 
 ```bash
@@ -232,7 +239,7 @@ uv run pytest tests/live/test_live_opencode_llm_configs.py -q -s
 
 - **全局 LLM 池重试不能重写同一个 workspace 的 `opencode.json`。** 实测在同一 opencode workspace 中先用坏 provider 触发 `session.error`，再把 `opencode.json` 重写成另一个 provider 后，opencode 会只记录新 user message，不产出 assistant。M2 修复为：全局池会把当前所有 enabled global configs 写成稳定 provider set；单轮重试只切换 `prompt_async` 的 provider/model，并强制创建新的 external session，不重写 provider set。
 - **opencode 会把用户消息的 text part 也作为 `message.part.updated` 事件发出。** 该事件不能算 assistant 可见输出，否则坏 provider 在真正回答前报错时会被误判为"已经输出正文"，从而阻止全局池轮转。M2 修复为：后端维护 `message.updated.info.role`，明确跳过 `role=user` 的 text part / delta。
-- **源码桥接 E2E 不能把测试 marker 写入 Feature 元数据。** 初版用例把 marker / PermissionMode 线索写入 Feature 名称或描述，模型可以直接从动态特性目录定位并 prepare worktree，绕过 OpenViking。最终用例只注册仓库，把 `marker -> repo_id` 映射写入 OpenViking 资源，断言模型先调用 `openviking_*` 再 `codeask_prepare_worktree` / native `grep/read`。
+- **源码桥接 E2E 不能把测试 marker 写入 Feature 元数据。** 初版用例把 marker / PermissionMode 线索写入 Feature 名称或描述，模型可以直接从动态特性目录定位并 prepare worktree，绕过 OpenViking。最终用例只注册仓库，把 `marker -> repo_id` 映射写入 OpenViking 资源；当前验收不再强制正向工具链，只以答案正确性和越界/写工具等边界为硬判据，工具调用记录为采样证据。
 - **OpenViking health 探针不能在同一轮重复执行。** 初版 `app.py` 中 MCP resolver 与动态上下文可用性判断各自调用 `_resolve_openviking_mcp_config`，当 OpenViking 进程还活着但 `/health` 卡住时，degraded 用户路径会叠加两次 2s 超时。M2 修复为：`initialize_session` 解析一次 OpenViking MCP config 并写入 opencode binding；`run_turn` 从 binding 的 `config_json.mcp.openviking` 推导 `openviking_available` 传给 context builder，不再重复探针。
 
 ---

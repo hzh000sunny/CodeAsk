@@ -1,7 +1,7 @@
 # OpenViking Integration 系统设计
 
 > 版本：v1.0.5
-> 状态：Draft
+> 状态：Completed
 > 关联：[产品契约](../prd/rag-knowledge.md) | [Phase 0 spike](../plans/phase-0-spike.md) | [集成边界声明](../specs/openviking-agpl-review.md)
 
 ---

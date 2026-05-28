@@ -133,6 +133,12 @@ async def enqueue_prebuilt_sync_job(request: Request, job: OpenVikingHookJob) ->
             viking_uri=job.viking_uri,
             triggered_by=getattr(request.state, "subject_id", None),
             operation=job.operation,
+            emit_enqueue_event=False,
+        )
+        await emit_named_change_event(
+            request,
+            job,
+            triggered_by=getattr(request.state, "subject_id", None),
         )
     except Exception:
         log.exception(
@@ -141,6 +147,31 @@ async def enqueue_prebuilt_sync_job(request: Request, job: OpenVikingHookJob) ->
             source_id=job.source_id,
             operation=job.operation,
         )
+
+
+async def emit_named_change_event(
+    request: Request,
+    job: OpenVikingHookJob,
+    *,
+    triggered_by: str | None,
+) -> None:
+    from codeask.rag.openviking.dashboard import emit_event
+
+    event_type = "wiki_doc_changed" if job.source_type == "wiki_doc" else "report_status_changed"
+    await emit_event(
+        request.app.state.session_factory,
+        event_type=event_type,
+        source_type=job.source_type,
+        source_id=job.source_id,
+        triggered_by=triggered_by,
+        payload={
+            "operation": job.operation,
+            "feature_slug": job.feature_slug,
+            "source_hash": job.source_hash,
+            "viking_uri": job.viking_uri,
+        },
+        outcome="info",
+    )
 
 
 async def build_report_delete_job(

@@ -436,6 +436,59 @@ async def test_openviking_tuning_openviking_scope_restarts_server(client, app) -
 
 
 @pytest.mark.asyncio
+async def test_openviking_ollama_verify_emits_success_event(client, app) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+
+    async def fake_probe(expected: int) -> int:
+        return expected
+
+    app.state.ollama_parallel_probe = fake_probe
+    response = await client.post("/api/admin/openviking/tuning/ollama_verify")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["verified"] is True
+    assert body["observed_parallel"] == body["expected_num_parallel"]
+    async with app.state.session_factory() as session:
+        event = (
+            await session.execute(
+                select(OpenVikingDashboardEvent).where(
+                    OpenVikingDashboardEvent.event_type == "ollama_settings_verified"
+                )
+            )
+        ).scalar_one()
+    assert event.outcome == "success"
+
+
+@pytest.mark.asyncio
+async def test_openviking_ollama_verify_emits_warning_event_when_under_configured(
+    client,
+    app,
+) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+
+    async def fake_probe(expected: int) -> int:
+        return max(0, expected - 1)
+
+    app.state.ollama_parallel_probe = fake_probe
+    response = await client.post("/api/admin/openviking/tuning/ollama_verify")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["verified"] is False
+    async with app.state.session_factory() as session:
+        event = (
+            await session.execute(
+                select(OpenVikingDashboardEvent).where(
+                    OpenVikingDashboardEvent.event_type == "ollama_settings_verified"
+                )
+            )
+        ).scalar_one()
+    assert event.outcome == "warning"
+
+
+@pytest.mark.asyncio
 async def test_openviking_retry_single_failed_sync_job(client, app) -> None:
     login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
     assert login.status_code == 200

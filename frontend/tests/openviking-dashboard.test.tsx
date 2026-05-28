@@ -23,6 +23,7 @@ vi.mock("../src/lib/api", () => ({
   retrySyncJob: vi.fn(),
   rollbackOpenVikingTuning: vi.fn(),
   switchEmbeddingModel: vi.fn(),
+  verifyOllamaSettings: vi.fn(),
 }));
 
 describe("OpenVikingDashboard", () => {
@@ -190,6 +191,12 @@ describe("OpenVikingDashboard", () => {
       rejected: [],
       estimated_downtime_seconds: 0,
     });
+    vi.mocked(api.verifyOllamaSettings).mockResolvedValue({
+      error: null,
+      expected_num_parallel: 1,
+      observed_parallel: 1,
+      verified: true,
+    });
   });
 
   it("renders aligned management cards and exposes sync/tuning actions", async () => {
@@ -234,6 +241,9 @@ describe("OpenVikingDashboard", () => {
       await screen.findByText("用于在宿主机 Ollama 服务中应用当前配置的并发参数。"),
     ).toBeInTheDocument();
     expect(screen.queryByText("用于在宿主机 Ollama 服务中应用推荐并发参数。")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "验证 Ollama 设置" }));
+    await waitFor(() => expect(vi.mocked(api.verifyOllamaSettings)).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/验证通过/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "重试 ovjob_1" }));
     await waitFor(() => expect(vi.mocked(api.retrySyncJob).mock.calls[0]?.[0]).toBe("ovjob_1"));

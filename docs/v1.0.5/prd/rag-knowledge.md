@@ -1,7 +1,7 @@
 # Wiki 与代码仓 RAG 产品契约
 
 > 版本：v1.0.5
-> 状态：Draft
+> 状态：Completed
 > 适用范围：opencode 主链路下接入 OpenViking 作为统一 RAG 后端的第一版
 
 ---

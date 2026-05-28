@@ -166,9 +166,9 @@ UI 重做依赖这些数据真实化，否则再美也是空壳：
 ### 11.F 遗留功能项（暂缓，非阻塞）
 
 - [ ] ⚪ 破坏性 live e2e（E2 切模型 / E4 rebuild / E7 openviking 调参重启）隔离数据目录补全
-- [ ] ⚪ Ollama 真实并发探测 `verify_ollama_recommend` + `ollama_settings_verified` 事件
+- [x] ⚪ Ollama 轻量实测探测 `verify_ollama_recommend` + `ollama_settings_verified` 事件已接入；真实高压并发压测仍不在本轮范围
 - [ ] ⚪ APScheduler interval 重排（codeask scope `progress_sweep_interval`/`scheduled_refresh_hours`）
-- [ ] ⚪ scheduled_refresh / 24h sweep
+- [x] ⚪ scheduled_refresh / 24h sweep 已接入 startup backfill 与 APScheduler 周期任务，完成后发送 `scheduled_refresh_summary`
 
 ### 11.G 验收（含真实页面，我来做）
 

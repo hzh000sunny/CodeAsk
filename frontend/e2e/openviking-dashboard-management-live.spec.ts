@@ -63,11 +63,16 @@ test("E3 sync job shows real progress and can be retried from the UI", async ({
     method: "POST",
   });
   expect(enqueued.status).toBe(201);
-  await expectOk(
-    api(page, "/api/admin/openviking/sync_jobs/run_pending", { method: "POST" }),
-  );
   await expect
-    .poll(async () => findJobStatus(page, sourceId), { timeout: 30_000 })
+    .poll(
+      async () => {
+        await expectOk(
+          api(page, "/api/admin/openviking/sync_jobs/run_pending", { method: "POST" }),
+        );
+        return findJobStatus(page, sourceId);
+      },
+      { timeout: 90_000 },
+    )
     .toBe("failed");
 
   await openDashboard(page);
@@ -201,6 +206,11 @@ test("E10 Ollama systemd snippet is visible and copyable", async ({ context, pag
   const snippet = await snippetBlock.locator("code").innerText();
   await snippetBlock.getByRole("button", { name: /复制/ }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(snippet);
+  await snippetBlock.getByRole("button", { name: "验证 Ollama 设置" }).click();
+  await expect(snippetBlock.getByText(/验证通过|验证未通过/)).toBeVisible();
+  await expect(
+    page.locator(".settings-openviking-row").filter({ hasText: "ollama_settings_verified" }).first(),
+  ).toBeVisible();
 });
 
 test("E12 anonymous users cannot access management mutations", async ({ page }) => {

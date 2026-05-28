@@ -3725,6 +3725,18 @@ textarea:focus-visible {
   white-space: pre-wrap;
 }
 
+.settings-openviking-snippet-actions {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.settings-openviking-verify-result {
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .settings-openviking-job-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

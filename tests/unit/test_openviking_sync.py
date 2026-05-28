@@ -7,7 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from codeask.db import Base, session_factory
-from codeask.db.models import Feature, WikiDocument, WikiDocumentVersion, WikiNode, WikiSpace
+from codeask.db.models import (
+    Feature,
+    Report,
+    WikiDocument,
+    WikiDocumentVersion,
+    WikiNode,
+    WikiSpace,
+)
 from codeask.rag.openviking.dashboard import emit_event
 from codeask.rag.openviking.models import OpenVikingDashboardEvent, OpenVikingSyncJob
 from codeask.rag.openviking.sync import OpenVikingSyncService, SyncResource
@@ -369,6 +376,114 @@ async def test_run_pending_jobs_cancels_after_five_consecutive_failures(db_facto
     assert job.error == "permanent failure"
 
 
+@pytest.mark.asyncio
+async def test_sweep_all_enqueues_only_published_wiki_and_verified_reports(db_factory) -> None:
+    async with db_factory() as session:
+        published = await _seed_wiki_document(
+            session,
+            feature_slug="anything",
+            node_path="knowledge-base/published",
+            title="Published",
+            body="# Published",
+        )
+        await _seed_wiki_document(
+            session,
+            feature_slug="anything-draft",
+            node_path="knowledge-base/draft",
+            title="Draft",
+            body="# Draft",
+            published=False,
+        )
+        await _seed_wiki_document(
+            session,
+            feature_slug="anything-deleted",
+            node_path="knowledge-base/deleted",
+            title="Deleted",
+            body="# Deleted",
+            deleted=True,
+        )
+        verified_report = await _seed_report(
+            session,
+            feature_slug="reports",
+            title="Verified report",
+            body="# Verified",
+            verified=True,
+        )
+        await _seed_report(
+            session,
+            feature_slug="reports-draft",
+            title="Draft report",
+            body="# Draft report",
+            verified=False,
+        )
+        await session.commit()
+
+    service = OpenVikingSyncService(db_factory)
+    result = await service.sweep_all(triggered_by="startup_backfill")
+
+    async with db_factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(OpenVikingSyncJob).order_by(OpenVikingSyncJob.source_type)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert result == {"scanned": 2, "enqueued": 2, "skipped": 0}
+    assert {(row.source_type, row.source_id) for row in rows} == {
+        ("report", str(verified_report.id)),
+        ("wiki_doc", str(published.id)),
+    }
+    assert all(row.status == "pending" for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_sweep_all_is_idempotent_until_source_hash_changes(db_factory) -> None:
+    async with db_factory() as session:
+        document = await _seed_wiki_document(
+            session,
+            feature_slug="anything",
+            node_path="knowledge-base/idempotent",
+            title="Idempotent",
+            body="# V1",
+        )
+        await session.commit()
+
+    service = OpenVikingSyncService(db_factory)
+    first = await service.sweep_all(triggered_by="startup_backfill")
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+        job.status = "indexed"
+        await session.commit()
+
+    second = await service.sweep_all(triggered_by="scheduled_refresh")
+    async with db_factory() as session:
+        document_row = await session.get(WikiDocument, document.id)
+        assert document_row is not None
+        new_version = WikiDocumentVersion(
+            document_id=document.id,
+            version_no=2,
+            body_markdown="# V2",
+            created_by_subject_id="admin",
+        )
+        session.add(new_version)
+        await session.flush()
+        document_row.current_version_id = new_version.id
+        await session.commit()
+
+    third = await service.sweep_all(triggered_by="scheduled_refresh")
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+
+    assert first == {"scanned": 1, "enqueued": 1, "skipped": 0}
+    assert second == {"scanned": 1, "enqueued": 0, "skipped": 1}
+    assert third == {"scanned": 1, "enqueued": 1, "skipped": 0}
+    assert job.status == "pending"
+    assert job.source_hash is not None
+
+
 def _aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
@@ -383,6 +498,7 @@ async def _seed_wiki_document(
     title: str,
     body: str,
     deleted: bool = False,
+    published: bool = True,
 ) -> WikiDocument:
     feature = Feature(
         name=feature_slug,
@@ -435,5 +551,36 @@ async def _seed_wiki_document(
     )
     session.add(version)
     await session.flush()
-    document.current_version_id = version.id
+    if published:
+        document.current_version_id = version.id
     return document
+
+
+async def _seed_report(
+    session,
+    *,
+    feature_slug: str,
+    title: str,
+    body: str,
+    verified: bool,
+) -> Report:
+    feature = Feature(
+        name=f"{feature_slug}-report-feature",
+        slug=feature_slug,
+        owner_subject_id="admin",
+    )
+    session.add(feature)
+    await session.flush()
+    report = Report(
+        feature_id=feature.id,
+        title=title,
+        body_markdown=body,
+        metadata_json={"evidence": []},
+        status="verified" if verified else "draft",
+        verified=verified,
+        verified_by="admin" if verified else None,
+        created_by_subject_id="admin",
+    )
+    session.add(report)
+    await session.flush()
+    return report

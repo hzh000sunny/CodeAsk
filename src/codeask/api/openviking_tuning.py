@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
+import httpx
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -22,6 +24,7 @@ from codeask.rag.openviking.tuning import (
     preset_values,
     recommended_value,
     validate_tuning_value,
+    verify_ollama_recommend,
 )
 
 router = APIRouter()
@@ -192,6 +195,39 @@ async def get_openviking_ollama_snippet(request: Request) -> dict[str, str]:
         "snippet": ollama_snippet(num_parallel=num_parallel, num_thread=num_thread),
         "num_parallel": str(num_parallel),
         "num_thread": str(num_thread),
+    }
+
+
+@router.post("/admin/openviking/tuning/ollama_verify")
+async def verify_openviking_ollama_settings(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    rows = latest_tuning_rows(await ensure_default_tuning_settings(request))
+    expected = int_tuning_value(rows, ("ollama_recommend", "num_parallel"))
+
+    async def probe(expected_num_parallel: int) -> int:
+        custom_probe = getattr(request.app.state, "ollama_parallel_probe", None)
+        if callable(custom_probe):
+            return await cast(Callable[[int], Awaitable[int]], custom_probe)(expected_num_parallel)
+        return await _probe_ollama_num_parallel(request)
+
+    result = await verify_ollama_recommend(expected_num_parallel=expected, probe=probe)
+    outcome = "success" if result.verified else "warning"
+    await emit_event(
+        request.app.state.session_factory,
+        event_type="ollama_settings_verified",
+        triggered_by=str(request.state.subject_id),
+        payload={
+            "expected_num_parallel": result.expected_num_parallel,
+            "observed_parallel": result.observed_parallel,
+            "error": result.error,
+        },
+        outcome=outcome,
+    )
+    return {
+        "verified": result.verified,
+        "expected_num_parallel": result.expected_num_parallel,
+        "observed_parallel": result.observed_parallel,
+        "error": result.error,
     }
 
 
@@ -423,3 +459,28 @@ def _row_to_dict(row: OpenVikingTuningSetting) -> dict[str, Any]:
         "recommended": recommended_value(row.scope, row.key),
         "notes": row.notes,
     }
+
+
+async def _probe_ollama_num_parallel(request: Request) -> int:
+    settings = request.app.state.settings
+    async with httpx.AsyncClient(
+        base_url=str(settings.openviking_ollama_base_url).rstrip("/"),
+        timeout=5.0,
+        transport=getattr(request.app.state, "ollama_health_transport", None),
+        trust_env=False,
+    ) as client:
+        response = await client.get("/api/ps")
+        response.raise_for_status()
+        response_data = response.json()
+    if not isinstance(response_data, dict):
+        raise RuntimeError("Ollama /api/ps response was not an object")
+    data = cast(dict[str, Any], response_data)
+    raw_parallel: object = data.get("num_parallel") or data.get("parallel")
+    if isinstance(raw_parallel, int):
+        return raw_parallel
+    if isinstance(raw_parallel, str) and raw_parallel.isdigit():
+        return int(raw_parallel)
+    raw_models: object = data.get("models")
+    if isinstance(raw_models, list) and raw_models:
+        return len(cast(list[object], raw_models))
+    raise RuntimeError("Ollama /api/ps did not expose active parallelism")

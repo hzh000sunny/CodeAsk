@@ -5,6 +5,7 @@ import type {
   OpenVikingEventsResponse,
   OpenVikingMutationCountResponse,
   OpenVikingOllamaSnippetResponse,
+  OpenVikingOllamaVerifyResponse,
   OpenVikingStatusResponse,
   OpenVikingSyncJob,
   OpenVikingSyncJobsResponse,
@@ -95,6 +96,13 @@ export function getTuningHistory(params: { scope?: string; key?: string } = {}) 
 export function getOllamaSnippet() {
   return apiRequest<OpenVikingOllamaSnippetResponse>(
     "/api/admin/openviking/tuning/ollama_snippet",
+  );
+}
+
+export function verifyOllamaSettings() {
+  return apiRequest<OpenVikingOllamaVerifyResponse>(
+    "/api/admin/openviking/tuning/ollama_verify",
+    { method: "POST" },
   );
 }
 

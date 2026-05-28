@@ -39,7 +39,13 @@ test("admin OpenViking dashboard survives reload and exposes diagnostic paths", 
   await expect(page.getByRole("button", { name: "重排同步队列" })).toBeVisible();
   await expect(page.locator(".settings-openviking-card-header")).toHaveCount(6);
   await expect(page.locator(".openviking-dashboard .section-title-row")).toHaveCount(0);
-  await expect(page.locator("body")).toContainText("/.codeask/openviking/");
+  const diagnosticPaths = await page
+    .locator(".settings-runtime-path-item code")
+    .allTextContents();
+  expect(
+    diagnosticPaths.some((value) => value.startsWith("/") && value.endsWith("/openviking/ov.conf")),
+    `expected absolute ov.conf path, got ${JSON.stringify(diagnosticPaths)}`,
+  ).toBe(true);
   await expect(page).toHaveURL(/#\/settings\?page=openviking$/);
 
   await page.reload({ waitUntil: "networkidle" });
@@ -48,5 +54,7 @@ test("admin OpenViking dashboard survives reload and exposes diagnostic paths", 
   ).toBeVisible();
   await expect(page).toHaveURL(/#\/settings\?page=openviking$/);
 
-  await expect(page.locator("body")).toContainText("/.codeask/openviking/");
+  await expect
+    .poll(async () => page.locator(".settings-runtime-path-item code").allTextContents())
+    .toContainEqual(expect.stringMatching(/^\/.*\/openviking\/ov\.conf$/));
 });

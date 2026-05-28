@@ -25,7 +25,7 @@ M1 的 OpenViking admin 看板**只交付了只读状态展示**，规格里整�
 
 ## 1.1 2026-05-26 实现记录
 
-- 后端已补 `src/codeask/rag/openviking/tuning.py`，包含主机预设识别、推荐参数、Ollama systemd snippet 与可插拔验证 helper。
+- 后端已补 `src/codeask/rag/openviking/tuning.py`，包含主机预设识别、推荐参数、Ollama systemd snippet 与可插拔验证 helper；`POST /admin/openviking/tuning/ollama_verify` 已接入轻量探测并发送 `ollama_settings_verified`。
 - 后端已补 tuning 写端点、rollback、apply preset、history、snippet；每条应用/拒绝都会写 `openviking_dashboard_events` 与 `audit_log`。
 - 后端已补 embedding candidates、switch、rebuild、history；切模型/重建会重写配置、重启 OpenViking、将现有 sync jobs 置 pending，并 best-effort 清理 `viking://resources/codeask`。
 - 后端已补单 job retry、retry failed、resync、rebuild index；写操作都会记录 `triggered_by`、dashboard event 与 audit log。
@@ -46,7 +46,7 @@ M1 的 OpenViking admin 看板**只交付了只读状态展示**，规格里整�
 - [x] `detect_preset() -> (preset_id, preset_values)`：CPU + RAM + GPU（lspci/nvidia-smi）+ embedding provider 综合判定（替换 router 内只看 CPU 的 `_detect_preset`）
 - [x] 各预设 `PRESET_*`（`small_machine/small_server/medium_server/large_server/gpu_host/cloud_embedding`）的 `preset_values` + 每个 key 的 `recommended`
 - [x] `ollama_snippet(num_parallel, num_thread) -> str`（systemd override 片段）
-- [ ] `verify_ollama_recommend(expected_num_parallel)`：当前已提供可插拔 helper；真实并发探测与 `ollama_settings_verified` 事件仍需单独接入 UI/后台探测
+- [x] `verify_ollama_recommend(expected_num_parallel)`：提供可插拔 helper；真实轻量探测已接入 `POST /admin/openviking/tuning/ollama_verify`，前端 snippet 区可点击验证并写入 `ollama_settings_verified` 事件
 - [x] 单测：不同 CPU/GPU/provider 取值正确；snippet 文本正确
 
 ### A2 — tuning 写端点（`api/openviking_tuning.py`，§7.1.4）
@@ -122,8 +122,8 @@ M1 的 OpenViking admin 看板**只交付了只读状态展示**，规格里整�
 | E7 | TuningCard · openviking 应用+重启 | `openviking-scope tuning restart is reserved for isolated data dirs`：openviking scope 调参会重启后端 RAG 服务，因此只保留占位，需隔离数据目录跑 | 已占位 skip：破坏性 |
 | E8 | TuningCard · 回滚 | 同 E6：合法变更后点击回滚，值恢复上一版 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
 | E9 | TuningCard · 套用预设 | `preset action applies recommended values without touching Ollama recommendations`：等待真实 preset 加载后确认套用，验证 codeask / openviking 推荐值生效，`ollama_recommend` 不变，并做 best-effort 还原 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
-| E10 | TuningCard · Ollama snippet | `Ollama systemd snippet is visible and copyable`：snippet 文本含 `OLLAMA_NUM_PARALLEL` / `OLLAMA_NUM_THREAD`，复制按钮写入剪贴板 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
-| E11 | admin 诊断路径（回归） | `admin OpenViking dashboard survives reload and exposes diagnostic paths`：admin-only 看板展示完整 `/.codeask/openviking/` 路径，便于定位配置、工作目录和日志；会话 trace 的路径脱敏仍由会话侧用例覆盖 | 已覆盖：`openviking-dashboard-live.spec.ts` |
+| E10 | TuningCard · Ollama snippet | `Ollama systemd snippet is visible and copyable`：snippet 文本含 `OLLAMA_NUM_PARALLEL` / `OLLAMA_NUM_THREAD`，复制按钮写入剪贴板；点击"验证 Ollama 设置"后展示结果并写入 `ollama_settings_verified` | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
+| E11 | admin 诊断路径（回归） | `admin OpenViking dashboard survives reload and exposes diagnostic paths`：admin-only 看板展示真实 `CODEASK_DATA_DIR/openviking/` 下的完整绝对路径，便于定位配置、工作目录和日志；会话 trace 的路径脱敏仍由会话侧用例覆盖 | 已覆盖：`openviking-dashboard-live.spec.ts` |
 | E12 | 未授权拒绝 | `anonymous users cannot access management mutations`：匿名调用 `POST /api/admin/openviking/tuning` 返回 403 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
 
 > E2/E4/E7 是破坏性（清库重建 / 重启），建议在专用 e2e 数据目录或 `test.describe.serial` 内按"改→验证→复原"组织，避免污染后续用例。
@@ -142,7 +142,7 @@ M1 的 OpenViking admin 看板**只交付了只读状态展示**，规格里整�
 
 ## 6. 验收（含真实前端核对——这次的教训）
 
-- [ ] acceptance §3.2 / §3.3 / §3.4：已完成管理面非破坏性路径；Ollama 实测探测、APScheduler interval 重排、E2/E4/E7 破坏性 live 用例仍待隔离验收
+- [ ] acceptance §3.2 / §3.3 / §3.4：已完成管理面非破坏性路径与 Ollama 轻量实测探测；APScheduler interval 重排、E2/E4/E7 破坏性 live 用例仍待隔离验收
 - [x] **真实浏览器**核对：五卡可见且对齐、刷新保持 OpenViking 页、admin 诊断路径完整可读；1440 / 1280 / 390 三档宽度已截图复核
 - [x] §4 的 E1/E3/E5/E6/E8/E9/E10/E11/E12 已有真实浏览器 e2e 覆盖
 - [ ] §4 的 E2/E4/E7 已有 `test.skip` 占位；需隔离数据目录执行切模型 / rebuild / openviking scope 重启

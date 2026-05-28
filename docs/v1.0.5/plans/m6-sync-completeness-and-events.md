@@ -1,7 +1,7 @@
 # M6 — 同步完整性、仪表盘事件与 Ollama 实测验证
 
 > 版本：v1.0.5
-> 状态：Plan（待开发）
+> 状态：Completed
 > 关联：[acceptance §3.2/§3.4/§3.7/§5](./acceptance-checklist.md) · [phase-1](./phase-1-sync-adapter.md) · [m5-write-path-hooks](./m5-write-path-hooks.md)
 > 来源：2026-05-27 全量回归发现 B1–B4 验收项引用的功能在 src 中未实现（grep 实证：相关 event_type / scheduler job 不存在）。
 
@@ -15,7 +15,9 @@
 - §3.4 line119 Ollama 实测验证事件
 - §5 "升级部署…首次 sweep 自动补齐"（实测升级后 `openviking_sync_jobs=0`，已有 45 wiki/6 reports 不自动入队）
 
-本 plan 把这四块（B1–B4）转成开发可执行任务。**已实现、无需动**的部分：写路径 hook 入队（M5）、keepalive 自动重启机制（已验证：杀 OpenViking 后 ~30s 重生、主进程不受影响）、tuning 读写/回滚/预设、`verify_ollama_recommend` 纯函数（`tuning.py:252`，已写但未接端点）。
+本 plan 把这四块（B1–B4）转成开发可执行任务。2026-05-27 已完成实现与测试补齐：启动 backfill / scheduled refresh、命名内容事件、OpenViking 重启与 Ollama 恢复事件、Ollama 并发轻量验证端点与前端按钮均已落地。
+
+**已实现、无需动**的部分：写路径 hook 入队（M5）、keepalive 自动重启机制（已验证：杀 OpenViking 后 ~30s 重生、主进程不受影响）、tuning 读写/回滚/预设、`verify_ollama_recommend` 纯函数。
 
 ### 锁定决策（2026-05-27 负责人拍板）
 - **B1**：启动一次性 backfill + 每 `scheduled_refresh_hours` 全量重扫；带"已同步且 hash 未变则跳过"的幂等护栏。
@@ -40,12 +42,18 @@
 ### B1-3 scheduled_refresh 定时任务（新增 scheduler job）
 - 位置：`src/codeask/app.py` lifespan，与现有 `scheduler.add_job(openviking_keepalive/openviking_sync_pending)` 同处（约 236–261）。
 - `scheduler.add_job(..., "interval", seconds=settings.openviking_scheduled_refresh_hours*3600, id="openviking_scheduled_refresh", coalesce=True, max_instances=1)`，回调跑 `sweep_all(triggered_by="scheduled_refresh")`，结束后 `emit_event(event_type="scheduled_refresh_summary", outcome="success", payload={scanned,enqueued,skipped})`。
-- 同步删除调优 UI 上 `scheduled_refresh_hours` 行的"调度项后续接入"标注（`frontend/src/components/settings/OpenVikingDashboard.tsx`），改为生效说明。
+- 同步删除调优 UI 上 `scheduled_refresh_hours` 行的旧占位标注（`frontend/src/components/settings/OpenVikingDashboard.tsx`），改为生效说明。
 
 ### B1 测试
 - 单测/集成：sweep 入队全部非 draft wiki + verified report；跳过 draft 与 unverified report；二次跑幂等（hash 未变 → enqueued=0）；hash 变更 → 重新入队。
 - 升级回归集成：模拟升级后首启（无 OV 表→迁移→backfill），断言 `openviking_sync_jobs` 被填充、`scheduled_refresh_summary` 事件落库。
-- e2e：调优卡 `scheduled_refresh_hours` 不再显示"后续接入"。
+- e2e：调优卡 `scheduled_refresh_hours` 不再显示旧占位标注。
+
+### B1 完成记录（2026-05-27）
+- `OpenVikingSyncService.sweep_all(triggered_by=...)` 已实现：枚举非删除且已发布 Wiki、已验证报告，按 `source_hash` 做幂等护栏。
+- `app.py` lifespan 已接启动异步 backfill；APScheduler 已接 `openviking_scheduled_refresh`，按 `openviking_scheduled_refresh_hours` 周期执行并发送 `scheduled_refresh_summary`。
+- 调优 UI 已将 `scheduled_refresh_hours` 文案从旧占位标注改为"定时任务生效"。
+- 测试覆盖：发布 Wiki / 已验证报告入队，draft / unverified 跳过，hash 未变跳过，hash 变更重新入队。
 
 ---
 
@@ -63,6 +71,11 @@
 ### B2 测试
 - 集成：发布 wiki → `wiki_doc_changed`；verify report → `report_status_changed`；仓库同步 → `repo_synced`；draft/unverified 编辑**不**产生事件（沿用 §3.7 过滤）。
 - e2e：事件流类型过滤里出现这三类。
+
+### B2 完成记录（2026-05-27）
+- hook 路径通过 `emit_enqueue_event=False` 避免重复发送通用 `sync_job_enqueued`，改由 `emit_named_change_event` 发送业务命名事件。
+- Wiki 文档相关 hook 发送 `wiki_doc_changed`；报告状态相关 hook 发送 `report_status_changed`；代码仓同步完成发送 `repo_synced`。
+- 集成测试覆盖 Wiki 发布、promote、import、legacy backfill、删除、恢复，以及报告 verify / unverify / delete 事件。
 
 ---
 
@@ -83,6 +96,11 @@
 - 集成/live：杀 OpenViking → 轮询事件流出现 `openviking_restart_detected`，且既有 sync_jobs 进度未重置。
 - 集成：mock ollama 健康 down→up → `ollama_recovery`。
 
+### B3 完成记录（2026-05-27）
+- `_ensure_openviking_server` 已跟踪上一次进程句柄；keepalive 检测到非启动场景 pid 变化时发送 `openviking_restart_detected`。
+- 新增 Ollama 健康周期检查，unhealthy → healthy 时发送 `ollama_recovery`。
+- 单测覆盖 restart 事件、Ollama recovery 事件，以及重启后 sync job 进度不被重置。
+
 ---
 
 ## B4. ollama_settings_verified — 轻量探测
@@ -99,13 +117,29 @@
 - 集成：mock probe 返回 ≥expected → outcome=success + 事件；< expected → warning + 事件。
 - e2e（新 UI 必须有用例）：management spec 加——点"验证"按钮 → 出现结果文案 + 事件流 `ollama_settings_verified`。
 
+### B4 完成记录（2026-05-27）
+- 新增 `POST /api/admin/openviking/tuning/ollama_verify`：读取 `ollama_recommend.num_parallel`，轻量探测 Ollama 运行并发，并发送 `ollama_settings_verified`。
+- 默认 probe 读取 Ollama `/api/ps`；测试可通过 `app.state.ollama_parallel_probe` 注入稳定探针。
+- 前端 snippet 区新增"验证 Ollama 设置"按钮，展示 expected / observed 与验证结果。
+- 集成测试覆盖 success / warning 两种事件；管理页 live E2E 已补按钮与事件断言。
+
 ---
 
 ## 验收口径更新（实现后回填 acceptance-checklist）
-- §3.2 line57/58/59/60 → 勾 [x]，关联本 plan。
-- §3.4 line119 → 勾 [x]。
-- §3.7 line163 scheduled_refresh 过滤 → 勾 [x]。
+- §3.2 line57/58/59/60 → 已勾 [x]，关联本 plan。
+- §3.4 line119 → 已勾 [x]。
+- §3.7 line163 scheduled_refresh 过滤 → 已勾 [x]。
 - §5 "升级部署…首次 sweep 自动补齐" 行 → 由 backfill 覆盖，标 Passed。
+
+### A2 / C1 收口记录（2026-05-28）
+
+- `frontend/e2e/admin-agent-source-live.spec.ts` 已对齐 contextual-QA 契约：不再强制要求模型必须调用代码仓工具；硬性判据收敛为回答正确性与错误边界。若模型确实调用仓库 / 文件检查工具，测试会记录 `tools:*` 采样用于复盘，但不把"必须调工具"作为通过条件。
+- `frontend/e2e/openviking-rag-live.spec.ts` 已放松正向工具链断言：Wiki 语义召回、源码桥接、degraded fallback 均以回答正确性和边界行为为主，不再强制 `openviking_* → codeask_prepare_worktree → grep/read` 三连。保留两类硬边界：OpenViking 写工具（`openviking_remember` / `openviking_add_resource` / `openviking_forget`）不得执行；OpenViking degraded 时不得调用 `openviking_*`。
+- 已新增 Playwright `globalSetup`，在 live E2E 启动前对 `references/anything-llm` 做幂等 git checkout 初始化：目录存在但 `.git` 缺失时自动 `git init && git add -A && git commit`，避免 fresh checkout / CI / 其它环境中 continuity 与 feature-scoped AnythingLLM 场景自跳过。
+- live 验证记录：
+  - `CODEASK_RUN_LIVE_OPENVIKING_E2E=1 ... e2e/openviking-rag-live.spec.ts --reporter=line`：3/3 passed，运行时仅启用 `DeepSeek-OpenAI-Pro`，符合"DeepSeek-pro 跑 rag-live"要求。
+  - `CODEASK_RUN_LIVE_AGENT_E2E=1 ... e2e/admin-agent-source-live.spec.ts --reporter=line`：1/1 passed。
+  - `rm -rf references/anything-llm/.git` 后，`CODEASK_RUN_LIVE_AGENT_CONTINUITY_E2E=1 CODEASK_RUN_LIVE_FEATURE_SCOPED_CODE_E2E=1 ... agent-conversation-continuity-live + agent-feature-scoped-code-live --reporter=line`：3/3 passed，且 `.git` 被 globalSetup 自动恢复。
 
 ## 质量门禁（每项退出条件）
 - `uv run pyright src/codeask evals` = 0；`uv run pytest -q` 绿；ruff check/format 绿。

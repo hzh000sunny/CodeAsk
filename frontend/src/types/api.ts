@@ -387,6 +387,13 @@ export interface OpenVikingOllamaSnippetResponse {
   num_thread: string;
 }
 
+export interface OpenVikingOllamaVerifyResponse {
+  verified: boolean;
+  expected_num_parallel: number;
+  observed_parallel: number | null;
+  error: string | null;
+}
+
 export interface OpenVikingMutationCountResponse {
   queued: number;
   rebuild_status?: number | string;

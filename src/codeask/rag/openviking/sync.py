@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from secrets import token_hex
 from typing import Any, Literal, Protocol, cast
 
@@ -46,6 +47,15 @@ class SyncWorkItem:
     requested_operation: SyncOperation = "upsert"
 
 
+@dataclass(frozen=True)
+class SyncSourceSnapshot:
+    source_type: Literal["wiki_doc", "report"]
+    source_id: str
+    feature_slug: str
+    source_hash: str
+    viking_uri: str
+
+
 class OpenVikingResourceClient(Protocol):
     async def add_text_resource(self, resource: SyncResource) -> dict[str, Any]: ...
 
@@ -73,6 +83,7 @@ class OpenVikingSyncService:
         triggered_by: str | None = None,
         payload: dict[str, Any] | None = None,
         operation: SyncOperation = "upsert",
+        emit_enqueue_event: bool = True,
     ) -> OpenVikingSyncJob:
         async with self._session_factory() as session:
             existing = (
@@ -113,18 +124,75 @@ class OpenVikingSyncService:
                 await session.commit()
                 await session.refresh(job)
 
-        await emit_event(
-            self._session_factory,
-            event_type="sync_job_enqueued",
-            source_type=source_type,
-            source_id=source_id,
-            sync_job_id=job.id,
-            triggered_by=triggered_by,
-            payload=payload
-            or {"feature_slug": feature_slug, "source_hash": source_hash, "operation": operation},
-            outcome="info",
-        )
+        if emit_enqueue_event:
+            await emit_event(
+                self._session_factory,
+                event_type="sync_job_enqueued",
+                source_type=source_type,
+                source_id=source_id,
+                sync_job_id=job.id,
+                triggered_by=triggered_by,
+                payload=payload
+                or {
+                    "feature_slug": feature_slug,
+                    "source_hash": source_hash,
+                    "operation": operation,
+                },
+                outcome="info",
+            )
         return job
+
+    async def sweep_all(self, *, triggered_by: str) -> dict[str, int]:
+        scanned = 0
+        enqueued = 0
+        skipped = 0
+        async with self._session_factory() as session:
+            wiki_snapshots = await _wiki_doc_snapshots(session)
+            report_snapshots = await _report_snapshots(session)
+            snapshots = [*wiki_snapshots, *report_snapshots]
+            existing_rows: list[OpenVikingSyncJob] = []
+            if snapshots:
+                existing_rows = list(
+                    (
+                        await session.execute(
+                            select(OpenVikingSyncJob).where(
+                                or_(
+                                    *[
+                                        and_(
+                                            OpenVikingSyncJob.source_type == item.source_type,
+                                            OpenVikingSyncJob.source_id == item.source_id,
+                                        )
+                                        for item in snapshots
+                                    ]
+                                )
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+        existing = {(row.source_type, row.source_id): row for row in existing_rows}
+        for snapshot in snapshots:
+            scanned += 1
+            previous = existing.get((snapshot.source_type, snapshot.source_id))
+            if (
+                previous is not None
+                and previous.status == "indexed"
+                and previous.source_hash == snapshot.source_hash
+            ):
+                skipped += 1
+                continue
+            await self.enqueue(
+                source_type=snapshot.source_type,
+                source_id=snapshot.source_id,
+                feature_slug=snapshot.feature_slug,
+                source_hash=snapshot.source_hash,
+                viking_uri=snapshot.viking_uri,
+                triggered_by=triggered_by,
+                operation="upsert",
+            )
+            enqueued += 1
+        return {"scanned": scanned, "enqueued": enqueued, "skipped": skipped}
 
     async def run_pending_jobs(self, *, limit: int = 10) -> dict[str, int]:
         if self._client is None:
@@ -228,6 +296,57 @@ class OpenVikingSyncService:
                 return
             _apply_failure_state(job, error, max_repeat_failures=max_repeat_failures)
             await session.commit()
+
+
+async def _wiki_doc_snapshots(session: AsyncSession) -> list[SyncSourceSnapshot]:
+    rows = (
+        await session.execute(
+            select(WikiDocument, WikiNode, WikiSpace, Feature, WikiDocumentVersion)
+            .join(WikiNode, WikiNode.id == WikiDocument.node_id)
+            .join(WikiSpace, WikiSpace.id == WikiNode.space_id)
+            .join(Feature, Feature.id == WikiSpace.feature_id)
+            .join(WikiDocumentVersion, WikiDocumentVersion.id == WikiDocument.current_version_id)
+            .where(WikiDocument.current_version_id.is_not(None))
+            .where(WikiNode.deleted_at.is_(None))
+        )
+    ).all()
+    snapshots: list[SyncSourceSnapshot] = []
+    for document, node, _space, feature, version in rows:
+        relative_path = _relative_wiki_path(node.path)
+        body_hash = _sha256_text(version.body_markdown)
+        snapshots.append(
+            SyncSourceSnapshot(
+                source_type="wiki_doc",
+                source_id=str(document.id),
+                feature_slug=feature.slug,
+                source_hash=body_hash,
+                viking_uri=wiki_doc_uri(feature.slug, relative_path),
+            )
+        )
+    return snapshots
+
+
+async def _report_snapshots(session: AsyncSession) -> list[SyncSourceSnapshot]:
+    rows = (
+        await session.execute(
+            select(Report, Feature)
+            .join(Feature, Feature.id == Report.feature_id)
+            .where(Report.verified.is_(True))
+            .where(Report.status == "verified")
+        )
+    ).all()
+    snapshots: list[SyncSourceSnapshot] = []
+    for report, feature in rows:
+        snapshots.append(
+            SyncSourceSnapshot(
+                source_type="report",
+                source_id=str(report.id),
+                feature_slug=feature.slug,
+                source_hash=_sha256_text(report.body_markdown),
+                viking_uri=report_uri(feature.slug, f"{report.id}.md"),
+            )
+        )
+    return snapshots
 
 
 async def _work_item_from_job(session: AsyncSession, job: OpenVikingSyncJob) -> SyncWorkItem | None:
@@ -436,6 +555,10 @@ def _markdown_filename(relative_path: str, *, fallback: str) -> str:
     if "." not in leaf:
         return f"{leaf}.md"
     return leaf
+
+
+def _sha256_text(value: str) -> str:
+    return sha256(value.encode("utf-8")).hexdigest()
 
 
 def _job_changed_during_run(job: OpenVikingSyncJob, work_item: SyncWorkItem) -> bool:

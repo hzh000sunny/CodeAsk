@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from codeask.db.models import OpenVikingSyncJob, WikiDocument
+from codeask.db.models import OpenVikingDashboardEvent, OpenVikingSyncJob, WikiDocument
 from codeask.db.models.document import Document
 
 
@@ -85,6 +85,12 @@ async def test_wiki_draft_does_not_enqueue_but_publish_does(
         "viking://resources/codeask/features/ov-hook-doc/knowledge-base/build-runbook"
     )
     assert (job.progress or {}).get("op") == "upsert"
+    async with app.state.session_factory() as session:
+        events = (await session.execute(select(OpenVikingDashboardEvent))).scalars().all()
+    assert [event.event_type for event in events] == ["wiki_doc_changed"]
+    assert events[0].source_type == "wiki_doc"
+    assert events[0].source_id == str(document_id)
+    assert (events[0].payload or {}).get("operation") == "upsert"
 
 
 @pytest.mark.asyncio
@@ -132,6 +138,12 @@ async def test_session_attachment_promotion_publish_enqueues_wiki_document(
     assert job.viking_uri == (
         "viking://resources/codeask/features/ov-promotion-hook/knowledge-base/database-node-a-log"
     )
+    async with app.state.session_factory() as session:
+        event_types = [
+            row.event_type
+            for row in (await session.execute(select(OpenVikingDashboardEvent))).scalars().all()
+        ]
+    assert event_types == ["wiki_doc_changed"]
 
 
 @pytest.mark.asyncio
@@ -175,6 +187,18 @@ async def test_import_job_apply_publish_enqueues_wiki_documents(
         "viking://resources/codeask/features/ov-import-apply-hook/knowledge-base/guide",
         "viking://resources/codeask/features/ov-import-apply-hook/knowledge-base/runbook",
     ]
+    async with app.state.session_factory() as session:
+        event_types = [
+            row.event_type
+            for row in (
+                await session.execute(
+                    select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.source_id)
+                )
+            )
+            .scalars()
+            .all()
+        ]
+    assert event_types == ["wiki_doc_changed", "wiki_doc_changed"]
 
 
 @pytest.mark.asyncio
@@ -218,6 +242,12 @@ async def test_report_verify_then_unverify_updates_sync_job_to_tombstone(
         f"viking://resources/codeask/features/ov-report-hook/problem-reports/verified/{report_id}.md"
     )
     assert (job.progress or {}).get("op") == "upsert"
+    async with app.state.session_factory() as session:
+        verified_event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
+    assert verified_event.event_type == "report_status_changed"
+    assert verified_event.source_type == "report"
+    assert verified_event.source_id == str(report_id)
+    assert (verified_event.payload or {}).get("operation") == "upsert"
 
     unverified = await client.post(
         f"/api/reports/{report_id}/unverify",
@@ -230,6 +260,21 @@ async def test_report_verify_then_unverify_updates_sync_job_to_tombstone(
     assert jobs[0].source_type == "report"
     assert jobs[0].source_id == str(report_id)
     assert (jobs[0].progress or {}).get("op") == "delete"
+    async with app.state.session_factory() as session:
+        events = (
+            (
+                await session.execute(
+                    select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.id.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert [event.event_type for event in events] == [
+        "report_status_changed",
+        "report_status_changed",
+    ]
+    assert (events[-1].payload or {}).get("operation") == "delete"
 
 
 @pytest.mark.asyncio
@@ -269,6 +314,9 @@ async def test_legacy_upload_enqueues_native_wiki_document_id(
         "viking://resources/codeask/features/ov-legacy-hook/knowledge-base/legacy"
     )
     assert (job.progress or {}).get("op") == "upsert"
+    async with app.state.session_factory() as session:
+        event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
+    assert event.event_type == "wiki_doc_changed"
 
 
 @pytest.mark.asyncio
@@ -310,6 +358,9 @@ async def test_legacy_backfill_enqueues_created_native_wiki_document(
         "viking://resources/codeask/features/ov-backfill-hook/knowledge-base/legacy-backfill"
     )
     assert (job.progress or {}).get("op") == "upsert"
+    async with app.state.session_factory() as session:
+        event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
+    assert event.event_type == "wiki_doc_changed"
 
 
 @pytest.mark.asyncio
@@ -352,6 +403,9 @@ async def test_global_tree_legacy_backfill_enqueues_created_native_wiki_document
         "knowledge-base/global-legacy-backfill"
     )
     assert (job.progress or {}).get("op") == "upsert"
+    async with app.state.session_factory() as session:
+        event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
+    assert event.event_type == "wiki_doc_changed"
 
 
 @pytest.mark.asyncio
@@ -375,6 +429,18 @@ async def test_node_delete_and_restore_flip_wiki_doc_operation(
     async with app.state.session_factory() as session:
         job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
     assert (job.progress or {}).get("op") == "delete"
+    async with app.state.session_factory() as session:
+        events = (
+            (
+                await session.execute(
+                    select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.id.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert [event.event_type for event in events] == ["wiki_doc_changed", "wiki_doc_changed"]
+    assert (events[-1].payload or {}).get("operation") == "delete"
 
     restored = await client.post(
         f"/api/wiki/nodes/{node_id}/restore",
@@ -385,6 +451,22 @@ async def test_node_delete_and_restore_flip_wiki_doc_operation(
         jobs = (await session.execute(select(OpenVikingSyncJob))).scalars().all()
     assert len(jobs) == 1
     assert (jobs[0].progress or {}).get("op") == "upsert"
+    async with app.state.session_factory() as session:
+        events = (
+            (
+                await session.execute(
+                    select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.id.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert [event.event_type for event in events] == [
+        "wiki_doc_changed",
+        "wiki_doc_changed",
+        "wiki_doc_changed",
+    ]
+    assert (events[-1].payload or {}).get("operation") == "upsert"
 
 
 @pytest.mark.asyncio
@@ -434,6 +516,21 @@ async def test_report_delete_updates_existing_job_to_tombstone(
     assert jobs[0].viking_uri == (
         f"viking://resources/codeask/features/ov-report-delete-hook/problem-reports/verified/{report_id}.md"
     )
+    async with app.state.session_factory() as session:
+        events = (
+            (
+                await session.execute(
+                    select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.id.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert [event.event_type for event in events] == [
+        "report_status_changed",
+        "report_status_changed",
+    ]
+    assert (events[-1].payload or {}).get("operation") == "delete"
 
 
 async def _job_count(app: FastAPI) -> int:

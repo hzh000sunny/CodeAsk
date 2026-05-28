@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from codeask.db.models import Repo
+from codeask.rag.openviking.dashboard import emit_event
 
 log = structlog.get_logger("codeask.code_index.cloner")
 
@@ -62,6 +63,7 @@ class RepoCloner:
             if self._is_plain_local_dir(repo):
                 self._sync_plain_local_dir_snapshot(repo, bare_path)
                 self._set_status(repo_id, Repo.STATUS_READY, error=None, mark_synced=True)
+                self._emit_repo_synced(repo, reason=reason)
                 log.info(
                     "clone_succeeded",
                     repo_id=repo_id,
@@ -79,6 +81,7 @@ class RepoCloner:
             raise
 
         self._set_status(repo_id, Repo.STATUS_READY, error=None, mark_synced=True)
+        self._emit_repo_synced(repo, reason=reason)
         log.info("clone_succeeded", repo_id=repo_id, bare_path=str(bare_path), reason=reason)
 
     def refresh_all(self, *, reason: str = "refresh_all") -> None:
@@ -232,6 +235,37 @@ class RepoCloner:
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()[:4000]
             raise CloneFailedError(f"git command exited {proc.returncode}: {stderr or 'no stderr'}")
+
+    def _emit_repo_synced(self, repo: Repo, *, reason: str) -> None:
+        async def write_event() -> None:
+            await emit_event(
+                self._session_factory,
+                event_type="repo_synced",
+                source_type="repo",
+                source_id=repo.id,
+                payload={
+                    "repo_id": repo.id,
+                    "name": repo.name,
+                    "source": repo.source,
+                    "reason": reason,
+                },
+                outcome="success",
+            )
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(write_event())
+            except Exception:
+                log.warning(
+                    "repo_synced_event_failed",
+                    repo_id=repo.id,
+                    reason=reason,
+                    exc_info=True,
+                )
+            return
+        loop.create_task(write_event())
 
     def _is_valid_bare_repo(self, bare_path: Path) -> bool:
         if not bare_path.exists():

@@ -4,6 +4,8 @@
 > 版本归属：待定
 > 目的：记录 CodeAsk 评估 OpenViking 作为 Wiki RAG / 代码仓 RAG 统一后端时的真实调研结果、命令验证、风险和下一步验证项。
 
+> Superseded：本调研已经沉淀为 [docs/v1.0.5/](../v1.0.5/) 的 PRD、SDD、Phase 0 spike 和验收清单。本文继续保留原始调研记录；版本实现与测试口径以 v1.0.5 文档为准。
+
 ## 1. 背景
 
 CodeAsk 后续准备增强 Wiki RAG 和代码仓 RAG。当前候选方向是：

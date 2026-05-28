@@ -1,7 +1,7 @@
 # Phase 1 — OpenViking Sync Adapter 实现
 
 > 版本：v1.0.5
-> 状态：Framework Draft（待 Phase 0 通过后细化）
+> 状态：Completed
 > 关联：[PRD](../prd/rag-knowledge.md) · [设计](../design/openviking-integration.md) · [Phase 0](./phase-0-spike.md) · [Phase 2](./phase-2-opencode-integration.md)
 
 ---

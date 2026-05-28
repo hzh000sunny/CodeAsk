@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-[**v1.0.5**](./v1.0.5/) — Wiki 与代码仓 RAG（Draft；引入 OpenViking 作为统一上下文数据库，让 opencode 通过 OpenViking MCP 检索 Wiki / 问题报告 / 代码仓候选；OpenViking 集成边界已声明，无许可证前置门槛）
+[**v1.0.5**](./v1.0.5/) — Wiki 与代码仓 RAG（Completed；引入 OpenViking 作为统一上下文数据库，让 opencode 通过 OpenViking MCP 检索 Wiki / 问题报告 / 代码仓候选；OpenViking 集成边界已声明，无许可证前置门槛）
 
 ## 上一稳定版本
 
@@ -57,7 +57,7 @@ docs/
 ├── v1.0.2/            ← LLM Agent 会话运行时优化（Completed）
 ├── v1.0.3/            ← 鉴权与访问控制（Completed）
 ├── v1.0.4/            ← OpenCode Agent Backend 对接（Manual Acceptance Completed）
-├── v1.0.5/            ← 当前版本：Wiki 与代码仓 RAG（Draft）
+├── v1.0.5/            ← 当前版本：Wiki 与代码仓 RAG（Completed）
 ├── v1.1/              ← 未来 minor 演进（尚未创建）
 └── v2.0/              ← 未来 major 演进（尚未创建）
 ```

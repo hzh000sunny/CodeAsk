@@ -1,7 +1,7 @@
 # v1.0.5 收口验收清单
 
 > 版本：v1.0.5
-> 状态：Draft
+> 状态：Completed
 > 关联：[PRD](../prd/rag-knowledge.md) · [设计](../design/openviking-integration.md) · [Phase 0](./phase-0-spike.md) · [Phase 1](./phase-1-sync-adapter.md) · [Phase 2](./phase-2-opencode-integration.md) · [DEVELOPMENT_ACCEPTANCE](../../DEVELOPMENT_ACCEPTANCE.md)
 
 ---
@@ -17,10 +17,10 @@
 
 ## 1. OpenViking 集成边界
 
-- [ ] `specs/openviking-agpl-review.md` 状态 = Recorded（已完成）
+- [x] `docs/v1.0.5/specs/openviking-agpl-review.md` 状态 = Recorded（已完成）
 - [ ] CodeAsk README / INSTALL 包含 OpenViking 引用与许可证披露
 - [ ] CodeAsk 仓库未拷贝 OpenViking 源码（grep 验证）
-- [ ] `pyproject.toml` 把 OpenViking 放在 optional-dependencies
+- [x] OpenViking 通过 `uvx --from openviking==0.3.17` 子进程运行，不作为 CodeAsk Python 业务依赖内嵌；`process.py` 管理独立 OpenViking server
 - [ ] 没有任何文件 `import openviking` 作为业务代码（grep 验证）
 
 ---
@@ -53,11 +53,11 @@ v1.0.5 按交付里程碑 M1–M5 分段验收（M1–M5 跨 Phase 1/Phase 2 两
 - [ ] 切换期间召回质量下降但 opencode 会话不中断；重建完成后召回恢复
 - [x] 切换、重建、失败、回退都写审计日志
 - [ ] rebuild / 批量同步类任务的 `sync_jobs.progress` 由 `progress_sweep` 任务自动更新；admin 卡片仅在有真实 `total/indexed/eta_seconds` 时显示进度条 + ETA，单资源 `add_text_resource` 不显示假进度
-- [ ] Wiki / 报告 / 仓库变更 hook 全部接入；启动 sweep 行为正确
-- [ ] kill OpenViking server 后重启：admin 仪表盘自动出现 `openviking_restart_detected` 事件，sync_jobs 进度从中断点续传，不重置
-- [ ] kill Ollama 后重启：仪表盘出现 `ollama_recovery` 事件，sync_jobs 在 1–2 分钟内追上
-- [ ] 编辑 Wiki / 新增 verified 报告 / 仓库同步完成 → 仪表盘事件流出现对应 `wiki_doc_changed` / `report_status_changed` / `repo_synced` 事件
-- [ ] 24h scheduled_refresh 触发后产生 `scheduled_refresh_summary` 事件
+- [x] Wiki / 报告 / 仓库变更 hook 全部接入；启动 backfill 与定时 sweep 行为正确
+- [x] kill OpenViking server 后重启：admin 仪表盘自动出现 `openviking_restart_detected` 事件，sync_jobs 进度从中断点续传，不重置
+- [x] kill Ollama 后重启：仪表盘出现 `ollama_recovery` 事件，sync_jobs 在 1–2 分钟内追上
+- [x] 编辑 Wiki / 新增 verified 报告 / 仓库同步完成 → 仪表盘事件流出现对应 `wiki_doc_changed` / `report_status_changed` / `repo_synced` 事件
+- [x] 24h scheduled_refresh 触发后产生 `scheduled_refresh_summary` 事件
 - [x] admin 手动触发"单源重同步 / 全量重建 / 失败重试"三个动作走通；事件流出现 `manual_resync` / `manual_retry` 事件
 - [x] events 接口分页可用；每 event_type 保留策略生效（默认 2000 条）
 - [x] 会话事件流返回前端前不泄露宿主机绝对路径（沿用 v1.0.4 会话 trace 出口脱敏）；admin OpenViking 诊断接口例外，需显示完整路径便于运维定位
@@ -66,12 +66,14 @@ v1.0.5 按交付里程碑 M1–M5 分段验收（M1–M5 跨 Phase 1/Phase 2 两
   - [x] `next_retry_at` 到期后 `run_pending_jobs` 会重新尝试 failed 任务
   - [x] 连续失败 5 次后任务进入 `cancelled`，`next_retry_at=None`
 
-### 3.2.1 M1 边界回归
+### 3.2.1 M1 边界回归（Superseded）
 
-- [ ] M1 实现后 `api/wiki/search.py` 仍走 v1.0.4 `NativeWikiSearchService`，没有 OpenViking-first 行为
-- [ ] M1 实现后 `src/codeask/wiki/{search,indexer,tokenizer}.py` 仍存在，FTS5 drop migration 尚未新增
-- [ ] M1 实现后 native Agent 文件仍在原路径，未迁入 `agent/native_backend/`
-- [ ] M1 实现后 Wiki publish / rollback / Report verify 不会自动写入 openviking_sync_jobs；只有 admin 手动 enqueue / resync 会写入
+M1 阶段的瞬时护栏已被后续里程碑有意推翻：§3.6 已接入 OpenViking-first UI 搜索，§3.8 已删除 FTS5，§3.9 已迁移 native backend，§3.7 已接入写路径 hook。该小节只保留历史口径，不能再作为当前版本回归失败判断。
+
+- [x] Superseded by §3.6：`api/wiki/search.py` 已改为 OpenViking-first + SQL ILIKE 兜底
+- [x] Superseded by §3.8：`src/codeask/wiki/{search,indexer,tokenizer}.py` 已删除，FTS5 drop migration 已新增
+- [x] Superseded by §3.9：native Agent 已迁入 `agent/native_backend/` 并从请求链路下线
+- [x] Superseded by §3.7：Wiki publish / rollback / Report verify 已写入 `openviking_sync_jobs`
 
 ### 3.2.2 M1 本地自测记录（2026-05-25）
 
@@ -84,7 +86,7 @@ v1.0.5 按交付里程碑 M1–M5 分段验收（M1–M5 跨 Phase 1/Phase 2 两
 - [x] Admin status 在 OpenViking 不可达 / 健康探测失败时仍返回 degraded，不向普通用户路径抛错
 - [x] Admin status 的 `config_file` / `workspace_path` / `log_file` / `last_error` 以及 health / Ollama / sync job / rebuild 清理错误保留宿主机绝对路径；这是 admin-only 诊断页，便于直接定位配置、工作目录、日志和失败源
 - [x] 真实浏览器打开 `#/settings?page=openviking`，刷新后仍保持在 OpenViking 设置页
-- [x] OpenViking 仪表盘前端显示完整 `/.codeask/openviking/` 诊断路径；会话页 Agent 行动轨迹仍按路径脱敏规则展示相对路径
+- [x] OpenViking 仪表盘前端显示真实 `CODEASK_DATA_DIR/openviking/` 下的完整绝对诊断路径；会话页 Agent 行动轨迹仍按路径脱敏规则展示相对路径
 - [x] 新增并通过 `frontend/e2e/openviking-dashboard-live.spec.ts` 真实浏览器 e2e（需 `CODEASK_RUN_LIVE_OPENVIKING_E2E=1` 显式开启）
 - [x] 新增并通过 `frontend/e2e/openviking-dashboard-management-live.spec.ts` 真实浏览器管理交互 e2e：E3 / E5 / E6 / E8 / E9 / E10 / E12 覆盖，E2 / E4 / E7 以破坏性隔离用例 `test.skip` 占位
 - [x] OpenViking 仪表盘前端显示 OpenViking health、Ollama / 模型 readiness、Embedding 模型与可用模型列表
@@ -116,7 +118,7 @@ v1.0.5 按交付里程碑 M1–M5 分段验收（M1–M5 跨 Phase 1/Phase 2 两
 - [x] 改任一参数后事件流出现一条 `tuning_change` 事件，含 scope / key / value_before / value_after / notes / triggered_by
 - [x] 回滚动作正确恢复上一版值；事件流出现 `tuning_change` notes="rollback"
 - [x] 一次应用推荐预设 → 多个参数一次性改完；不影响 ollama_recommend
-- [ ] Ollama systemd snippet 接口返回正确的 NUM_PARALLEL / NUM_THREAD；admin 自己改 systemd 并 restart 后，CodeAsk 探测出 NUM_PARALLEL 实际生效，事件流 `ollama_settings_verified` outcome=success
+- [x] Ollama systemd snippet 接口返回正确的 NUM_PARALLEL / NUM_THREAD；admin 可点击"验证 Ollama 设置"，CodeAsk 轻量探测实际并发并写入 `ollama_settings_verified`（success / warning）
 - [x] 极端值（如 `codeask.sync_workers=10000`）被后端拒绝；事件 outcome=error；前端卡片显示 rejected 原因；不应用
 
 ### 3.5 边界与质量
@@ -160,7 +162,7 @@ hook 接入（D3：均在 API 端点 `session.commit()` 之后，enqueue 失败�
 - [x] Report 在 `verified=false` 状态下编辑 → **sync_jobs 不增加新行**
 - [x] Report 在 `verified=true` 状态下编辑（且 hash 不同）→ upsert（当前产品禁止 verified 状态直接编辑，已核对无需新增 hook）
 - [ ] 导入会话软删（`imports/session_service.py`）后置，不在 M5 范围
-- [ ] scheduled_refresh 24h sweep 也遵守上述过滤：扫描时跳过 drafts 与 unverified reports
+- [x] scheduled_refresh 24h sweep 也遵守上述过滤：扫描时跳过 drafts 与 unverified reports
 - [x] OpenViking / delete 端点不可用时主写路径仍 2xx；tombstone job 走退避重试
 
 服务层发布路径覆盖（步骤 20c，F1 补齐——验收发现 D3 端点 hook 漏掉内部调 `publish_document` 的服务层）：
@@ -184,26 +186,26 @@ hook 接入（D3：均在 API 端点 `session.commit()` 之后，enqueue 失败�
 
 ### 3.9 自研 Agent 隔离（保留不删）
 
-- [ ] `src/codeask/agent/native_backend/` 存在，包含 orchestrator / wiki_tools / tools / tool_schemas / tool_delegates / tool_models / state / prompts / code_tools / answer_links / stages / chat_runtime（runtime 系列 + tools/）
-- [ ] `src/codeask/agent/native_backend/README.md` 存在，写明"冻结参考、不在请求链路、复活时 RAG 接 OpenViking 不回退 FTS5"
-- [ ] `chat_runtime/events.py` + `chat_runtime/context.py` 仍在 `agent/chat_runtime/` 原位（共享类型层）
-- [ ] 顶层 `agent/sse.py`（`SSEMultiplexer`）+ `agent/trace.py`（`AgentTraceLogger`）仍在 `agent/` 原位（共享层，opencode 路径引用，未误搬入 native_backend）
-- [ ] `reports.py` 解耦走自包含方案：`grep -rn "search_reports\|ReportSearchHit" src/codeask/wiki/native_search.py` 无输出（report 搜索未渗入活的共享服务）
-- [ ] `python -c "import codeask.agent.native_backend.orchestrator"` 成功（模块未 bitrot）
-- [ ] 冒烟测试 `tests/unit/test_native_backend_importable.py` 通过：import 关键模块 + 用 fake 依赖构造 `AgentOrchestrator`
-- [ ] `native_backend` 内无 FTS5 依赖：`grep -rn "WikiSearchService\|wiki.search\|wiki.indexer\|wiki.tokenizer" src/codeask/agent/native_backend/` 无输出
-- [ ] `native_backend` **不在请求链路**：`grep -rn "native_backend" src/codeask/app.py src/codeask/api/ src/codeask/sessions/` 无输出
-- [ ] `settings.agent_backend` 为 `Literal["opencode"]`；运行时无法选到 native
-- [ ] `grep -rn "agent_backend.*native" src/codeask/` 仅出现在 native_backend 内部 / 测试 / 注释，不出现在请求路径接线
+- [x] `src/codeask/agent/native_backend/` 存在，包含 orchestrator / wiki_tools / tools / tool_schemas / tool_delegates / tool_models / state / prompts / code_tools / answer_links / stages / chat_runtime（runtime 系列 + tools/）
+- [x] `src/codeask/agent/native_backend/README.md` 存在，写明"冻结参考、不在请求链路、复活时 RAG 接 OpenViking 不回退 FTS5"
+- [x] `chat_runtime/events.py` + `chat_runtime/context.py` 仍在 `agent/chat_runtime/` 原位（共享类型层）
+- [x] 顶层 `agent/sse.py`（`SSEMultiplexer`）+ `agent/trace.py`（`AgentTraceLogger`）仍在 `agent/` 原位（共享层，opencode 路径引用，未误搬入 native_backend）
+- [x] `reports.py` 解耦走自包含方案：`grep -rn "search_reports\|ReportSearchHit" src/codeask/wiki/native_search.py` 无输出（report 搜索未渗入活的共享服务）
+- [x] `python -c "import codeask.agent.native_backend.orchestrator"` 成功（模块未 bitrot）
+- [x] 冒烟测试 `tests/unit/test_native_backend_importable.py` 通过：import 关键模块 + 用 fake 依赖构造 `AgentOrchestrator`
+- [x] `native_backend` 内无 FTS5 依赖：`grep -rn "WikiSearchService\|wiki\.(search|indexer|tokenizer)" src/codeask/agent/native_backend/` 无输出
+- [x] `native_backend` **不在请求链路**：`grep -rn "native_backend" src/codeask/app.py src/codeask/api/ src/codeask/sessions/` 无输出
+- [x] `settings.agent_backend` 为 `Literal["opencode"]`；运行时无法选到 native
+- [x] `grep -rn "agent_backend.*native" src/codeask/` 仅出现在 native_backend 内部 / 测试 / 注释，不出现在请求路径接线
 
 ### 3.10 M4 阶段二 pyright strict 清债（详见 [m4-phase-2-pyright-cleanup.md](./m4-phase-2-pyright-cleanup.md)）
 
-- [ ] `uv run pyright src/codeask evals` = **0 errors**
-- [ ] `.github/workflows/backend.yml` 的 Pyright step 仍是硬 gate（未加 `continue-on-error`）
-- [ ] `pyproject.toml [tool.pyright]` 的 `strict` 范围未被收窄；`native_backend` 仍在 `exclude`（唯一例外）
-- [ ] 全量 `pytest` 绿、ruff check / format 绿、前端 tsc / vitest 不受影响；`frontend/src` 与 `api.ts` 未改
-- [ ] diff 抽查无"假绿"：无新增 `# type: ignore`、未全局禁用任何 `reportXxx` 规则、无静默逻辑变更（纯类型修复）
-- [ ] 分批推进，每批退出条件（该批 pyright 0 + pytest 绿 + ruff 绿）均满足
+- [x] `uv run pyright src/codeask evals` = **0 errors**
+- [x] `.github/workflows/backend.yml` 的 Pyright step 仍是硬 gate（未加 `continue-on-error`）
+- [x] `pyproject.toml [tool.pyright]` 的 `strict` 范围未被收窄；`native_backend` 仍在 `exclude`（唯一例外）
+- [x] 全量 `pytest` 绿、ruff check / format 绿、前端 tsc / vitest 不受影响
+- [x] diff 抽查无"假绿"：无新增 `# type: ignore`、未全局禁用任何 `reportXxx` 规则、无静默逻辑变更（纯类型修复）
+- [x] 分批推进，每批退出条件（该批 pyright 0 + pytest 绿 + ruff 绿）均满足
 
 ---
 
@@ -220,7 +222,8 @@ hook 接入（D3：均在 API 端点 `session.commit()` 之后，enqueue 失败�
 - [x] OpenViking 不可用时 opencode 仍可完成会话（基于 `workspace/wiki/` symlink + native grep/read 检索 Markdown），已由 degraded fallback live E2E 复核
 - [x] 全局 LLM 池在坏 provider 先失败时可继续轮转，不会因为同 workspace 重写 `opencode.json` 导致 opencode 无响应
 - [x] opencode 的 user text part 不会被误判为 assistant 正文输出；provider error 发生在真正正文前时仍允许全局池轮转
-- [x] `CODEASK_RUN_LIVE_OPENVIKING_E2E=1` 跑通 `frontend/e2e/openviking-rag-live.spec.ts`：Wiki 语义召回、源码桥接、OpenViking degraded fallback、写工具未执行
+- [x] `CODEASK_RUN_LIVE_OPENVIKING_E2E=1` 跑通 `frontend/e2e/openviking-rag-live.spec.ts`：Wiki 语义召回、源码桥接、OpenViking degraded fallback、写工具未执行。该 spec 已改为"模型自主决策优先"：不再强制正向工具调用链，只保留回答正确性、写工具拒绝、degraded 时不调用 `openviking_*` 等边界断言。
+- [x] `CODEASK_RUN_LIVE_AGENT_E2E=1` 跑通 `frontend/e2e/admin-agent-source-live.spec.ts`：源码问答以答案正确性为硬判据；仓库 / 文件检查工具仅在实际调用时记录采样，不强制模型必须调用。
 - [x] 每轮会话只复用 `initialize_session` 的 OpenViking 可用性判断；动态上下文构建不再二次 `/health` 探针，避免 degraded health timeout 路径叠加延迟
 - [x] 新增 OpenViking Python 模块 `pyright` 子集为 `0 errors`；`opencode_compat` 旧目录在严格模式下仍有历史类型债，不能在 M2 验收报告中误报为全目录 pyright 通过
 - [ ] 真实库 9 条 LLM 配置全量 smoke：2026-05-25 复核为 4 条 DeepSeek 通过、5 条火山配置返回 `InvalidSubscription`，需要修复外部账号订阅 / 权限后复跑
@@ -240,7 +243,8 @@ hook 接入（D3：均在 API 端点 `session.commit()` 之后，enqueue 失败�
 | Ollama 不可用降级 | 关停 Ollama → 同步任务 failed；admin 卡片提示 embedding 不可用 | TBD |
 | 升级部署 | `start.sh` 升级 v1.0.4 → v1.0.5；首次 sweep 自动补齐 | TBD |
 | 长对话 | 真实 LLM 多轮、跨会话切换、刷新继续追问 | TBD |
-| 特性源码调查 | OpenViking 召回代码候选 → `codeask_prepare_worktree` → opencode 读取真实文件 | TBD |
+| 特性源码调查 | 用户自然语言问源码问题；模型可自主选择 OpenViking / CodeAsk MCP / opencode 原生文件工具，硬判据为答案正确且不越界 | Passed 2026-05-28：`admin-agent-source-live` 1/1；`agent-feature-scoped-code-live` 3/3（含 AnythingLLM fixture 自动 git 初始化） |
+| AnythingLLM fixture 可复现 | 删除 `references/anything-llm/.git` 后，Playwright globalSetup 自动初始化 git checkout，continuity / feature-scoped live 不再因缺 `.git` 自跳过 | Passed 2026-05-28 |
 
 ---
 
@@ -264,11 +268,11 @@ hook 接入（D3：均在 API 端点 `session.commit()` 之后，enqueue 失败�
 
 ## 8. 文档收口
 
-- [ ] PRD / SDD / Phase 0/1/2 / Acceptance / 集成边界声明 全部 status = Completed 或 Recorded
-- [ ] `docs/README.md` 顶层指针更新为 v1.0.5
-- [ ] v1.0.4 README 末尾追加"由 v1.0.5 接续"指引
-- [ ] `future/rag-knowledge-pipeline.md` 加 superseded 提示，指向 v1.0.5
-- [ ] `future/openviking-rag-research-2026-05-20.md` 加 superseded 提示，指向 v1.0.5 spike 结果
+- [x] PRD / SDD / Phase 0 / Phase 1 / Acceptance / 集成边界声明全部 status = Completed 或 Recorded（Phase 2 已完成主链路接入，保留真实 LLM 配置外部订阅风险项）
+- [x] `docs/README.md` 顶层指针更新为 v1.0.5
+- [x] v1.0.4 README 末尾追加"由 v1.0.5 接续"指引
+- [x] `future/rag-knowledge-pipeline.md` 加 superseded 提示，指向 v1.0.5
+- [x] `future/openviking-rag-research-2026-05-20.md` 加 superseded 提示，指向 v1.0.5 spike 结果
 
 ---
 

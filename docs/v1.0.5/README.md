@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v1.0.5 |
 | 起始日期 | 2026-05-20 |
-| 状态 | Draft |
+| 状态 | Completed |
 | 主题 | Wiki 与代码仓 RAG —— 接入 OpenViking 作为统一上下文数据库 |
 | 基线版本 | `../v1.0.4/` |
 | 目标 | 让 opencode 在会话中能基于 OpenViking 语义检索 Wiki / 问题报告 / 代码仓候选；CodeAsk 继续掌握主数据、权限、审计和 worktree |
@@ -121,6 +121,8 @@ v1.0.5/
 - 2026-05-25：里程碑阶梯定调（M1 review 后）。**Phase** 仅作工作域/文档分组（Phase 1 = sync adapter，Phase 2 = opencode 接入）；**M1–M5** 是跨这两个工作域的交付里程碑阶梯，顺序 **M1（OpenViking 核心）→ M2（opencode 接入，Phase 2 文档）→ M3（native 隔离）→ M4（FTS5 删除 + UI 搜索）→ M5（写路径 hook）**。定调"先 M2 交付 opencode 价值、再做 M3/M4 破坏性清理"；硬依赖只有"一切在 M1 之后"和"M4 必须在 M3 之后"。M2 前置只需 M1（非整个 Phase 1）。阶梯权威表见 phase-1 §1；验收映射见 acceptance §3 引言。
 - 2026-05-25：**M1 review 通过**（reviewer 复审签字）。三项复审整改已落地并验证：①同步失败重试改为 `failed + next_retry_at` 到期重试、5 次后 `cancelled`（3 个单测覆盖 30s 退避 / 到期重试 / cancelled）；②admin status API 实测 surface OpenViking `/health`（实测版本覆盖写死值）与 Ollama `bge-m3` readiness、`degraded` 改为综合判断（2 个集成测试，含 health 探测失败降级）；③`last_error` / health error / ollama error / sync job error 出口统一脱敏（正则抓裸绝对路径，跳过 URL；1 个集成测试断言不泄露）。复核证据：ruff 干净 · pyright 新模块 0 error · OpenViking 测试 26 passed · 前端 tsc 0 · app 启动集成测试过。M1 明确不触碰 opencode 主链路、FTS5、native Agent 和 Wiki 写路径 hook；这些分别进入 M2/M3/M4/M5。待整理验收报告交项目负责人确认后合入 main。
 - 2026-05-26：**M4 阶段一完成**（FTS5 删除 + Wiki UI 搜索 OpenViking-first）。删除 `wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py`，`DocumentChunker` 不再生成 FTS payload，`/documents/search` 与 `/reports/search` 兼容端点下线；新增 `0031` migration drop 三张旧虚表，历史 `0005` 迁移改 no-op，确保新库不再创建废弃虚表。OpenViking 查询 spike 实测确认 REST `POST /api/v1/search/find` 可用，响应 envelope 为 `{status,result.resources}`；`/api/wiki/search` 现在先调用 OpenViking find 并通过 `openviking_sync_jobs.viking_uri` 反查 WikiDocument / Report，0 命中、异常、未启动或无法映射时回退 SQL ILIKE，前端 API 不变。
+- 2026-05-27：**v1.0.5 回归收口完成**。补齐启动 backfill、24h scheduled_refresh、命名变更事件（`wiki_doc_changed` / `report_status_changed` / `repo_synced`）、OpenViking keepalive 重启事件、Ollama 恢复事件和 `ollama_settings_verified` 轻量探测；OpenViking dashboard live smoke 去掉固定 `/.codeask` 路径假设，按真实 data dir 绝对路径验证。PRD / SDD / Phase 0 / Phase 1 / acceptance 状态收口为 Completed。
+- 2026-05-28：补 A2 / C1 收口。`openviking-rag-live` 与 `admin-agent-source-live` 已改为"模型自主决策优先"的验收契约：不强制正向工具调用链，只保留答案正确性、写工具拒绝、degraded 不调用 OpenViking 等边界约束。Playwright globalSetup 会对 `references/anything-llm` 做幂等 git 初始化，fresh checkout / CI / 其它环境缺 `.git` 时不再导致 continuity / feature-scoped live E2E 自跳过。真实栈复跑：rag-live 3/3（DeepSeek-OpenAI-Pro）、admin-source 1/1、删除 `.git` 后 continuity + feature-scoped 3/3。
 
 ## 引用
 
