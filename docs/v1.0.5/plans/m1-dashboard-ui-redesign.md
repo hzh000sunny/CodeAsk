@@ -1,7 +1,7 @@
 # M1 看板 UI / UX 重做 — OpenViking Admin Dashboard
 
 > 版本：v1.0.5
-> 状态：第一轮重做已实现；2026-05-27 截图复核发现仍有结构/冗余/打磨问题，第二轮清单见 §11（已实现）；第三轮标题区压缩见 §12（已实现，待最终签收）
+> 状态：Completed。第一轮重做、第二轮对齐/去重、第三轮标题区压缩已实现；2026-05-28 M8 进一步完成真实数据可读性、分页、事件展开、指标采集和调优折叠配置面板收敛。
 > 关联：[功能补齐 m1-dashboard-management](./m1-dashboard-management.md) · [设计 SDD §13.4](../design/openviking-integration.md) · 截图证据 `/home/hzh/img/1.png`、`/home/hzh/img/2.png`、`/home/hzh/img/3.png`、`/home/hzh/img/4.png`、`/home/hzh/img/6.png`、`/home/hzh/img/7.png`
 > 现状文件：`frontend/src/components/settings/OpenVikingDashboard.tsx` · `frontend/src/styles/globals.css`（`.settings-openviking-*` / `.settings-diagnostic-*`）
 
@@ -10,7 +10,7 @@
 管理层功能（切模型 / 调参 / 重试 / 事件过滤等）已补齐并能调用，但**真实渲染效果不可用**：组件不对齐、信息挤在一起、什么都长一样分不清、事件一面墙没时间没详情、同步任务无限平铺无分页、进度/推荐值/指标是空占位。本文是**纯 UI/UX 重做规格**，逐卡给"现状问题 → 目标 + 根因"。
 
 - 不重复 [m1-dashboard-management](./m1-dashboard-management.md) 的功能/端点/e2e 行为项；本文只管"长什么样、好不好用"。
-- 部分"丑"来自**缺数据**（旧版 `进度 ?`、`推荐值 -`、Breaker/Latency 占位、事件无 payload）。本轮已修正：推荐值/API 事件 payload 已接入；普通单资源同步任务无增量进度时不再显示进度条；Metrics 未采集时明确显示"未采集"。
+- 部分"丑"来自**缺数据**（旧版 `进度 ?`、`推荐值 -`、Breaker/Latency 占位、事件无 payload）。本轮已修正：推荐值/API 事件 payload 已接入；普通单资源同步任务无增量进度时不再显示进度条；Metrics 已接 5 分钟真实采集，冷启动无样本时才显示"warming up / 未采集"。
 - 验收方式：**对着截图/真实页面看**，不是"控件存在即通过"。
 
 ## 1. 总体问题与根因（基于截图 + 代码）
@@ -20,8 +20,8 @@
 | 健康卡 6 个指标框挤一行、最右 Embedding 框溢出被切（图1） | `.settings-diagnostic-grid` = `auto-fit, minmax(150px,1fr)`，宽卡里项数多就挤/溢；卡 `overflow:hidden` 直接裁切 |
 | 健康指标和 Embedding 配置长得一模一样、分不清（图1） | 两处都用 `.settings-diagnostic-grid`，无分区标题、无视觉区隔 |
 | 路径（配置/工作目录/日志）像可编辑输入框（图1） | `PathBlock` 用 `<code>` 但样式接近输入框，缺只读视觉语义 |
-| 调参输入框宽到离谱、值"1"占 60% 宽（图5） | `.settings-openviking-tuning-row` 第一列 `minmax(220px,1fr)`，input 填满该列 |
-| 按钮文字是整串 key `应用 openviking.embedding.max_concurrent`（图5） | `OpenVikingTuningCard` 按钮文案 = `应用 ${key}`；又长又不齐 |
+| 调参输入框宽到离谱、值"1"占 60% 宽（图5） | 旧版 `.settings-openviking-tuning-row` 第一列 `minmax(220px,1fr)`，input 填满该列；M8 后改为 scope 折叠面板内的统一四列配置表 |
+| 按钮文字是整串 key `应用 openviking.embedding.max_concurrent`（图5） | 旧版 `OpenVikingTuningCard` 按钮文案 = `应用 ${key}`；M8 后视觉文案收敛为短按钮"应用"，aria-label 保留 key 便于无障碍与测试定位 |
 | 推荐值全是 `-`（图5） | 后端 GET tuning 未返回 `recommended`（功能文档 A2 项，未完成） |
 | 同步任务每条 `进度 ?` / `ETA ?`、空进度条（图2-4） | `progressForStatus` 占位 + `progress`/ETA 未接真实 `job.progress`（功能文档 F-FE 项） |
 | 同步任务几十条全量平铺、滚不到底、无分页（图2-4） | `OpenVikingSyncJobsCard` 直接 `jobs.map` 全量渲染，无分页/折叠/分组 |
@@ -35,7 +35,7 @@
 ## 2. 设计原则
 
 - **层次**：每卡 = 标题 + 一句话用途 + 1~2 个分区；同卡内不同语义的数据要有视觉区隔（分区标题/分隔线/不同密度），不能全是等价方框。
-- **控件尺寸合理**：数值输入框按内容宽（数字类 80–120px），不要 1fr 撑满；按钮文案短（"应用"/"回滚"），key 放在行标签处，别塞进按钮。
+- **控件尺寸合理**：数值输入框按内容宽（数字类 80–120px），不要 1fr 撑满；按钮视觉文案短（"应用"），key 放在行标签处，无障碍 label 可包含 key。
 - **可解释**：每个会改状态/破坏性的操作旁边有一句说明或 tooltip（这个按钮干嘛、有什么后果）。
 - **空/加载/错误三态统一**：缺数据显示 `—` 或"暂无/未采集"，不要显示 `?`；加载用骨架/占位；失败有内联错误。
 - **长列表要可控**：同步任务分页/分组/折叠 + 默认收起 indexed；事件流分页（已有"加载更多"，但需配时间 + 摘要才有意义）。
@@ -77,10 +77,11 @@
 - [x] 同一类型连续多条折叠聚合（避免一面墙 `tuning_change`）
 
 ### 4.5 TuningCard（图5）
-- [x] 按 scope（openviking / codeask / ollama_recommend）**分组小节**，每组标题
-- [x] 每行：`key 标签` + **窄输入框**（数值类 ~100px，不撑满）+ 推荐值 + "应用" + "回滚"；**按钮文案短**（"应用"/"回滚"），key 不进按钮
-- [x] 每个 key 旁一句**说明**（这个参数干嘛、改了的影响、是否需重启）
-- [x] 推荐值接后端 `recommended`；无则显示 `—`
+- [x] 按 scope（openviking / codeask / ollama_recommend）**分组小节**，每组默认折叠；summary 显式显示"展开参数 / 收起参数"、参数数量和 chevron，hover / focus / open 状态有反馈，让首次进入页面也能判断可展开
+- [x] 展开后使用统一四列：`参数 | 自定义值 | 推荐值 | 操作`；表头与行列宽一致，所有操作列靠右对齐
+- [x] 每行：`key 标签` + 参数描述 / 影响说明 + **窄输入框**（数值类 ~100px，不撑满）+ 推荐值 + "应用"；不再展示"对齐推荐"或"回滚"
+- [x] 推荐值接后端 `recommended`；推荐值只作为参考，不再驱动偏离高亮或自动展开
+- [x] 修改值后点击"应用"必须先弹页面内居中确认框；取消不发请求，确认后提交；值未变化时只提示无需应用
 - [x] systemd snippet 区：code 块完整可见/可滚 + 复制按钮，标题说明用途
 
 ### 4.6 MetricsCard（图6）
@@ -105,7 +106,7 @@ UI 重做依赖这些数据真实化，否则再美也是空壳：
 - [x] GET tuning 返回 `recommended`（→ 4.5 推荐值）
 - [x] sync job 真实 `progress` / `eta_seconds` 只在任务有增量进度时展示；普通 `add_text_resource` 单任务不显示假进度条（→ 4.3 进度）
 - [x] 事件 `created_at` + `payload` 摘要可取（→ 4.4）
-- [x] Metrics API 返回 `metrics_5min.collected=false/message=未采集`，前端不再写死假 0/`-`（真实聚合后续可替换）
+- [x] Metrics API 返回真实 `metrics_5min`：throughput 由 5 分钟内 `last_indexed_at` 聚合，breaker trips 由 dashboard events 聚合，latency p95 / samples 由 OpenViking client 请求耗时 recorder 采集；冷启动无样本时显示明确的 warming up / 未采集态
 
 ## 8. 数据卫生
 
@@ -148,14 +149,14 @@ UI 重做依赖这些数据真实化，否则再美也是空壳：
 - [x] 🔴 **admin 路径改绝对**：`api/openviking_status.py` 的 `config_file/workspace_path/log_file` 以及 `last_error`、health / Ollama / sync job / rebuild 清理错误均返回**绝对路径**。**理由（经负责人 2026-05-27 澄清）**：脱敏红线只约束**会话事件流（全体用户可见，`sessions/trace_redaction.py`）**；admin 诊断页是 `require_admin` 专属，配置须完整，管理员要据此去环境查文件。会话侧脱敏**不动**。
 - [x] 🟡 **两个"重建"按钮区分**：Embedding 卡"重建向量索引" vs 同步任务"重排同步队列"改名 + 各加一句说明。
 - [x] 🟡 **调参分组标签二选一**：每组左有中文"OpenViking 服务"、右有淡色原始 scope key（`openviking`）；保留中文标题，去右侧裸 key。
-- [x] 🟡 **当前值≠推荐值高亮**：偏离推荐时给视觉提示（色点/标记），如 `max_concurrent` 当前 1 / 推荐 2。
+- [x] 🟡 **取消偏离推荐高亮**：M8 复核后取消"偏离推荐 / 已对齐"分流展示；推荐值只作为参考信息，避免把推荐值变成唯一明显路径。
 
 ### 11.D 布局打磨
 
 - [x] 🟡 **事件流大片空白**：聚合后常只剩 1 条、卡被 Metrics 撑高；高度自适应或与 Metrics 重新配对。
 - [x] 🟡 **运行指标网格不齐**：删重复计数后重排为整齐网格（不要"Breaker trips"单独吊行）。
 - [x] 🟡 **Health 与 Embedding 卡不等高**：右列底部留空；等高或重排。
-- [x] 🟡 **调参行收敛**：当前值/推荐值/应用/回滚 间距收紧；数值输入 ~100px；按钮短（"应用"/"回滚"）。
+- [x] 🟡 **调参行收敛**：调优参数默认折叠；展开后 `参数 | 自定义值 | 推荐值 | 操作` 四列对齐；数值输入 ~100px；操作列只保留短按钮"应用"。
 - [x] 🟡 **`?` → `—`**：同步任务无真实进度时显示 `—`，不显示 `进度 ? / ETA ?`；同步更新 e2e 中 `进度 ?` 断言。
 
 ### 11.E 文档 / 测试纠偏（随 11.C 路径项）

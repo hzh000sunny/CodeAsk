@@ -26,10 +26,10 @@ M1 的 OpenViking admin 看板**只交付了只读状态展示**，规格里整�
 ## 1.1 2026-05-26 实现记录
 
 - 后端已补 `src/codeask/rag/openviking/tuning.py`，包含主机预设识别、推荐参数、Ollama systemd snippet 与可插拔验证 helper；`POST /admin/openviking/tuning/ollama_verify` 已接入轻量探测并发送 `ollama_settings_verified`。
-- 后端已补 tuning 写端点、rollback、apply preset、history、snippet；每条应用/拒绝都会写 `openviking_dashboard_events` 与 `audit_log`。
+- 后端已补 tuning 写端点、rollback、apply preset、history、snippet；每条应用/拒绝都会写 `openviking_dashboard_events` 与 `audit_log`。Dashboard UI 不再暴露单项回滚按钮，rollback 端点仅作为历史审计 / 测试恢复 / 后续运维入口保留。
 - 后端已补 embedding candidates、switch、rebuild、history；切模型/重建会重写配置、重启 OpenViking、将现有 sync jobs 置 pending，并 best-effort 清理 `viking://resources/codeask`。
 - 后端已补单 job retry、retry failed、resync、rebuild index；写操作都会记录 `triggered_by`、dashboard event 与 audit log。
-- 前端已从只读堆叠改为职责分离的网格：Health、Embedding、SyncJobs、EventStream、Tuning、Metrics；补齐 mutation API、过滤、分页、预设/snippet/回滚入口。
+- 前端已从只读堆叠改为职责分离的网格：Health、Embedding、SyncJobs、EventStream、Tuning、Metrics；补齐 mutation API、过滤、分页、预设/snippet 入口。Tuning UI 以默认折叠的 scope 配置表为主，展开后按 `参数 | 自定义值 | 推荐值 | 操作` 修改，不再展示对齐推荐或回滚按钮。
 - 复审后已修正前端真实性问题：SyncJobs 进度条只读取真实 `job.progress.total/indexed/eta_seconds`；普通单资源任务无增量进度时只显示状态，不再显示 `进度 ?` / 空进度条；Metrics 未采集时显示"未采集"，不再写死 `0/-`；所有管理写操作会在卡片内显示请求异常或后端 `rejected` 原因，不再静默失败。
 - 已通过真实浏览器 smoke：`CODEASK_RUN_LIVE_OPENVIKING_E2E=1 ... e2e/openviking-dashboard-live.spec.ts`，验证五卡可见、刷新保持 `?page=openviking`、admin 诊断页显示完整宿主机路径。
 - 已新增真实浏览器管理交互 E2E：`frontend/e2e/openviking-dashboard-management-live.spec.ts`，覆盖 E3 / E5 / E6 / E8 / E9 / E10 / E12；E2 / E4 / E7 以 `test.skip` 明确标注为破坏性隔离用例。
@@ -97,9 +97,9 @@ M1 的 OpenViking admin 看板**只交付了只读状态展示**，规格里整�
 - [x] **OpenVikingEmbeddingCard**：从 Health 拆出，候选模型下拉 + 切换 / 重建入口（确认弹窗提示清库重建）
 - [x] **OpenVikingSyncJobsCard**：默认折叠 indexed、分页、状态计数、失败重试；只有真实 `job.progress` 存在时显示进度条 + ETA，无增量进度时只显示状态
 - [x] **OpenVikingEventStream**：**分页 + 按 outcome / event_type 过滤**；每条显示时间、payload 摘要、outcome 状态，同类型连续事件折叠聚合
-- [x] **OpenVikingTuningCard**：按 scope 分组，窄输入框，推荐值并排，短按钮文案 **应用 / 回滚**，每个 key 显示影响说明，支持套用预设与 **Ollama systemd snippet 复制按钮**
+- [x] **OpenVikingTuningCard**：按 scope 分组并默认折叠；summary 明确展示"展开参数 / 收起参数"和 chevron，展开后用四列布局 `参数 | 自定义值 | 推荐值 | 操作`。每个 key 显示说明、影响、推荐值和短按钮 **应用**；不再展示对齐推荐 / 回滚按钮，支持套用预设与 **Ollama systemd snippet 复制按钮**
 - [x] **OpenVikingMetricsCard**：只显示 throughput / latency / breaker trips 等运行指标；队列计数归 SyncJobs 卡，未采集时明确显示"未采集"，不再使用假 0/`-`
-- [x] 写操作成功后刷新；失败时在当前卡片展示局部错误 / rejected 原因；破坏性操作（切模型 / rebuild）二次确认已落地。全局 toast / 中央弹窗可后续统一，但不再阻塞本看板的错误可见性。
+- [x] 写操作成功后刷新并显示居中低密度 toast；失败时显示居中错误弹窗并保留当前卡片局部错误 / rejected 原因。所有会修改后端状态的按钮（调优应用、套用预设、重试、重建、切模型等）在提交前必须使用页面内居中确认框，禁止使用浏览器原生 `window.confirm`。
 
 ### B3 — 布局对齐
 
@@ -118,9 +118,9 @@ M1 的 OpenViking admin 看板**只交付了只读状态展示**，规格里整�
 | E3 | SyncJobsCard · 状态/重试 | `sync job shows real progress and can be retried from the UI`：列表项只在有真实 `job.progress` 时显示进度条；无 progress 的 failed job 显示状态；点"重试"后状态回到 pending，事件流出现 `manual_retry` | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
 | E4 | SyncJobsCard · resync/rebuild | `resync and rebuild index are destructive and reserved for isolated data dirs`：rebuild 会清向量库，因此只保留占位，需隔离数据目录跑 | 已占位 skip：破坏性 |
 | E5 | EventStream · 分页/过滤 | `event stream filters by outcome and paginates`：制造多条 `manual_retry_failed` 事件，按 `outcome=info` 和 `event_type=manual_retry_failed` 过滤，加载更多后条数增长 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
-| E6 | TuningCard · 应用 | `tuning rejects invalid values, applies valid values, then rolls back`：非法 `10000` 显示 rejected 原因且不落库；合法 `codeask.sync_workers` 落库生效 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
+| E6 | TuningCard · 应用 | `tuning rejects invalid values, applies valid values, then restores original value`：非法 `10000` 显示 rejected 原因且不落库；合法 `codeask.sync_workers` 经居中确认后落库生效；测试收尾通过 API 恢复原值，**不是 UI 回滚按钮** | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
 | E7 | TuningCard · openviking 应用+重启 | `openviking-scope tuning restart is reserved for isolated data dirs`：openviking scope 调参会重启后端 RAG 服务，因此只保留占位，需隔离数据目录跑 | 已占位 skip：破坏性 |
-| E8 | TuningCard · 回滚 | 同 E6：合法变更后点击回滚，值恢复上一版 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
+| E8 | TuningCard · 历史恢复边界 | UI 已取消单项回滚按钮；保留后端 rollback/history 能力用于审计、测试恢复和后续运维入口。本轮真实浏览器覆盖点并入 E6：变更后通过 API restore 恢复原值，确认 UI 不再展示"回滚"按钮 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
 | E9 | TuningCard · 套用预设 | `preset action applies recommended values without touching Ollama recommendations`：等待真实 preset 加载后确认套用，验证 codeask / openviking 推荐值生效，`ollama_recommend` 不变，并做 best-effort 还原 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
 | E10 | TuningCard · Ollama snippet | `Ollama systemd snippet is visible and copyable`：snippet 文本含 `OLLAMA_NUM_PARALLEL` / `OLLAMA_NUM_THREAD`，复制按钮写入剪贴板；点击"验证 Ollama 设置"后展示结果并写入 `ollama_settings_verified` | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
 | E11 | admin 诊断路径（回归） | `admin OpenViking dashboard survives reload and exposes diagnostic paths`：admin-only 看板展示真实 `CODEASK_DATA_DIR/openviking/` 下的完整绝对路径，便于定位配置、工作目录和日志；会话 trace 的路径脱敏仍由会话侧用例覆盖 | 已覆盖：`openviking-dashboard-live.spec.ts` |

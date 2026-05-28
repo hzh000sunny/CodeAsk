@@ -9,6 +9,7 @@ import type {
   OpenVikingStatusResponse,
   OpenVikingSyncJob,
   OpenVikingSyncJobsResponse,
+  OpenVikingSyncJobsSummaryResponse,
   OpenVikingTuningApplyRequest,
   OpenVikingTuningApplyResponse,
   OpenVikingTuningPresetResponse,
@@ -20,8 +21,36 @@ export function getOpenVikingStatus() {
   return apiRequest<OpenVikingStatusResponse>("/api/admin/openviking/status");
 }
 
-export function listOpenVikingSyncJobs() {
-  return apiRequest<OpenVikingSyncJobsResponse>("/api/admin/openviking/sync_jobs");
+export function listOpenVikingSyncJobs(
+  params: { cursor?: string; limit?: number; sourceType?: string; status?: string } = {},
+) {
+  const search = new URLSearchParams();
+  if (params.status) {
+    search.set("status", params.status);
+  }
+  if (params.sourceType) {
+    search.set("source_type", params.sourceType);
+  }
+  if (params.cursor) {
+    search.set("cursor", params.cursor);
+  }
+  if (params.limit) {
+    search.set("limit", String(params.limit));
+  }
+  const query = search.toString();
+  return apiRequest<OpenVikingSyncJobsResponse>(
+    `/api/admin/openviking/sync_jobs${query ? `?${query}` : ""}`,
+  );
+}
+
+export function getOpenVikingSyncJobsSummary() {
+  return apiRequest<OpenVikingSyncJobsSummaryResponse>("/api/admin/openviking/sync_jobs/summary");
+}
+
+export function deleteOpenVikingSyncJob(jobId: string) {
+  return apiRequest<{ deleted: true }>(`/api/admin/openviking/sync_jobs/${jobId}`, {
+    method: "DELETE",
+  });
 }
 
 export function listOpenVikingEvents(

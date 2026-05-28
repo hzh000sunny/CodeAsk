@@ -43,6 +43,27 @@ test.skip(
   "Set CODEASK_RUN_LIVE_OPENVIKING_E2E=1 to run live OpenViking dashboard management E2E.",
 );
 
+let createdSyncJobIds: string[] = [];
+
+test.beforeEach(() => {
+  createdSyncJobIds = [];
+});
+
+test.afterEach(async ({ page }) => {
+  for (const jobId of createdSyncJobIds) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await api(page, "/api/admin/openviking/sync_jobs/run_pending", { method: "POST" });
+      const response = await api(page, `/api/admin/openviking/sync_jobs/${jobId}`, {
+        method: "DELETE",
+      });
+      if (response.status === 200 || response.status === 404) {
+        break;
+      }
+      await page.waitForTimeout(500);
+    }
+  }
+});
+
 test("E2 embedding model switch is destructive and reserved for isolated data dirs", async () => {
   test.skip(
     true,
@@ -63,6 +84,7 @@ test("E3 sync job shows real progress and can be retried from the UI", async ({
     method: "POST",
   });
   expect(enqueued.status).toBe(201);
+  createdSyncJobIds.push(enqueued.body.id);
   await expect
     .poll(
       async () => {
@@ -82,6 +104,7 @@ test("E3 sync job shows real progress and can be retried from the UI", async ({
   await expect(row.getByText("状态 failed")).toBeVisible();
 
   await row.getByRole("button", { name: /重试 ovjob_/ }).click();
+  await confirmDashboardDialog(page, "确认重试同步任务", "确认重试", "确认重试同步任务");
   await expect.poll(async () => findJobStatus(page, sourceId), { timeout: 30_000 }).toBe("pending");
   await expect(
     page.locator(".settings-openviking-row").filter({ hasText: "manual_retry" }).first(),
@@ -111,12 +134,12 @@ test("E5 event stream filters by outcome and paginates", async ({ page }) => {
   const rows = page.locator(".settings-openviking-row").filter({ hasText: "manual_retry_failed" });
   await expect(rows.first()).toBeVisible();
   await expect(page.locator(".settings-openviking-event-count").first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "加载更多" })).toBeVisible();
-  await page.getByRole("button", { name: "加载更多" }).click();
+  await expect(page.getByRole("button", { name: "加载更多事件" })).toBeVisible();
+  await page.getByRole("button", { name: "加载更多事件" }).click();
   await expect(page.locator(".settings-openviking-event-count").first()).toBeVisible();
 });
 
-test("E6 and E8 tuning rejects invalid values, applies valid values, then rolls back", async ({
+test("E6 and E8 tuning rejects invalid values, applies valid values, then restores original value", async ({
   page,
 }) => {
   await loginAdmin(page);
@@ -125,23 +148,24 @@ test("E6 and E8 tuning rejects invalid values, applies valid values, then rolls 
   await openDashboard(page);
 
   const tuningCard = page.getByLabel("OpenViking 调优参数");
-  const input = tuningCard.getByRole("textbox", { name: "codeask.sync_workers" });
+  const codeaskScope = tuningCard.locator(".tuning-scope-summary").filter({ hasText: "CodeAsk 同步" });
+  const input = codeaskScope.getByRole("textbox", { name: "自定义值 codeask.sync_workers" });
+  if (!(await input.isVisible())) {
+    await codeaskScope.locator("summary").first().click();
+  }
   await input.fill("10000");
-  await tuningCard.getByRole("button", { name: "应用 codeask.sync_workers" }).click();
+  await codeaskScope.getByRole("button", { name: "应用 codeask.sync_workers" }).click();
+  await confirmDashboardDialog(page, "确认应用调优参数", "确认应用", "codeask.sync_workers");
   await expect(tuningCard.getByText(/codeask\.sync_workers: value must be between/)).toBeVisible();
   await expect.poll(async () => getTuningValue(page, "codeask", "sync_workers")).toBe(original);
 
   await input.fill(nextValue);
-  await tuningCard.getByRole("button", { name: "应用 codeask.sync_workers" }).click();
+  await codeaskScope.getByRole("button", { name: "应用 codeask.sync_workers" }).click();
+  await confirmDashboardDialog(page, "确认应用调优参数", "确认应用", "codeask.sync_workers");
   await expect.poll(async () => getTuningValue(page, "codeask", "sync_workers")).toBe(nextValue);
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByRole("heading", { name: "调优参数" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "codeask.sync_workers" })).toHaveValue(nextValue);
-
-  const row = page
-    .locator(".settings-openviking-tuning-row")
-    .filter({ has: page.getByRole("textbox", { name: "codeask.sync_workers" }) });
-  await row.getByRole("button", { name: /回滚/ }).click();
+  await restoreTuningValues(page, [{ key: "sync_workers", scope: "codeask", value: original }]);
   await expect.poll(async () => getTuningValue(page, "codeask", "sync_workers")).toBe(original);
 });
 
@@ -173,11 +197,8 @@ test("E9 preset action applies recommended values without touching Ollama recomm
   try {
     const tuningCard = page.getByLabel("OpenViking 调优参数");
     await expect(tuningCard.getByText(`当前推荐预设：${preset.body.preset}`)).toBeVisible();
-    page.once("dialog", async (dialog) => {
-      expect(dialog.message()).toContain("套用预设");
-      await dialog.accept();
-    });
     await tuningCard.getByRole("button", { name: "套用预设" }).click();
+    await confirmDashboardDialog(page, "确认套用预设", "确认套用", "套用");
     await expect.poll(async () => getTuningValue(page, "codeask", "sync_workers")).toBe(
       codeaskTarget,
     );
@@ -241,7 +262,7 @@ async function openDashboard(page: Page) {
 
 async function findJobStatus(page: Page, sourceId: string) {
   const result = await expectOk<{ items: SyncJob[] }>(
-    api(page, "/api/admin/openviking/sync_jobs?limit=200"),
+    api(page, "/api/admin/openviking/sync_jobs?source_type=e2e_unknown&limit=100"),
   );
   return result.body.items.find((item) => item.source_id === sourceId)?.status ?? "missing";
 }
@@ -279,6 +300,18 @@ async function restoreTuningValues(
       { timeout: 60_000 },
     )
     .toBe(200);
+}
+
+async function confirmDashboardDialog(
+  page: Page,
+  title: string,
+  confirmLabel: string,
+  expectedText: string,
+) {
+  const dialog = page.getByRole("dialog", { name: title });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText(expectedText);
+  await dialog.getByRole("button", { name: confirmLabel }).click();
 }
 
 async function expectOk<T>(

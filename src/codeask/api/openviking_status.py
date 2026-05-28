@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
+from codeask.db.models import Report, WikiDocument, WikiNode
 from codeask.identity import require_admin
 from codeask.metrics.audit import record_audit_log
 from codeask.rag.openviking.dashboard import emit_event
@@ -55,7 +56,7 @@ async def get_openviking_status(request: Request) -> dict[str, Any]:
         status_payload["version"] = health.version
     queue = await _queue_counts(request)
     status_payload["queue"] = queue
-    status_payload["metrics_5min"] = _metrics_snapshot()
+    status_payload["metrics_5min"] = await _metrics_snapshot(request)
     status_payload["degraded"] = (
         not bool(status_payload.get("running"))
         or not health.healthy
@@ -68,16 +69,39 @@ async def get_openviking_status(request: Request) -> dict[str, Any]:
 @router.get("/admin/openviking/sync_jobs")
 async def list_openviking_sync_jobs(
     request: Request,
-    status_filter: str | None = Query(default=None, alias="status"),
-    limit: int = Query(default=50, ge=1, le=200),
+    status_filter: str | None = Query(
+        default=None,
+        alias="status",
+        pattern="^(pending|running|indexed|failed|cancelled)$",
+    ),
+    source_type: str | None = Query(default=None, min_length=1, max_length=32),
+    limit: int = Query(default=25, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=512),
 ) -> dict[str, Any]:
     require_admin(request)
     service = _sync_service(request)
-    jobs = await service.list_jobs(status=status_filter, limit=limit)
+    try:
+        page = await service.list_jobs(
+            status=status_filter,
+            source_type=source_type,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    display_names = await _resolve_display_names(request, page.jobs)
     return {
-        "items": [_job_to_dict(job) for job in jobs],
-        "total": len(jobs),
+        "items": [_job_to_dict(job, display_names=display_names) for job in page.jobs],
+        "total": len(page.jobs),
+        "next_cursor": page.next_cursor,
     }
+
+
+@router.get("/admin/openviking/sync_jobs/summary")
+async def openviking_sync_jobs_summary(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    counts = await _queue_counts(request)
+    return {"counts": counts}
 
 
 @router.post(
@@ -142,6 +166,40 @@ async def retry_openviking_sync_job(job_id: str, request: Request) -> dict[str, 
         outcome="info",
     )
     return payload
+
+
+@router.delete("/admin/openviking/sync_jobs/{job_id}")
+async def delete_openviking_sync_job(job_id: str, request: Request) -> dict[str, bool]:
+    require_admin(request)
+    async with request.app.state.session_factory() as session:
+        job = await session.get(OpenVikingSyncJob, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="OpenViking sync job not found")
+        if job.status not in {"cancelled", "failed"}:
+            raise HTTPException(
+                status_code=409,
+                detail="Only cancelled or failed OpenViking sync jobs can be deleted",
+            )
+        await session.execute(
+            delete(OpenVikingDashboardEvent).where(OpenVikingDashboardEvent.sync_job_id == job_id)
+        )
+        await session.execute(
+            delete(OpenVikingDashboardEvent)
+            .where(OpenVikingDashboardEvent.source_type == job.source_type)
+            .where(OpenVikingDashboardEvent.source_id == job.source_id)
+        )
+        await session.delete(job)
+        await record_audit_log(
+            session,
+            entity_type="openviking_sync_job",
+            entity_id=job_id,
+            action="delete",
+            subject_id=str(request.state.subject_id),
+            from_status=job.status,
+            to_status=None,
+        )
+        await session.commit()
+    return {"deleted": True}
 
 
 @router.post("/admin/openviking/sync_jobs/retry_failed")
@@ -344,14 +402,45 @@ async def _queue_counts(request: Request) -> dict[str, int]:
     return counts
 
 
-def _metrics_snapshot() -> dict[str, Any]:
+async def _metrics_snapshot(request: Request) -> dict[str, Any]:
+    window_seconds = 300
+    since = datetime.now(UTC) - timedelta(seconds=window_seconds)
+    factory = request.app.state.session_factory
+    async with factory() as session:
+        throughput_count = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingSyncJob)
+            .where(OpenVikingSyncJob.last_indexed_at >= since)
+        )
+        breaker_count = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingDashboardEvent)
+            .where(
+                OpenVikingDashboardEvent.event_type.in_(
+                    ("openviking_breaker_tripped", "openviking_restart_detected")
+                )
+            )
+            .where(OpenVikingDashboardEvent.created_at >= since)
+        )
+    recorder = getattr(request.app.state, "openviking_metrics_recorder", None)
+    latency = (
+        recorder.snapshot()
+        if recorder is not None and hasattr(recorder, "snapshot")
+        else {
+            "collected": False,
+            "latency_p95_ms": None,
+            "latency_samples": 0,
+            "message": "warming up",
+        }
+    )
     return {
-        "collected": False,
-        "window_seconds": 300,
-        "throughput_per_min": None,
-        "latency_p95_ms": None,
-        "breaker_trips": None,
-        "message": "未采集",
+        "collected": bool(latency.get("collected")),
+        "window_seconds": window_seconds,
+        "throughput_per_min": round(float(throughput_count or 0) / 5, 2),
+        "latency_p95_ms": latency.get("latency_p95_ms"),
+        "latency_samples": latency.get("latency_samples", 0),
+        "breaker_trips": int(breaker_count or 0),
+        "message": latency.get("message"),
     }
 
 
@@ -399,11 +488,49 @@ def _ollama_to_dict(status: OllamaModelStatus, request: Request) -> dict[str, An
     }
 
 
-def _job_to_dict(job: OpenVikingSyncJob) -> dict[str, Any]:
+async def _resolve_display_names(
+    request: Request,
+    jobs: list[OpenVikingSyncJob],
+) -> dict[str, str]:
+    wiki_doc_ids = [_int_or_none(job.source_id) for job in jobs if job.source_type == "wiki_doc"]
+    report_ids = [_int_or_none(job.source_id) for job in jobs if job.source_type == "report"]
+    wiki_doc_ids = [item for item in wiki_doc_ids if item is not None]
+    report_ids = [item for item in report_ids if item is not None]
+    display_names: dict[str, str] = {}
+    async with request.app.state.session_factory() as session:
+        if wiki_doc_ids:
+            rows = (
+                await session.execute(
+                    select(WikiDocument.id, WikiNode.name)
+                    .join(WikiNode, WikiNode.id == WikiDocument.node_id)
+                    .where(WikiDocument.id.in_(wiki_doc_ids))
+                )
+            ).all()
+            for document_id, node_name in rows:
+                if isinstance(node_name, str) and node_name:
+                    display_names[f"wiki_doc:{document_id}"] = node_name
+        if report_ids:
+            rows = (
+                await session.execute(
+                    select(Report.id, Report.title).where(Report.id.in_(report_ids))
+                )
+            ).all()
+            for report_id, title in rows:
+                if isinstance(title, str) and title:
+                    display_names[f"report:{report_id}"] = title
+    return display_names
+
+
+def _job_to_dict(
+    job: OpenVikingSyncJob,
+    *,
+    display_names: dict[str, str] | None = None,
+) -> dict[str, Any]:
     return {
         "id": job.id,
         "source_type": job.source_type,
         "source_id": job.source_id,
+        "display_name": (display_names or {}).get(f"{job.source_type}:{job.source_id}"),
         "feature_slug": job.feature_slug,
         "viking_uri": job.viking_uri,
         "status": job.status,
@@ -439,3 +566,10 @@ def _iso(value: datetime | None) -> str | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
     return value.isoformat()
+
+
+def _int_or_none(value: str) -> int | None:
+    try:
+        return int(value)
+    except ValueError:
+        return None

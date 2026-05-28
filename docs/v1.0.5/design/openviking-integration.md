@@ -315,7 +315,7 @@ class OpenVikingTuningSetting(Base, TimestampMixin):
     # admin 在 UI 可填一段调整原因，便于以后回看
 ```
 
-**Append-only 设计**：每次写新行；按 `(scope, key)` 取 `id` 最大（或 `activated_at` 最新）的一行为当前生效配置。历史行保留，便于回滚和审计；不加唯一约束。
+**Append-only 设计**：每次写新行；按 `(scope, key)` 取 `id` 最大（或 `activated_at` 最新）的一行为当前生效配置。历史行保留，便于审计、测试恢复和后续运维恢复入口；不加唯一约束。M8 后 dashboard UI 不再直接展示单项回滚按钮。
 
 `ollama_recommend` scope 的行**只是 CodeAsk 提供给 admin 的建议值**，不代表 Ollama 实际生效值；admin 是否真的改 systemd 由仪表盘探测当前 Ollama 行为反推。
 
@@ -839,14 +839,15 @@ PRD §10.4 / §10.5 规定 admin 必须能通过仪表盘**调参数 + 看效果
 
 新增 `OpenVikingTuningCard.tsx`：
 
-- 顶部显示当前主机识别结果（CPU 核数 / GPU / OpenViking 模式）+ 推荐预设（PRD §10.5.4 表查的那一行）
-- 参数列表（按 scope 分组）：
-  - **OpenViking 端**：每项一行，左侧当前值，右侧输入框 + 应用按钮
-  - **Ollama 端**：当前推断值 + 推荐值 + "复制 systemd snippet" 按钮
+- 顶部显示当前推荐预设（PRD §10.5.4 表查的那一行）+ 参数总数，并提供"套用预设"入口（仅 OpenViking + CodeAsk，不动 Ollama）
+- 参数列表按 scope 分为三个原生 disclosure：
+  - 每个 scope 默认折叠，summary 显示中文标题、参数数量、"展开参数 / 收起参数"操作 pill 与 chevron；hover / focus / open 状态有明确反馈
+  - 展开后使用统一四列布局：`参数 | 自定义值 | 推荐值 | 操作`
+  - **OpenViking 端**：每项展示 key、说明、影响、推荐值、窄输入框和"应用"按钮；应用后可能触发 OpenViking restart
   - **CodeAsk 端**：同 OpenViking，但应用是秒级生效
-- "应用推荐预设"快捷按钮：一次性把整组参数填入（仅 OpenViking + CodeAsk，不动 Ollama）
-- "回滚上一次变更"按钮：从 `OpenVikingTuningSetting` 取 `previous_value` 恢复
-- 改完任一参数 → 弹出确认框（提示中断时长）→ 应用 → restart → 进度条等 30 s baseline 稳定
+  - **Ollama 端**：展示推荐并发参数与 systemd snippet；CodeAsk 不替 admin 执行 sudo
+- 不展示"对齐推荐"、"一键对齐推荐"或单项"回滚"按钮；推荐值只作为参考，修改由 admin 输入自定义值后点击"应用"完成
+- 改完任一参数 → 页面内居中确认框（提示影响范围 / 中断时长）→ 应用 → 成功居中 toast / 失败居中错误弹窗；禁止使用浏览器原生 `window.confirm`
 
 #### 13.6.2 调优 API
 
@@ -856,7 +857,7 @@ PRD §10.4 / §10.5 规定 admin 必须能通过仪表盘**调参数 + 看效果
 GET  /api/admin/openviking/tuning              # 当前所有 scope 的生效配置 + 推荐预设
 GET  /api/admin/openviking/tuning/preset       # CodeAsk 自动识别的主机规格 + 推荐预设
 POST /api/admin/openviking/tuning              # 改一个或多个参数
-POST /api/admin/openviking/tuning/rollback     # 回滚某个 scope.key 到上一版
+POST /api/admin/openviking/tuning/rollback     # 后端保留：恢复某个 scope.key 到上一版；dashboard UI 当前不直接暴露
 POST /api/admin/openviking/tuning/apply_preset # 一次应用推荐预设（不含 ollama_recommend）
 GET  /api/admin/openviking/tuning/history?scope=...&key=...&limit=...   # 历史变更
 GET  /api/admin/openviking/tuning/ollama_snippet  # 返回当前配置值对应的 systemd snippet 文本
@@ -942,7 +943,7 @@ admin 应用后，**仪表盘自动探测**新值是否生效：
 
 - 所有 tuning API 走 admin 权限通道（v1.0.3）
 - 每条变更同时写 `audit_log` 与 `openviking_dashboard_events`
-- 单次 `POST /tuning` 可批量改多个参数，但每个 (scope, key) 独立成事件，便于回滚
+- 单次 `POST /tuning` 可批量改多个参数，但每个 (scope, key) 独立成事件，便于审计与必要时通过后端恢复
 - 极端值（如 `max_concurrent=1000`）走后端 schema 校验拒绝，事件 outcome=error
 
 ### 13.7 不在第一版做的（PRD §10.3 已声明）

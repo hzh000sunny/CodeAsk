@@ -239,6 +239,7 @@ export interface OpenVikingStatusResponse {
     window_seconds: number;
     throughput_per_min: number | null;
     latency_p95_ms: number | null;
+    latency_samples?: number | null;
     breaker_trips: number | null;
     message: string | null;
   };
@@ -260,6 +261,7 @@ export interface OpenVikingSyncJob {
   id: string;
   source_type: string;
   source_id: string;
+  display_name: string | null;
   feature_slug: string | null;
   viking_uri: string | null;
   status: string;
@@ -276,6 +278,11 @@ export interface OpenVikingSyncJob {
 export interface OpenVikingSyncJobsResponse {
   items: OpenVikingSyncJob[];
   total: number;
+  next_cursor: string | null;
+}
+
+export interface OpenVikingSyncJobsSummaryResponse {
+  counts: Record<string, number>;
 }
 
 export interface OpenVikingDashboardEvent {

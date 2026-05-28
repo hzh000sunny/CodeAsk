@@ -53,6 +53,11 @@ v1.0.5 按交付里程碑 M1–M5 分段验收（M1–M5 跨 Phase 1/Phase 2 两
 - [ ] 切换期间召回质量下降但 opencode 会话不中断；重建完成后召回恢复
 - [x] 切换、重建、失败、回退都写审计日志
 - [ ] rebuild / 批量同步类任务的 `sync_jobs.progress` 由 `progress_sweep` 任务自动更新；admin 卡片仅在有真实 `total/indexed/eta_seconds` 时显示进度条 + ETA，单资源 `add_text_resource` 不显示假进度
+- [x] M8 修复：OpenViking SyncJobs API 支持全表 summary、按状态过滤、cursor keyset 分页与 `display_name`；前端按 failed / pending / running / indexed 分组展示，避免 indexed 大列表按窗口混排
+- [x] M8 修复：OpenViking 事件流改用 infinite pagination；分页后暂停实时轮询，折叠聚合 chip 可展开查看底层事件，返回顶部后恢复实时刷新
+- [x] M8 修复：运行指标卡不再使用 stub；throughput 来自 5 分钟内 `last_indexed_at` 聚合，breaker trips 来自 dashboard events，latency p95 / samples 来自 `OpenVikingClient` 请求耗时 recorder
+- [x] M8 修复：dashboard live e2e fixture 增加 `afterEach` 自清；一次性脚本 `scripts/cleanup_openviking_e2e_fixture.sql` 已清理本地真实库 `e2e_unknown` sync job 残留
+- [x] M8 修复：OpenViking 看板所有按钮均接入全局反馈；成功操作显示居中低密度 toast，失败操作显示居中错误弹窗，覆盖复制、分页、展开/收起、重试、重建、调优和 Ollama 验证；所有会修改后端状态的按钮必须先弹出页面内居中确认框，禁止使用浏览器原生 `window.confirm`
 - [x] Wiki / 报告 / 仓库变更 hook 全部接入；启动 backfill 与定时 sweep 行为正确
 - [x] kill OpenViking server 后重启：admin 仪表盘自动出现 `openviking_restart_detected` 事件，sync_jobs 进度从中断点续传，不重置
 - [x] kill Ollama 后重启：仪表盘出现 `ollama_recovery` 事件，sync_jobs 在 1–2 分钟内追上
@@ -91,6 +96,8 @@ M1 阶段的瞬时护栏已被后续里程碑有意推翻：§3.6 已接入 Open
 - [x] 新增并通过 `frontend/e2e/openviking-dashboard-management-live.spec.ts` 真实浏览器管理交互 e2e：E3 / E5 / E6 / E8 / E9 / E10 / E12 覆盖，E2 / E4 / E7 以破坏性隔离用例 `test.skip` 占位
 - [x] OpenViking 仪表盘前端显示 OpenViking health、Ollama / 模型 readiness、Embedding 模型与可用模型列表
 - [x] OpenViking SyncJobs 卡片不再按 status 伪造进度；只读取真实 `job.progress`，缺失时只显示任务状态，不展示空进度条 / `进度 ?`
+- [x] OpenViking SyncJobs 卡片不再显示不可读主键作为主标题；wiki_doc / report 使用后端解析的 `display_name`，未知来源才回落到 source_type/source_id
+- [x] OpenViking EventStream 卡片优先显示 `payload.name` / `payload.title` / `feature_slug+relative_path`，避免 `repo · <hex-id>` 这类不可读摘要成为主信息
 - [x] OpenViking 看板 UI 已按 1440 / 1280 / 390 三档真实浏览器截图复核：Health + Embedding 分离，SyncJobs 全宽，EventStream + Metrics 同行，Tuning 全宽；移动端设置二级导航为横向紧凑 tabs，不再占半屏空白
 - [x] 本轮 live E2E 后已清理真实库测试污染：`e2e_unknown` / `mgmt-retry-*` / `m1_smoke_*` 在 `openviking_sync_jobs` 与 `openviking_dashboard_events` 中残留计数均为 0
 - [x] M1 边界回归测试覆盖：未改 Wiki 搜索、未删 FTS5、未迁 native Agent、未接 Wiki 写路径 hook
@@ -109,14 +116,15 @@ M1 阶段的瞬时护栏已被后续里程碑有意推翻：§3.6 已接入 Open
 
 ### 3.4 调优面板
 
-2026-05-26 补齐：Tuning 面板已支持配置读取、推荐值、写入、回滚、预设、OpenViking 重启与基础前端交互。Ollama 实测并发探测与 APScheduler interval 重排仍保留为后续增强。
+2026-05-26 补齐：Tuning 面板已支持配置读取、推荐值、写入、预设、OpenViking 重启与基础前端交互。Ollama 实测并发探测与 APScheduler interval 重排仍保留为后续增强。
 
 - [x] `openviking_tuning_settings` 表首次启动填入默认值；推荐值由主机识别预设计算
-- [x] 仪表盘 OpenVikingTuningCard 显示三个 scope 的当前值、推荐值、回滚按钮
+- [x] 仪表盘 OpenVikingTuningCard 显示三个 scope 的当前值、推荐值、写入按钮与套用预设入口
+- [x] M8 修复：调优面板取消"偏离推荐 / 已对齐"分流展示；三个 scope 均默认折叠，summary 右侧显式展示"展开参数 / 收起参数"动作和 chevron，hover / focus 有视觉反馈；展开后统一以 `参数 | 自定义值 | 推荐值 | 操作` 四列布局展示全部参数，并保留参数描述、影响说明与推荐值；操作列仅展示"应用"，不再展示对齐推荐与回滚按钮
+- [x] 调优面板按钮交互接入全局反馈：点击应用时若值未变更则提示无需应用；若值已变更则先弹出页面内居中确认框，确认后才提交并显示成功 toast；套用预设也先走页面内居中确认框；复制 snippet、验证 Ollama 设置均有成功 toast；接口失败时弹出全局错误对话框并保留卡片内联错误
 - [x] admin 改 `openviking.embedding.max_concurrent` → 写 DB → 重写 ov.conf → restart OpenViking → 返回预计中断时长
 - [x] admin 改 `codeask.sync_workers` → 秒级生效；不重启 OpenViking
 - [x] 改任一参数后事件流出现一条 `tuning_change` 事件，含 scope / key / value_before / value_after / notes / triggered_by
-- [x] 回滚动作正确恢复上一版值；事件流出现 `tuning_change` notes="rollback"
 - [x] 一次应用推荐预设 → 多个参数一次性改完；不影响 ollama_recommend
 - [x] Ollama systemd snippet 接口返回正确的 NUM_PARALLEL / NUM_THREAD；admin 可点击"验证 Ollama 设置"，CodeAsk 轻量探测实际并发并写入 `ollama_settings_verified`（success / warning）
 - [x] 极端值（如 `codeask.sync_workers=10000`）被后端拒绝；事件 outcome=error；前端卡片显示 rejected 原因；不应用

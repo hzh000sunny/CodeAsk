@@ -35,7 +35,7 @@ v1.0.5 新增：
 - 启动管理 OpenViking server（参考 v1.0.4 `opencode_compat/process.py` 模式）
 - 把 CodeAsk Wiki / 问题报告 / 代码仓增量同步到 OpenViking `viking://resources/codeask/...`
 - opencode 同时挂 CodeAsk MCP 和 OpenViking remote MCP，会话动态上下文增加 OpenViking 资源布局提示
-- admin 设置页新增 OpenViking 仪表盘（健康卡 + 同步任务卡 + 事件流 + 调优面板）
+- admin 设置页新增 OpenViking 仪表盘（健康卡 + 同步任务卡 + 事件流 + 运行指标 + 调优面板）；M8 已完成真实数据可读性与 UI 收敛：任务按状态分页、事件可展开、指标真实采集、调优参数默认折叠并在修改前居中确认
 - Wiki UI 搜索框改为 **OpenViking 优先 → SQL ILIKE 兜底**；Wiki 写路径（上传 / 发布 / 回滚 / Report verify）触发 OpenViking 增量同步；草稿与 unverified Report **不**入 OpenViking
 
 v1.0.5 废弃（删除）：
@@ -124,6 +124,7 @@ v1.0.5/
 - 2026-05-27：**v1.0.5 回归收口完成**。补齐启动 backfill、24h scheduled_refresh、命名变更事件（`wiki_doc_changed` / `report_status_changed` / `repo_synced`）、OpenViking keepalive 重启事件、Ollama 恢复事件和 `ollama_settings_verified` 轻量探测；OpenViking dashboard live smoke 去掉固定 `/.codeask` 路径假设，按真实 data dir 绝对路径验证。PRD / SDD / Phase 0 / Phase 1 / acceptance 状态收口为 Completed。
 - 2026-05-28：**M7 会话控制与多仓上下文补强完成**。opencode 单轮绝对超时调整为 3600s、无进展超时调整为 600s，并在错误事件中带超时诊断字段；Stop 从"回滚清空"改为"截断保留"，新增 `SessionTurn.stopped_at` 迁移与前端"已停止"展示；已绑定特性的动态上下文会列出全部 ready 仓库，system prompt 要求跨仓问题检查全部相关 ready 仓。详见 `plans/m7-turn-control-and-multi-repo.md` 与 acceptance §4.1。
 - 2026-05-28：补 A2 / C1 收口。`openviking-rag-live` 与 `admin-agent-source-live` 已改为"模型自主决策优先"的验收契约：不强制正向工具调用链，只保留答案正确性、写工具拒绝、degraded 不调用 OpenViking 等边界约束。Playwright globalSetup 会对 `references/anything-llm` 做幂等 git 初始化，fresh checkout / CI / 其它环境缺 `.git` 时不再导致 continuity / feature-scoped live E2E 自跳过。真实栈复跑：rag-live 3/3（DeepSeek-OpenAI-Pro）、admin-source 1/1、删除 `.git` 后 continuity + feature-scoped 3/3。
+- 2026-05-28：**M8 OpenViking Dashboard UX 收口**。真实库反馈的四类问题已落文档并修复：同步任务 / 事件流优先显示可读名称而不是主键或 hex id；同步任务改为按状态分组 + cursor 分页，事件流改为 infinite pagination + 聚合组展开；运行指标接入 5 分钟真实采集；调优面板从"全量铺开 / 偏离推荐"收敛为三个 scope 默认折叠的配置面板，展开后统一 `参数 | 自定义值 | 推荐值 | 操作`，不再展示对齐推荐或回滚按钮，所有状态修改先走页面内居中确认框。详见 `plans/m8-dashboard-ux.md` 与 acceptance §3.2 / §3.4。
 
 ## 引用
 

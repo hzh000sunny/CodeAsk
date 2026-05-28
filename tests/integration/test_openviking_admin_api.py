@@ -1,8 +1,11 @@
+from datetime import UTC, datetime, timedelta
+
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from codeask.db.models import AuditLog
+from codeask.db.models import AuditLog, Feature, Report, WikiDocument, WikiNode, WikiSpace
+from codeask.rag.openviking.metrics import OpenVikingMetricsRecorder
 from codeask.rag.openviking.models import (
     OpenVikingDashboardEvent,
     OpenVikingEmbeddingSetting,
@@ -94,14 +97,50 @@ async def test_openviking_status_surfaces_health_and_ollama_model_readiness(clie
     assert body["ollama"]["model_available"] is True
     assert body["ollama"]["required_model"] == "bge-m3"
     assert body["ollama"]["models"] == ["bge-m3:latest"]
-    assert body["metrics_5min"] == {
-        "collected": False,
-        "window_seconds": 300,
-        "throughput_per_min": None,
-        "latency_p95_ms": None,
-        "breaker_trips": None,
-        "message": "未采集",
-    }
+    assert body["metrics_5min"]["collected"] is False
+    assert body["metrics_5min"]["message"] == "warming up"
+    assert body["metrics_5min"]["throughput_per_min"] == 0
+    assert body["metrics_5min"]["breaker_trips"] == 0
+
+
+@pytest.mark.asyncio
+async def test_openviking_status_returns_real_metrics_snapshot(client, app) -> None:
+    recorder = OpenVikingMetricsRecorder()
+    for _ in range(20):
+        await recorder.record_latency(42)
+    app.state.openviking_metrics_recorder = recorder
+    now = datetime.now(UTC)
+    async with app.state.session_factory() as session:
+        for index in range(5):
+            session.add(
+                OpenVikingSyncJob(
+                    id=f"ovjob_metrics_{index}",
+                    source_type="wiki_doc",
+                    source_id=f"metrics-{index}",
+                    status="indexed",
+                    last_indexed_at=now - timedelta(seconds=60),
+                )
+            )
+        session.add(
+            OpenVikingDashboardEvent(
+                event_type="openviking_breaker_tripped",
+                outcome="warning",
+                created_at=now - timedelta(seconds=30),
+            )
+        )
+        await session.commit()
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+
+    response = await client.get("/api/admin/openviking/status")
+
+    assert response.status_code == 200
+    metrics = response.json()["metrics_5min"]
+    assert metrics["collected"] is True
+    assert metrics["throughput_per_min"] == 1.0
+    assert metrics["breaker_trips"] == 1
+    assert metrics["latency_p95_ms"] == 42
+    assert metrics["latency_samples"] == 20
 
 
 @pytest.mark.asyncio
@@ -236,6 +275,237 @@ async def test_openviking_sync_jobs_preserve_absolute_paths_in_admin_errors(clie
     assert data_dir in item["error"]
     assert "/home/hzh/private/job" in item["error"]
     assert "[absolute-path-redacted]" not in item["error"]
+
+
+@pytest.mark.asyncio
+async def test_openviking_sync_jobs_include_display_names_for_wiki_and_reports(client, app) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    async with app.state.session_factory() as session:
+        feature = Feature(
+            name="OpenViking Feature",
+            slug="openviking-feature",
+            owner_subject_id="admin",
+        )
+        session.add(feature)
+        await session.flush()
+        space = WikiSpace(
+            feature_id=feature.id,
+            scope="current",
+            display_name="OpenViking Space",
+            slug="openviking-feature",
+        )
+        session.add(space)
+        await session.flush()
+        node = WikiNode(
+            space_id=space.id,
+            type="document",
+            name="检索入口说明",
+            path="/knowledge-base/index.md",
+        )
+        session.add(node)
+        await session.flush()
+        document = WikiDocument(node_id=node.id, title="Fallback Title")
+        session.add(document)
+        report = Report(
+            feature_id=feature.id,
+            title="已验证问题报告",
+            body_markdown="# Report",
+            metadata_json={},
+            status="verified",
+            verified=True,
+            created_by_subject_id="admin",
+        )
+        session.add(report)
+        await session.flush()
+        session.add_all(
+            [
+                OpenVikingSyncJob(
+                    id="ovjob_display_wiki",
+                    source_type="wiki_doc",
+                    source_id=str(document.id),
+                    feature_slug=feature.slug,
+                    status="indexed",
+                ),
+                OpenVikingSyncJob(
+                    id="ovjob_display_report",
+                    source_type="report",
+                    source_id=str(report.id),
+                    feature_slug=feature.slug,
+                    status="indexed",
+                ),
+                OpenVikingSyncJob(
+                    id="ovjob_display_unknown",
+                    source_type="e2e_unknown",
+                    source_id="mgmt-retry-readable",
+                    status="cancelled",
+                ),
+            ]
+        )
+        await session.commit()
+
+    response = await client.get("/api/admin/openviking/sync_jobs?limit=10")
+
+    assert response.status_code == 200, response.text
+    items = {item["id"]: item for item in response.json()["items"]}
+    assert items["ovjob_display_wiki"]["display_name"] == "检索入口说明"
+    assert items["ovjob_display_report"]["display_name"] == "已验证问题报告"
+    assert items["ovjob_display_unknown"]["display_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_openviking_sync_jobs_summary_and_cursor_pagination(client, app) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    now = datetime.now(UTC)
+    async with app.state.session_factory() as session:
+        for index in range(30):
+            session.add(
+                OpenVikingSyncJob(
+                    id=f"ovjob_page_indexed_{index:02d}",
+                    source_type="wiki_doc",
+                    source_id=f"indexed-{index}",
+                    status="indexed",
+                    updated_at=now - timedelta(seconds=index),
+                )
+            )
+        for index in range(10):
+            session.add(
+                OpenVikingSyncJob(
+                    id=f"ovjob_page_failed_{index:02d}",
+                    source_type="wiki_doc",
+                    source_id=f"failed-{index}",
+                    status="failed",
+                    updated_at=now - timedelta(minutes=10, seconds=index),
+                )
+            )
+        await session.commit()
+
+    summary = await client.get("/api/admin/openviking/sync_jobs/summary")
+    first_page = await client.get("/api/admin/openviking/sync_jobs?status=indexed&limit=10")
+
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["counts"]["indexed"] == 30
+    assert summary.json()["counts"]["failed"] == 10
+    assert first_page.status_code == 200, first_page.text
+    first_body = first_page.json()
+    assert len(first_body["items"]) == 10
+    assert first_body["next_cursor"]
+
+    second_page = await client.get(
+        f"/api/admin/openviking/sync_jobs?status=indexed&limit=25&cursor={first_body['next_cursor']}"
+    )
+
+    assert second_page.status_code == 200, second_page.text
+    second_body = second_page.json()
+    assert len(second_body["items"]) == 20
+    assert second_body["next_cursor"] is None
+    seen_ids = {item["id"] for item in first_body["items"] + second_body["items"]}
+    assert len(seen_ids) == 30
+
+
+@pytest.mark.asyncio
+async def test_delete_openviking_sync_job_allows_cancelled_and_rejects_active(client, app) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    async with app.state.session_factory() as session:
+        session.add_all(
+            [
+                OpenVikingSyncJob(
+                    id="ovjob_delete_cancelled",
+                    source_type="e2e_unknown",
+                    source_id="mgmt-retry-delete",
+                    status="cancelled",
+                ),
+                OpenVikingSyncJob(
+                    id="ovjob_delete_running",
+                    source_type="wiki_doc",
+                    source_id="running",
+                    status="running",
+                ),
+            ]
+        )
+        await session.commit()
+
+    deleted = await client.delete("/api/admin/openviking/sync_jobs/ovjob_delete_cancelled")
+    rejected = await client.delete("/api/admin/openviking/sync_jobs/ovjob_delete_running")
+
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"deleted": True}
+    assert rejected.status_code == 409, rejected.text
+    async with app.state.session_factory() as session:
+        assert await session.get(OpenVikingSyncJob, "ovjob_delete_cancelled") is None
+        assert await session.get(OpenVikingSyncJob, "ovjob_delete_running") is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_openviking_sync_job_removes_related_dashboard_events(client, app) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    now = datetime.now(UTC)
+    async with app.state.session_factory() as session:
+        session.add(
+            OpenVikingSyncJob(
+                id="ovjob_delete_events",
+                source_type="e2e_unknown",
+                source_id="mgmt-retry-delete-events",
+                status="cancelled",
+            )
+        )
+        session.add_all(
+            [
+                OpenVikingDashboardEvent(
+                    event_type="manual_retry",
+                    source_type="e2e_unknown",
+                    source_id="mgmt-retry-delete-events",
+                    sync_job_id="ovjob_delete_events",
+                    triggered_by="admin",
+                    payload={},
+                    outcome="info",
+                    created_at=now,
+                ),
+                OpenVikingDashboardEvent(
+                    event_type="manual_retry_failed",
+                    source_type="e2e_unknown",
+                    source_id="mgmt-retry-delete-events",
+                    sync_job_id=None,
+                    triggered_by="admin",
+                    payload={},
+                    outcome="info",
+                    created_at=now,
+                ),
+                OpenVikingDashboardEvent(
+                    event_type="manual_retry",
+                    source_type="e2e_unknown",
+                    source_id="unrelated-source",
+                    sync_job_id=None,
+                    triggered_by="admin",
+                    payload={},
+                    outcome="info",
+                    created_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+
+    deleted = await client.delete("/api/admin/openviking/sync_jobs/ovjob_delete_events")
+
+    assert deleted.status_code == 200, deleted.text
+    async with app.state.session_factory() as session:
+        related_count = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingDashboardEvent)
+            .where(OpenVikingDashboardEvent.source_type == "e2e_unknown")
+            .where(OpenVikingDashboardEvent.source_id == "mgmt-retry-delete-events")
+        )
+        unrelated_count = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingDashboardEvent)
+            .where(OpenVikingDashboardEvent.source_type == "e2e_unknown")
+            .where(OpenVikingDashboardEvent.source_id == "unrelated-source")
+        )
+    assert related_count == 0
+    assert unrelated_count == 1
 
 
 @pytest.mark.asyncio

@@ -1,13 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Copy,
   Database,
   Gauge,
   ListChecks,
-  RotateCcw,
   SlidersHorizontal,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -19,6 +19,7 @@ import {
   getOllamaSnippet,
   getOpenVikingEmbedding,
   getOpenVikingStatus,
+  getOpenVikingSyncJobsSummary,
   getOpenVikingTuning,
   getTuningPreset,
   listEmbeddingCandidates,
@@ -29,7 +30,6 @@ import {
   resyncOpenViking,
   retryFailedSyncJobs,
   retrySyncJob,
-  rollbackOpenVikingTuning,
   switchEmbeddingModel,
   verifyOllamaSettings,
 } from "../../lib/api";
@@ -43,16 +43,31 @@ import type {
   OpenVikingTuningItem,
   OpenVikingTuningResponse,
 } from "../../types/api";
+import { useAppFeedback } from "../feedback/AppFeedback";
+import { messageFromApiError } from "./settings-utils";
 
 type TuningRow = OpenVikingTuningItem & { scope: string };
 type EventGroup = {
   count: number;
   event: OpenVikingDashboardEvent;
+  events: OpenVikingDashboardEvent[];
 };
+type DashboardConfirmRequest = {
+  confirmLabel: string;
+  message: string;
+  onConfirm: () => void;
+  title: string;
+  tone?: "danger" | "warning";
+};
+type DashboardFeedback = {
+  showError: (message: string, options?: { title?: string }) => void;
+  showSuccess: (message: string) => void;
+};
+type DashboardConfirm = (request: DashboardConfirmRequest) => void;
 
 const EMPTY_VALUE = "—";
 const EVENT_PAGE_SIZE = 10;
-const JOB_PAGE_SIZE = 6;
+const JOB_PAGE_SIZE = 10;
 
 const SCOPE_LABELS: Record<string, string> = {
   codeask: "CodeAsk 同步",
@@ -105,10 +120,10 @@ const TUNING_DESCRIPTIONS: Record<string, { description: string; impact: string 
 
 export function OpenVikingDashboard() {
   const queryClient = useQueryClient();
+  const feedback = useAppFeedback();
+  const [confirmRequest, setConfirmRequest] = useState<DashboardConfirmRequest | null>(null);
   const [eventOutcome, setEventOutcome] = useState("");
   const [eventType, setEventType] = useState("");
-  const [eventBeforeId, setEventBeforeId] = useState<number | undefined>();
-  const [eventItems, setEventItems] = useState<OpenVikingDashboardEvent[]>([]);
   const refresh = () => {
     void queryClient.invalidateQueries({
       predicate: (query) => String(query.queryKey[0]).startsWith("admin-openviking"),
@@ -120,21 +135,18 @@ export function OpenVikingDashboard() {
     queryFn: getOpenVikingStatus,
     refetchInterval: 5000,
   });
-  const jobsQuery = useQuery({
-    queryKey: ["admin-openviking-sync-jobs"],
-    queryFn: listOpenVikingSyncJobs,
-    refetchInterval: 5000,
-  });
-  const eventsQuery = useQuery({
-    queryKey: ["admin-openviking-events", eventOutcome, eventType, eventBeforeId],
-    queryFn: () =>
+  const eventsQuery = useInfiniteQuery({
+    queryKey: ["admin-openviking-events", eventOutcome, eventType],
+    queryFn: ({ pageParam }) =>
       listOpenVikingEvents({
         eventType: eventType || undefined,
         outcome: eventOutcome || undefined,
-        beforeId: eventBeforeId,
+        beforeId: pageParam,
         limit: EVENT_PAGE_SIZE,
       }),
-    refetchInterval: 5000,
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_before_id ?? undefined,
+    refetchInterval: (query) => (query.state.data?.pages.length === 1 ? 5000 : false),
   });
   const embeddingQuery = useQuery({
     queryKey: ["admin-openviking-embedding"],
@@ -157,70 +169,131 @@ export function OpenVikingDashboard() {
     queryFn: getOllamaSnippet,
   });
 
-  useEffect(() => {
-    const payload = eventsQuery.data;
-    if (!payload) {
-      return;
-    }
-    if (!eventBeforeId) {
-      setEventItems(payload.items);
-      return;
-    }
-    setEventItems((current) => {
-      const seen = new Set(current.map((event) => event.id));
-      return [
-        ...current,
-        ...payload.items.filter((event) => !seen.has(event.id)),
-      ];
-    });
-  }, [eventsQuery.data, eventBeforeId]);
+  const events = useMemo(
+    () => eventsQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [eventsQuery.data],
+  );
+  const eventPagesLoaded = eventsQuery.data?.pages.length ?? 0;
 
   function handleOutcomeChange(value: string) {
-    setEventItems([]);
-    setEventBeforeId(undefined);
     setEventOutcome(value);
   }
 
   function handleEventTypeChange(value: string) {
-    setEventItems([]);
-    setEventBeforeId(undefined);
     setEventType(value);
   }
-
-  const jobs = jobsQuery.data?.items ?? [];
 
   return (
     <div className="openviking-dashboard">
       <div className="settings-openviking-grid">
         <OpenVikingHealthCard
           status={statusQuery.data}
+          feedback={feedback}
           loading={statusQuery.isLoading}
           error={statusQuery.isError ? "读取 OpenViking 状态失败" : null}
         />
         <OpenVikingEmbeddingCard
           embedding={embeddingQuery.data}
           candidates={candidatesQuery.data?.items ?? []}
+          feedback={feedback}
           loading={embeddingQuery.isLoading}
           onRefresh={refresh}
+          requestConfirm={setConfirmRequest}
         />
-        <OpenVikingSyncJobsCard jobs={jobs} onRefresh={refresh} />
+        <OpenVikingSyncJobsCard
+          feedback={feedback}
+          onRefresh={refresh}
+          requestConfirm={setConfirmRequest}
+        />
         <OpenVikingEventStream
-          events={eventItems}
+          events={events}
+          feedback={feedback}
           outcome={eventOutcome}
           eventType={eventType}
           onOutcomeChange={handleOutcomeChange}
           onEventTypeChange={handleEventTypeChange}
-          hasNext={Boolean(eventsQuery.data?.next_before_id)}
-          onLoadMore={() => setEventBeforeId(eventsQuery.data?.next_before_id ?? undefined)}
+          hasNext={Boolean(eventsQuery.hasNextPage)}
+          isLoadingMore={eventsQuery.isFetchingNextPage}
+          realtimePaused={eventPagesLoaded > 1}
+          onLoadMore={() => {
+            feedback.showSuccess("正在加载更多事件");
+            void eventsQuery
+              .fetchNextPage()
+              .then(() => feedback.showSuccess("事件已加载"))
+              .catch((error: unknown) =>
+                feedback.showError(`加载更多事件失败：${messageFromApiError(error)}`),
+              );
+          }}
+          onReturnTop={() => {
+            feedback.showSuccess("已返回事件流顶部");
+            void queryClient.resetQueries({
+              queryKey: ["admin-openviking-events", eventOutcome, eventType],
+            });
+          }}
         />
         <OpenVikingMetricsCard status={statusQuery.data} />
         <OpenVikingTuningCard
+          feedback={feedback}
           tuning={tuningQuery.data}
           preset={presetQuery.data?.preset ?? tuningQuery.data?.preset ?? EMPTY_VALUE}
           snippet={snippetQuery.data?.snippet ?? ""}
           onRefresh={refresh}
+          requestConfirm={setConfirmRequest}
         />
       </div>
+      {confirmRequest ? (
+        <OpenVikingConfirmDialog
+          request={confirmRequest}
+          onCancel={() => setConfirmRequest(null)}
+          onConfirm={() => {
+            const action = confirmRequest.onConfirm;
+            setConfirmRequest(null);
+            action();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function OpenVikingConfirmDialog({
+  onCancel,
+  onConfirm,
+  request,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+  request: DashboardConfirmRequest;
+}) {
+  const tone = request.tone ?? "warning";
+  return (
+    <div className="dialog-backdrop">
+      <section
+        aria-labelledby="openviking-confirm-title"
+        aria-modal="true"
+        className="confirm-dialog"
+        role="dialog"
+      >
+        <div className={`dialog-icon ${tone}`}>
+          <AlertTriangle aria-hidden="true" size={18} />
+        </div>
+        <div className="dialog-content">
+          <h2 id="openviking-confirm-title">{request.title}</h2>
+          <p>{request.message}</p>
+          <div className="dialog-actions">
+            <button className="button button-secondary" type="button" onClick={onCancel}>
+              取消
+            </button>
+            <button
+              className={`button ${tone === "danger" ? "button-danger" : "button-primary"}`}
+              type="button"
+              onClick={onConfirm}
+            >
+              {request.confirmLabel}
+            </button>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -268,10 +341,12 @@ function OpenVikingCardHeader({
 }
 
 function OpenVikingHealthCard({
+  feedback,
   status,
   loading,
   error,
 }: {
+  feedback: DashboardFeedback;
   status?: OpenVikingStatusResponse;
   loading: boolean;
   error: string | null;
@@ -312,9 +387,9 @@ function OpenVikingHealthCard({
             <Metric label="Ollama / 模型" value={status.ollama?.model_available ? "ready" : "missing"} />
           </div>
           <div className="settings-runtime-paths">
-            <PathBlock label="配置文件" value={status.config_file} />
-            <PathBlock label="工作目录" value={status.workspace_path} />
-            <PathBlock label="日志文件" value={status.log_file} />
+            <PathBlock feedback={feedback} label="配置文件" value={status.config_file} />
+            <PathBlock feedback={feedback} label="工作目录" value={status.workspace_path} />
+            <PathBlock feedback={feedback} label="日志文件" value={status.log_file} />
           </div>
           {status.last_error ? <StatusError text={status.last_error} /> : null}
           {status.health?.error ? <StatusError text={status.health.error} /> : null}
@@ -328,22 +403,36 @@ function OpenVikingHealthCard({
 function OpenVikingEmbeddingCard({
   embedding,
   candidates,
+  feedback,
   loading,
   onRefresh,
+  requestConfirm,
 }: {
   embedding?: OpenVikingEmbeddingResponse;
   candidates: OpenVikingEmbeddingCandidate[];
+  feedback: DashboardFeedback;
   loading: boolean;
   onRefresh: () => void;
+  requestConfirm: DashboardConfirm;
 }) {
   const [selectedModel, setSelectedModel] = useState("");
   const switchMutation = useMutation({
     mutationFn: switchEmbeddingModel,
-    onSuccess: onRefresh,
+    onError: (error) =>
+      feedback.showError(`切换 Embedding 模型失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("Embedding 模型切换已提交");
+    },
   });
   const rebuildMutation = useMutation({
     mutationFn: rebuildEmbedding,
-    onSuccess: onRefresh,
+    onError: (error) =>
+      feedback.showError(`重建向量索引失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("向量索引重建已提交");
+    },
   });
   const mutationError =
     mutationErrorMessage(switchMutation.error) ?? mutationErrorMessage(rebuildMutation.error);
@@ -361,24 +450,35 @@ function OpenVikingEmbeddingCard({
     if (!embedding || !selectedCandidate) {
       return;
     }
-    const confirmed = window.confirm("切换 Embedding 模型会清理索引并触发全量重建。是否继续？");
-    if (!confirmed) {
-      return;
-    }
-    switchMutation.mutate({
-      provider: selectedCandidate.provider,
-      base_url: selectedCandidate.base_url,
-      model: selectedCandidate.model,
-      dimension: embedding.dimension,
-      max_concurrent: embedding.max_concurrent,
+    requestConfirm({
+      confirmLabel: "确认切换",
+      message: `确认将 Embedding 模型从 ${embedding.model} 切换为 ${selectedCandidate.model}？这会清理索引并触发全量重建。`,
+      onConfirm: () => {
+        feedback.showSuccess("Embedding 模型切换已提交");
+        switchMutation.mutate({
+          provider: selectedCandidate.provider,
+          base_url: selectedCandidate.base_url,
+          model: selectedCandidate.model,
+          dimension: embedding.dimension,
+          max_concurrent: embedding.max_concurrent,
+        });
+      },
+      title: "确认切换 Embedding 模型",
+      tone: "danger",
     });
   }
 
   function handleRebuildEmbedding() {
-    if (!window.confirm("这会重新构建 OpenViking 语义索引，过程中检索可能降级。是否继续？")) {
-      return;
-    }
-    rebuildMutation.mutate();
+    requestConfirm({
+      confirmLabel: "确认重建",
+      message: "确认重新构建 OpenViking 语义索引？过程中检索可能降级。",
+      onConfirm: () => {
+        feedback.showSuccess("向量索引重建已提交");
+        rebuildMutation.mutate();
+      },
+      title: "确认重建向量索引",
+      tone: "danger",
+    });
   }
 
   return (
@@ -442,36 +542,93 @@ function OpenVikingEmbeddingCard({
 }
 
 function OpenVikingSyncJobsCard({
-  jobs,
+  feedback,
   onRefresh,
+  requestConfirm,
 }: {
-  jobs: OpenVikingSyncJob[];
+  feedback: DashboardFeedback;
   onRefresh: () => void;
+  requestConfirm: DashboardConfirm;
 }) {
-  const [showIndexed, setShowIndexed] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(JOB_PAGE_SIZE);
-  const retryMutation = useMutation({ mutationFn: retrySyncJob, onSuccess: onRefresh });
-  const retryFailedMutation = useMutation({ mutationFn: retryFailedSyncJobs, onSuccess: onRefresh });
-  const resyncMutation = useMutation({ mutationFn: resyncOpenViking, onSuccess: onRefresh });
-  const rebuildMutation = useMutation({ mutationFn: rebuildOpenVikingIndex, onSuccess: onRefresh });
+  const summaryQuery = useQuery({
+    queryKey: ["admin-openviking-sync-jobs-summary"],
+    queryFn: getOpenVikingSyncJobsSummary,
+    refetchInterval: 5000,
+  });
+  const retryMutation = useMutation({
+    mutationFn: retrySyncJob,
+    onError: (error) => feedback.showError(`重试任务失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("重试任务已提交");
+    },
+  });
+  const retryFailedMutation = useMutation({
+    mutationFn: retryFailedSyncJobs,
+    onError: (error) => feedback.showError(`重试失败任务失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("失败任务已重新入队");
+    },
+  });
+  const resyncMutation = useMutation({
+    mutationFn: resyncOpenViking,
+    onError: (error) => feedback.showError(`重新同步失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("重新同步已提交");
+    },
+  });
+  const rebuildMutation = useMutation({
+    mutationFn: rebuildOpenVikingIndex,
+    onError: (error) => feedback.showError(`重排同步队列失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("同步队列重排已提交");
+    },
+  });
   const mutationError =
     mutationErrorMessage(retryMutation.error) ??
     mutationErrorMessage(retryFailedMutation.error) ??
     mutationErrorMessage(resyncMutation.error) ??
     mutationErrorMessage(rebuildMutation.error);
-  const counts = jobStatusCounts(jobs);
-  const filteredJobs = showIndexed ? jobs : jobs.filter((job) => job.status !== "indexed");
-  const visibleJobs = filteredJobs.slice(0, visibleCount);
+  const counts = summaryQuery.data?.counts ?? {};
 
-  useEffect(() => {
-    setVisibleCount(JOB_PAGE_SIZE);
-  }, [showIndexed, jobs.length]);
+  function confirmRetryFailed() {
+    requestConfirm({
+      confirmLabel: "确认重试",
+      message: "确认将当前失败的 OpenViking 同步任务重新入队？",
+      onConfirm: () => {
+        feedback.showSuccess("失败任务已重新入队");
+        retryFailedMutation.mutate();
+      },
+      title: "确认重试失败任务",
+    });
+  }
+
+  function confirmResync() {
+    requestConfirm({
+      confirmLabel: "确认重新同步",
+      message: "确认重新同步已发布 Wiki 与已验证报告？这会新增同步任务。",
+      onConfirm: () => {
+        feedback.showSuccess("重新同步已提交");
+        resyncMutation.mutate({});
+      },
+      title: "确认重新同步",
+    });
+  }
 
   function handleRebuild() {
-    if (!window.confirm("重排同步队列会将已发布知识重新加入同步队列。是否继续？")) {
-      return;
-    }
-    rebuildMutation.mutate();
+    requestConfirm({
+      confirmLabel: "确认重排",
+      message: "确认重排同步队列？这会将已发布知识重新加入同步队列。",
+      onConfirm: () => {
+        feedback.showSuccess("同步队列重排已提交");
+        rebuildMutation.mutate();
+      },
+      title: "确认重排同步队列",
+      tone: "danger",
+    });
   }
 
   return (
@@ -479,20 +636,23 @@ function OpenVikingSyncJobsCard({
       <OpenVikingCardHeader
         actions={
           <>
-            <button className="button button-secondary" type="button" onClick={() => retryFailedMutation.mutate()}>
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={confirmRetryFailed}
+            >
               重试失败
             </button>
-            <button className="button button-secondary" type="button" onClick={() => resyncMutation.mutate({})}>
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={confirmResync}
+            >
               重新同步
             </button>
             <button className="button button-danger" type="button" onClick={handleRebuild}>
               重排同步队列
             </button>
-            {counts.indexed > 0 ? (
-              <button className="button button-quiet" type="button" onClick={() => setShowIndexed((value) => !value)}>
-                {showIndexed ? "隐藏 indexed" : `显示 indexed (${counts.indexed})`}
-              </button>
-            ) : null}
           </>
         }
         description="队列、失败重试和重新排队操作入口。"
@@ -500,39 +660,114 @@ function OpenVikingSyncJobsCard({
         title="同步任务"
       />
       <div className="settings-openviking-job-summary">
-        <StatusPill label="pending" value={String(counts.pending)} />
-        <StatusPill label="running" value={String(counts.running)} />
-        <StatusPill label="failed" value={String(counts.failed)} tone={counts.failed ? "error" : "info"} />
-        <StatusPill label="indexed" value={String(counts.indexed)} tone="success" />
+        <StatusPill label="pending" value={String(counts.pending ?? 0)} />
+        <StatusPill label="running" value={String(counts.running ?? 0)} />
+        <StatusPill
+          label="failed"
+          value={String((counts.failed ?? 0) + (counts.cancelled ?? 0))}
+          tone={(counts.failed ?? 0) + (counts.cancelled ?? 0) ? "error" : "info"}
+        />
+        <StatusPill label="indexed" value={String(counts.indexed ?? 0)} tone="success" />
       </div>
       <p className="settings-openviking-muted">
         重排同步队列会重新安排已发布 Wiki 和已验证报告同步；不会切换 Embedding 模型。
       </p>
-      <ul className="data-list settings-config-list settings-openviking-job-list">
-        {visibleJobs.map((job) => (
-          <SyncJobItem
-            job={job}
-            key={job.id}
-            onRetry={() => retryMutation.mutate(job.id)}
+      <div className="settings-openviking-job-groups">
+        {[
+          ["failed", "失败任务"],
+          ["cancelled", "已取消"],
+          ["running", "运行中"],
+          ["pending", "等待中"],
+          ["indexed", "已索引"],
+        ].map(([status, label]) => (
+          <SyncJobStatusGroup
+            count={counts[status] ?? 0}
+            feedback={feedback}
+            key={status}
+            label={label}
+            onRetry={(jobId) => {
+              requestConfirm({
+                confirmLabel: "确认重试",
+                message: `确认重试同步任务 ${jobId}？`,
+                onConfirm: () => {
+                  feedback.showSuccess("重试任务已提交");
+                  retryMutation.mutate(jobId);
+                },
+                title: "确认重试同步任务",
+              });
+            }}
+            status={status}
           />
         ))}
+      </div>
+      {mutationError ? <StatusError text={mutationError} /> : null}
+      {Object.values(counts).every((count) => count === 0) ? <p className="empty-note">暂无同步任务</p> : null}
+    </section>
+  );
+}
+
+function SyncJobStatusGroup({
+  count,
+  feedback,
+  label,
+  onRetry,
+  status,
+}: {
+  count: number;
+  feedback: DashboardFeedback;
+  label: string;
+  onRetry: (jobId: string) => void;
+  status: string;
+}) {
+  const defaultOpen = status === "failed" || status === "running" || status === "pending";
+  const jobsQuery = useInfiniteQuery({
+    queryKey: ["admin-openviking-sync-jobs", status],
+    queryFn: ({ pageParam }) =>
+      listOpenVikingSyncJobs({
+        cursor: pageParam,
+        limit: JOB_PAGE_SIZE,
+        status,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+    enabled: count > 0,
+    refetchInterval: status === "pending" || status === "running" || status === "failed" ? 5000 : false,
+  });
+  const jobs = jobsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  if (count <= 0) {
+    return null;
+  }
+  return (
+    <details className="settings-openviking-job-group" open={defaultOpen}>
+      <summary>
+        <span>{label}</span>
+        <strong>{count}</strong>
+      </summary>
+      <ul className="data-list settings-config-list settings-openviking-job-list">
+        {jobs.map((job) => (
+          <SyncJobItem job={job} key={job.id} onRetry={() => onRetry(job.id)} />
+        ))}
       </ul>
-      {filteredJobs.length > visibleJobs.length ? (
+      {jobsQuery.hasNextPage ? (
         <button
           className="button button-secondary settings-openviking-load-more"
           type="button"
-          onClick={() => setVisibleCount((value) => value + JOB_PAGE_SIZE)}
+          onClick={() => {
+            feedback.showSuccess(`正在加载${label}`);
+            void jobsQuery
+              .fetchNextPage()
+              .then(() => feedback.showSuccess(`${label}已加载`))
+              .catch((error: unknown) =>
+                feedback.showError(`加载更多${label}失败：${messageFromApiError(error)}`),
+              );
+          }}
+          disabled={jobsQuery.isFetchingNextPage}
         >
           加载更多
         </button>
       ) : null}
-      {mutationError ? <StatusError text={mutationError} /> : null}
-      {filteredJobs.length === 0 ? (
-        <p className="empty-note">
-          {counts.indexed > 0 ? "当前只剩已索引任务，默认已折叠。" : "暂无同步任务"}
-        </p>
-      ) : null}
-    </section>
+      {jobs.length === 0 && jobsQuery.isLoading ? <p className="empty-note">正在读取{label}</p> : null}
+    </details>
   );
 }
 
@@ -541,8 +776,10 @@ function SyncJobItem({ job, onRetry }: { job: OpenVikingSyncJob; onRetry: () => 
   return (
     <li className="settings-openviking-job-row">
       <div className="settings-openviking-row-main">
-        <strong>{job.source_type}</strong>
-        <span>{job.source_id}</span>
+        <strong>{job.display_name ?? job.source_type}</strong>
+        <span>
+          {job.source_type} · {job.source_id}
+        </span>
         {job.feature_slug ? <small>{job.feature_slug}</small> : null}
       </div>
       {progress.value !== null ? (
@@ -579,20 +816,28 @@ function SyncJobItem({ job, onRetry }: { job: OpenVikingSyncJob; onRetry: () => 
 
 function OpenVikingEventStream({
   events,
+  feedback,
   outcome,
   eventType,
   onOutcomeChange,
   onEventTypeChange,
   hasNext,
+  isLoadingMore,
   onLoadMore,
+  onReturnTop,
+  realtimePaused,
 }: {
   events: OpenVikingDashboardEvent[];
+  feedback: DashboardFeedback;
   outcome: string;
   eventType: string;
   onOutcomeChange: (value: string) => void;
   onEventTypeChange: (value: string) => void;
   hasNext: boolean;
+  isLoadingMore: boolean;
   onLoadMore: () => void;
+  onReturnTop: () => void;
+  realtimePaused: boolean;
 }) {
   const eventTypes = Array.from(
     new Set(
@@ -634,30 +879,77 @@ function OpenVikingEventStream({
       </div>
       <ul className="data-list settings-config-list settings-openviking-event-list">
         {groupedEvents.map((group) => (
-          <EventItem group={group} key={`${group.event.id}:${group.count}`} />
+          <EventItem feedback={feedback} group={group} key={`${group.event.id}:${group.count}`} />
         ))}
       </ul>
       {events.length === 0 ? <p className="empty-note">暂无 OpenViking 事件</p> : null}
       {hasNext ? (
-        <button className="button button-secondary settings-openviking-load-more" type="button" onClick={onLoadMore}>
-          加载更多
+        <button
+          className="button button-secondary settings-openviking-load-more"
+          type="button"
+          onClick={onLoadMore}
+          disabled={isLoadingMore}
+        >
+          加载更多事件
         </button>
+      ) : null}
+      {realtimePaused && !hasNext ? (
+        <div className="settings-openviking-paused-note">
+          <span>已加载全部事件，刷新自动暂停。返回顶部以恢复实时刷新</span>
+          <button className="button button-quiet" type="button" onClick={onReturnTop}>
+            返回顶部
+          </button>
+        </div>
       ) : null}
     </section>
   );
 }
 
-function EventItem({ group }: { group: EventGroup }) {
+function EventItem({
+  feedback,
+  group,
+}: {
+  feedback: DashboardFeedback;
+  group: EventGroup;
+}) {
   const { event } = group;
+  const [expanded, setExpanded] = useState(false);
   return (
     <li className="settings-openviking-row" data-outcome={event.outcome}>
       <div className="settings-openviking-event-main">
         <div className="settings-openviking-event-title">
           <strong>{event.event_type}</strong>
-          {group.count > 1 ? <span className="settings-openviking-event-count">×{group.count}</span> : null}
+          {group.count > 1 ? (
+            <button
+              aria-label={`${expanded ? "收起" : "展开"} ${event.event_type} 事件组`}
+              className="settings-openviking-event-count"
+              type="button"
+              onClick={() =>
+                setExpanded((value) => {
+                  const nextExpanded = !value;
+                  feedback.showSuccess(
+                    `${nextExpanded ? "已展开" : "已收起"} ${event.event_type} 事件组`,
+                  );
+                  return nextExpanded;
+                })
+              }
+            >
+              ×{group.count}
+            </button>
+          ) : null}
         </div>
         <span>{eventSummary(event)}</span>
         <time dateTime={event.created_at ?? undefined}>{formatDateTime(event.created_at)}</time>
+        {expanded ? (
+          <div className="settings-openviking-event-children">
+            {group.events.map((child) => (
+              <div className="settings-openviking-event-child" key={child.id}>
+                <span>{eventSummary(child)}</span>
+                <time dateTime={child.created_at ?? undefined}>{formatDateTime(child.created_at)}</time>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
       <Badge text={event.outcome} outcome={event.outcome} />
     </li>
@@ -665,34 +957,53 @@ function EventItem({ group }: { group: EventGroup }) {
 }
 
 function OpenVikingTuningCard({
+  feedback,
   tuning,
   preset,
   snippet,
   onRefresh,
+  requestConfirm,
 }: {
+  feedback: DashboardFeedback;
   tuning?: OpenVikingTuningResponse;
   preset: string;
   snippet: string;
   onRefresh: () => void;
+  requestConfirm: DashboardConfirm;
 }) {
   const rows = useMemo(() => flattenTuningRows(tuning), [tuning]);
   const groups = useMemo(() => groupTuningRows(rows), [rows]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const applyMutation = useMutation({ mutationFn: applyOpenVikingTuning, onSuccess: onRefresh });
-  const rollbackMutation = useMutation({ mutationFn: rollbackOpenVikingTuning, onSuccess: onRefresh });
+  const applyMutation = useMutation({
+    mutationFn: applyOpenVikingTuning,
+    onError: (error) => feedback.showError(`保存调优参数失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("调优参数已保存");
+    },
+  });
   const presetMutation = useMutation({
     mutationFn: applyOpenVikingTuningPreset,
-    onSuccess: onRefresh,
+    onError: (error) => feedback.showError(`套用调优预设失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("调优预设已套用");
+    },
   });
-  const ollamaVerifyMutation = useMutation({ mutationFn: verifyOllamaSettings, onSuccess: onRefresh });
+  const ollamaVerifyMutation = useMutation({
+    mutationFn: verifyOllamaSettings,
+    onError: (error) => feedback.showError(`验证 Ollama 设置失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("Ollama 设置验证完成");
+    },
+  });
   const mutationError =
     mutationErrorMessage(applyMutation.error) ??
-    mutationErrorMessage(rollbackMutation.error) ??
     mutationErrorMessage(presetMutation.error) ??
     mutationErrorMessage(ollamaVerifyMutation.error);
   const rejectedChanges = [
     ...rejectedFromMutation(applyMutation.data),
-    ...rejectedFromMutation(rollbackMutation.data),
     ...rejectedFromMutation(presetMutation.data),
   ];
 
@@ -700,30 +1011,43 @@ function OpenVikingTuningCard({
     setDrafts(Object.fromEntries(rows.map((row) => [tuningKey(row), row.value])));
   }, [rows]);
 
-  function handleApply(row: TuningRow) {
-    applyMutation.mutate({
-      changes: [{ scope: row.scope, key: row.key, value: drafts[tuningKey(row)] ?? row.value }],
+  function handleApply(row: TuningRow, value?: string) {
+    const nextValue = value ?? drafts[tuningKey(row)] ?? row.value;
+    if (valuesEqual(nextValue, row.value)) {
+      feedback.showSuccess("参数值没有变化，无需应用");
+      return;
+    }
+    requestConfirm({
+      confirmLabel: "确认应用",
+      message: `确认将 ${tuningKey(row)} 从 ${displayValue(row.value)} 修改为 ${displayValue(nextValue)}？该操作可能影响 OpenViking 运行。`,
+      onConfirm: () => {
+        feedback.showSuccess("调优参数保存已提交");
+        applyMutation.mutate({
+          changes: [{ scope: row.scope, key: row.key, value: nextValue }],
+        });
+      },
+      title: "确认应用调优参数",
     });
   }
 
   function handlePreset() {
-    if (!window.confirm("套用预设会批量修改 OpenViking 和 CodeAsk 调优参数。是否继续？")) {
-      return;
-    }
-    presetMutation.mutate(preset);
+    requestConfirm({
+      confirmLabel: "确认套用",
+      message: `确认套用 ${preset} 预设？这会批量修改 OpenViking 和 CodeAsk 调优参数。`,
+      onConfirm: () => {
+        feedback.showSuccess("调优预设套用已提交");
+        presetMutation.mutate(preset);
+      },
+      title: "确认套用预设",
+    });
   }
 
   return (
     <section className="surface openviking-card openviking-card-tuning" aria-label="OpenViking 调优参数">
-      <OpenVikingCardHeader
-        actions={
-          <button className="button button-secondary" type="button" onClick={handlePreset}>
-            套用预设
-          </button>
-        }
-        description={`当前推荐预设：${preset}`}
-        icon={<SlidersHorizontal aria-hidden="true" size={16} />}
-        title="调优参数"
+      <TuningCardHeader
+        onApplyPreset={handlePreset}
+        preset={preset}
+        totalCount={rows.length}
       />
       {mutationError ? <StatusError text={mutationError} /> : null}
       {rejectedChanges.map((item) => (
@@ -734,70 +1058,16 @@ function OpenVikingTuningCard({
       ))}
       <div className="settings-openviking-tuning-list">
         {groups.map(([scope, scopeRows]) => (
-          <section className="settings-openviking-scope-section" key={scope}>
-            <div className="settings-openviking-scope-heading">
-              <h3>{SCOPE_LABELS[scope] ?? scope}</h3>
-            </div>
-            {scopeRows.map((row) => {
-              const key = tuningKey(row);
-              const draftValue = drafts[key] ?? row.value;
-              const differsFromRecommended = valueDiffersFromRecommended(draftValue, row.recommended);
-              const description = TUNING_DESCRIPTIONS[key] ?? {
-                description: "运行参数。",
-                impact: "按配置生效",
-              };
-              return (
-                <div
-                  className="settings-openviking-tuning-row"
-                  data-recommendation={differsFromRecommended ? "changed" : "aligned"}
-                  key={key}
-                >
-                  <div className="settings-openviking-tuning-meta">
-                    <strong>{row.key}</strong>
-                    <span>{description.description}</span>
-                    <small>{description.impact}</small>
-                  </div>
-                  <label className="settings-openviking-field settings-openviking-tuning-field">
-                    <span>当前值</span>
-                    <input
-                      aria-label={key}
-                      value={draftValue}
-                      onChange={(event) =>
-                        setDrafts((current) => ({ ...current, [key]: event.target.value }))
-                      }
-                    />
-                  </label>
-                  <div className="settings-openviking-recommended">
-                    <span>推荐值</span>
-                    <strong>{displayValue(row.recommended)}</strong>
-                    {differsFromRecommended ? (
-                      <small className="settings-openviking-recommendation-delta">偏离推荐</small>
-                    ) : null}
-                  </div>
-                  <div className="settings-openviking-tuning-actions">
-                    <button
-                      aria-label={`应用 ${key}`}
-                      className="button button-secondary"
-                      type="button"
-                      onClick={() => handleApply(row)}
-                    >
-                      应用
-                    </button>
-                    <button
-                      aria-label={`回滚 ${key}`}
-                      className="button button-quiet"
-                      type="button"
-                      onClick={() => rollbackMutation.mutate({ scope: row.scope, key: row.key })}
-                      disabled={!row.previous_value}
-                    >
-                      <RotateCcw size={15} />
-                      回滚
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </section>
+          <ScopeSummaryCard
+            drafts={drafts}
+            key={scope}
+            onApply={handleApply}
+            onDraftChange={(row, value) =>
+              setDrafts((current) => ({ ...current, [tuningKey(row)]: value }))
+            }
+            rows={scopeRows}
+            scope={scope}
+          />
         ))}
       </div>
       <div className="settings-openviking-snippet">
@@ -810,7 +1080,7 @@ function OpenVikingTuningCard({
           <button
             className="button button-secondary"
             type="button"
-            onClick={() => void navigator.clipboard?.writeText(snippet)}
+            onClick={() => copyToClipboard(snippet, "Ollama snippet", feedback)}
           >
             <Copy size={15} />
             复制
@@ -818,7 +1088,10 @@ function OpenVikingTuningCard({
           <button
             className="button button-secondary"
             type="button"
-            onClick={() => ollamaVerifyMutation.mutate()}
+            onClick={() => {
+              feedback.showSuccess("Ollama 设置验证已提交");
+              ollamaVerifyMutation.mutate();
+            }}
           >
             验证 Ollama 设置
           </button>
@@ -854,8 +1127,140 @@ function OpenVikingMetricsCard({
         <Metric label="吞吐 / min" value={collected ? metrics?.throughput_per_min : notCollected} />
         <Metric label="Latency p95" value={collected ? metrics?.latency_p95_ms : notCollected} />
         <Metric label="Breaker trips" value={collected ? metrics?.breaker_trips : notCollected} />
+        <Metric label="Samples" value={collected ? metrics?.latency_samples : notCollected} />
       </div>
     </section>
+  );
+}
+
+function TuningCardHeader({
+  onApplyPreset,
+  preset,
+  totalCount,
+}: {
+  onApplyPreset: () => void;
+  preset: string;
+  totalCount: number;
+}) {
+  return (
+    <OpenVikingCardHeader
+      actions={
+        <button className="button button-secondary" type="button" onClick={onApplyPreset}>
+          套用预设
+        </button>
+      }
+      description={`当前推荐预设：${preset} · 共 ${totalCount} 项`}
+      icon={<SlidersHorizontal aria-hidden="true" size={16} />}
+      title="调优参数"
+    />
+  );
+}
+
+function ScopeSummaryCard({
+  drafts,
+  onApply,
+  onDraftChange,
+  rows,
+  scope,
+}: {
+  drafts: Record<string, string>;
+  onApply: (row: TuningRow, value?: string) => void;
+  onDraftChange: (row: TuningRow, value: string) => void;
+  rows: TuningRow[];
+  scope: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <details className="tuning-scope-summary" open={open}>
+      <summary
+        aria-expanded={open}
+        className="tuning-scope-summary-head"
+        onClick={(event) => {
+          event.preventDefault();
+          setOpen((current) => !current);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setOpen((current) => !current);
+          }
+        }}
+      >
+        <div className="tuning-scope-title">
+          <h3>{SCOPE_LABELS[scope] ?? scope}</h3>
+          <span>{open ? "正在查看此组参数" : "点击展开查看参数、推荐值和修改入口"}</span>
+        </div>
+        <div className="tuning-scope-actions">
+          <span className="tuning-scope-pills">{rows.length} 项参数</span>
+          <span className="tuning-scope-action">
+            {open ? "收起参数" : "展开参数"}
+            <ChevronDown aria-hidden="true" size={15} />
+          </span>
+        </div>
+      </summary>
+      <div className="tuning-advanced-table">
+        <TuningTableHeader />
+        {rows.map((row) => (
+          <TuningParameterRow
+            draftValue={drafts[tuningKey(row)] ?? row.value}
+            key={tuningKey(row)}
+            onApply={onApply}
+            onDraftChange={(value) => onDraftChange(row, value)}
+            row={row}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function TuningParameterRow({
+  draftValue,
+  onApply,
+  onDraftChange,
+  row,
+}: {
+  draftValue: string;
+  onApply: (row: TuningRow, value?: string) => void;
+  onDraftChange: (value: string) => void;
+  row: TuningRow;
+}) {
+  const key = tuningKey(row);
+  const description = tuningDescription(row);
+  return (
+    <div className="tuning-advanced-row">
+      <div className="tuning-row-label">
+        <strong>{row.key}</strong>
+        <span>{description.description}</span>
+        <small>{description.impact}</small>
+      </div>
+      <input
+        aria-label={`自定义值 ${key}`}
+        value={draftValue}
+        onChange={(event) => onDraftChange(event.target.value)}
+      />
+      <span>推荐 {displayValue(row.recommended)}</span>
+      <button
+        aria-label={`应用 ${key}`}
+        className="button button-secondary"
+        type="button"
+        onClick={() => onApply(row, draftValue)}
+      >
+        应用
+      </button>
+    </div>
+  );
+}
+
+function TuningTableHeader() {
+  return (
+    <div className="tuning-advanced-header" aria-hidden="true">
+      <span>参数</span>
+      <span>自定义值</span>
+      <span>推荐值</span>
+      <span>操作</span>
+    </div>
   );
 }
 
@@ -883,14 +1288,17 @@ function tuningKey(row: Pick<TuningRow, "scope" | "key">) {
   return `${row.scope}.${row.key}`;
 }
 
-function valueDiffersFromRecommended(
-  value: number | string | null | undefined,
-  recommended: number | string | null | undefined,
-) {
-  if (recommended === null || recommended === undefined || recommended === "") {
-    return false;
-  }
-  return displayValue(value).trim() !== displayValue(recommended).trim();
+function tuningDescription(row: TuningRow) {
+  return (
+    TUNING_DESCRIPTIONS[tuningKey(row)] ?? {
+      description: "运行参数。",
+      impact: "按配置生效",
+    }
+  );
+}
+
+function valuesEqual(left: number | string | null | undefined, right: number | string | null | undefined) {
+  return displayValue(left).trim() === displayValue(right).trim();
 }
 
 function syncProgressView(progress: unknown): { eta: string; label: string; value: number | null } {
@@ -918,16 +1326,6 @@ function syncProgressView(progress: unknown): { eta: string; label: string; valu
   };
 }
 
-function jobStatusCounts(jobs: OpenVikingSyncJob[]) {
-  return jobs.reduce(
-    (counts, job) => {
-      counts[job.status] = (counts[job.status] ?? 0) + 1;
-      return counts;
-    },
-    { cancelled: 0, failed: 0, indexed: 0, pending: 0, running: 0 } as Record<string, number>,
-  );
-}
-
 function statusOutcome(status: string): "info" | "success" | "warning" | "error" {
   if (status === "failed") {
     return "error";
@@ -952,9 +1350,10 @@ function collapseConsecutiveEvents(events: OpenVikingDashboardEvent[]): EventGro
       last.event.source_type === event.source_type
     ) {
       last.count += 1;
+      last.events.push(event);
       continue;
     }
-    groups.push({ count: 1, event });
+    groups.push({ count: 1, event, events: [event] });
   }
   return groups;
 }
@@ -982,6 +1381,13 @@ function eventSummary(event: OpenVikingDashboardEvent) {
   if (payload?.job_id !== undefined) {
     return `${event.source_type ?? "system"} · job=${String(payload.job_id)}`;
   }
+  const readableName =
+    stringFromUnknown(payload?.name) ??
+    stringFromUnknown(payload?.title) ??
+    readablePathFromPayload(payload);
+  if (readableName) {
+    return `${event.source_type ?? "system"} · ${readableName}`;
+  }
   if (event.source_id) {
     return `${event.source_type ?? "system"} · ${event.source_id}`;
   }
@@ -994,6 +1400,15 @@ function eventSummary(event: OpenVikingDashboardEvent) {
     }
   }
   return event.source_type ?? "system";
+}
+
+function readablePathFromPayload(payload: Record<string, unknown> | null) {
+  const featureSlug = stringFromUnknown(payload?.feature_slug);
+  const relativePath = stringFromUnknown(payload?.relative_path);
+  if (featureSlug && relativePath) {
+    return `${featureSlug}/${relativePath}`;
+  }
+  return null;
 }
 
 function recordFromUnknown(value: unknown): Record<string, unknown> | null {
@@ -1052,10 +1467,7 @@ function mutationErrorMessage(error: unknown) {
   if (!error) {
     return null;
   }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
+  return messageFromApiError(error);
 }
 
 function rejectedFromMutation(data?: OpenVikingTuningApplyResponse) {
@@ -1078,7 +1490,28 @@ function Metric({ label, value }: { label: string; value: number | string | null
   );
 }
 
-function PathBlock({ label, value }: { label: string; value?: string | null }) {
+function copyToClipboard(value: string, label: string, feedback: DashboardFeedback) {
+  if (!navigator.clipboard) {
+    feedback.showError("当前浏览器不支持剪贴板复制", { title: "复制失败" });
+    return;
+  }
+  void navigator.clipboard
+    .writeText(value)
+    .then(() => feedback.showSuccess(`${label}已复制`))
+    .catch((error: unknown) =>
+      feedback.showError(`复制${label}失败：${messageFromApiError(error)}`, { title: "复制失败" }),
+    );
+}
+
+function PathBlock({
+  feedback,
+  label,
+  value,
+}: {
+  feedback: DashboardFeedback;
+  label: string;
+  value?: string | null;
+}) {
   if (!value) {
     return null;
   }
@@ -1091,7 +1524,7 @@ function PathBlock({ label, value }: { label: string; value?: string | null }) {
           aria-label={`复制 ${label}`}
           className="settings-runtime-copy-button"
           type="button"
-          onClick={() => void navigator.clipboard?.writeText(value)}
+          onClick={() => copyToClipboard(value, label, feedback)}
         >
           <Copy size={14} />
           复制

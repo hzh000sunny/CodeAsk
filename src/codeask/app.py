@@ -79,6 +79,7 @@ from codeask.rag.openviking.health import (
     check_ollama_models,
     probe_openviking_health,
 )
+from codeask.rag.openviking.metrics import OpenVikingMetricsRecorder
 from codeask.rag.openviking.process import OpenVikingProcessManager
 from codeask.rag.openviking.sync import OpenVikingSyncService
 from codeask.settings import Settings
@@ -156,8 +157,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             host=settings.openviking_host,
             port=settings.openviking_port,
         )
+        openviking_metrics_recorder = OpenVikingMetricsRecorder()
         openviking_client = OpenVikingClient(
             base_url=f"http://{settings.openviking_host}:{settings.openviking_port}",
+            metrics_recorder=openviking_metrics_recorder,
+            session_factory=factory,
         )
         openviking_sync_service = OpenVikingSyncService(factory, client=openviking_client)
 
@@ -365,6 +369,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.opencode_worktree_manager = opencode_worktree_manager
         app.state.opencode_process_manager = opencode_process_manager
         app.state.openviking_client = openviking_client
+        app.state.openviking_metrics_recorder = openviking_metrics_recorder
         app.state.openviking_process_manager = openviking_process_manager
         app.state.openviking_sync_service = openviking_sync_service
         app.state.opencode_workspace_manager = opencode_workspace_manager

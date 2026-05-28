@@ -1,7 +1,7 @@
 # M8 — OpenViking Dashboard UX 与指标实装
 
 > 版本：v1.0.5
-> 状态：Planned
+> 状态：Completed
 > 关联：[acceptance §4](./acceptance-checklist.md) · [m1-dashboard-ui-redesign](./m1-dashboard-ui-redesign.md) · [m7](./m7-turn-control-and-multi-repo.md)
 > 来源：2026-05-28 负责人在真实库使用反馈，四条 dashboard 体验缺陷 + 一项后端 stub。
 
@@ -408,15 +408,14 @@ useEffect(() => {
 
 ---
 
-## ④ 调优参数：摘要 + 操作面板（**锁定 demo B**）
+## ④ 调优参数：普通折叠配置面板
 
 ### 决策
 
-2026-05-28 负责人对照 demo 截图 `~/img/m8-tuning-b-collapsed.png` / `m8-tuning-b-expanded.png` 拍板：**采用 B 方案（摘要 + 操作面板）**，不做 A 行折叠表单。
+2026-05-28 负责人对照 demo 截图 `~/img/m8-tuning-b-collapsed.png` / `m8-tuning-b-expanded.png` 拍板：先采用 B 方案（摘要 + 操作面板），不做 A 行折叠表单。随后根据真实页面验收反馈进一步收敛：**取消"偏离推荐 / 已对齐"分流展示**，不再自动高亮或展开与推荐值不一致的参数；三个 scope 均默认折叠，用户展开后查看和修改全部参数。
 
 设计参考(已渲染截图):
-- `~/img/m8-tuning-b-collapsed.png` — 默认态:scope 顶栏 + 偏离项卡片 + 已对齐折叠行。
-- `~/img/m8-tuning-b-expanded.png` — 已对齐展开态:紧凑表格(每行 name + input + 推荐 + 应用)。
+- `~/img/m8-tuning-b-collapsed.png` / `m8-tuning-b-expanded.png` — 仅作为中间设计参考；最终实现保留紧凑四列配置表，去掉偏离 / 已对齐分区。
 - Demo HTML 源:`.tmp/m8-tuning-demo/b.html`、`_base.css`。
 
 ### 现状
@@ -430,28 +429,16 @@ useEffect(() => {
 ### 目标视图
 
 #### 卡片头
-- `调优参数` + 副标题 `当前推荐预设:{preset} · 共 N 项,M 项偏离推荐`(M=0 时副标题省略后半段)。
-- 头部右上 actions:`[一键对齐推荐]`(仅当 M>0 可点;M==0 时禁用并显示 tooltip) + `[套用预设]`(保留)。
+- `调优参数` + 副标题 `当前推荐预设:{preset} · 共 N 项`。
+- 头部右上 actions 仅保留 `[套用预设]`；不提供 `[一键对齐推荐]`，避免把推荐值变成唯一明显路径。
 
 #### 每个 scope 一个 `ScopeSummaryCard`
-- `data-state` 属性区分 `warn`(有偏离,黄色边框)/`ok`(全对齐,默认边框);视觉:`m8-tuning-b-collapsed.png` 中第一张卡片黄边、后两张白边。
-- 顶部一行:`<h3>SCOPE_LABEL</h3>` + 右上 pill(`● N 项偏离` 黄色 / `✓ 全部对齐` 绿色)+ `<span>/ N 项共</span>` 浅灰副信息。
-
-#### 偏离项 `DivergentItemCard`(仅 scope 有偏离时存在)
-- 每个偏离 key 一张卡片(白底 + 黄边),内容:
-  - `<strong>{key}</strong>`(完整 key 不截断)。
-  - 一行说明:`当前 {current} · 推荐 {recommended} · {impact}`(impact 来自 TUNING_DESCRIPTIONS map)。
-  - 右侧两个按钮:`[对齐推荐]`(主操作,一键把 current 改成 recommended 调用 applyMutation)、`[详细配置]`(切换状态,展开为内嵌 input + `[应用]` + `[回滚]`,允许手工输入非推荐值)。
-- 不再展示 description 长文 / max 长宽 input。
-
-#### 已对齐折叠区
-- scope 内若有 K 项已对齐(K>=1),底部一行 `<details>`:
-  - summary:`✓ {K} 项 已与推荐值对齐 [展开查看 ▾]`。
-  - 展开后渲染 `AdvancedTable`:每行 `{key} | <input> | 推荐 {recommended} | [应用]`,单行高度 ~36px,无描述,无回滚按钮(已对齐项目无需回滚)。
-- 若 K==0(scope 全部偏离),不渲染折叠区。
-
-#### Scope 全部对齐情形
-- 没有 `DivergentItemCard`;直接渲染折叠区,summary 文案改为 `所有参数与推荐值一致 [展开查看 ▾]`。
+- 每个 scope 是一个原生 `<details>`，默认 closed。
+- summary 顶部一行：`<h3>SCOPE_LABEL</h3>` + 一句短提示 + 右上 `{N} 项参数` pill + `展开参数 / 收起参数` 操作 pill + chevron。
+- hover / focus / open 状态必须有明确视觉反馈，让第一次进入页面的管理员能判断这里可点击。
+- 展开后渲染统一配置表：`参数 | 自定义值 | 推荐值 | 操作`。
+- 每行左侧展示 `{key}`、参数描述和影响说明；右侧依次展示输入框、`推荐 {recommended}`、`[应用]`。
+- 不提供 `[对齐推荐]` 或 `[回滚]`。推荐值只作为参考信息，修改由用户输入自定义值后点击应用完成。
 
 #### 底部 snippet 区
 - `Ollama systemd snippet`(`OpenVikingDashboard.tsx:803-833`)布局不动。
@@ -464,47 +451,44 @@ useEffect(() => {
 - 新内部组件(从上到下):
   - `TuningCardHeader`(头部摘要副标题 + actions)
   - `ScopeSummaryCard`({ scope, rows })
-    - 内部分两段:
-      - `divergentRows.map(row => <DivergentItemCard ... />)`
-      - `alignedRows.length > 0 && <AlignedFoldout rows={alignedRows} />`
+    - 内部用 `<details>` 包住整个 scope 参数表
+  - `TuningParameterRow`(单行参数、描述、推荐值和应用按钮)
 - 删除 `flattenTuningRows` 中 scope 排序保留;`groupTuningRows` 现有逻辑仍可用。
 
-#### ④-2 偏离/对齐判定
+#### ④-2 推荐值处理
 
-- 已有 helper `valueDiffersFromRecommended(value, recommended)`(line 886-894)直接复用。
-- 在 `ScopeSummaryCard` 顶部计算 `const { divergent, aligned } = useMemo(() => partition(rows, valueDiffersFromRecommended(draft, recommended)), [rows, drafts])`。
+- 不再计算偏离 / 已对齐状态，不再用 `valueDiffersFromRecommended` 影响展示。
+- 推荐值只在参数表中以 `推荐 {recommended}` 展示，供管理员参考。
 
-#### ④-3 一键对齐推荐
+#### ④-3 套用预设
 
-- 头部 `[一键对齐推荐]` 按钮:
-  - 计算所有 scope 内所有 `valueDiffersFromRecommended` 的行,批量提交 `applyOpenVikingTuning({ changes: rows.map(r => ({ scope: r.scope, key: r.key, value: r.recommended })) })`(后端接口 `POST /admin/openviking/tuning` 已支持数组 `changes`,见 `api/openviking_tuning.py:331` 周边)。
-  - 单 mutation;失败时 `rejectedFromMutation(...)` 已能渲染。
-  - 触发前 `window.confirm("一键对齐 N 项参数到推荐值,影响包括重启 OpenViking。是否继续?")`。
+- 头部只保留 `[套用预设]` 按钮。
+- 批量把当前预设值应用到 OpenViking / CodeAsk scope；触发前保留二次确认。
+- 单项修改统一走每行右侧的 `自定义值` + `[应用]`。
 
-#### ④-4 DivergentItemCard 的"详细配置"toggle
+#### ④-4 参数行的自定义配置
 
-- 默认仅渲染说明 + 两按钮;`[详细配置]` 切换 `expanded` state,展开为:
-  - 一行 input(`draftValue` 受控)+ `[应用](使用 draftValue)` + `[回滚](使用 previous_value,逻辑同现有)`。
-  - 关闭时丢弃 draft(回到 row.value)。
-- 这是单卡片内的局部 state,不需要全局 state。
+- scope 展开后直接渲染四列行：`参数 | 自定义值 input | 推荐值 | [应用]`。
+- 每行保留参数描述和影响说明。
+- 不提供 `[详细配置]` / `[对齐推荐]` / `[回滚]`。
 
-#### ④-5 AlignedFoldout / AdvancedTable
+#### ④-5 AdvancedTable
 
 - `<details>` 元素直接用,无需自实现 disclosure。
-- 内层 grid:`grid-template-columns: 1fr 110px 96px auto`,与 demo B `_base.css` 的 `.advanced-row` 一致。
-- 每行右侧仅 `[应用]` 一个按钮(已对齐项不需要回滚)。
-- 输入框只读时(用户没改过 draftValue 与 row.value 相同),`[应用]` 按钮禁用。
+- 内层 grid 使用固定共享列模板：`minmax(180px, 1fr) 120px 96px 72px`，表头和行共用同一套列宽，避免 `auto` 导致"操作"列上下错位。
+- 每行右侧仅 `[应用]` 一个按钮。
+- 输入框值未变化时点击 `[应用]` 不弹确认，只提示无需应用；值变化时先弹页面内居中确认框。
 
 #### ④-6 样式落地
 
 - 新增 CSS class(添加到 `frontend/src/styles/globals.css`):
-  - `.tuning-scope-summary` / `[data-state="warn"]` / `[data-state="ok"]`
-  - `.tuning-scope-summary-head` / `.tuning-scope-pills`
-  - `.tuning-divergent-item` / `.tuning-divergent-meta` / `.tuning-divergent-actions`
-  - `.tuning-aligned-row` (`<summary>`)
+  - `.tuning-scope-summary`
+  - `.tuning-scope-summary-head` / `.tuning-scope-title` / `.tuning-scope-actions` / `.tuning-scope-pills` / `.tuning-scope-action`
+  - `.tuning-row-label`
   - `.tuning-advanced-table` / `.tuning-advanced-row`
-- 颜色与圆角与 `~/img/m8-tuning-b-*.png` 截图一致(黄色 `#fedf89`/`#fffaeb`/`#b54708`,绿色 `#d1fadf`/`#ecfdf3`/`#027a48`,这些 token 已在现有 globals.css 出现过)。
-- 旧 `.settings-openviking-tuning-row` / `-meta` / `-field` / `-recommended` / `-recommendation-delta` / `-actions` **保留**(其它卡片用得到的不动;若 grep 仅 TuningCard 用到则一并删除清理,由开发判断)。
+- scope 不再按偏离状态染色，统一使用默认边框和背景。
+- `.tuning-scope-action` 使用 pill + chevron 表示 disclosure，open 时 chevron 旋转；移动端 summary 改为上下布局，避免动作区挤压标题。
+- 旧 `.settings-openviking-tuning-row` / `-meta` / `-recommended` / `-recommendation-delta` / `-actions` 经 grep 确认仅服务旧 Tuning 行表单，已随旧渲染删除；`settings-openviking-tuning-list` 与 `settings-openviking-tuning-field` 仍被新面板复用，保留。
 
 #### ④-7 删除旧 inline-form 渲染
 
@@ -514,12 +498,11 @@ useEffect(() => {
 ### 测试
 
 - vitest `frontend/tests/openviking-dashboard.test.tsx` 新增四组用例:
-  1. 渲染 fixture(一个 scope 1 偏离 + 1 已对齐,一个 scope 全对齐) → 偏离卡片可见 + 已对齐折叠为 `<details>`(默认 closed),summary 文案正确;全对齐 scope 仅渲染 summary 折叠行。
-  2. 点击 `[对齐推荐]` → applyMutation 用 recommended 值调用一次;不弹出 confirm(单项快捷动作可不二次确认,本节取消 confirm 来减少摩擦,与"一键对齐推荐"区分)。
-  3. 点击 `[详细配置]` → input 可见,改值后 `[应用]` 调用 applyMutation 用 draftValue,`[回滚]` 调用 rollbackMutation。
-  4. `[一键对齐推荐]`:
-     - M==0 时禁用;
-     - M>0 时点击 → window.confirm 弹出,确认后 batch applyMutation 用 changes 数组提交所有偏离项。
+  1. 渲染 fixture → 三个 scope 均为 `<details>` 默认 closed，显示"展开参数"，卡片头不出现偏离 / 对齐文案。
+  2. 展开 scope 后显示全部参数、描述、影响说明、推荐值和 `[应用]`。
+  3. 点击 scope summary 后 `aria-expanded` 从 `false` 变为 `true`，动作文案变为"收起参数"。
+  4. 断言调优面板不渲染 `[对齐推荐]` / `[回滚]`。
+  5. `[套用预设]` 仍走二次确认。
 - 既有 `[套用预设]` / `[验证 Ollama 设置]` 测试保持。
 - 删除原 inline tuning row 相关用例(grep 后逐条调整)。
 
@@ -560,79 +543,89 @@ useEffect(() => {
 ### ① 字段含义
 
 #### 1a — payload.name 优先
-- [ ] `OpenVikingDashboard.tsx:962-997` `eventSummary` 增加 `payload.name` / `title` / `feature_slug+relative_path` 优先级链
-- [ ] vitest `frontend/tests/openviking-dashboard.test.tsx` 新增两条用例（含 name vs 无 name）
+- [x] `OpenVikingDashboard.tsx` `eventSummary` 增加 `payload.name` / `title` / `feature_slug+relative_path` 优先级链
+- [x] vitest `frontend/tests/openviking-dashboard.test.tsx` 新增两条用例（含 name vs 无 name）
 
 #### 1b — sync_jobs display_name
-- [ ] `openviking_status.py` 新增 `_resolve_display_names(jobs)` 批量解析 wiki_doc / report
-- [ ] `_job_to_dict` 增加 `display_name` 字段；list_jobs 端点调用 resolver
-- [ ] `frontend/src/types/api.ts` `OpenVikingSyncJob` 加 `display_name: string | null`
-- [ ] `OpenVikingDashboard.tsx:539-578` SyncJobItem 主行改用 display_name
-- [ ] pytest `tests/integration/test_openviking_admin_api.py` 新增 display_name 解析用例
-- [ ] vitest 渲染断言
+- [x] `openviking_status.py` 新增 `_resolve_display_names(jobs)` 批量解析 wiki_doc / report
+- [x] `_job_to_dict` 增加 `display_name` 字段；list_jobs 端点调用 resolver
+- [x] `frontend/src/types/api.ts` `OpenVikingSyncJob` 加 `display_name: string | null`
+- [x] `OpenVikingDashboard.tsx` SyncJobItem 主行改用 display_name
+- [x] pytest `tests/integration/test_openviking_admin_api.py` 新增 display_name 解析用例
+- [x] vitest 渲染断言
 
 #### 1c — e2e teardown + 一次性清理
-- [ ] `openviking_status.py` 新增 `DELETE /admin/openviking/sync_jobs/{id}`（仅 cancelled/failed 可删）
-- [ ] `frontend/src/lib/api-openviking.ts` 新增 `deleteOpenVikingSyncJob(id)`
-- [ ] `frontend/e2e/openviking-dashboard-management-live.spec.ts` 用 `test.afterEach` 删本 spec 创建的 e2e_unknown 行
-- [ ] 新建 `scripts/cleanup_openviking_e2e_fixture.sql`
-- [ ] 在本地真库手动跑一次 SQL，确认清干净（截图前后对比可选）
-- [ ] pytest 新增 DELETE 接口的允许/拒绝两态测试
+- [x] `openviking_status.py` 新增 `DELETE /admin/openviking/sync_jobs/{id}`（仅 cancelled/failed 可删）
+- [x] `frontend/src/lib/api-openviking.ts` 新增 `deleteOpenVikingSyncJob(id)`
+- [x] `frontend/e2e/openviking-dashboard-management-live.spec.ts` 用 `test.afterEach` 删本 spec 创建的 e2e_unknown 行
+- [x] 新建 `scripts/cleanup_openviking_e2e_fixture.sql`
+- [x] 在本地真库手动跑一次 SQL，确认 `openviking_sync_jobs` 中 `e2e_unknown` 清零
+- [x] pytest 新增 DELETE 接口的允许/拒绝两态测试
 
 #### 1d — 真实指标采集
-- [ ] 新建 `src/codeask/rag/openviking/metrics.py`：`OpenVikingMetricsRecorder`（latency deque + snapshot）
-- [ ] `src/codeask/app.py` lifespan 注册 `app.state.openviking_metrics_recorder`
-- [ ] `OpenVikingClient` 构造接收 recorder；每次请求 perf_counter 包裹
-- [ ] `OpenVikingClient` 503/circuit-open 分支调 `emit_event(event_type='openviking_breaker_tripped', ...)`
-- [ ] `openviking_status.py:347-355` `_metrics_snapshot` 改 async + SQL 聚合 throughput/breaker
-- [ ] `get_openviking_status` 改 `status_payload["metrics_5min"] = await _metrics_snapshot(request)`
-- [ ] `OpenVikingDashboard.tsx:838-860` MetricsCard 适配 `collected` true/false 双态 + samples 显示
-- [ ] 单测 `tests/unit/test_openviking_metrics.py`：recorder 行为 + snapshot p95 正确
-- [ ] 集成 `tests/integration/test_openviking_status_api.py`：throughput/breaker 真实 SQL 聚合
-- [ ] vitest MetricsCard 双态渲染
+- [x] 新建 `src/codeask/rag/openviking/metrics.py`：`OpenVikingMetricsRecorder`（latency deque + snapshot）
+- [x] `src/codeask/app.py` lifespan 注册 `app.state.openviking_metrics_recorder`
+- [x] `OpenVikingClient` 构造接收 recorder；每次请求 perf_counter 包裹
+- [x] `OpenVikingClient` 503/circuit-open 分支调 `emit_event(event_type='openviking_breaker_tripped', ...)`
+- [x] `openviking_status.py` `_metrics_snapshot` 改 async + SQL 聚合 throughput/breaker
+- [x] `get_openviking_status` 改 `status_payload["metrics_5min"] = await _metrics_snapshot(request)`
+- [x] `OpenVikingDashboard.tsx` MetricsCard 适配 `collected` true/false 双态 + samples 显示
+- [x] 单测 `tests/unit/test_openviking_metrics.py`：recorder 行为 + snapshot p95 正确
+- [x] 集成 `tests/integration/test_openviking_admin_api.py`：throughput/breaker 真实 SQL 聚合
+- [x] vitest MetricsCard 双态渲染
 
 ### ② 同步任务分状态分页
 
-- [ ] `openviking_status.py` 新增 `/admin/openviking/sync_jobs/summary`
-- [ ] `openviking_status.py` `list_openviking_sync_jobs` 增加 status + cursor + limit(25/cap 100) 三参数；返回 next_cursor
-- [ ] `sync.py:283-290` `list_jobs` 重写支持 `(status, cursor)` keyset 分页
-- [ ] `frontend/src/lib/api-openviking.ts` `listOpenVikingSyncJobs({status?, cursor?, limit?})` + 新 `getOpenVikingSyncJobsSummary()`
-- [ ] `frontend/src/types/api.ts` `OpenVikingSyncJobsResponse.next_cursor`、新 `OpenVikingSyncJobsSummaryResponse`
-- [ ] `OpenVikingDashboard.tsx:444-537` SyncJobsCard 重构：summary 驱动 StatusPill，4 个分状态分组 + 每组 `useInfiniteQuery`
-- [ ] 删旧 `showIndexed` / `visibleCount` / `JOB_PAGE_SIZE` 切片逻辑
-- [ ] pytest 新增 summary + cursor + 多状态分页用例
-- [ ] vitest SyncJobsCard 分组渲染 + 加载更多 + summary 显示全表 count
+- [x] `openviking_status.py` 新增 `/admin/openviking/sync_jobs/summary`
+- [x] `openviking_status.py` `list_openviking_sync_jobs` 增加 status + cursor + limit(25/cap 100) 三参数；返回 next_cursor
+- [x] `sync.py` `list_jobs` 重写支持 `(status, cursor)` keyset 分页
+- [x] `frontend/src/lib/api-openviking.ts` `listOpenVikingSyncJobs({status?, cursor?, limit?})` + 新 `getOpenVikingSyncJobsSummary()`
+- [x] `frontend/src/types/api.ts` `OpenVikingSyncJobsResponse.next_cursor`、新 `OpenVikingSyncJobsSummaryResponse`
+- [x] `OpenVikingDashboard.tsx` SyncJobsCard 重构：summary 驱动 StatusPill，分状态分组 + 每组 `useInfiniteQuery`
+- [x] 删旧 `showIndexed` / `visibleCount` 切片逻辑；`JOB_PAGE_SIZE` 改为每组分页大小常量
+- [x] pytest 新增 summary + cursor + 多状态分页用例
+- [x] vitest SyncJobsCard 分组渲染 + 加载更多 + summary 显示全表 count
 
 ### ③ 事件流分页 + 折叠展开
 
-- [ ] `OpenVikingDashboard.tsx:128-176` 用 `useInfiniteQuery` 替换 `useState eventItems` + `useEffect` 拼装
-- [ ] `refetchInterval` 改为函数，仅首页 5s 轮询；非首页返回 false
-- [ ] `collapseConsecutiveEvents` 返回值附加 `events: OpenVikingDashboardEvent[]`
-- [ ] `EventItem` chip 改为可点击 button；展开后渲染 group.events
-- [ ] 加 "返回顶部" 按钮（仅在已翻过页时显示）
-- [ ] 删旧 `eventBeforeId` / `setEventItems` 状态
-- [ ] vitest 新增三条用例：折叠展开、加载更多、翻页关 polling
+- [x] `OpenVikingDashboard.tsx` 用 `useInfiniteQuery` 替换 `useState eventItems` + `useEffect` 拼装
+- [x] `refetchInterval` 改为函数，仅首页 5s 轮询；非首页返回 false
+- [x] `collapseConsecutiveEvents` 返回值附加 `events: OpenVikingDashboardEvent[]`
+- [x] `EventItem` chip 改为可点击 button；展开后渲染 group.events
+- [x] 加 "返回顶部" 按钮（仅在已翻过页时显示）
+- [x] 删旧 `eventBeforeId` / `setEventItems` 状态
+- [x] vitest 新增折叠展开、加载更多、翻页关 polling 覆盖
 
-### ④ 调优摘要 + 操作面板(B 方案)
+### ④ 调优折叠配置面板
 
-- [ ] 设计参考截图保存在仓内备查:`.tmp/m8-tuning-demo/` 下 `a.html` / `b.html` / `_base.css` / `shoot.mjs`,以及 `~/img/m8-tuning-b-*.png` 截图(commit 时**不**纳入 `.tmp/` 目录,仅作 plan 阶段参考)
-- [ ] `OpenVikingDashboard.tsx` `OpenVikingTuningCard` 内拆出 `TuningCardHeader` / `ScopeSummaryCard` / `DivergentItemCard` / `AlignedFoldout` / `AdvancedTable` 五个内部子组件
-- [ ] 头部副标题加 `共 N 项,M 项偏离推荐` 计数(M==0 时省略后半段)
-- [ ] 头部 actions 增加 `[一键对齐推荐]`(M==0 禁用;M>0 走 confirm + batch applyMutation)
-- [ ] 偏离项卡片:`[对齐推荐]` 快捷一键(无 confirm)+ `[详细配置]` toggle 展开 input + `[应用]` + `[回滚]`
-- [ ] 已对齐折叠区:`<details>` 包 `AdvancedTable`,行布局 `1fr 110px 96px auto`,只有 `[应用]` 一个按钮
-- [ ] scope `data-state=warn|ok` 切换边框配色;pill 黄/绿/灰三色,沿用现有 token
-- [ ] `globals.css` 加新 class:`.tuning-scope-summary` / `-head` / `-pills` / `.tuning-divergent-item` / `-meta` / `-actions` / `.tuning-aligned-row` / `.tuning-advanced-table` / `-row`
-- [ ] 删除旧 inline `settings-openviking-tuning-row` 渲染逻辑(grep 确认其它卡片未用,可一并删 CSS;若 grep 命中则只删 JSX 渲染)
-- [ ] vitest 新增四条:默认渲染分态、`[对齐推荐]` 快捷、`[详细配置]` toggle + 应用/回滚、`[一键对齐推荐]` confirm + batch
-- [ ] 截图回归:跑 `~/img/m8-tuning-b-*.png` 同等场景,人工对照实现是否对齐
+- [x] 设计参考截图保存在仓外 `~/img/m8-tuning-b-*.png` 与 `.tmp/m8-tuning-demo/`，未纳入提交范围
+- [x] `OpenVikingDashboard.tsx` `OpenVikingTuningCard` 内拆出 `TuningCardHeader` / `ScopeSummaryCard` / `TuningParameterRow` / `AdvancedTable` 内部组件
+- [x] 头部副标题显示 `当前推荐预设:{preset} · 共 N 项`，不展示偏离推荐计数
+- [x] 头部 actions 仅保留 `[套用预设]`
+- [x] 三个 scope 均默认折叠，不再根据推荐值偏离状态自动展开或高亮；summary 右侧显式展示"展开参数 / 收起参数"动作和 chevron，hover / focus / open 状态有视觉反馈
+- [x] 展开 scope 后使用统一四列行布局：`参数 | 自定义值 | 推荐值 | 操作`，并保留参数描述、影响说明和推荐值；操作列仅展示短按钮"应用"
+- [x] 调优面板不再渲染 `[对齐推荐]` / `[回滚]`
+- [x] `globals.css` 加新 class:`.tuning-scope-summary` / `-head` / `-title` / `-actions` / `-pills` / `-action` / `.tuning-row-label` / `.tuning-advanced-table` / `-row`
+- [x] 删除旧 inline `settings-openviking-tuning-row` 渲染逻辑，并清理旧 row/meta/recommended/delta/actions CSS
+- [x] vitest 新增默认折叠、展开 / 收起动作提示、`aria-expanded` 状态、展开后显示说明 / 推荐值 / 应用、无偏离 / 对齐 / 回滚按钮、套用预设 confirm 覆盖
+- [x] 截图回归：已在 dev server 下抓取 `frontend/.tmp/m8-dashboard-current.png` 与 `frontend/.tmp/m8-dashboard-tuning-current.png`，人工对照 `~/img/m8-tuning-b-*.png`
+
+### ⑤ 全局按钮反馈
+
+- [x] OpenViking Dashboard 接入 `AppFeedbackProvider` 的 `useAppFeedback`
+- [x] 复制路径、复制 Ollama snippet 成功后显示居中 toast；浏览器不支持或复制失败时弹出错误对话框
+- [x] Embedding 切换 / 向量索引重建、同步任务重试 / 重新同步 / 重排队列、调优应用 / 套用预设 / Ollama 验证均在成功时显示居中 toast，接口失败时显示全局错误弹窗
+- [x] 所有会修改后端状态的按钮先弹页面内居中确认框，确认后才提交；取消不发请求。禁止使用浏览器原生 `window.confirm`
+- [x] 调优单项应用在值变更时先弹页面内确认框；取消不发请求，确认后才提交。值未变更时不弹确认，只提示无需应用
+- [x] 事件流加载更多、返回顶部、聚合组展开 / 收起，以及同步任务分组加载更多均有即时 toast 反馈
+- [x] vitest 覆盖代表性按钮：路径复制、事件组展开、Ollama 验证、同步任务重试、调优应用，以及调优失败的全局错误弹窗
 
 ### 收口
 
-- [ ] 更新 `acceptance-checklist.md`（受影响行 + 新增行号回填）
-- [ ] 本 plan 状态 Planned → Completed，回填"完成记录"小节
-- [ ] docs 改动单独 commit；功能/接口/测试一个 commit；前端改一个 commit（开发可视改动量再拆）
-- [ ] 一次性 SQL 脚本手动跑一次清掉 e2e_unknown 历史污染（命令在下方"附录"）
+- [x] 更新 `acceptance-checklist.md`（受影响行 + 新增行号回填）
+- [x] 本 plan 状态 Planned → Completed，回填"完成记录"小节
+- [ ] docs / 后端 / 前端 commit 拆分由负责人合并前决定；当前只完成代码与文档收口，不 push
+- [x] 一次性 SQL 脚本手动跑一次清掉 e2e_unknown 历史污染（命令在下方"附录"）
 
 ---
 
@@ -664,14 +657,23 @@ sqlite3 ~/.codeask/data.db "SELECT COUNT(*) FROM openviking_dashboard_events WHE
 |---|---|---|
 | 1a 事件流 repo_synced 显示 | `repo · f7606c2988444040` | `repo · Feature scoped claude-code 1778952333054` |
 | 1b sync_job wiki_doc 显示 | `wiki_doc / 47 / openviking-rag-live` | `<WikiNode.name> / wiki_doc · 47 / openviking-rag-live` |
-| 1c e2e_unknown 残留计数 | 4 | 0 |
+| 1c e2e_unknown 残留计数 | 4 | `openviking_sync_jobs` 已清零；`openviking_dashboard_events` 脚本同表规则清理 |
 | 1d 指标 | "未采集" × 3 | throughput / latency p95 / breaker_trips 真实数值 |
 | 2 indexed 展开顺序 | 与 cancelled 时间倒序混排 | 按状态分块，每块独立分页 |
 | 3 加载更多 | 闪一下回去 + 数字膨胀 | 新条目展开可见 + 分页期间不刷新轮询 |
-| 4 调优 | 11 行 input 表单全展开 | 默认仅显示偏离项卡片 + 一键对齐推荐;已对齐项折叠为 `N 项 已对齐` 单行 |
+| 4 调优 | 11 行 input 表单全展开 | scope 默认折叠，summary 显式提示可展开，展开后统一四列配置表，保留说明和推荐值，只有自定义应用与套用预设 |
 
 ---
 
 ## 完成记录
 
-（实施后回填：代码范围、测试覆盖、收口命令、关键文件 git ref）
+2026-05-28 实施完成：
+
+- 后端：新增 `OpenVikingMetricsRecorder`，在 `OpenVikingClient` 包裹请求耗时并写入 breaker 事件；`/admin/openviking/status` 输出真实 5 分钟指标；`/admin/openviking/sync_jobs` 支持 `status` / `cursor` / `limit`，新增 summary 与安全 DELETE；sync job 序列化补 `display_name`。
+- 前端：OpenViking Dashboard 同步任务按状态分组并独立分页；事件流改 `useInfiniteQuery`，分页后暂停轮询，折叠组可展开；调优面板改为普通折叠配置面板，scope 默认折叠，展开后保留说明、推荐值和应用按钮；metrics 卡显示真实采集态与 samples。
+- 交互反馈：OpenViking Dashboard 所有按钮统一接入全局反馈；成功显示居中 toast，失败显示居中错误弹窗，复制 / 分页 / 展开收起 / 重试 / 重建 / 调优 / Ollama 验证均已覆盖。所有会修改后端状态的按钮均先弹页面内居中确认框，确认后才提交，不再使用浏览器原生确认框。
+- 测试：新增 `tests/unit/test_openviking_metrics.py`；扩展 `tests/integration/test_openviking_admin_api.py`；扩展 `frontend/tests/openviking-dashboard.test.tsx`；live management e2e 增加 fixture teardown。
+- 数据清理：已本地执行 `sqlite3 /home/hzh/.codeask/data.db < scripts/cleanup_openviking_e2e_fixture.sql`，并确认 `openviking_sync_jobs` 中 `source_type='e2e_unknown'` 计数为 `0`。
+- 真实浏览器：`openviking-dashboard-live.spec.ts` + `openviking-dashboard-management-live.spec.ts` 在重启后的真实栈通过，结果 `7 passed / 3 skipped`（破坏性隔离用例按计划 skip）。
+- 截图回归：已抓取 `frontend/.tmp/m8-dashboard-current.png` 与 `frontend/.tmp/m8-dashboard-tuning-current.png`。调优面板已从 B 方案进一步收敛为普通折叠配置面板，不再展示偏离 / 已对齐分区，只有自定义应用与套用预设。
+- 质量门禁：`pyright` / `pytest` / `ruff` / `tsc` / `eslint` / `vitest` 已全部通过。
