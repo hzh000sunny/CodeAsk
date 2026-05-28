@@ -174,7 +174,7 @@ class WikiTreeOrderingService:
         space_id: int,
         parent_id: int | None,
     ) -> list[WikiNode]:
-        return (
+        return list(
             (
                 await session.execute(
                     select(WikiNode)

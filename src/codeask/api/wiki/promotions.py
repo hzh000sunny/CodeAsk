@@ -1,5 +1,7 @@
 """Promotion routes for turning session evidence into formal wiki content."""
 
+from typing import cast
+
 from fastapi import APIRouter, Request, status
 
 from codeask.api.wiki.deps import SessionDep, wiki_actor_from_request
@@ -8,6 +10,7 @@ from codeask.api.wiki.schemas import (
     WikiPromotionRead,
     WikiSessionAttachmentPromotionCreate,
 )
+from codeask.rag.openviking.hooks import drain_wiki_document_syncs
 from codeask.wiki.promotions import WikiPromotionService
 
 router = APIRouter()
@@ -35,8 +38,9 @@ async def promote_session_attachment(
         name=payload.name,
     )
     await session.commit()
+    await drain_wiki_document_syncs(request, session)
     return WikiPromotionRead(
         node=WikiNodeRead.model_validate(data["node"]),
-        document_id=data["document_id"],
-        source_id=data["source_id"],
+        document_id=cast(int | None, data["document_id"]),
+        source_id=cast(int | None, data["source_id"]),
     )

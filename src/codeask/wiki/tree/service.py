@@ -21,6 +21,8 @@ class WikiTreeService:
     async def list_global_tree_nodes(
         self,
         session: AsyncSession,
+        *,
+        backfilled_document_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         features = (
             (
@@ -60,7 +62,11 @@ class WikiTreeService:
         ]
 
         for index, feature in enumerate(features):
-            space = await self.ensure_current_space_for_feature(session, feature=feature)
+            space = await self.ensure_current_space_for_feature(
+                session,
+                feature=feature,
+                backfilled_document_ids=backfilled_document_ids,
+            )
             feature_root_id = -100000 - feature.id
             nodes.append(
                 self._virtual_node(
@@ -121,6 +127,7 @@ class WikiTreeService:
         session: AsyncSession,
         *,
         feature: Feature,
+        backfilled_document_ids: list[int] | None = None,
     ) -> WikiSpace:
         space = (
             await session.execute(
@@ -136,7 +143,11 @@ class WikiTreeService:
                 feature_id=feature.id,
                 feature_slug=feature.slug,
             )
-        await LegacyWikiSyncService().backfill_feature_content(session, feature_id=feature.id)
+        synced_document_ids = await LegacyWikiSyncService().backfill_feature_content(
+            session, feature_id=feature.id
+        )
+        if backfilled_document_ids is not None:
+            backfilled_document_ids.extend(synced_document_ids)
         await session.flush()
         return space
 
@@ -230,7 +241,7 @@ class WikiTreeService:
         *,
         space_id: int,
     ) -> list[WikiNode]:
-        return (
+        return list(
             (
                 await session.execute(
                     select(WikiNode)
@@ -252,7 +263,7 @@ class WikiTreeService:
         *,
         space_id: int,
     ) -> list[WikiNode]:
-        return (
+        return list(
             (
                 await session.execute(
                     select(WikiNode)

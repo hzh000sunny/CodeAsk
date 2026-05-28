@@ -23,7 +23,7 @@ async def save_draft(
         body_markdown=payload.body_markdown,
     )
     await session.commit()
-    return WikiDocumentDetailRead(**data)
+    return WikiDocumentDetailRead.model_validate(data)
 
 
 @router.delete("/documents/{node_id}/draft", status_code=status.HTTP_204_NO_CONTENT)

@@ -11,6 +11,14 @@ def _empty_dict() -> dict[str, Any]:
     return {}
 
 
+def _empty_message_list() -> list[SessionMessage]:
+    return []
+
+
+def _empty_attachment_list() -> list[dict[str, Any]]:
+    return []
+
+
 class SessionMessage(BaseModel):
     role: Literal["user", "assistant", "tool", "system"]
     content: str
@@ -19,10 +27,10 @@ class SessionMessage(BaseModel):
 class ChatTurnContext(BaseModel):
     current_user_message: str
     conversation_summary: str | None = None
-    recent_history: list[SessionMessage] = Field(default_factory=list)
+    recent_history: list[SessionMessage] = Field(default_factory=_empty_message_list)
     tool_action_summary: str | None = None
     retrieval_context: dict[str, Any] = Field(default_factory=_empty_dict)
-    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    attachments: list[dict[str, Any]] = Field(default_factory=_empty_attachment_list)
     explicit_constraints: dict[str, Any] = Field(default_factory=_empty_dict)
 
 

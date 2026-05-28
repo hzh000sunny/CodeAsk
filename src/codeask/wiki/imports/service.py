@@ -6,10 +6,12 @@ import mimetypes
 import shutil
 from pathlib import Path
 from secrets import token_hex
+from typing import cast
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.datastructures import UploadFile
 
 from codeask.db.models import (
     Feature,
@@ -86,7 +88,7 @@ class WikiImportJobService:
         staging_root.mkdir(parents=True, exist_ok=True)
         items_by_path = {item.relative_path: item for item in items}
         for file in files:
-            relative_path = WikiImportPreflightService()._normalize_relative_path(file.filename)
+            relative_path = WikiImportPreflightService().normalize_relative_path(file.filename)
             preflight_item = items_by_path[relative_path]
             staged_path = staging_root / relative_path
             staged_path.parent.mkdir(parents=True, exist_ok=True)
@@ -174,11 +176,11 @@ class WikiImportJobService:
                     "id": item.id,
                     "source_path": item.source_path,
                     "target_path": item.target_node_path,
-                    "item_kind": (item.metadata_json or {}).get("item_kind"),
+                    "item_kind": _metadata_dict(item.metadata_json).get("item_kind"),
                     "status": item.status,
-                    "warnings": (item.metadata_json or {}).get("warnings", []),
-                    "staging_path": (item.metadata_json or {}).get("staging_path"),
-                    "result_node_id": (item.metadata_json or {}).get("result_node_id"),
+                    "warnings": _metadata_dict(item.metadata_json).get("warnings", []),
+                    "staging_path": _metadata_dict(item.metadata_json).get("staging_path"),
+                    "result_node_id": _metadata_dict(item.metadata_json).get("result_node_id"),
                 }
                 for item in items
             ]
@@ -338,7 +340,7 @@ class WikiImportJobService:
         return job
 
     async def _load_items(self, session: AsyncSession, *, job_id: int) -> list[WikiImportItem]:
-        return (
+        return list(
             (
                 await session.execute(
                     select(WikiImportItem)
@@ -461,17 +463,25 @@ class WikiImportJobService:
         return node
 
     def _summarize_items(self, items: list[WikiImportItem]) -> dict[str, int]:
-        warnings = sum(len((item.metadata_json or {}).get("warnings", [])) for item in items)
+        warning_count = 0
+        for item in items:
+            warnings = _metadata_dict(item.metadata_json).get("warnings", [])
+            if isinstance(warnings, list):
+                warning_count += len(cast(list[object], warnings))
         return {
             "total_files": len(items),
             "document_count": sum(
-                1 for item in items if (item.metadata_json or {}).get("item_kind") == "document"
+                1
+                for item in items
+                if _metadata_dict(item.metadata_json).get("item_kind") == "document"
             ),
             "asset_count": sum(
-                1 for item in items if (item.metadata_json or {}).get("item_kind") == "asset"
+                1
+                for item in items
+                if _metadata_dict(item.metadata_json).get("item_kind") == "asset"
             ),
             "conflict_count": sum(1 for item in items if item.status == "conflict"),
-            "warning_count": warnings,
+            "warning_count": warning_count,
         }
 
     def _require_write(self, actor: WikiActor, feature: Feature) -> None:
@@ -480,3 +490,7 @@ class WikiImportJobService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="write access denied for this wiki feature",
             )
+
+
+def _metadata_dict(value: object) -> dict[str, object]:
+    return cast(dict[str, object], value) if isinstance(value, dict) else {}

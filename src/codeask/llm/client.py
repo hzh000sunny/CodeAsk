@@ -165,9 +165,10 @@ def _reasoning_history_policy(
     value = (metadata or {}).get("reasoning_history")
     if not isinstance(value, dict):
         return None
-    if value.get("mode") != "openai_interleaved":
+    policy = cast(dict[str, Any], value)
+    if policy.get("mode") != "openai_interleaved":
         return None
-    field = value.get("field")
+    field = policy.get("field")
     if field not in {"reasoning_content", "reasoning_details"}:
         return None
     return {"mode": "openai_interleaved", "field": str(field)}

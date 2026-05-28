@@ -1,7 +1,7 @@
 # Phase 1 — OpenViking Sync Adapter 实现
 
 > 版本：v1.0.5
-> 状态：Framework Draft（待 Phase 0 通过后细化）
+> 状态：Completed
 > 关联：[PRD](../prd/rag-knowledge.md) · [设计](../design/openviking-integration.md) · [Phase 0](./phase-0-spike.md) · [Phase 2](./phase-2-opencode-integration.md)
 
 ---
@@ -20,36 +20,62 @@
 
 ## 1. 范围
 
-Phase 1 = 把 OpenViking 接入 CodeAsk 后端，把 Wiki UI 搜索框改成"OpenViking 优先 + ILIKE 兜底"，把 Wiki 写路径 hook 进 OpenViking 增量同步；**不接入 opencode 主链路**。同时删除 FTS5 链路、把自研 Agent 搬入 `agent/native_backend/` 隔离保留（不删除，详见 §9 / SDD §1.6）。
+本文（Phase 1 = sync adapter 工作域）覆盖交付里程碑 **M1 / M3 / M4 / M5**；opencode 接入是 **M2**，落在 [phase-2 文档](./phase-2-opencode-integration.md)。当前实现的是 **M1**：只把 OpenViking 作为独立增强后端接入 CodeAsk（建表、进程管理、健康检查、手动同步、admin API 和仪表盘骨架）。**M1 不改 opencode 主链路、不删 FTS5、不搬 native Agent、不接 Wiki 写路径 hook。**
+
+> 术语：**Phase** 是工作域 / 文档分组（Phase 1 = sync adapter，Phase 2 = opencode 接入）；**M1–M5** 是跨这两个工作域的**交付里程碑阶梯**。
+
+v1.0.5 交付里程碑阶梯（按交付顺序）：
+
+| 里程碑 | 范围 | 所属文档 | 前置依赖 |
+|---|---|---|---|
+| M1 | OpenViking 核心适配器 + 手动同步 + admin 仪表盘 | 本文（Phase 1） | 无（当前实施范围） |
+| M2 | opencode 主链路接入 OpenViking MCP（动态上下文 / MCP 只读工具 / 行动轨迹） | [phase-2 文档](./phase-2-opencode-integration.md) | M1 |
+| M3 | native Agent 隔离（搬入 `native_backend/` + `reports.py` 解耦 FTS5） | 本文（Phase 1） | M1 |
+| M4 | FTS5 删除 + Wiki UI 搜索 OpenViking-first/ILIKE 兜底 | 本文（Phase 1） | **M3**（`reports.py` 必须先从 `WikiSearchService` 解耦） |
+| M5 | Wiki / Report / Repo 写路径 hook（发布/verify/ready 后增量 enqueue） | 本文（Phase 1） | M1 |
+
+交付顺序 **M1 → M2 → M3 → M4 → M5**。硬依赖只有两条：①一切在 M1 之后；②**M4 必须在 M3 之后**。M2 与 M3/M5 代码区不重叠，理论上 M1 之后可并行；但定调为**先 M2 交付 opencode 价值，再做 M3/M4 的破坏性清理**（降低清理期风险）。
+
+M1 的验收标准是：OpenViking 不可用时 CodeAsk 仍能以 v1.0.4 行为启动和运行；OpenViking 可用时 admin 能看到健康、队列、事件和调优信息；后端能手动 enqueue 并跑通至少一条同步任务。
+
+2026-05-25 M1 实现记录：
+
+- `src/codeask/rag/openviking/` 已落地配置生成、进程管理、HTTP client、同步队列、URI、health、dashboard event 模块。
+- Alembic `0030` 已新增 4 张 OpenViking 表：sync jobs、embedding settings、tuning settings、dashboard events。
+- 后端启动会 best-effort 拉起 OpenViking 0.3.17；OpenViking 不可用只进入 admin degraded 状态，不阻塞普通路径。
+- APScheduler 已注册 OpenViking keepalive 与 pending sync 后台任务；M1 的后台同步只消费已入队任务，不主动扫描 Wiki / Report 写路径。
+- Admin API 已覆盖 status、sync_jobs、events、embedding、tuning 与手动 enqueue/run_pending。
+- 前端设置页已新增 OpenViking 仪表盘，路由 `#/settings?page=openviking` 刷新保持在当前页面。
+- M1 边界保持：未接 opencode 主链路，未删 FTS5，未迁 native Agent，未接 Wiki 写路径 hook。
+- 实测发现 OpenViking 0.3.17 响应使用 `{status, result}` envelope，client 已按 envelope 解包；`vlm.enabled` 会被 0.3.17 拒绝，M1 不生成 VLM 配置。
 
 包含：
 
 - 新增 `src/codeask/rag/openviking/` 兼容模块（参考 SDD §1.1）
 - 新增 4 张表 + 一条 alembic migration（详见 §3）
-- 新增一条 alembic migration drop FTS5 三张虚表（详见 §3）
 - 启动 OpenViking server 进程管理 + keepalive
-- Wiki 写路径 hook（PRD §3.3 触发器表 / SDD §6.2）：上传 / publish / rollback / Report verify / 软删 → enqueue
-- **草稿与 unverified Report 不入队**（SDD §6.3 过滤规则）
-- 同步引擎执行 add-resource / 索引追踪 / 失败重试
-- `/api/wiki/search` 改写为 **OpenViking 优先 + `NativeWikiSearchService` (SQL ILIKE) 兜底**（详见 §9）
-- 自研 Agent 搬入 `agent/native_backend/` 隔离保留、下线请求链路（详见 §9 第 12-14 步 / SDD §1.6）
-- 删除 FTS5 链路代码 + drop 三张虚表（详见 §9 第 15-17 步，**须在 native 解耦之后**）
+- 同步引擎执行手动 enqueue / add-resource / 索引追踪 / 失败重试
 - admin 诊断接口 `GET /api/admin/openviking/status`
 - admin 设置页 OpenViking 仪表盘（详见 §7）
 - 后端单元 / 集成测试
 
 不包含：
 
-- 不在 opencode 会话注入 OpenViking 资源提示（Phase 2）
-- 不在 `opencode.json` 加 OpenViking MCP（Phase 2）
-- 不暴露 OpenViking 工具事件到前端行动轨迹（Phase 2）
+- 不在 opencode 会话注入 OpenViking 资源提示（M2 / phase-2 文档）
+- 不在 `opencode.json` 加 OpenViking MCP（M2 / phase-2 文档）
+- 不暴露 OpenViking 工具事件到前端行动轨迹（M2 / phase-2 文档）
+- 不改 `/api/wiki/search`（M4）
+- 不接 Wiki / Report / Repo 写路径 hook（M5）
+- 不删除 FTS5（M4）
+- 不隔离 native Agent（M3）
 - 不接入 Claude Code backend
 
 Phase 1 完成后：
 
-- Wiki UI 搜索框：OpenViking 可用即语义优先，不可用即 ILIKE 兜底，前端零改动
-- opencode 会话：行为与 v1.0.4 相同（用 `workspace/wiki` symlink + native grep）；Phase 2 才注入 OpenViking
-- FTS5 索引已从代码库完全删除；自研 Agent 搬入 `native_backend/` 隔离保留（可 import、冒烟测试通过、不在请求链路）
+- OpenViking server 可由 CodeAsk 后端 best-effort 拉起；失败只进入 admin degraded 状态，不阻断普通用户路径
+- admin 可查看 OpenViking 健康、同步任务、事件流、embedding/tuning 当前配置
+- 手动 enqueue / resync 能创建并推进 sync job；未接 hook 前不会自动把 Wiki 写路径变更同步进去
+- opencode 会话、Wiki UI 搜索、FTS5、native Agent 行为与 v1.0.4 保持一致
 
 ---
 
@@ -80,7 +106,7 @@ src/codeask/rag/openviking/
 
 ## 3. 数据库
 
-v1.0.5 新增 2 条 alembic migration，按顺序执行：
+M1 新增 1 条 alembic migration：
 
 ### 3.1 新增 4 张表
 
@@ -93,7 +119,7 @@ v1.0.5 新增 2 条 alembic migration，按顺序执行：
 
 文件：`alembic/versions/XXXX_openviking_v1_0_5_tables.py`
 
-### 3.2 DROP FTS5 虚表
+### 3.2 DROP FTS5 虚表（M4，不在 M1 实施）
 
 ```python
 def upgrade():
@@ -105,7 +131,7 @@ def downgrade():
     raise NotImplementedError("v1.0.5 不支持 downgrade 到 FTS5")
 ```
 
-文件：`alembic/versions/YYYY_drop_fts5_tables.py`（在 3.1 之后）
+文件：`alembic/versions/YYYY_drop_fts5_tables.py`（在 M4 实施，必须在 M3 native 隔离之后）
 
 `document_chunks` 物理表暂留（含 legacy 上传文档历史，不再读写）；`documents` 表保留（仍由 `LegacyWikiSyncService` 用作上传桥接）。
 
@@ -131,7 +157,9 @@ def downgrade():
 
 ---
 
-## 5. 同步触发点（hook 清单）
+## 5. 同步触发点（hook 清单，M5 实施）
+
+M1 不接任何写路径 hook，只提供手动 enqueue / resync 入口和后台 worker。下表是 M5 的目标清单，保留在本文中用于后续里程碑衔接：
 
 | 事件 | hook 位置 | 写入 source_type |
 |---|---|---|
@@ -343,7 +371,7 @@ GET  /api/admin/openviking/tuning/history?scope=...&key=...&limit=50
 }
 
 GET  /api/admin/openviking/tuning/ollama_snippet
-→ {"snippet": str, "current_recommended": {"num_parallel": int, "num_thread": int}}
+→ {"snippet": str, "num_parallel": str, "num_thread": str}  # 当前配置值对应的 systemd snippet
 ```
 
 **调参应用实现**（SDD §13.6.3）：
@@ -511,48 +539,92 @@ async def emit_event(session, *, event_type, source_type=None, source_id=None,
 
 ## 9. 实施顺序（建议工单切分）
 
-OpenViking 接入 + 仪表盘（步骤 1-11）：
+M1 OpenViking 接入 + 仪表盘（步骤 1-11）：
 
 1. settings + alembic migration（4 张表：`openviking_sync_jobs` / `openviking_embedding_settings` / `openviking_tuning_settings` / `openviking_dashboard_events`）+ 空 module（编译通过）
 2. process + health（启停 + 探测 + Ollama `/api/tags` 模型列表，纯单元）
 3. client（HTTP + MCP 调用真实 server，集成）
 4. uri + sync（无 hook 触发，手动 enqueue 跑一次）
 5. `dashboard.emit_event` + sync_job 状态转移时调用
-6. hooks（接入 wiki / report / repo 变更点，含 emit_event；按 SDD §6.2 触发器表 / §6.3 过滤规则——草稿与 unverified Report 不入队）
+6. 手动 resync / enqueue API（只允许 admin；写入 sync_jobs 并发事件，不触碰 Wiki 写路径）
 7. APScheduler 任务（keepalive / sync / **progress_sweep** / scheduled_refresh / event_retention / metrics_5min_rollup）
 8. admin status API + sync_jobs API + events API + 手动操作 API
 9. **tuning API** + 主机识别 / 推荐预设算法 / Ollama 实测探测（不做 before/after snapshot）
 10. 前端：OpenVikingHealthCard + OpenVikingSyncJobsCard + OpenVikingEventStream + OpenVikingTuningCard（最小可用版本）
 11. 前端：OpenVikingMetricsCard（可后置到 Phase 2）
 
-自研 Agent 隔离（步骤 12-14，搬迁不删除，**必须在删 FTS5 之前**，详见 SDD §1.6）：
+M3 自研 Agent 隔离（步骤 12-14，搬迁不删除，**必须在删 FTS5 之前**，详见 SDD §1.6；不在 M1 实施）：
 
 > 排期约束：FTS5 删除会移除 `WikiSearchService`，而 native 的 `tools/reports.py` 仍 import 它；必须先把 native 搬走并把 `reports.py` 解耦，否则中间态 import 不了。
 
-12. 新建 `src/codeask/agent/native_backend/`，把 native-only 模块整体搬入（`orchestrator.py` / `wiki_tools.py` / `tools.py` / `tool_schemas.py` / `tool_delegates.py` / `code_tools.py` / `answer_links.py` / `stages/` / `chat_runtime/{runtime,loop,retrieval,prompt,compaction,tool_executor,tool_registry,tool_contracts}.py` / `chat_runtime/tools/`）；`chat_runtime/events.py` + `chat_runtime/context.py` 留原位作共享层；改写所有内部 import 路径；写 `native_backend/README.md`（复活指引：RAG 接 OpenViking 不回退 FTS5）
-13. 解耦 FTS5：`native_backend/chat_runtime/tools/reports.py` 的 `WikiSearchService` 改为 `NativeWikiSearchService`（仅为保活；非目标方案）
-14. 下线请求链路：`app.py` 移除 native wiring（`AgentWikiToolService` / `ToolRegistry` / `AgentOrchestrator` / `chat_tool_registry` / 各 `register_*_tools` 构造与注入），scheduler 只剩 opencode_keepalive / opencode_session_idle_cleanup；`sessions/messages.py:stream_agent_response` 与 `api/sessions.py` 删除 `agent_backend != "opencode"` 分支；`settings.py` 收敛 `agent_backend: Literal["opencode"]`；新增冒烟测试 `tests/unit/test_native_backend_importable.py`；原 native 测试迁入 `tests/native_backend/` 标 legacy（保留逻辑，不删）
+12. 新建 `src/codeask/agent/native_backend/`，把 native-only 模块整体搬入（`orchestrator.py` / `wiki_tools.py` / `tools.py` / `tool_schemas.py` / `tool_delegates.py` / `tool_models.py` / `state.py` / `prompts.py`（顶层 native prompts，**非** `opencode_compat/prompts.py`）/ `code_tools.py` / `answer_links.py` / `stages/` / `chat_runtime/{runtime,loop,retrieval,prompt,compaction,tool_executor,tool_registry,tool_contracts}.py` / `chat_runtime/tools/`）；`chat_runtime/events.py` + `chat_runtime/context.py` + 顶层 `sse.py`（`SSEMultiplexer`）+ `trace.py`（`AgentTraceLogger`）留原位作共享层（opencode 路径引用，**不搬**）；改写所有内部 import 路径；写 `native_backend/README.md`（复活指引：RAG 接 OpenViking 不回退 FTS5）
+13. 解耦 FTS5（**自包含方案**）：`native_backend/chat_runtime/tools/reports.py` 删除 `from codeask.wiki.search import ReportSearchHit, WikiSearchService`，改为在 `native_backend` 内部自写最小 ILIKE report 搜索 + 本地 report-hit dataclass（沿用原字段保证 `asdict` 输出契约；复刻 `verified=1`/feature 过滤、metadata 取 `commit_sha`、子串 snippet）；**不**复用、**不**扩展共享的 `wiki/native_search.py:NativeWikiSearchService`（活主链路零改动；允许少量重复 SQL）。仅为保活，非目标方案
+14. 下线请求链路：
+    - `app.py` 移除 native 构造与注入（`AgentWikiToolService` / `AgentCodeSearchService` / `ToolRegistry.bootstrap` / `AgentOrchestrator` / `chat_tool_registry` + 各 `register_*_tools` / `ChatRuntime`），删 `app.state.{tool_registry,agent_orchestrator,chat_runtime}`；**保留** `trace_logger` 与 `worktree_manager`（opencode 仍用）；scheduler 只剩 opencode_keepalive / opencode_session_idle_cleanup
+    - `sessions/messages.py`：`stream_agent_response` 收敛为只走 opencode（删 `agent_backend` 判断 + native `ChatRuntime` fall-through 整段）；删除已无调用方的 `stream_legacy_orchestrator_response`；保留 `SSEMultiplexer` import
+    - `api/sessions.py`：删 `agent_backend != "opencode"` 分支，`== "opencode"` 简化恒真
+    - `settings.py` 收敛 `agent_backend: Literal["opencode"]`
+    - 新增冒烟测试 `tests/unit/test_native_backend_importable.py`；原 native 测试迁入 `tests/native_backend/` 标 legacy（保留逻辑，不删；共享层 `tests/unit/chat_runtime/test_events.py` 留原位）
 
-FTS5 链路清除（步骤 15-17，须在 native 解耦之后）：
+M4 FTS5 链路清除（步骤 15-17，须在 native 解耦之后；不在 M1 实施）。纪律同 M3：**先切断所有活消费者 → 再删模块/虚表 → 再上新搜索路径**，每步独立可跑、可回滚。
 
-15. 改写 `api/documents_compat.py`：`POST /documents` 上传逻辑移除 `DocumentChunker.chunk_file` + `WikiIndexer.index_chunk`；保留 `Document` 写入与 `LegacyWikiSyncService` 桥接；新增 enqueue OpenViking sync 调用；删除 `GET /documents/search` 端点
-16. 删除 `src/codeask/wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py`；瘦身 `wiki/chunker.py`（删 tokenizer import、删 `tokenized_text` / `ngram_text` 字段）；删除对应单元 / 集成测试 (`tests/integration/test_wiki_search.py`)
-17. alembic migration drop `docs_fts` / `docs_ngram_fts` / `reports_fts`（详见 §3.2）
+> 真实改面比 SDD 初稿大：`WikiSearchService` / `WikiIndexer` 的活消费者不止 `documents_compat.py`，还包括 `api/reports.py` 与 `wiki/reports.py:ReportService`；`tokenizer.py` 的 `tokenize` 还被 `path_resolver.py` 用（非 FTS5）。详见 SDD §1.5 消费者表。
 
-Wiki UI 搜索框 OpenViking-first + ILIKE 兜底（步骤 18-19）：
+15. **（D1）切断 FTS5 写/读的活消费者** —— 做完后无任何活代码引用 `WikiSearchService`/`WikiIndexer`，模块成孤儿但 app 仍绿：
+    - `api/documents_compat.py`：上传 `upload_document` 移除 `DocumentChunker.chunk_file` + `DocumentChunk` 写入 + `indexer.index_chunk`（含 `tokenized_text`/`ngram_text`），保留 `Document` 写入与 `LegacyWikiSyncService` 桥接（**OpenViking 入队不在此处加，挪到 M5 step20**）；删 `GET /documents/search` 端点；`delete_document` 移除 `unindex_chunks_for_document`
+    - `wiki/reports.py:ReportService`：移除 verify / unverify / reject 上所有 `self._indexer.index_report/unindex_report` 调用 + 构造里的 `_indexer`（这三处是仅有的调用点，`create_draft`/`update_draft` 无）
+    - `api/reports.py`：删 `GET /reports/search` 端点（无产品消费者；前端仅 action-trace 标签引用同名 native 工具，非 REST 调用）；`delete_report` 移除 `unindex_report`
+    - 调整/删除打 `/documents/search`、`/reports/search` 的后端测试
+16. **（D2）删模块 + 瘦身 chunker**：
+    - **先迁 `tokenize`**：把 `tokenizer.py:tokenize` 挪到 `path_resolver.py`（或新建 `wiki/text_utils.py`）并改 `path_resolver.py` 的 import；`to_ngrams` 不迁（FTS5 专用）
+    - 删 `wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py`
+    - 瘦身 `wiki/chunker.py`（删 tokenizer import、删 `ParsedChunk.tokenized_text`/`ngram_text` 字段及 `_build` 两处赋值；保留 `heading_path`/`raw_text`/`normalized_text`/`signals_json`，`NativeWikiSearchService._best_heading_path` 要用）
+    - 删 `tests/integration/test_wiki_search.py` 及其它直测 FTS5 的单测
+    - 注：`document_chunks` 表保留（历史数据，删后不再读写），其 NOT NULL 的 `tokenized_text`/`ngram_text` 列无害，**不需要** migration 动它
+17. **（D2）alembic drop migration**：`revision = "0031"`、`down_revision = "0030"`（本仓用短数字 revision id，当前 head 是 `0030`，非文件名），drop `docs_fts` / `docs_ngram_fts` / `reports_fts`；`downgrade` raise `NotImplementedError`（详见 §3.2）
 
-18. `api/wiki/search.py` 改写：OpenViking healthy 时调 `client.find_or_search(q, scope, filter=feature_uri, limit)`；失败（异常 / 不可达）或 0 命中即 fallthrough 到 `NativeWikiSearchService`；URI → feature_id 反查保留原 `_group_for_hit` 分组；前端零改动
-19. 集成测试：OpenViking 健康有命中 / OpenViking 健康 0 命中 / OpenViking 不可达 / OpenViking 异常——四种 case 验证兜底正确
+M4 Wiki UI 搜索框 OpenViking-first + ILIKE 兜底（步骤 18-19；不在 M1 实施）：
 
-Wiki 写路径 hook（步骤 20-22）：
+18. **（D3）先 spike 再开工** —— OpenViking 查询侧 client 方法不存在，且查询走 REST 还是 MCP 未验证（M2 只验过 MCP `find`）：
+    - **18a 半天 spike**：对运行中的 OpenViking server 实打查询，产出「查询接口（REST `/api/v1/...` 还是 MCP）+ 端点路径 + 入参（scope/filter/limit）+ 响应结构 + 一次成功样本」。这是 M4 唯一真实未知，不出结论后续全是返工
+    - **18b 加 client 查询方法**：spike 确认后给 `OpenVikingClient` 加查询方法（如 `async def search(...)`），复用现有 `_client()`（trusted headers + `trust_env=False`）
+    - **18c 改写 `api/wiki/search.py`**：OpenViking healthy（复用 M1/M2 已有健康判断，**不新开 /health 探针**）→ 调 client 查询；异常 / 不可达 / 0 命中 → fallthrough 到现有 `NativeWikiSearchService`；URI → feature_id 反查保留原 `_group_for_hit` 分组；命中发 `openviking_search_hit`、0 命中发 `openviking_search_miss`，长期不可用要去重/限速防刷屏；前端零改动（`frontend/src/lib/wiki/api.ts` 不动）
+19. 集成测试：OpenViking 健康有命中 / 健康 0 命中 / 不可达 / 异常——四种 case 验证兜底正确，断言分组在两条路径下一致
 
-20. `wiki/documents/service.py:publish_document` / `rollback_to_version` 完成后调 `rag.openviking.sync.enqueue(source_type="wiki_doc", source_id=document.id)`；`save_draft` / `delete_draft` 不调
-21. `wiki/reports.py` + `api/reports.py` verify endpoint：`verified=false → true` 入队；`verified=true → false` 入队 tombstone；`verified=false` 状态下编辑不入队
-22. wiki node 软删 hook（`WikiNode.deleted_at` 标记后）入队 tombstone
+> M4 拆两阶段：步骤 15-19 是**阶段一**（删 FTS5 + UI 搜索），已交付（commit `ec1414e`）。**阶段二**是把 `src/codeask` 历史 pyright strict 债清零、让 pyright gate 恢复硬约束，独立 commit、按目录分批，详见 [m4-phase-2-pyright-cleanup.md](./m4-phase-2-pyright-cleanup.md)、验收 acceptance §3.10。
+
+2026-05-26 M4 阶段一实现记录：
+
+- FTS5 活消费者已切断：`/api/documents` 上传不再 chunk / 写 `document_chunks` / 写 FTS5；`/documents/search` 与 `/reports/search` REST 端点删除；Report verify / unverify / reject / delete 不再触碰 `WikiIndexer`。
+- FTS5 模块已删除：`wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py` 不再存在；`tokenize` 迁入 `wiki/text_utils.py` 供 `path_resolver.py` 继续使用；`wiki/chunker.py` 删除 `tokenized_text` / `ngram_text` 运行时字段。`document_chunks` 物理表及历史列保留，不再由上传路径写入。
+- Alembic 新增 `0031` drop migration 删除三张旧虚表；历史 `0005` 迁移保留 revision 链但改为 no-op，避免新库安装再创建已废弃虚表。
+- OpenViking 查询 spike 结论：使用 REST `POST /api/v1/search/find`，入参 `{query,target_uri,limit,score_threshold}`，trusted headers 仍为 `X-OpenViking-Account/User/Agent`；响应为 `{status:"ok", result:{resources:[{uri,score,context_type,level,abstract,overview}], total}}`。实测成功样本命中 `viking://resources/codeask/features/m4-spike/knowledge-base/m4-spike.md/m4-spike.md`，score `0.6444`。读取正文端点实测为 `GET /api/v1/content/read`，不是旧文档里的 `/api/v1/fs/read`。
+- Wiki UI 搜索已改为 OpenViking-first：进程 running 且可查询时调用 `OpenVikingClient.find`；命中 URI 通过 `openviking_sync_jobs.viking_uri` 映射回 `WikiDocument` / `Report` 后复用原分组语义；0 命中、异常、未启动、无法映射都回退 `NativeWikiSearchService`；长期 unavailable 事件按 60s 限速，避免 dashboard 被刷屏。前端 `frontend/src/lib/wiki/api.ts` 未改。
+
+M5 Wiki / Report 写路径 hook（步骤 20-22；不在 M1 实施）。**完整计划见 [m5-write-path-hooks.md](./m5-write-path-hooks.md)**，下列为概要。
+
+四个已锁定决策（详见 m5 文档 §1）：① **D1 content 现查**——引擎按 `source_type`+`source_id` 现查正文，不内联快照（消除 `enqueue` 去重导致的 staleness）；② **D2 tombstone 净新增**——client 无删除方法、引擎只有 add，需 spike OpenViking 删除端点 + `client.delete_resource` + 引擎 `operation=upsert|delete`；③ **D3 hook 放 API 端点 commit 之后**（service 只 flush，commit 在 API 层；修正旧措辞"放进 `sync_legacy_markdown_document` 内"）；④ **D4 软删覆盖主路径**——tree 删除 + legacy 软删发 tombstone、恢复重新 upsert，导入会话软删后置。
+
+- **M5-0（先做，最重）**：delete spike → `client.delete_resource` → `enqueue` 加 `operation` 形参（存 `progress`，免迁移）→ `run_pending_jobs`/`_resource_from_job` 改为现查正文（upsert）或调 delete（tombstone）。
+20. publish（`api/wiki/documents.py:34`，commit `:40`）/ rollback（`api/wiki/versions.py:79`，commit `:85`）端点 commit 后 `enqueue(source_type="wiki_doc", source_id=str(document.id), …)`；`save_draft`/`delete_draft` 不入队。
+20b. legacy `/documents` 上传（`documents_compat.py:43`，commit `:110`）+ `backfill_feature_content`（`wiki/sync/service.py:28`，调用方 commit 后逐个）入队，覆盖上传 + 全量回填；source_id 用同步出的 `WikiDocument.id`（与 M4 反查一致）。
+21. Report verify 端点（`api/reports.py:96`，commit `:112`）`false→true` upsert；unverify/reject/delete report → tombstone；unverified 编辑不入队。
+22. Wiki 节点软删（`tree/service.py:465` / `sync/service.py:149` 所属端点 commit 后）→ tombstone；恢复（`tree/service.py:517`）→ 重新 upsert。
+
+source_type/source_id 与 M4 反查约定：`wiki_doc`→`WikiDocument.id`、`report`→`Report.id`（见 m5 文档 §2）。
+
+2026-05-26 M5 实现记录：
+
+- delete spike 确认 REST 删除端点为 `DELETE /api/v1/fs?uri=...&recursive=true`，响应 envelope 与其它 OpenViking REST API 一致。
+- `OpenVikingClient.delete_resource`、sync job `operation=upsert|delete`、worker 按 `source_type/source_id` 现查正文已实现；manual inline payload 继续兼容。
+- `src/codeask/rag/openviking/hooks.py` 作为统一 best-effort 写路径 hook：所有 hook 均在 API `commit()` 之后调用，enqueue 失败只写日志，不回滚主业务写入。
+- 已接入 publish / rollback / legacy upload / legacy backfill / report verify-unverify-reject-delete / tree soft-delete-restore / legacy soft-delete。
+- 步骤 20c 已补齐服务层发布路径：`publish_document` / `rollback_to_version` 只在 `session.info` 打标，不 import RAG；publish / rollback / promotion / import upload-resolve-bulk-retry-apply 端点 commit 后统一 `drain_wiki_document_syncs`。
+- 当前产品不允许 verified report 直接编辑，`ReportService.update_draft` 仅允许 `draft/rejected`，因此 verified edit upsert hook 无需实现。
 
 收尾（每个里程碑合入前必做）：升级路径在真实数据备份上回归一次；勾选 acceptance-checklist 对应 Phase 1 子项。
 
-每步独立可验证 + 可回滚；建议按 **11 / 14 / 17 / 19 / 22** 为里程碑分别交接 review（M1 OpenViking 核心 / M2 native 隔离 / M3 删 FTS5 / M4 UI 搜索兜底 / M5 写路径 hook）。M4、M5 与 M2、M3 可并行（不同代码区），但 M3 必须在 M2 之后。
+每步独立可验证 + 可回滚。交付里程碑与本文步骤的对应：**M1 = 步骤 1-11**；**M3 = 步骤 12-14**（native 隔离）；**M4 = 步骤 15-19**（删 FTS5 + UI 搜索兜底）；**M5 = 步骤 20-22**（写路径 hook）。**M2（opencode 接入）不在本文，见 [phase-2 文档](./phase-2-opencode-integration.md)，排在 M1 之后交付。** 硬依赖：M4 必须在 M3 之后（步骤 12-14 把 `reports.py` 从 `WikiSearchService` 解耦后，步骤 15-17 才能删 FTS5）。
 
 ---
 
@@ -561,7 +633,7 @@ Wiki 写路径 hook（步骤 20-22）：
 - 临时空库 `start.sh` 跑通；OpenViking server 自动拉起，sync 队列从空开始
 - 真实数据备份升级路径完成；老数据无回归
 - 全量 sweep 后所有现存 Feature / Wiki / verified 报告 / ready 仓库都在 OpenViking 中可见
-- admin 诊断接口与卡片可读 / 可看 / 不显示宿主机绝对路径
+- admin 诊断接口与卡片可读 / 可看 / 显示完整宿主机绝对路径；路径脱敏只约束会话事件流和普通用户可见链路
 - 仪表盘三个核心组件（Health / SyncJobs / EventStream）展示真实数据：当前 embedding 配置、进行中任务进度 + ETA、最近 100 条事件
 - kill OpenViking server 后重启，仪表盘自动恢复显示进度，不需要 admin 手动刷新
 - Ollama 重启后仪表盘出现 `ollama_recovery` 事件，sync_jobs 在 1–2 分钟内自动追上进度

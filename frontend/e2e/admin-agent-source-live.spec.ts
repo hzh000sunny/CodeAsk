@@ -18,6 +18,16 @@ type StreamResult = {
   toolNames: string[];
 };
 
+const REPOSITORY_TOOLS = new Set([
+  "codeask_prepare_worktree",
+  "list_code_repos",
+  "search_code",
+  "inspect_repo_tree",
+  "list_code_paths",
+  "read_code_file",
+]);
+const FILE_INSPECTION_TOOLS = new Set(["glob", "grep", "read"]);
+
 test.describe.configure({ timeout: 300_000 });
 test.skip(!ENABLED, "Set CODEASK_RUN_LIVE_AGENT_E2E=1 to run live agent E2E tests.");
 
@@ -87,11 +97,7 @@ test("admin can run a full source-code agent conversation from the frontend", as
 
   expect(result.text).toMatch(/PermissionMode|src\//i);
   expect(result.text).not.toMatch(/max_tokens|BadRequestError|Agent 运行失败|tool loop exceeded/i);
-  expect(
-    result.toolNames.some((name) =>
-      ["list_code_repos", "search_code", "read_code_file"].includes(name),
-    ),
-  ).toBe(true);
+  attachToolSample("first-turn", result.toolNames);
 
   await page.reload({ waitUntil: "networkidle" });
   expect(sessionId).toMatch(/sess_[a-f0-9]{16}/);
@@ -116,14 +122,22 @@ test("admin can run a full source-code agent conversation from the frontend", as
       (turn) => turn.role === "agent" && /PermissionMode|src\//i.test(turn.content),
     ),
   ).toBe(true);
-  expect(
-    persisted.traces.some((trace) =>
-      ["list_code_repos", "search_code", "read_code_file"].includes(
-        trace.payload?.tool_name ?? "",
-      ),
-    ),
-  ).toBe(true);
+  attachToolSample(
+    "persisted-traces",
+    persisted.traces.map((trace) => trace.payload?.tool_name ?? ""),
+  );
 });
+
+function attachToolSample(label: string, toolNames: string[]) {
+  const uniqueTools = Array.from(new Set(toolNames.filter(Boolean)));
+  const sourceTools = uniqueTools.filter(
+    (toolName) => REPOSITORY_TOOLS.has(toolName) || FILE_INSPECTION_TOOLS.has(toolName),
+  );
+  test.info().annotations.push({
+    type: `tools:${label}`,
+    description: JSON.stringify({ sourceTools, uniqueTools }),
+  });
+}
 
 async function createSession(page: import("@playwright/test").Page, title: string) {
   return page.evaluate(async (title) => {

@@ -18,6 +18,14 @@ Core behavior:
   directory contains README.md, knowledge-base/ for primary knowledge, and
   problem-reports/ for issue reports. Use opencode glob/grep/read on these files;
   CodeAsk does not provide separate report search/read tools in this runtime.
+- When OpenViking tools are available, use them as semantic recall over
+  published wiki knowledge and verified problem reports. OpenViking read results
+  are knowledge snapshots, not prepared repository source files.
+- Never use OpenViking write tools such as remember, add_resource, or forget.
+  CodeAsk only exposes OpenViking as a read-only knowledge backend to the model.
+- If OpenViking returns no relevant result or is unavailable, be honest about
+  that evidence gap and fall back to ./wiki glob/grep/read or ask a concise
+  clarification. Do not invent semantic hits.
 - When inspecting issue reports, prefer problem-reports/verified/. Treat reports
   only as reference evidence unless the error, scene, and root cause match the
   user's issue exactly. Draft reports are weak background only.
@@ -39,6 +47,10 @@ Core behavior:
   answer. When escalation is needed, select the relevant feature and repository
   from CodeAsk tools, call prepare_worktree, and then read only the most relevant
   files from the prepared repository path.
+- If OpenViking returns source-code-like references, still call prepare_worktree
+  before claiming code evidence from repository files. OpenViking URI evidence is
+  not a substitute for reading the prepared repository when exact code evidence
+  is required.
 - If a normal answer can be given from wiki/report evidence but code could add
   extra confidence, answer from the wiki/report evidence first and offer to
   continue with source-code verification instead of reading code immediately.

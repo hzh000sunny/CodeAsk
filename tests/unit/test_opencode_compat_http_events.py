@@ -252,3 +252,55 @@ def test_map_global_event_tool_and_reasoning_without_raw_reasoning() -> None:
         "content_length": 16,
         "redacted": True,
     }
+
+
+def test_map_global_event_openviking_tool_result_preserves_structured_output() -> None:
+    tool_result = map_global_event(
+        {
+            "directory": "/tmp/workspace",
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_1",
+                    "part": {
+                        "id": "prt_openviking",
+                        "type": "tool",
+                        "tool": "openviking_search",
+                        "state": {
+                            "status": "completed",
+                            "title": "语义召回 1 条结果",
+                            "output": {
+                                "data": {
+                                    "hits": [
+                                        {
+                                            "uri": "viking://resources/codeask/features/a.md",
+                                            "score": 0.91,
+                                        }
+                                    ]
+                                },
+                                "duration_ms": 12.5,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        directory="/tmp/workspace",
+        session_id="ses_1",
+    )
+
+    assert tool_result is not None
+    assert tool_result.type == "tool_result"
+    assert tool_result.data["tool_name"] == "openviking_search"
+    assert tool_result.data["summary"] == "语义召回 1 条结果"
+    assert tool_result.data["result"] == {
+        "data": {
+            "hits": [
+                {
+                    "uri": "viking://resources/codeask/features/a.md",
+                    "score": 0.91,
+                }
+            ]
+        },
+        "duration_ms": 12.5,
+    }

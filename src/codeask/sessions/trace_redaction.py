@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from copy import deepcopy
-from typing import Any
+from typing import TypeVar, cast
 
 _AGENT_SESSION_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_.-])(?:[A-Za-z]:)?/?[^\s\"'`<>|)]*/agent_sessions/[^\s\"'`<>|)]+/"
@@ -19,20 +19,24 @@ _POSIX_ABSOLUTE_PATH_RE = re.compile(
 
 HIDDEN_ABSOLUTE_PATH = "[外部绝对路径已隐藏]"
 
+_PayloadT = TypeVar("_PayloadT")
 
-def redact_trace_payload_for_frontend(payload: Any, *, session_id: str) -> Any:
+
+def redact_trace_payload_for_frontend(payload: _PayloadT, *, session_id: str) -> _PayloadT:
     """Return a redacted copy for UI/API output without mutating runtime payloads."""
 
-    return _redact_value(deepcopy(payload), session_id=session_id)
+    return cast(_PayloadT, _redact_value(deepcopy(payload), session_id=session_id))
 
 
-def _redact_value(value: Any, *, session_id: str) -> Any:
+def _redact_value(value: object, *, session_id: str) -> object:
     if isinstance(value, str):
         return _redact_text(value, session_id=session_id)
     if isinstance(value, list):
-        return [_redact_value(item, session_id=session_id) for item in value]
+        items = cast(list[object], value)
+        return [_redact_value(item, session_id=session_id) for item in items]
     if isinstance(value, dict):
-        return {key: _redact_value(child, session_id=session_id) for key, child in value.items()}
+        items = cast(dict[object, object], value)
+        return {key: _redact_value(child, session_id=session_id) for key, child in items.items()}
     return value
 
 

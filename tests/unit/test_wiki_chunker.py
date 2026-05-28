@@ -44,12 +44,12 @@ def test_markdown_chunk_carries_signals() -> None:
     assert "NullPointerException" in flat_exceptions
 
 
-def test_markdown_chunk_has_tokenized_and_ngram() -> None:
+def test_markdown_chunk_no_longer_carries_fts_payloads() -> None:
     chunker = DocumentChunker()
     chunks = chunker.chunk_markdown(MARKDOWN_SAMPLE)
     first = chunks[0]
-    assert first.tokenized_text != ""
-    assert first.ngram_text != ""
+    assert not hasattr(first, "tokenized_text")
+    assert not hasattr(first, "ngram_text")
     assert first.chunk_index == 0
 
 

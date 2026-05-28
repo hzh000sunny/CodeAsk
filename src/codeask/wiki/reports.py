@@ -13,7 +13,6 @@ from codeask.db.models import Report, SessionTurn
 from codeask.metrics.audit import record_audit_log
 from codeask.sessions.reports import merge_session_report_metadata
 from codeask.wiki.audit import AuditWriter
-from codeask.wiki.indexer import WikiIndexer
 
 
 class ReportVerificationError(Exception):
@@ -104,10 +103,8 @@ async def _metadata_with_session_fallback(
 class ReportService:
     def __init__(
         self,
-        indexer: WikiIndexer | None = None,
         audit: AuditWriter | None = None,
     ) -> None:
-        self._indexer = indexer or WikiIndexer()
         self._audit = audit or AuditWriter()
 
     async def create_draft(
@@ -163,7 +160,7 @@ class ReportService:
         session_id: str,
         keep_report_id: int,
     ) -> list[Report]:
-        return (
+        return list(
             (
                 await session.execute(
                     select(Report)
@@ -253,8 +250,6 @@ class ReportService:
         report.verified_by = subject_id
         report.verified_at = datetime.now(UTC)
         await session.flush()
-        await self._indexer.unindex_report(session, report_id=int(report.id))
-        await self._indexer.index_report(session, report)
         await record_audit_log(
             session,
             entity_type="report",
@@ -281,7 +276,6 @@ class ReportService:
         report.verified = False
         report.status = "draft"
         await session.flush()
-        await self._indexer.unindex_report(session, report_id=int(report.id))
         await record_audit_log(
             session,
             entity_type="report",
@@ -311,7 +305,6 @@ class ReportService:
         report.verified_by = None
         report.verified_at = None
         await session.flush()
-        await self._indexer.unindex_report(session, report_id=int(report.id))
         await record_audit_log(
             session,
             entity_type="report",

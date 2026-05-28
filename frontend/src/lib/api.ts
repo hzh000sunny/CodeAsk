@@ -4,6 +4,7 @@ export * from "./api-client";
 export * from "./api-feature-admins";
 export * from "./api-llm-configs";
 export * from "./api-opencode";
+export * from "./api-openviking";
 export * from "./api-repos";
 export * from "./api-sessions";
 export * from "./api-skills";

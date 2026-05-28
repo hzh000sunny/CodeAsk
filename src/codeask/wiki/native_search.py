@@ -16,6 +16,7 @@ from codeask.db.models import (
     WikiSpace,
 )
 from codeask.wiki.chunker import DocumentChunker
+from codeask.wiki.search_grouping import group_for_search_hit
 
 
 @dataclass(slots=True)
@@ -56,6 +57,15 @@ class NativeWikiSearchService:
         pattern = f"%{needle}%"
         hits: list[NativeWikiSearchHit] = []
 
+        document_filters = [
+            WikiNode.deleted_at.is_(None),
+            or_(
+                WikiDocument.title.ilike(pattern),
+                WikiDocumentVersion.body_markdown.ilike(pattern),
+            ),
+        ]
+        if feature_id is not None:
+            document_filters.append(WikiSpace.feature_id == feature_id)
         document_rows = (
             await session.execute(
                 select(
@@ -72,14 +82,7 @@ class NativeWikiSearchService:
                     WikiDocumentVersion.id == WikiDocument.current_version_id,
                 )
                 .join(WikiSpace, WikiSpace.id == WikiNode.space_id)
-                .where(
-                    WikiNode.deleted_at.is_(None),
-                    WikiSpace.feature_id == feature_id if feature_id is not None else True,
-                    or_(
-                        WikiDocument.title.ilike(pattern),
-                        WikiDocumentVersion.body_markdown.ilike(pattern),
-                    ),
-                )
+                .where(*document_filters)
                 .order_by(WikiNode.updated_at.desc(), WikiNode.id.desc())
             )
         ).all()
@@ -91,7 +94,7 @@ class NativeWikiSearchService:
             space_scope,
             space_status,
         ) in document_rows:
-            group_key, group_label = _group_for_hit(
+            group_key, group_label = group_for_search_hit(
                 kind="document",
                 hit_feature_id=document_feature_id,
                 grouping_feature_id=grouping_feature_id,
@@ -119,6 +122,12 @@ class NativeWikiSearchService:
                 )
             )
 
+        report_filters = [
+            WikiNode.deleted_at.is_(None),
+            or_(Report.title.ilike(pattern), Report.body_markdown.ilike(pattern)),
+        ]
+        if feature_id is not None:
+            report_filters.append(WikiSpace.feature_id == feature_id)
         report_rows = (
             await session.execute(
                 select(
@@ -132,16 +141,12 @@ class NativeWikiSearchService:
                 .join(WikiReportRef, WikiReportRef.node_id == WikiNode.id)
                 .join(Report, Report.id == WikiReportRef.report_id)
                 .join(WikiSpace, WikiSpace.id == WikiNode.space_id)
-                .where(
-                    WikiNode.deleted_at.is_(None),
-                    WikiSpace.feature_id == feature_id if feature_id is not None else True,
-                    or_(Report.title.ilike(pattern), Report.body_markdown.ilike(pattern)),
-                )
+                .where(*report_filters)
                 .order_by(Report.updated_at.desc(), Report.id.desc())
             )
         ).all()
         for node, report_ref, report, report_feature_id, space_scope, space_status in report_rows:
-            group_key, group_label = _group_for_hit(
+            group_key, group_label = group_for_search_hit(
                 kind="report_ref",
                 hit_feature_id=report_feature_id,
                 grouping_feature_id=grouping_feature_id,
@@ -174,28 +179,6 @@ def _score(title: str, body: str, lowered_query: str) -> float:
     if lowered_query in body.lower():
         score += 1.0
     return score
-
-
-def _group_for_hit(
-    *,
-    kind: str,
-    hit_feature_id: int | None,
-    grouping_feature_id: int | None,
-    space_scope: str | None,
-    space_status: str | None,
-) -> tuple[str, str]:
-    is_history = space_scope == "history" or space_status == "archived"
-    if grouping_feature_id is None:
-        if kind == "report_ref":
-            return ("reports", "报告")
-        return ("all_documents", "全部文档")
-    if hit_feature_id == grouping_feature_id:
-        if kind == "report_ref":
-            return ("current_feature_reports", "问题定位报告")
-        return ("current_feature", "当前特性")
-    if is_history:
-        return ("history_features", "历史特性")
-    return ("other_current_features", "其它当前特性")
 
 
 def _snippet(body: str, lowered_query: str, *, radius: int = 64) -> str:

@@ -8,7 +8,6 @@ expanding this router further.
 from __future__ import annotations
 
 import shutil
-from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
@@ -16,19 +15,16 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, s
 from sqlalchemy import select
 
 from codeask.api.schemas.wiki import DocumentRead
-from codeask.api.schemas.wiki import DocumentSearchHit as DocumentSearchHitSchema
 from codeask.api.wiki.deps import SessionDep, load_feature
-from codeask.db.models import Document, DocumentChunk, DocumentReference
+from codeask.db.models import Document, DocumentReference
 from codeask.metrics.audit import record_audit_log
+from codeask.rag.openviking.hooks import enqueue_legacy_wiki_document_sync
 from codeask.wiki.api_support import (
     kind_from_filename,
     markdown_references,
     parse_tags,
     wiki_storage_dir,
 )
-from codeask.wiki.chunker import DocumentChunker
-from codeask.wiki.indexer import WikiIndexer
-from codeask.wiki.search import WikiSearchService
 from codeask.wiki.sync import LegacyWikiSyncService
 from codeask.wiki.uploads import UnsupportedMime, validate_upload
 
@@ -77,13 +73,6 @@ async def upload_document(
             detail=str(exc),
         ) from exc
 
-    parsed_chunks = DocumentChunker().chunk_file(target, kind=kind)
-    if not parsed_chunks:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="document parsed to zero chunks",
-        )
-
     document = Document(
         feature_id=feature_id,
         kind=kind,
@@ -108,24 +97,6 @@ async def upload_document(
                 )
             )
 
-    indexer = WikiIndexer()
-    for parsed in parsed_chunks:
-        chunk = DocumentChunk(
-            document_id=document.id,
-            chunk_index=parsed.chunk_index,
-            heading_path=parsed.heading_path,
-            raw_text=parsed.raw_text,
-            normalized_text=parsed.normalized_text,
-            tokenized_text=parsed.tokenized_text,
-            ngram_text=parsed.ngram_text,
-            signals_json=parsed.signals_json,
-            start_offset=parsed.start_offset,
-            end_offset=parsed.end_offset,
-        )
-        session.add(chunk)
-        await session.flush()
-        await indexer.index_chunk(session, chunk, document)
-
     if kind == "markdown" and raw_text is not None:
         await LegacyWikiSyncService().sync_legacy_markdown_document(
             session,
@@ -138,21 +109,13 @@ async def upload_document(
         )
 
     await session.commit()
+    await enqueue_legacy_wiki_document_sync(
+        request,
+        legacy_document_id=int(document.id),
+        operation="upsert",
+    )
     await session.refresh(document)
     return DocumentRead.model_validate(document)
-
-
-@router.get("/search", response_model=list[DocumentSearchHitSchema])
-async def search_documents(
-    session: SessionDep,
-    q: str,
-    feature_id: int | None = None,
-    limit: int = 20,
-) -> list[DocumentSearchHitSchema]:
-    hits = await WikiSearchService().search_documents(
-        session, q, feature_id=feature_id, limit=limit
-    )
-    return [DocumentSearchHitSchema(**asdict(hit)) for hit in hits]
 
 
 @router.get("/{document_id}", response_model=DocumentRead)
@@ -173,7 +136,6 @@ async def delete_document(document_id: int, request: Request, session: SessionDe
     if document is None or document.is_deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
     _require_feature_write(request, int(document.feature_id))
-    await WikiIndexer().unindex_chunks_for_document(session, doc_id=document_id)
     document.is_deleted = True
     await LegacyWikiSyncService().soft_delete_legacy_document(
         session,
@@ -190,6 +152,11 @@ async def delete_document(document_id: int, request: Request, session: SessionDe
         subject_id=request.state.subject_id,
     )
     await session.commit()
+    await enqueue_legacy_wiki_document_sync(
+        request,
+        legacy_document_id=document_id,
+        operation="delete",
+    )
 
 
 def _require_feature_write(request: Request, feature_id: int) -> None:

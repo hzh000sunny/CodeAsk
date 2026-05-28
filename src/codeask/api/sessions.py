@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from contextlib import suppress
 from datetime import date
 from pathlib import Path
 from secrets import token_hex
 from time import perf_counter
-from typing import Annotated
+from typing import Annotated, TypedDict, cast
 
 import structlog
 from fastapi import (
@@ -24,9 +25,10 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
-from codeask.agent.sse import SSEMultiplexer
+from codeask.agent.sse import AgentEvent, SSEMultiplexer
 from codeask.api.schemas.session import (
     AgentTraceResponse,
     AttachmentResponse,
@@ -98,24 +100,47 @@ _DEFAULT_SESSION_TITLE = "新的研发会话"
 _SESSION_ATTACHMENTS_ENABLED_KEY = "session_attachments_enabled"
 
 
+class _ReasoningTraceBucket(TypedDict):
+    fields: set[str]
+    length: int
+    chunks: int
+    redacted: bool
+
+
+def _dict_payload(value: object) -> dict[str, object]:
+    if isinstance(value, dict):
+        return cast(dict[str, object], value)
+    return {}
+
+
+def _list_payload(value: object) -> list[object]:
+    if isinstance(value, list):
+        return cast(list[object], value)
+    return []
+
+
+def _format_runtime_event(multiplexer: SSEMultiplexer, event: ChatRuntimeEvent) -> bytes:
+    return multiplexer.format(cast(AgentEvent, event))
+
+
 def _compact_reasoning_trace_responses(rows: list[AgentTrace]) -> list[AgentTraceResponse]:
     responses: list[AgentTraceResponse] = []
-    reasoning_by_turn: dict[str, dict[str, object]] = {}
+    reasoning_by_turn: dict[str, _ReasoningTraceBucket] = {}
     reasoning_order: dict[str, int] = {}
     for row in rows:
         if row.event_type != "reasoning_observed":
             responses.append(AgentTraceResponse.model_validate(row))
             continue
 
-        payload = row.payload if isinstance(row.payload, dict) else {}
+        payload = _dict_payload(row.payload)
         bucket = reasoning_by_turn.get(row.turn_id)
         if bucket is None:
-            bucket = {
-                "fields": set(),
-                "length": 0,
-                "chunks": 0,
-                "redacted": False,
-            }
+            bucket = _ReasoningTraceBucket(
+                fields=set[str](),
+                length=0,
+                chunks=0,
+                redacted=False,
+            )
             reasoning_by_turn[row.turn_id] = bucket
             reasoning_order[row.turn_id] = len(responses)
             responses.append(
@@ -131,16 +156,14 @@ def _compact_reasoning_trace_responses(rows: list[AgentTrace]) -> list[AgentTrac
                 )
             )
 
-        fields = bucket["fields"]
-        if isinstance(fields, set):
-            field = payload.get("field")
-            if isinstance(field, str) and field:
-                fields.update(part.strip() for part in field.split(",") if part.strip())
+        field = payload.get("field")
+        if isinstance(field, str) and field:
+            bucket["fields"].update(part.strip() for part in field.split(",") if part.strip())
         length = payload.get("length")
         if isinstance(length, int):
-            bucket["length"] = int(bucket["length"]) + length
+            bucket["length"] += length
         chunks = payload.get("chunks")
-        bucket["chunks"] = int(bucket["chunks"]) + (chunks if isinstance(chunks, int) else 1)
+        bucket["chunks"] += chunks if isinstance(chunks, int) else 1
         if payload.get("redacted") is True:
             bucket["redacted"] = True
 
@@ -148,10 +171,10 @@ def _compact_reasoning_trace_responses(rows: list[AgentTrace]) -> list[AgentTrac
         index = reasoning_order[turn_id]
         fields = bucket["fields"]
         responses[index].payload = {
-            "field": ", ".join(sorted(fields)) if isinstance(fields, set) and fields else "unknown",
-            "length": int(bucket["length"]),
-            "chunks": int(bucket["chunks"]),
-            "redacted": bool(bucket["redacted"]),
+            "field": ", ".join(sorted(fields)) if fields else "unknown",
+            "length": bucket["length"],
+            "chunks": bucket["chunks"],
+            "redacted": bucket["redacted"],
             "raw_reasoning_used": False,
         }
     return responses
@@ -407,11 +430,11 @@ async def _stream_post_message_response(
             "turn_id": turn_id,
         },
     )
-    received_data = timing.annotate(
-        received_event.type,
-        dict(received_event.data) if isinstance(received_event.data, dict) else {},
+    received_data = timing.annotate(received_event.type, _dict_payload(received_event.data))
+    yield _format_runtime_event(
+        multiplexer,
+        received_event.model_copy(update={"data": received_data}),
     )
-    yield multiplexer.format(received_event.model_copy(update={"data": received_data}))
     try:
         _record_opencode_server_status_if_configured(request)
         log.info("session_message_preflight_start", session_id=session_id, turn_id=turn_id)
@@ -435,7 +458,6 @@ async def _stream_post_message_response(
             session_id,
             turn_id,
             payload.content,
-            force_code_investigation=payload.force_code_investigation,
             runtime_llm_config=(
                 payload.guest_llm_config.model_dump()
                 if payload.guest_llm_config is not None
@@ -468,11 +490,9 @@ async def _stream_post_message_response(
                 "error": _stream_error_message(exc),
             },
         )
-        error_data = timing.annotate(
-            error_event.type,
-            dict(error_event.data) if isinstance(error_event.data, dict) else {},
-        )
-        yield multiplexer.format(
+        error_data = timing.annotate(error_event.type, _dict_payload(error_event.data))
+        yield _format_runtime_event(
+            multiplexer,
             error_event.model_copy(
                 update={
                     "data": redact_trace_payload_for_frontend(
@@ -480,24 +500,25 @@ async def _stream_post_message_response(
                         session_id=session_id,
                     )
                 }
-            )
+            ),
         )
 
 
 def _record_opencode_server_status_if_configured(request: Request) -> None:
-    if getattr(request.app.state.settings, "agent_backend", "opencode") != "opencode":
-        return
     process_manager = getattr(request.app.state, "opencode_process_manager", None)
     describe = getattr(process_manager, "describe", None)
     if not callable(describe):
         return
-    status = dict(describe())
+    raw_status = describe()
+    status_payload = (
+        dict(cast(Mapping[str, object], raw_status)) if isinstance(raw_status, Mapping) else {}
+    )
     log.info(
         "opencode_server_status_before_request",
-        running=status.get("running"),
-        port=status.get("port"),
-        pid=status.get("pid"),
-        last_error_code=status.get("last_error_code"),
+        running=status_payload.get("running"),
+        port=status_payload.get("port"),
+        pid=status_payload.get("pid"),
+        last_error_code=status_payload.get("last_error_code"),
     )
 
 
@@ -533,9 +554,8 @@ async def abort_session_turn(session_id: str, turn_id: str, request: Request) ->
     await _load_session(request, session_id)
     from codeask.sessions.messages import rollback_session_turn
 
-    if getattr(request.app.state.settings, "agent_backend", "opencode") == "opencode":
-        with suppress(Exception):
-            await request.app.state.opencode_compat.abort_turn(session_id)
+    with suppress(Exception):
+        await request.app.state.opencode_compat.abort_turn(session_id)
     await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
 
 
@@ -733,9 +753,7 @@ async def generate_session_report(
             session_id=session_id,
         )
         existing_metadata = (
-            existing_report.metadata_json
-            if existing_report is not None and isinstance(existing_report.metadata_json, dict)
-            else {}
+            _dict_payload(existing_report.metadata_json) if existing_report is not None else {}
         )
         report = await report_service.upsert_session_draft(
             session,
@@ -977,7 +995,7 @@ def _report_prepare_cache_for_app(app: FastAPI) -> dict[str, SessionReportPrepar
     if not isinstance(cache, dict):
         cache = {}
         app.state.report_prepare_results = cache
-    return cache
+    return cast(dict[str, SessionReportPrepareStatus], cache)
 
 
 def _report_prepare_cache(request: Request) -> dict[str, SessionReportPrepareStatus]:
@@ -989,7 +1007,7 @@ def _report_prepare_tasks(app: FastAPI) -> dict[str, asyncio.Task[None]]:
     if not isinstance(tasks, dict):
         tasks = {}
         app.state.report_prepare_tasks = tasks
-    return tasks
+    return cast(dict[str, asyncio.Task[None]], tasks)
 
 
 def _report_prepare_cache_key(session_id: str, request_id: str) -> str:
@@ -1020,8 +1038,8 @@ def _store_report_prepare_status(
     _store_report_prepare_status_for_app(request.app, session_id, request_id, value)
 
 
-async def _load_session_turns(session: object, session_id: str) -> list[SessionTurn]:
-    return (
+async def _load_session_turns(session: AsyncSession, session_id: str) -> list[SessionTurn]:
+    rows = (
         (
             await session.execute(
                 select(SessionTurn)
@@ -1032,9 +1050,10 @@ async def _load_session_turns(session: object, session_id: str) -> list[SessionT
         .scalars()
         .all()
     )
+    return list(rows)
 
 
-async def _load_session_traces(session: object, session_id: str) -> str | None:
+async def _load_session_traces(session: AsyncSession, session_id: str) -> str | None:
     rows = (
         (
             await session.execute(
@@ -1051,8 +1070,8 @@ async def _load_session_traces(session: object, session_id: str) -> str | None:
     return summarize_tool_actions(list(rows))
 
 
-async def _load_inferred_feature_ids(session: object, *, session_id: str) -> list[int]:
-    session_feature_rows = (
+async def _load_inferred_feature_ids(session: AsyncSession, *, session_id: str) -> list[int]:
+    session_feature_rows = list(
         (
             await session.execute(
                 select(SessionFeature.feature_id).where(SessionFeature.session_id == session_id)
@@ -1061,13 +1080,15 @@ async def _load_inferred_feature_ids(session: object, *, session_id: str) -> lis
         .scalars()
         .all()
     )
-    trace_rows = (
-        await session.execute(
-            select(AgentTrace.event_type, AgentTrace.payload)
-            .where(AgentTrace.session_id == session_id)
-            .order_by(AgentTrace.created_at.asc(), AgentTrace.id.asc())
-        )
-    ).all()
+    trace_rows = list(
+        (
+            await session.execute(
+                select(AgentTrace.event_type, AgentTrace.payload)
+                .where(AgentTrace.session_id == session_id)
+                .order_by(AgentTrace.created_at.asc(), AgentTrace.id.asc())
+            )
+        ).all()
+    )
     scores: dict[int, int] = {}
     latest_order: dict[int, int] = {}
     order = 0
@@ -1079,10 +1100,13 @@ async def _load_inferred_feature_ids(session: object, *, session_id: str) -> lis
         order += 1
 
     for value in session_feature_rows:
-        if isinstance(value, int):
-            add_observation(value, _FEATURE_INFERENCE_SESSION_BINDING_WEIGHT)
+        add_observation(value, _FEATURE_INFERENCE_SESSION_BINDING_WEIGHT)
 
-    for event_type, payload in trace_rows:
+    for row in trace_rows:
+        event_type = row[0]
+        payload = row[1]
+        if not isinstance(event_type, str):
+            continue
         for feature_id, weight in _feature_observations_from_trace_payload(event_type, payload):
             add_observation(feature_id, weight)
 
@@ -1096,13 +1120,6 @@ async def _load_inferred_feature_ids(session: object, *, session_id: str) -> lis
     )
 
 
-def _feature_ids_from_trace_payload(event_type: str, payload: object) -> list[int]:
-    return [
-        feature_id
-        for feature_id, _weight in _feature_observations_from_trace_payload(event_type, payload)
-    ]
-
-
 def _feature_observations_from_trace_payload(
     event_type: str,
     payload: object,
@@ -1114,15 +1131,15 @@ def _feature_observations_from_trace_payload(
             feature_ids.append(value)
 
     def append_ids(values: object) -> None:
-        if isinstance(values, list):
-            for item in values:
-                append_id(item)
+        for item in _list_payload(values):
+            append_id(item)
 
-    data = payload if isinstance(payload, dict) else {}
+    data = _dict_payload(payload)
     if event_type == "scope_decision":
         output = data.get("output")
-        if isinstance(output, dict):
-            append_ids(output.get("feature_ids"))
+        output_data = _dict_payload(output)
+        if output_data:
+            append_ids(output_data.get("feature_ids"))
         return [
             (feature_id, _FEATURE_INFERENCE_SCOPE_DECISION_WEIGHT) for feature_id in feature_ids
         ]
@@ -1134,52 +1151,45 @@ def _feature_observations_from_trace_payload(
             ("wiki_hits", _FEATURE_INFERENCE_WIKI_HIT_WEIGHT),
             ("report_hits", _FEATURE_INFERENCE_REPORT_HIT_WEIGHT),
         ):
-            items = data.get(key)
-            if not isinstance(items, list):
-                continue
-            for item in items:
-                if isinstance(item, dict):
-                    value = item.get("feature_id")
+            for item in _list_payload(data.get(key)):
+                item_data = _dict_payload(item)
+                if item_data:
+                    value = item_data.get("feature_id")
                     if isinstance(value, int):
                         observations.append((value, weight))
         return observations
 
     if event_type == "wiki_scope_resolution":
-        observations = []
-        if isinstance(data.get("feature_ids"), list):
-            for item in data["feature_ids"]:
-                if isinstance(item, int):
-                    observations.append((item, _FEATURE_INFERENCE_WIKI_SCOPE_MATCH_WEIGHT))
+        observations: list[tuple[int, int]] = []
+        for item in _list_payload(data.get("feature_ids")):
+            if isinstance(item, int):
+                observations.append((item, _FEATURE_INFERENCE_WIKI_SCOPE_MATCH_WEIGHT))
         for key in ("defaults", "matches"):
-            items = data.get(key)
-            if not isinstance(items, list):
-                continue
-            for item in items:
-                if isinstance(item, dict):
-                    value = item.get("feature_id")
+            for item in _list_payload(data.get(key)):
+                item_data = _dict_payload(item)
+                if item_data:
+                    value = item_data.get("feature_id")
                     if isinstance(value, int):
                         observations.append((value, _FEATURE_INFERENCE_WIKI_SCOPE_MATCH_WEIGHT))
         return observations
 
     if event_type == "tool_result":
-        observations = []
+        observations: list[tuple[int, int]] = []
         evidence_refs = data.get("evidence_refs")
-        if isinstance(evidence_refs, list):
-            for ref in evidence_refs:
-                if not isinstance(ref, dict):
-                    continue
-                metadata = ref.get("metadata")
-                if isinstance(metadata, dict):
-                    value = metadata.get("feature_id")
-                    if isinstance(value, int):
-                        observations.append((value, _FEATURE_INFERENCE_TOOL_EVIDENCE_WEIGHT))
-        version_info = data.get("version_info")
-        if isinstance(version_info, dict):
-            feature_ids = version_info.get("feature_ids")
-            if isinstance(feature_ids, list):
-                for item in feature_ids:
-                    if isinstance(item, int):
-                        observations.append((item, _FEATURE_INFERENCE_VERSION_INFO_WEIGHT))
+        for ref in _list_payload(evidence_refs):
+            ref_data = _dict_payload(ref)
+            if not ref_data:
+                continue
+            metadata = _dict_payload(ref_data.get("metadata"))
+            if metadata:
+                value = metadata.get("feature_id")
+                if isinstance(value, int):
+                    observations.append((value, _FEATURE_INFERENCE_TOOL_EVIDENCE_WEIGHT))
+        version_info = _dict_payload(data.get("version_info"))
+        if version_info:
+            for item in _list_payload(version_info.get("feature_ids")):
+                if isinstance(item, int):
+                    observations.append((item, _FEATURE_INFERENCE_VERSION_INFO_WEIGHT))
         return observations
 
     return []
@@ -1198,7 +1208,7 @@ def _select_report_feature_id(
     return existing_feature_id
 
 
-async def _load_optional_feature(session: object, feature_id: int | None) -> Feature | None:
+async def _load_optional_feature(session: AsyncSession, feature_id: int | None) -> Feature | None:
     if feature_id is None:
         return None
     feature = await session.get(Feature, feature_id)

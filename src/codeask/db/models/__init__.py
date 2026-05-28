@@ -36,6 +36,12 @@ from codeask.db.models.wiki import (
     WikiSource,
     WikiSpace,
 )
+from codeask.rag.openviking.models import (
+    OpenVikingDashboardEvent,
+    OpenVikingEmbeddingSetting,
+    OpenVikingSyncJob,
+    OpenVikingTuningSetting,
+)
 
 __all__ = [
     "AgentTrace",
@@ -49,6 +55,10 @@ __all__ = [
     "FrontendEvent",
     "LLMConfig",
     "LLMRuntimeAdapter",
+    "OpenVikingDashboardEvent",
+    "OpenVikingEmbeddingSetting",
+    "OpenVikingSyncJob",
+    "OpenVikingTuningSetting",
     "Repo",
     "Report",
     "WikiAsset",

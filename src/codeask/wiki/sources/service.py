@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -183,7 +184,8 @@ class WikiSourceService:
             return False
         if not source.display_name.startswith("导入会话 "):
             return False
-        metadata = source.metadata_json if isinstance(source.metadata_json, dict) else {}
+        metadata_raw: object = source.metadata_json
+        metadata = cast(dict[str, object], metadata_raw) if isinstance(metadata_raw, dict) else {}
         import_session_id = metadata.get("import_session_id")
         if not isinstance(import_session_id, int):
             return False
@@ -210,7 +212,8 @@ class WikiSourceService:
             return None
         if not source.display_name.startswith("导入会话 "):
             return None
-        metadata = source.metadata_json if isinstance(source.metadata_json, dict) else {}
+        metadata_raw: object = source.metadata_json
+        metadata = cast(dict[str, object], metadata_raw) if isinstance(metadata_raw, dict) else {}
         root_label = metadata.get("root_label")
         if isinstance(root_label, str) and root_label.strip():
             return root_label.strip()
@@ -234,8 +237,11 @@ class WikiSourceService:
         for provenance_json, deleted_at in document_rows:
             if deleted_at is not None:
                 continue
-            if isinstance(provenance_json, dict) and provenance_json.get("source_id") == source_id:
-                source_path = provenance_json.get("source_path")
+            if isinstance(provenance_json, dict):
+                provenance = cast(dict[str, object], provenance_json)
+                if provenance.get("source_id") != source_id:
+                    continue
+                source_path = provenance.get("source_path")
                 if isinstance(source_path, str) and source_path.strip():
                     paths.append(source_path.strip())
 
@@ -249,8 +255,11 @@ class WikiSourceService:
         for provenance_json, deleted_at in asset_rows:
             if deleted_at is not None:
                 continue
-            if isinstance(provenance_json, dict) and provenance_json.get("source_id") == source_id:
-                source_path = provenance_json.get("source_path")
+            if isinstance(provenance_json, dict):
+                provenance = cast(dict[str, object], provenance_json)
+                if provenance.get("source_id") != source_id:
+                    continue
+                source_path = provenance.get("source_path")
                 if isinstance(source_path, str) and source_path.strip():
                     paths.append(source_path.strip())
         return paths

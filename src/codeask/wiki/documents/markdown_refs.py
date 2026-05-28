@@ -78,7 +78,7 @@ async def resolve_markdown_references(
     space_id: int,
     source_node_path: str,
     references: list[MarkdownReference],
-) -> dict[str, list[dict[str, object]]]:
+) -> dict[str, object]:
     resolved: list[dict[str, object]] = []
     broken_links: list[dict[str, object]] = []
     broken_assets: list[dict[str, object]] = []
@@ -93,7 +93,7 @@ async def resolve_markdown_references(
                 )
             )
         ).scalar_one_or_none()
-        item = {
+        item: dict[str, object] = {
             "target": ref.target,
             "kind": ref.kind,
             "resolved_path": resolved_path,

@@ -218,6 +218,187 @@ export interface UserCandidateResponse {
   username: string;
 }
 
+export interface OpenVikingStatusResponse {
+  running: boolean;
+  available?: boolean;
+  degraded?: boolean;
+  base_url?: string | null;
+  port?: number | null;
+  pid?: number | null;
+  version?: string | null;
+  verified_version?: string | null;
+  last_error?: string | null;
+  last_error_code?: string | null;
+  config_file?: string | null;
+  workspace_path?: string | null;
+  log_file?: string | null;
+  queue: Record<string, number>;
+  metrics_5min?: {
+    collected: boolean;
+    window_seconds: number;
+    throughput_per_min: number | null;
+    latency_p95_ms: number | null;
+    breaker_trips: number | null;
+    message: string | null;
+  };
+  health?: {
+    healthy: boolean;
+    version: string | null;
+    error: string | null;
+  };
+  ollama?: {
+    healthy: boolean;
+    model_available: boolean;
+    required_model: string;
+    models: string[];
+    error: string | null;
+  };
+}
+
+export interface OpenVikingSyncJob {
+  id: string;
+  source_type: string;
+  source_id: string;
+  feature_slug: string | null;
+  viking_uri: string | null;
+  status: string;
+  attempts: number;
+  next_retry_at: string | null;
+  last_synced_at: string | null;
+  last_indexed_at: string | null;
+  error: string | null;
+  progress: unknown | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface OpenVikingSyncJobsResponse {
+  items: OpenVikingSyncJob[];
+  total: number;
+}
+
+export interface OpenVikingDashboardEvent {
+  id: number;
+  event_type: string;
+  source_type: string | null;
+  source_id: string | null;
+  sync_job_id: string | null;
+  triggered_by: string | null;
+  payload: unknown | null;
+  outcome: "info" | "success" | "warning" | "error";
+  created_at: string | null;
+}
+
+export interface OpenVikingEventsResponse {
+  items: OpenVikingDashboardEvent[];
+  next_before_id: number | null;
+}
+
+export interface OpenVikingEmbeddingResponse {
+  id: number;
+  provider: string;
+  base_url: string;
+  model: string;
+  dimension: number | null;
+  max_concurrent: number;
+  rebuild_status: string;
+  rebuild_progress: unknown | null;
+}
+
+export interface OpenVikingEmbeddingCandidate {
+  provider: string;
+  base_url: string;
+  model: string;
+  source: string;
+}
+
+export interface OpenVikingEmbeddingCandidatesResponse {
+  items: OpenVikingEmbeddingCandidate[];
+  ollama: {
+    healthy: boolean;
+    model_available: boolean;
+    error: string | null;
+  };
+}
+
+export interface OpenVikingEmbeddingSwitchRequest {
+  provider: string;
+  base_url: string;
+  model: string;
+  dimension: number | null;
+  max_concurrent: number;
+}
+
+export interface OpenVikingTuningItem {
+  key: string;
+  value: string;
+  activated_at: string;
+  activated_by: string | null;
+  previous_value: string | null;
+  recommended: string | null;
+  notes: string | null;
+}
+
+export interface OpenVikingTuningResponse {
+  scopes: Record<string, OpenVikingTuningItem[]>;
+  preset: string;
+}
+
+export interface OpenVikingTuningChange {
+  scope: string;
+  key: string;
+  value: string;
+  notes?: string | null;
+}
+
+export interface OpenVikingTuningApplyRequest {
+  changes: OpenVikingTuningChange[];
+}
+
+export interface OpenVikingTuningApplyResponse {
+  applied: Array<{
+    scope: string;
+    key: string;
+    value: string;
+    previous_value: string | null;
+  }>;
+  rejected: Array<{
+    scope: string;
+    key: string;
+    reason: string;
+  }>;
+  estimated_downtime_seconds: number;
+}
+
+export interface OpenVikingTuningPresetResponse {
+  preset: string;
+  detected_host: Record<string, unknown>;
+  preset_values: Array<{
+    scope: string;
+    key: string;
+    value: string;
+    recommended: string;
+  }>;
+}
+
+export interface OpenVikingOllamaSnippetResponse {
+  snippet: string;
+  num_parallel: string;
+  num_thread: string;
+}
+
+export interface OpenVikingOllamaVerifyResponse {
+  verified: boolean;
+  expected_num_parallel: number;
+  observed_parallel: number | null;
+  error: string | null;
+}
+
+export interface OpenVikingMutationCountResponse {
+  queued: number;
+  rebuild_status?: number | string;
+}
+
 export interface FeatureAdminRead {
   feature_id: number;
   user_id: string;

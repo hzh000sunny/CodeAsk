@@ -7,12 +7,26 @@ from typing import Protocol
 
 
 class LLMConfigLike(Protocol):
-    id: str
-    name: str
-    protocol: str
-    base_url: str | None
-    api_key: str
-    model_name: str
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def protocol(self) -> str: ...
+
+    @property
+    def base_url(self) -> str | None: ...
+
+    @property
+    def api_key(self) -> str: ...
+
+    @property
+    def model_name(self) -> str: ...
+
+    @property
+    def opencode_provider_profile(self) -> str | None: ...
 
 
 class UnsupportedOpenCodeProtocolError(ValueError):

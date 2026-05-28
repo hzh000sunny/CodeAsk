@@ -7,6 +7,7 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from secrets import token_hex
+from typing import Literal, cast
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import delete, select
@@ -24,7 +25,7 @@ from codeask.db.models import (
 )
 from codeask.wiki.actor import WikiActor
 from codeask.wiki.documents.service import WikiDocumentService
-from codeask.wiki.imports.preflight import WikiImportPreflightService
+from codeask.wiki.imports.preflight import ImportItemKind, WikiImportPreflightService
 from codeask.wiki.paths import is_descendant_path
 from codeask.wiki.permissions import can_write_feature
 from codeask.wiki.sources import WikiSourceService
@@ -46,7 +47,7 @@ class WikiImportSessionService:
     ) -> dict[str, object]:
         feature = await self._load_feature_for_space(session, space_id=space.id)
         self._require_write(actor, feature)
-        self._preflight._validate_parent(space=space, parent=parent)
+        self._preflight.validate_parent(space=space, parent=parent)
         if mode not in {"markdown", "directory"}:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -101,24 +102,28 @@ class WikiImportSessionService:
             )
         )
 
-        root_strip_segments = int(
-            (import_session.metadata_json or {}).get("root_strip_segments", 0)
-        )
-        base_path = (import_session.metadata_json or {}).get("base_path")
+        session_metadata = _metadata_dict(import_session.metadata_json)
+        root_strip_value = session_metadata.get("root_strip_segments", 0)
+        root_strip_segments = root_strip_value if isinstance(root_strip_value, int) else 0
+        base_path = session_metadata.get("base_path")
         if base_path is not None and not isinstance(base_path, str):
             base_path = None
         root_label = self._derive_root_label(items)
         import_session.metadata_json = {
-            **(import_session.metadata_json or {}),
+            **session_metadata,
             "root_label": root_label,
         }
 
         for index, raw_item in enumerate(items):
-            relative_path = self._preflight._normalize_relative_path(
+            relative_path = self._preflight.normalize_relative_path(
                 str(raw_item.get("relative_path") or "")
             )
             included = bool(raw_item.get("included"))
-            item_kind = str(raw_item.get("item_kind") or "").strip() or "ignored"
+            raw_item_kind = str(raw_item.get("item_kind") or "").strip()
+            item_kind: ImportItemKind | Literal["ignored"]
+            item_kind = "ignored"
+            if raw_item_kind in {"document", "asset"}:
+                item_kind = cast(ImportItemKind, raw_item_kind)
             ignore_reason = raw_item.get("ignore_reason")
             if ignore_reason is not None and not isinstance(ignore_reason, str):
                 ignore_reason = str(ignore_reason)
@@ -128,15 +133,16 @@ class WikiImportSessionService:
             progress_percent = 0
             if included:
                 if item_kind not in {"document", "asset"}:
-                    item_kind = self._preflight._classify_kind(relative_path)
+                    item_kind = self._preflight.classify_kind(relative_path)
+                target_kind = cast(ImportItemKind, item_kind)
                 target_relative_path = self._strip_root_segments(
                     relative_path,
                     strip_count=root_strip_segments,
                 )
-                target_path = self._preflight._target_path(
+                target_path = self._preflight.target_path(
                     base_path=base_path,
                     relative_path=target_relative_path,
-                    kind=item_kind,
+                    kind=target_kind,
                 )
                 status_value = "pending"
             session.add(
@@ -554,7 +560,7 @@ class WikiImportSessionService:
         *,
         session_id: int,
     ) -> list[WikiImportSessionItem]:
-        return (
+        return list(
             (
                 await session.execute(
                     select(WikiImportSessionItem)
@@ -629,8 +635,8 @@ class WikiImportSessionService:
         }
 
     def _default_conflict_action(self, import_session: WikiImportSession) -> str | None:
-        value = (import_session.metadata_json or {}).get("default_conflict_action")
-        if value in {"skip", "overwrite"}:
+        value = _metadata_dict(import_session.metadata_json).get("default_conflict_action")
+        if isinstance(value, str) and value in {"skip", "overwrite"}:
             return value
         return None
 
@@ -639,7 +645,7 @@ class WikiImportSessionService:
         import_session: WikiImportSession,
         action: str | None,
     ) -> None:
-        metadata = dict(import_session.metadata_json or {})
+        metadata = _metadata_dict(import_session.metadata_json).copy()
         if action is None:
             metadata.pop("default_conflict_action", None)
         else:
@@ -900,7 +906,7 @@ class WikiImportSessionService:
             .all()
         )
         for source in sources:
-            metadata = source.metadata_json if isinstance(source.metadata_json, dict) else {}
+            metadata = _metadata_dict(source.metadata_json)
             if metadata.get("root_label") != root_label:
                 continue
             if metadata.get("mode") != mode:
@@ -1050,7 +1056,7 @@ class WikiImportSessionService:
         for raw_item in raw_items:
             if not raw_item.get("included"):
                 continue
-            relative_path = self._preflight._normalize_relative_path(
+            relative_path = self._preflight.normalize_relative_path(
                 str(raw_item.get("relative_path") or "")
             )
             parts = PurePosixPath(relative_path).parts
@@ -1065,9 +1071,7 @@ class WikiImportSessionService:
         import_session: WikiImportSession,
         items: list[WikiImportSessionItem],
     ) -> str | None:
-        metadata = (
-            import_session.metadata_json if isinstance(import_session.metadata_json, dict) else {}
-        )
+        metadata = _metadata_dict(import_session.metadata_json)
         root_label = metadata.get("root_label")
         if isinstance(root_label, str) and root_label.strip():
             return root_label.strip()
@@ -1128,3 +1132,7 @@ class WikiImportSessionService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="write access denied for this wiki feature",
             )
+
+
+def _metadata_dict(value: object) -> dict[str, object]:
+    return cast(dict[str, object], value) if isinstance(value, dict) else {}

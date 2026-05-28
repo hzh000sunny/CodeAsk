@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.db.models import Feature, WikiNode, WikiSpace
-from codeask.wiki.tokenizer import tokenize
+from codeask.wiki.text_utils import tokenize
 
 _DELIMITER_RE = re.compile(r"[\\/：:\-]+")
 _PUNCTUATION_RE = re.compile(r"[，,。；;（）()【】\[\]]+")

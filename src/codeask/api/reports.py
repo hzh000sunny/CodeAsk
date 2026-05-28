@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
 
 from codeask.api.schemas.wiki import ReportCreate, ReportRead, ReportUpdate
-from codeask.api.schemas.wiki import ReportSearchHit as ReportSearchHitSchema
 from codeask.api.wiki.deps import SessionDep
 from codeask.db.models import FeatureAdmin, Report
 from codeask.features.permissions import can_manage_feature
+from codeask.rag.openviking.hooks import (
+    build_report_delete_job,
+    enqueue_prebuilt_sync_job,
+    enqueue_report_sync,
+)
 from codeask.wiki.reports import ReportService, ReportVerificationError
-from codeask.wiki.search import WikiSearchService
 from codeask.wiki.sync import LegacyWikiSyncService
 
 router = APIRouter(prefix="/reports")
@@ -53,17 +54,6 @@ async def create_report(
     await session.commit()
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
-
-
-@router.get("/search", response_model=list[ReportSearchHitSchema])
-async def search_reports(
-    session: SessionDep,
-    q: str,
-    feature_id: int | None = None,
-    limit: int = 20,
-) -> list[ReportSearchHitSchema]:
-    hits = await WikiSearchService().search_reports(session, q, feature_id=feature_id, limit=limit)
-    return [ReportSearchHitSchema(**asdict(hit)) for hit in hits]
 
 
 @router.get("/{report_id}", response_model=ReportRead)
@@ -125,6 +115,7 @@ async def verify_report(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     await session.commit()
+    await enqueue_report_sync(request, report_id=report_id, operation="upsert")
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
 
@@ -141,6 +132,7 @@ async def unverify_report(
         session, report_id=report_id, subject_id=request.state.subject_id
     )
     await session.commit()
+    await enqueue_report_sync(request, report_id=report_id, operation="delete")
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
 
@@ -155,6 +147,7 @@ async def reject_report(
     await _require_feature_report_manager(request, session, report.feature_id)
     await ReportService().reject(session, report_id=report_id, subject_id=request.state.subject_id)
     await session.commit()
+    await enqueue_report_sync(request, report_id=report_id, operation="delete")
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
 
@@ -163,11 +156,10 @@ async def reject_report(
 async def delete_report(report_id: int, request: Request, session: SessionDep) -> None:
     report = await _load_report(report_id, session)
     await _require_feature_report_manager(request, session, report.feature_id)
+    openviking_job = await build_report_delete_job(session, report_id=report_id)
     from_status = report.status
     from codeask.metrics.audit import record_audit_log
-    from codeask.wiki.indexer import WikiIndexer
 
-    await WikiIndexer().unindex_report(session, report_id=report_id)
     await record_audit_log(
         session,
         entity_type="report",
@@ -180,6 +172,8 @@ async def delete_report(report_id: int, request: Request, session: SessionDep) -
     await LegacyWikiSyncService().delete_report_ref(session, report_id=report_id)
     await session.delete(report)
     await session.commit()
+    if openviking_job is not None:
+        await enqueue_prebuilt_sync_job(request, openviking_job)
 
 
 async def _load_report(report_id: int, session: SessionDep) -> Report:

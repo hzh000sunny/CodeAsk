@@ -1,5 +1,7 @@
 """End-to-end /api/healthz."""
 
+import asyncio
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -79,6 +81,72 @@ async def test_lifespan_starts_and_keeps_opencode_server_alive(
         assert instances[0].ensure_calls == 2
 
     assert instances[0].shutdown_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_lifespan_registers_openviking_keepalive_and_sync(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    from cryptography.fernet import Fernet
+
+    from codeask import app as app_module
+    from codeask.settings import Settings
+
+    process_instances = []
+    sync_instances = []
+
+    class FakeOpenVikingProcessManager:
+        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.kwargs = kwargs
+            self.ensure_calls = 0
+            self.shutdown_calls = 0
+            process_instances.append(self)
+
+        def ensure_server(self):  # type: ignore[no-untyped-def]
+            self.ensure_calls += 1
+            return type(
+                "Handle", (), {"base_url": "http://127.0.0.1:1933", "port": 1933, "pid": 45678}
+            )()
+
+        def shutdown(self) -> None:
+            self.shutdown_calls += 1
+
+    class FakeOpenVikingSyncService:
+        def __init__(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            self.calls = []
+            sync_instances.append(self)
+
+        async def run_pending_jobs(self, *, limit: int = 10):  # type: ignore[no-untyped-def]
+            self.calls.append(limit)
+            return {"processed": 1, "indexed": 1, "failed": 0}
+
+    monkeypatch.setenv("CODEASK_DATA_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CODEASK_OPENVIKING_ENABLED", "true")
+    monkeypatch.setenv("CODEASK_OPENVIKING_KEEPALIVE_INTERVAL_SECONDS", "13")
+    monkeypatch.setenv("CODEASK_OPENVIKING_SYNC_INTERVAL_SECONDS", "11")
+    monkeypatch.setenv("CODEASK_OPENVIKING_SYNC_WORKERS", "4")
+    monkeypatch.setattr(app_module, "OpenVikingProcessManager", FakeOpenVikingProcessManager)
+    monkeypatch.setattr(app_module, "OpenVikingSyncService", FakeOpenVikingSyncService)
+
+    application = app_module.create_app(Settings())  # type: ignore[call-arg]
+
+    async with application.router.lifespan_context(application):
+        assert len(process_instances) == 1
+        assert len(sync_instances) == 1
+        keepalive_job = application.state.scheduler.get_job("openviking_keepalive")
+        assert keepalive_job is not None
+        assert keepalive_job.trigger.interval.total_seconds() == 13
+        sync_job = application.state.scheduler.get_job("openviking_sync_pending")
+        assert sync_job is not None
+        assert sync_job.trigger.interval.total_seconds() == 11
+        keepalive_job.func()
+        await asyncio.to_thread(sync_job.func)
+        assert process_instances[0].ensure_calls == 2
+        assert sync_instances[0].calls == [4]
+
+    assert process_instances[0].shutdown_calls == 1
 
 
 @pytest.mark.asyncio

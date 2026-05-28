@@ -1,7 +1,7 @@
 # Wiki 与代码仓 RAG 产品契约
 
 > 版本：v1.0.5
-> 状态：Draft
+> 状态：Completed
 > 适用范围：opencode 主链路下接入 OpenViking 作为统一 RAG 后端的第一版
 
 ---
@@ -81,7 +81,7 @@ CodeAsk 持久化 turn + 行动轨迹（含 OpenViking 工具事件，若有）
   ↓
 后端 try {
   if (openviking.is_healthy()) {
-    hits = openviking.find_or_search(q, scope="viking://resources/codeask/", filter=feature_uri)
+    hits = openviking.query(q, scope="viking://resources/codeask/", filter=feature_uri)  // 方法名/接口待 M4 spike 定
     if (hits.length > 0) return hits  ← OpenViking 命中
   }
 } catch (OpenVikingError) { /* fall through */ }
@@ -305,7 +305,7 @@ v1.0.5 把 embedding 模型当作"运行时可切换的 admin 配置"，不是�
 - [ ] OpenViking 召回代码候选 → 模型调用 `codeask_prepare_worktree` → opencode 读取真实文件
 - [ ] OpenViking 不可用时 graceful degrade：Wiki UI 搜索框命中走 SQL ILIKE 兜底；opencode 会话用 native `read/grep/glob`；admin 仪表盘显示 `degraded` 但不弹窗打断普通用户
 - [ ] Wiki 写路径全部 hook OpenViking：上传 / publish / rollback / Report verify 后 sync_job 入队（DB 可查）；草稿与 unverified Report **不**入队
-- [ ] `agent_backend=native` legacy 路径已搬入 `agent/native_backend/` 隔离：不在请求链路；`settings.agent_backend` 为 `Literal["opencode"]`；`native_backend` 可 import，冒烟测试通过；模块内无 FTS5 依赖（`reports.py` 已改用 `NativeWikiSearchService`）
+- [ ] `agent_backend=native` legacy 路径已搬入 `agent/native_backend/` 隔离：不在请求链路；`settings.agent_backend` 为 `Literal["opencode"]`；`native_backend` 可 import，冒烟测试通过；模块内无 FTS5 依赖（`reports.py` 已改为 native_backend 内自包含的本地 ILIKE report 搜索，仅为保活）
 - [ ] FTS5 / n-gram 已删除：`docs_fts` / `docs_ngram_fts` / `reports_fts` 虚表通过 alembic drop；`wiki/{search,indexer,tokenizer}.py` 与 `api/documents_compat.py:/search` 端点删除
 - [ ] 同步状态表能记录每条同步任务的 source / uri / status / hash / last_synced_at / error
 

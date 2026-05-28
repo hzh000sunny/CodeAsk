@@ -10,6 +10,7 @@ from codeask.api.wiki.schemas import (
     WikiDocumentVersionListRead,
     WikiDocumentVersionRead,
 )
+from codeask.rag.openviking.hooks import drain_wiki_document_syncs
 from codeask.wiki.documents import WikiDocumentService
 
 router = APIRouter()
@@ -64,7 +65,7 @@ async def diff_versions(
         to_version_id=to_version_id,
         actor=wiki_actor_from_request(request),
     )
-    return WikiDocumentDiffRead(**data)
+    return WikiDocumentDiffRead.model_validate(data)
 
 
 @router.post(
@@ -83,4 +84,5 @@ async def rollback_version(
         actor=wiki_actor_from_request(request),
     )
     await session.commit()
-    return WikiDocumentDetailRead(**data)
+    await drain_wiki_document_syncs(request, session)
+    return WikiDocumentDetailRead.model_validate(data)

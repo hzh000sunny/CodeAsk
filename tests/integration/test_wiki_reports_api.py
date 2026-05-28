@@ -73,12 +73,7 @@ async def test_create_then_verify_then_unverify(client: AsyncClient) -> None:
     assert body["verified_at"] is not None
 
     response = await client.get("/api/reports/search?q=ERR_ORDER_CONTEXT_EMPTY")
-    assert response.status_code == 200
-    hits = response.json()
-    assert any(hit["report_id"] == report_id for hit in hits)
-    found = next(hit for hit in hits if hit["report_id"] == report_id)
-    assert found["verified_by"] == "admin"
-    assert found["commit_sha"] == "abc1234"
+    assert response.status_code in {404, 422}
 
     response = await client.post(
         f"/api/reports/{report_id}/unverify",
@@ -87,10 +82,6 @@ async def test_create_then_verify_then_unverify(client: AsyncClient) -> None:
     assert response.status_code == 200
     assert response.json()["verified"] is False
     assert response.json()["status"] == "draft"
-
-    response = await client.get("/api/reports/search?q=ERR_ORDER_CONTEXT_EMPTY")
-    hits = response.json()
-    assert all(hit["report_id"] != report_id for hit in hits)
 
 
 @pytest.mark.asyncio
@@ -136,7 +127,7 @@ async def test_update_draft_then_verify(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reject_report_keeps_it_out_of_search_and_allows_edit(client: AsyncClient) -> None:
+async def test_reject_report_allows_edit(client: AsyncClient) -> None:
     response = await client.post(
         "/api/reports",
         json={
@@ -156,8 +147,6 @@ async def test_reject_report_keeps_it_out_of_search_and_allows_edit(client: Asyn
     assert response.status_code == 200
     assert response.json()["verified"] is False
     assert response.json()["status"] == "rejected"
-    response = await client.get("/api/reports/search?q=ERR_REJECTED_CASE")
-    assert all(hit["report_id"] != report_id for hit in response.json())
 
     response = await client.put(
         f"/api/reports/{report_id}",
@@ -169,10 +158,19 @@ async def test_reject_report_keeps_it_out_of_search_and_allows_edit(client: Asyn
 
 
 @pytest.mark.asyncio
-async def test_delete_report_removes_verified_report_from_search(client: AsyncClient) -> None:
+async def test_delete_report_removes_report_ref_from_wiki_search(client: AsyncClient) -> None:
+    feature_response = await client.post(
+        "/api/features",
+        json={"name": "Delete Report Feature", "slug": "delete-report-feature"},
+        headers={"X-Subject-Id": "reviewer"},
+    )
+    assert feature_response.status_code == 201, feature_response.text
+    feature_id = feature_response.json()["id"]
+
     response = await client.post(
         "/api/reports",
         json={
+            "feature_id": feature_id,
             "title": "Delete me",
             "body_markdown": "ERR_DELETE_ME",
             "metadata": _good_meta(),
@@ -185,8 +183,9 @@ async def test_delete_report_removes_verified_report_from_search(client: AsyncCl
         headers={"X-Subject-Id": "reviewer"},
     )
     assert response.status_code == 200
-    response = await client.get("/api/reports/search?q=ERR_DELETE_ME")
-    assert any(hit["report_id"] == report_id for hit in response.json())
+    response = await client.get("/api/wiki/search?q=ERR_DELETE_ME")
+    assert response.status_code == 200
+    assert any(hit["report_id"] == report_id for hit in response.json()["items"])
 
     response = await client.delete(
         f"/api/reports/{report_id}",
@@ -196,8 +195,9 @@ async def test_delete_report_removes_verified_report_from_search(client: AsyncCl
     assert response.status_code == 204
     response = await client.get(f"/api/reports/{report_id}")
     assert response.status_code == 404
-    response = await client.get("/api/reports/search?q=ERR_DELETE_ME")
-    assert all(hit["report_id"] != report_id for hit in response.json())
+    response = await client.get("/api/wiki/search?q=ERR_DELETE_ME")
+    assert response.status_code == 200
+    assert all(hit["report_id"] != report_id for hit in response.json()["items"])
 
 
 @pytest.mark.asyncio

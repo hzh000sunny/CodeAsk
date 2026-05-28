@@ -28,7 +28,7 @@ async def _create_feature(client: AsyncClient, slug: str = "order") -> int:
 
 
 @pytest.mark.asyncio
-async def test_upload_then_list_then_search(client: AsyncClient, tmp_path: Path) -> None:
+async def test_upload_then_list_then_wiki_search(client: AsyncClient, tmp_path: Path) -> None:
     feature_id = await _create_feature(client)
     markdown_path = tmp_path / "submit.md"
     markdown_path.write_text(MARKDOWN, encoding="utf-8")
@@ -51,14 +51,17 @@ async def test_upload_then_list_then_search(client: AsyncClient, tmp_path: Path)
     assert response.status_code == 200
     assert any(document["id"] == document_id for document in response.json())
 
-    response = await client.get("/api/documents/search?q=submit+order")
+    response = await client.get(f"/api/wiki/search?q=submit+order&feature_id={feature_id}")
     assert response.status_code == 200
-    hits = response.json()
-    assert any(hit["document_id"] == document_id for hit in hits)
+    hits = response.json()["items"]
+    assert any(hit["document_id"] is not None for hit in hits)
+
+    response = await client.get("/api/documents/search?q=submit+order")
+    assert response.status_code in {404, 422}
 
 
 @pytest.mark.asyncio
-async def test_soft_delete_document_removes_from_search(
+async def test_soft_delete_document_removes_from_wiki_search(
     client: AsyncClient,
     tmp_path: Path,
 ) -> None:
@@ -77,8 +80,9 @@ async def test_soft_delete_document_removes_from_search(
     response = await client.delete(f"/api/documents/{document_id}")
     assert response.status_code == 204
 
-    response = await client.get("/api/documents/search?q=submit+order")
-    hits = response.json()
+    response = await client.get(f"/api/wiki/search?q=submit+order&feature_id={feature_id}")
+    assert response.status_code == 200
+    hits = response.json()["items"]
     assert all(hit["document_id"] != document_id for hit in hits)
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 ReasoningRequestMode = Literal[
     "none",
@@ -109,11 +109,11 @@ def _json_object(
     parsed = json.loads(value)
     if not isinstance(parsed, dict):
         raise ValueError(f"{label} must be a JSON object")
-    return parsed
+    return cast(dict[str, Any], parsed)
 
 
 def _copy_patch(value: dict[str, Any]) -> dict[str, Any]:
-    return json.loads(json.dumps(value))
+    return cast(dict[str, Any], json.loads(json.dumps(value)))
 
 
 def _validate_anthropic_protocol(protocol: str | None) -> None:

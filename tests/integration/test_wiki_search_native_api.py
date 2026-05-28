@@ -1,8 +1,10 @@
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from codeask.db.models import WikiDocument, WikiDocumentVersion, WikiNode, WikiSpace
+from codeask.rag.openviking.models import OpenVikingDashboardEvent, OpenVikingSyncJob
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -263,3 +265,234 @@ async def test_wiki_search_groups_global_results_by_context_and_is_case_insensit
     assert "current_feature_reports" in group_keys
     assert "other_current_features" in group_keys
     assert "history_features" in group_keys
+
+
+@pytest.mark.asyncio
+async def test_wiki_search_uses_openviking_hit_when_it_maps_to_native_document(
+    client: AsyncClient,
+    app,
+) -> None:  # type: ignore[no-untyped-def]
+    feature_id, document_id, node_id = await _publish_search_document(
+        client,
+        app,
+        slug="openviking-hit",
+        body="# OpenViking Hit\n\nThis document is returned by semantic search only.",
+    )
+    uri = "viking://resources/codeask/features/openviking-hit/knowledge-base/openviking-hit.md"
+    await _index_openviking_mapping(
+        app, source_type="wiki_doc", source_id=str(document_id), uri=uri
+    )
+    _install_openviking_search(app, [_OpenVikingHit(uri=f"{uri}/openviking-hit.md", score=0.91)])
+
+    response = await client.get(f"/api/wiki/search?q=semantic-only-marker&feature_id={feature_id}")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [item["node_id"] for item in body["items"]] == [node_id]
+    assert body["items"][0]["score"] == 0.91
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("hits", "raises"),
+    [
+        ([], False),
+        (None, True),
+    ],
+)
+async def test_wiki_search_falls_back_to_native_when_openviking_misses_or_errors(
+    client: AsyncClient,
+    app,
+    hits: list[object] | None,
+    raises: bool,
+) -> None:  # type: ignore[no-untyped-def]
+    feature_id, _document_id, node_id = await _publish_search_document(
+        client,
+        app,
+        slug="openviking-fallback",
+        body="# Native Fallback\n\nContains OPENVIKING_FALLBACK_MARKER.",
+    )
+    _install_openviking_search(app, hits or [], raises=raises)
+
+    response = await client.get(
+        f"/api/wiki/search?q=OPENVIKING_FALLBACK_MARKER&feature_id={feature_id}"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert any(item["node_id"] == node_id for item in body["items"])
+
+
+@pytest.mark.asyncio
+async def test_wiki_search_falls_back_when_openviking_is_not_running(
+    client: AsyncClient,
+    app,
+) -> None:  # type: ignore[no-untyped-def]
+    feature_id, _document_id, node_id = await _publish_search_document(
+        client,
+        app,
+        slug="openviking-stopped",
+        body="# Native Stopped Fallback\n\nContains OPENVIKING_STOPPED_MARKER.",
+    )
+    app.state.settings.openviking_enabled = True
+    app.state.openviking_process_manager = _FakeOpenVikingProcess(running=False)
+
+    response = await client.get(
+        f"/api/wiki/search?q=OPENVIKING_STOPPED_MARKER&feature_id={feature_id}"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert any(item["node_id"] == node_id for item in body["items"])
+
+    repeat = await client.get(
+        f"/api/wiki/search?q=OPENVIKING_STOPPED_MARKER&feature_id={feature_id}"
+    )
+    assert repeat.status_code == 200, repeat.text
+    async with app.state.session_factory() as session:
+        events = (
+            (
+                await session.execute(
+                    select(OpenVikingDashboardEvent).where(
+                        OpenVikingDashboardEvent.event_type == "openviking_search_unavailable"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(events) == 1
+
+
+class _OpenVikingHit:
+    def __init__(self, *, uri: str, score: float) -> None:
+        self.uri = uri
+        self.score = score
+        self.context_type = "resource"
+        self.level = 2
+        self.abstract = None
+        self.overview = None
+        self.content = None
+
+
+class _FakeOpenVikingSearchClient:
+    def __init__(self, hits: list[object], *, raises: bool = False) -> None:
+        self._hits = hits
+        self._raises = raises
+
+    async def find(
+        self,
+        *,
+        query: str,
+        target_uri: str,
+        limit: int,
+        score_threshold: float = 0.0,
+    ) -> list[object]:
+        del query, target_uri, limit, score_threshold
+        if self._raises:
+            raise RuntimeError("openviking unavailable")
+        return self._hits
+
+
+class _FakeOpenVikingProcess:
+    def __init__(self, *, running: bool = True) -> None:
+        self._running = running
+
+    def describe(self) -> dict[str, object]:
+        return {
+            "running": self._running,
+            "base_url": "http://openviking.local",
+        }
+
+
+def _install_openviking_search(
+    app,
+    hits: list[object],
+    *,
+    raises: bool = False,
+) -> None:  # type: ignore[no-untyped-def]
+    app.state.settings.openviking_enabled = True
+    app.state.openviking_process_manager = _FakeOpenVikingProcess()
+    app.state.openviking_wiki_search_client = _FakeOpenVikingSearchClient(
+        hits,
+        raises=raises,
+    )
+
+
+async def _publish_search_document(
+    client: AsyncClient,
+    app,
+    *,
+    slug: str,
+    body: str,
+) -> tuple[int, int, int]:  # type: ignore[no-untyped-def]
+    response = await client.post(
+        "/api/features",
+        json={"name": slug.replace("-", " ").title(), "slug": slug},
+        headers={"X-Subject-Id": "owner@test"},
+    )
+    assert response.status_code == 201, response.text
+    feature_id = response.json()["id"]
+
+    tree = await client.get(f"/api/wiki/tree?feature_id={feature_id}")
+    assert tree.status_code == 200, tree.text
+    tree_body = tree.json()
+    knowledge_root = next(
+        node for node in tree_body["nodes"] if node["system_role"] == "knowledge_base"
+    )
+
+    node_response = await client.post(
+        "/api/wiki/nodes",
+        json={
+            "space_id": tree_body["space"]["id"],
+            "parent_id": knowledge_root["id"],
+            "type": "document",
+            "name": f"{slug}.md",
+        },
+        headers={"X-Subject-Id": "owner@test"},
+    )
+    assert node_response.status_code == 201, node_response.text
+    node_id = node_response.json()["id"]
+
+    publish = await client.post(
+        f"/api/wiki/documents/{node_id}/publish",
+        json={"body_markdown": body},
+        headers={"X-Subject-Id": "owner@test"},
+    )
+    assert publish.status_code == 200, publish.text
+
+    async with app.state.session_factory() as session:
+        document = (
+            await session.execute(select(WikiDocument).where(WikiDocument.node_id == node_id))
+        ).scalar_one()
+        document_id = int(document.id)
+    return feature_id, document_id, node_id
+
+
+async def _index_openviking_mapping(
+    app,
+    *,
+    source_type: str,
+    source_id: str,
+    uri: str,
+) -> None:  # type: ignore[no-untyped-def]
+    async with app.state.session_factory() as session:
+        existing = (
+            await session.execute(
+                select(OpenVikingSyncJob).where(
+                    OpenVikingSyncJob.source_type == source_type,
+                    OpenVikingSyncJob.source_id == source_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            existing = OpenVikingSyncJob(
+                id=f"ovjob_{source_type}_{source_id}",
+                source_type=source_type,
+                source_id=source_id,
+            )
+            session.add(existing)
+        existing.viking_uri = uri
+        existing.status = "indexed"
+        existing.attempts = 1
+        await session.commit()

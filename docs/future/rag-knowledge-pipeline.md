@@ -5,6 +5,8 @@
 > 主题：CodeAsk 未来的本地 RAG、文本处理、向量处理和召回能力增强
 > 最新补充：2026-05-19，新增 AnythingLLM / OpenViking 参考后的候选主架构判断
 
+> Superseded：本文件作为 v1.0.5 前的设计前史保留。OpenViking 统一后端方案已进入并落地到 [docs/v1.0.5/](../v1.0.5/)；后续实现和验收以 v1.0.5 PRD / SDD / plans 为准。
+
 ## 1. 背景
 
 当前 CodeAsk 已具备：

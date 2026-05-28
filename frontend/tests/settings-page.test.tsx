@@ -120,6 +120,81 @@ const opencodeStatus = {
   active_session_count: 2,
 };
 
+const openvikingStatus = {
+  running: true,
+  available: true,
+  degraded: false,
+  base_url: "http://127.0.0.1:1933",
+  port: 1933,
+  pid: 1357,
+  version: "0.3.17",
+  verified_version: "0.3.17",
+  last_error: null,
+  last_error_code: null,
+  config_file: "openviking/ov.conf",
+  workspace_path: "openviking/workspace",
+  log_file: "openviking/logs/openviking-server.log",
+  queue: { pending: 1, running: 0, failed: 0, cancelled: 0, indexed: 2 },
+  health: { healthy: true, version: "0.3.17", error: null },
+  ollama: {
+    healthy: true,
+    model_available: true,
+    required_model: "bge-m3",
+    models: ["bge-m3:latest"],
+    error: null,
+  },
+};
+
+const openvikingEmbedding = {
+  id: 1,
+  provider: "ollama",
+  base_url: "http://127.0.0.1:11434",
+  model: "bge-m3",
+  dimension: 1024,
+  max_concurrent: 1,
+  rebuild_status: "idle",
+  rebuild_progress: null,
+};
+
+const openvikingTuning = {
+  scopes: {
+    openviking: [
+      {
+        key: "embedding.max_concurrent",
+        value: "1",
+        activated_at: "2026-05-25T08:00:00Z",
+        activated_by: null,
+        previous_value: null,
+        recommended: "1",
+        notes: "default",
+      },
+    ],
+    codeask: [
+      {
+        key: "sync_workers",
+        value: "2",
+        activated_at: "2026-05-25T08:00:00Z",
+        activated_by: null,
+        previous_value: null,
+        recommended: "2",
+        notes: "default",
+      },
+    ],
+    ollama_recommend: [
+      {
+        key: "num_parallel",
+        value: "1",
+        activated_at: "2026-05-25T08:00:00Z",
+        activated_by: null,
+        previous_value: null,
+        recommended: "1",
+        notes: "default",
+      },
+    ],
+  },
+  preset: "small_machine",
+};
+
 const runtimeProfiles = {
   backend: "opencode",
   profiles: [
@@ -213,6 +288,115 @@ describe("SettingsPage LLM configuration", () => {
       await screen.findByRole("heading", { level: 1, name: "LLM 配置" }),
     ).toBeInTheDocument();
     expect(window.location.hash).toBe("#/settings?page=llm");
+  });
+
+  it("renders the OpenViking admin dashboard and keeps it selected after reload", async () => {
+    window.history.replaceState(null, "", "/#/settings?page=openviking");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/auth/me") {
+        return jsonResponse(adminMe);
+      }
+      if (path === "/api/sessions") {
+        return jsonResponse([]);
+      }
+      if (path === "/api/admin/openviking/status") {
+        return jsonResponse(openvikingStatus);
+      }
+      if (path === "/api/admin/openviking/sync_jobs") {
+        return jsonResponse({
+          items: [
+            {
+              id: "ovjob_1",
+              source_type: "manual_text",
+              source_id: "doc_1",
+              feature_slug: "anything-llm",
+              viking_uri: "viking://resources/codeask/features/anything-llm/knowledge-base/doc.md",
+              status: "pending",
+              attempts: 0,
+              next_retry_at: null,
+              last_synced_at: null,
+              last_indexed_at: null,
+              error: null,
+              progress: null,
+              created_at: "2026-05-25T08:00:00Z",
+              updated_at: "2026-05-25T08:00:00Z",
+            },
+          ],
+          total: 1,
+        });
+      }
+      if (path.startsWith("/api/admin/openviking/events")) {
+        return jsonResponse({
+          items: [
+            {
+              id: 1,
+              event_type: "sync_job_enqueued",
+              source_type: "manual_text",
+              source_id: "doc_1",
+              sync_job_id: "ovjob_1",
+              triggered_by: "admin",
+              payload: null,
+              outcome: "info",
+              created_at: "2026-05-25T08:00:00Z",
+            },
+          ],
+          next_before_id: null,
+        });
+      }
+      if (path === "/api/admin/openviking/embedding/candidates") {
+        return jsonResponse({
+          items: [
+            {
+              provider: "ollama",
+              base_url: "http://127.0.0.1:11434",
+              model: "bge-m3",
+              source: "ollama",
+            },
+          ],
+          ollama: { healthy: true, model_available: true, error: null },
+        });
+      }
+      if (path === "/api/admin/openviking/embedding") {
+        return jsonResponse(openvikingEmbedding);
+      }
+      if (path === "/api/admin/openviking/tuning") {
+        return jsonResponse(openvikingTuning);
+      }
+      if (path === "/api/admin/openviking/tuning/preset") {
+        return jsonResponse({ preset: "small_machine", detected_host: {}, preset_values: [] });
+      }
+      if (path === "/api/admin/openviking/tuning/ollama_snippet") {
+        return jsonResponse({
+          snippet: 'Environment="OLLAMA_NUM_PARALLEL=1"',
+          num_parallel: "1",
+          num_thread: "4",
+        });
+      }
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { unmount } = render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "OpenViking" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "健康状态" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Embedding 模型" })).toBeInTheDocument();
+    expect((await screen.findAllByText("bge-m3")).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Ollama / 模型")).toBeInTheDocument();
+    expect(screen.getAllByText("ready").length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText("sync_job_enqueued")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("/home/hzh")).not.toBeInTheDocument();
+
+    unmount();
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "OpenViking" }),
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe("#/settings?page=openviking");
   });
 
   it("shows only login in the anonymous account menu and opens the admin login page", async () => {

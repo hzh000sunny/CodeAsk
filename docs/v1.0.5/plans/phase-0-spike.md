@@ -1,7 +1,7 @@
 # Phase 0 — OpenViking 可行性 Spike
 
 > 版本：v1.0.5
-> 状态：Draft（可随时启动；无许可证前置门槛）
+> 状态：Completed（实验记录已落；无许可证前置门槛）
 > 关联：[PRD](../prd/rag-knowledge.md) · [设计](../design/openviking-integration.md) · [集成边界声明](../specs/openviking-agpl-review.md) · [收口验收](./acceptance-checklist.md)
 
 ---

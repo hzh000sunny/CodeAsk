@@ -6,23 +6,21 @@ import asyncio
 import time
 from collections.abc import AsyncIterator
 from secrets import token_hex
-from typing import Any
+from typing import Any, TypedDict, cast
 
+import structlog
 from fastapi import HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 
-from codeask.agent.chat_runtime.context import SessionMessage
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
 from codeask.agent.opencode_compat.process import OpenCodeProcessError
-from codeask.agent.sse import SSEMultiplexer
+from codeask.agent.sse import AgentEvent, SSEMultiplexer
 from codeask.api.schemas.session import MessageCreate
 from codeask.code_index.worktree import InvalidRefError, WorktreeError
 from codeask.db.models import (
     AgentTrace,
     Repo,
-    SessionAttachment,
-    SessionConversationSummary,
     SessionFeature,
     SessionRepoBinding,
     SessionTurn,
@@ -32,13 +30,24 @@ from codeask.llm.types import LLMEvent
 from codeask.sessions.title_generation import maybe_generate_session_title
 from codeask.sessions.trace_redaction import redact_trace_payload_for_frontend
 
+log = structlog.get_logger("codeask.sessions.messages")
+
+
+class _ToolActionBucket(TypedDict, total=False):
+    call: dict[str, object]
+    result: dict[str, object]
+
 
 def _event_data_dict(data: object) -> dict[str, object]:
     if isinstance(data, BaseModel):
-        return data.model_dump(mode="json")
+        return cast(dict[str, object], data.model_dump(mode="json"))
     if isinstance(data, dict):
-        return data
+        return cast(dict[str, object], data)
     return {}
+
+
+def _format_runtime_event(multiplexer: SSEMultiplexer, event: ChatRuntimeEvent) -> bytes:
+    return multiplexer.format(cast(AgentEvent, event))
 
 
 def _frontend_event(
@@ -262,89 +271,19 @@ async def stream_agent_response(
     turn_id: str,
     content: str,
     *,
-    force_code_investigation: bool,
     runtime_llm_config: dict[str, Any] | None = None,
     timing: AgentTurnTiming | None = None,
 ) -> AsyncIterator[bytes]:
     timing = timing or AgentTurnTiming()
-    if getattr(request.app.state.settings, "agent_backend", "opencode") == "opencode":
-        async for chunk in stream_opencode_response(
-            request,
-            session_id,
-            turn_id,
-            content,
-            runtime_llm_config=runtime_llm_config,
-            timing=timing,
-        ):
-            yield chunk
-        return
-
-    runtime = request.app.state.chat_runtime
-    multiplexer = SSEMultiplexer()
-    assistant_chunks: list[str] = []
-    completed = False
-    (
-        history,
-        tool_action_summary,
-        attachments,
-        conversation_summary,
-    ) = await load_chat_runtime_context(
+    async for chunk in stream_opencode_response(
         request,
         session_id,
-        current_turn_id=turn_id,
-    )
-    try:
-        async for event in runtime.run(
-            session_id,
-            turn_id,
-            content,
-            subject_id=request.state.subject_id,
-            history=history,
-            attachments=attachments,
-            conversation_summary=conversation_summary,
-            tool_action_summary=tool_action_summary,
-            runtime_llm_config=runtime_llm_config,
-        ):
-            await persist_runtime_audit_payload(
-                request,
-                session_id,
-                turn_id,
-                event.type,
-                event.data,
-            )
-            event_data = timing.annotate(event.type, _event_data_dict(event.data))
-            await persist_runtime_event_trace(request, session_id, turn_id, event.type, event_data)
-            if event.type == "text_delta":
-                delta = event_data.get("delta") or event_data.get("text")
-                if isinstance(delta, str):
-                    assistant_chunks.append(delta)
-            if event.type == "done":
-                completed = True
-            yield multiplexer.format(
-                _frontend_event(event, event_data, session_id=session_id, turn_id=turn_id)
-            )
-    except asyncio.CancelledError:
-        await rollback_session_turn(request.app.state.session_factory, session_id, turn_id)
-        raise
-    if completed:
-        assistant_content = "".join(assistant_chunks).strip()
-        if assistant_content:
-            await persist_agent_turn(
-                request,
-                session_id,
-                assistant_content,
-                parent_turn_id=turn_id,
-            )
-            asyncio.create_task(
-                maybe_generate_session_title(
-                    request.app.state.session_factory,
-                    request.app.state.llm_gateway,
-                    session_id=session_id,
-                    subject_id=request.state.subject_id,
-                    user_content=content,
-                    assistant_content=assistant_content,
-                )
-            )
+        turn_id,
+        content,
+        runtime_llm_config=runtime_llm_config,
+        timing=timing,
+    ):
+        yield chunk
 
 
 async def stream_opencode_response(
@@ -361,8 +300,8 @@ async def stream_opencode_response(
     assistant_chunks: list[str] = []
     completed = False
     excluded_global_config_ids: set[str] = set()
-    attempt = 0
     last_initial_error: ChatRuntimeEvent | None = None
+    pooled_provider_configs: tuple[Any, ...] = ()
     timing = timing or AgentTurnTiming()
 
     while True:
@@ -383,12 +322,17 @@ async def stream_opencode_response(
                 selection.type,
                 event_data,
             )
-            yield multiplexer.format(
-                _frontend_event(selection, event_data, session_id=session_id, turn_id=turn_id)
+            yield _format_runtime_event(
+                multiplexer,
+                _frontend_event(selection, event_data, session_id=session_id, turn_id=turn_id),
             )
             return
 
         llm_config = selection.config
+        if selection.pooled_global and not pooled_provider_configs:
+            pooled_provider_configs = tuple(
+                await request.app.state.llm_config_repo.list_runtime_global_configs()
+            )
         initializing_event = ChatRuntimeEvent(
             type="assistant_action",
             data={
@@ -407,17 +351,24 @@ async def stream_opencode_response(
             initializing_event.type,
             initializing_data,
         )
-        yield multiplexer.format(
+        yield _format_runtime_event(
+            multiplexer,
             _frontend_event(
                 initializing_event,
                 initializing_data,
                 session_id=session_id,
                 turn_id=turn_id,
-            )
+            ),
         )
 
         try:
-            binding = await compat.initialize_session(session_id, llm_config)
+            binding = await compat.initialize_session(
+                session_id,
+                llm_config,
+                provider_config_pool=pooled_provider_configs if selection.pooled_global else (),
+                force_new_external_session=selection.pooled_global
+                and bool(excluded_global_config_ids),
+            )
             context_window = int(
                 getattr(request.app.state.settings, "model_context_window_tokens", 200_000)
             )
@@ -430,13 +381,14 @@ async def stream_opencode_response(
                 runtime_event.type,
                 runtime_data,
             )
-            yield multiplexer.format(
+            yield _format_runtime_event(
+                multiplexer,
                 _frontend_event(
                     runtime_event,
                     runtime_data,
                     session_id=session_id,
                     turn_id=turn_id,
-                )
+                ),
             )
             emitted_text = False
             retrying_with_next_config = False
@@ -455,13 +407,20 @@ async def stream_opencode_response(
                         selection,
                         event_data,
                         session_id=session_id,
-                        attempt=attempt,
                         excluded_global_config_ids=excluded_global_config_ids,
                     ):
-                        attempt += 1
                         assistant_chunks.clear()
                         retrying_with_next_config = True
                         break
+                elif event.type == "error":
+                    log.info(
+                        "opencode_global_pool_retry_skipped",
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        config_id=getattr(selection.config, "id", None),
+                        pooled_global=selection.pooled_global,
+                        emitted_text=emitted_text,
+                    )
                     await persist_runtime_event_trace(
                         request,
                         session_id,
@@ -469,13 +428,14 @@ async def stream_opencode_response(
                         event.type,
                         event_data,
                     )
-                    yield multiplexer.format(
+                    yield _format_runtime_event(
+                        multiplexer,
                         _frontend_event(
                             event,
                             event_data,
                             session_id=session_id,
                             turn_id=turn_id,
-                        )
+                        ),
                     )
                     return
 
@@ -494,8 +454,9 @@ async def stream_opencode_response(
                 if event.type == "done":
                     completed = True
                     request.app.state.llm_gateway.record_runtime_config_success(selection)
-                yield multiplexer.format(
-                    _frontend_event(event, event_data, session_id=session_id, turn_id=turn_id)
+                yield _format_runtime_event(
+                    multiplexer,
+                    _frontend_event(event, event_data, session_id=session_id, turn_id=turn_id),
                 )
                 if event.type == "done":
                     break
@@ -527,13 +488,14 @@ async def stream_opencode_response(
                 error_event.type,
                 error_data,
             )
-            yield multiplexer.format(
+            yield _format_runtime_event(
+                multiplexer,
                 _frontend_event(
                     error_event,
                     error_data,
                     session_id=session_id,
                     turn_id=turn_id,
-                )
+                ),
             )
             return
 
@@ -612,19 +574,29 @@ def _retry_next_opencode_global_config(
     error_data: dict[str, Any],
     *,
     session_id: str,
-    attempt: int,
     excluded_global_config_ids: set[str],
 ) -> bool:
-    counted = request.app.state.llm_gateway.record_runtime_config_failure(
+    should_count = request.app.state.llm_gateway.runtime_error_counts_for_config_health(error_data)
+    log.info(
+        "opencode_global_pool_retry_decision",
+        session_id=session_id,
+        config_id=getattr(selection.config, "id", None),
+        pooled_global=selection.pooled_global,
+        should_count=should_count,
+        excluded_count=len(excluded_global_config_ids),
+    )
+    if not selection.pooled_global:
+        return False
+    if not should_count:
+        return False
+    request.app.state.llm_gateway.record_runtime_config_failure(
         selection,
         error_data,
         session_id=session_id,
         clear_sticky=True,
     )
-    if not counted:
-        return False
     excluded_global_config_ids.add(selection.config.id)
-    return attempt < request.app.state.llm_gateway.max_runtime_retries
+    return True
 
 
 def _llm_error_to_chat_error(event: LLMEvent) -> ChatRuntimeEvent:
@@ -684,251 +656,13 @@ async def rollback_session_turn(
         await session.commit()
 
 
-async def load_chat_runtime_context(
-    request: Request,
-    session_id: str,
-    *,
-    current_turn_id: str,
-    max_history_messages: int = 12,
-    max_tool_events: int = 12,
-) -> tuple[list[SessionMessage], str | None, list[dict[str, Any]], str | None]:
-    factory = request.app.state.session_factory
-    async with factory() as session:
-        summary_row = await _ensure_conversation_summary(
-            session,
-            session_id=session_id,
-            current_turn_id=current_turn_id,
-            keep_recent_messages=max_history_messages,
-        )
-        turn_query = select(SessionTurn).where(
-            SessionTurn.session_id == session_id,
-            SessionTurn.id != current_turn_id,
-        )
-        if summary_row is not None:
-            turn_query = turn_query.where(SessionTurn.turn_index > summary_row.covered_turn_index)
-        turn_rows = (
-            (
-                await session.execute(
-                    turn_query.order_by(
-                        SessionTurn.turn_index.desc(), SessionTurn.created_at.desc()
-                    ).limit(max_history_messages)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        trace_rows = (
-            (
-                await session.execute(
-                    select(AgentTrace)
-                    .where(
-                        AgentTrace.session_id == session_id,
-                        AgentTrace.turn_id != current_turn_id,
-                        AgentTrace.event_type.in_(["tool_call", "tool_result"]),
-                    )
-                    .order_by(AgentTrace.created_at.desc(), AgentTrace.id.desc())
-                    .limit(max_tool_events)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        attachment_rows = (
-            (
-                await session.execute(
-                    select(SessionAttachment)
-                    .where(SessionAttachment.session_id == session_id)
-                    .order_by(SessionAttachment.created_at.asc(), SessionAttachment.id.asc())
-                )
-            )
-            .scalars()
-            .all()
-        )
-    history = [
-        SessionMessage(
-            role="assistant" if row.role == "agent" else "user",
-            content=row.content,
-        )
-        for row in reversed(turn_rows)
-    ]
-    tool_action_summary = summarize_tool_actions(list(reversed(trace_rows)))
-    attachments = [_attachment_context(row) for row in attachment_rows]
-    conversation_summary = summary_row.summary if summary_row is not None else None
-    return history, tool_action_summary, attachments, conversation_summary
-
-
-async def _ensure_conversation_summary(
-    session: Any,
-    *,
-    session_id: str,
-    current_turn_id: str,
-    keep_recent_messages: int,
-) -> SessionConversationSummary | None:
-    turn_rows = (
-        (
-            await session.execute(
-                select(SessionTurn)
-                .where(
-                    SessionTurn.session_id == session_id,
-                    SessionTurn.id != current_turn_id,
-                )
-                .order_by(SessionTurn.turn_index.asc(), SessionTurn.created_at.asc())
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if len(turn_rows) <= keep_recent_messages:
-        return await session.get(SessionConversationSummary, session_id)
-
-    covered_rows = list(turn_rows[:-keep_recent_messages])
-    if not covered_rows:
-        return await session.get(SessionConversationSummary, session_id)
-    covered_turn_index = max(row.turn_index for row in covered_rows)
-
-    summary_row = await session.get(SessionConversationSummary, session_id)
-    if (
-        summary_row is not None
-        and summary_row.consecutive_failures >= 3
-        and summary_row.covered_turn_index >= 0
-    ):
-        return summary_row
-    if summary_row is not None and summary_row.covered_turn_index >= covered_turn_index:
-        return summary_row
-
-    trace_rows = await _load_summary_trace_rows(
-        session,
-        session_id=session_id,
-        covered_turn_ids=[row.id for row in covered_rows],
-    )
-    try:
-        summary_text = _build_extractive_conversation_summary(
-            previous_summary=summary_row.summary if summary_row is not None else None,
-            covered_rows=covered_rows,
-            trace_rows=trace_rows,
-            covered_turn_index=covered_turn_index,
-        )
-    except Exception:
-        if summary_row is not None:
-            summary_row.consecutive_failures = min(
-                summary_row.consecutive_failures + 1,
-                3,
-            )
-            await session.commit()
-            return summary_row
-        return None
-    if summary_row is None:
-        summary_row = SessionConversationSummary(
-            session_id=session_id,
-            summary=summary_text,
-            covered_turn_index=covered_turn_index,
-            covered_turn_count=len(covered_rows),
-            covered_trace_count=len(trace_rows),
-            consecutive_failures=0,
-        )
-        session.add(summary_row)
-    else:
-        summary_row.summary = summary_text
-        summary_row.covered_turn_index = covered_turn_index
-        summary_row.covered_turn_count = len(covered_rows)
-        summary_row.covered_trace_count = len(trace_rows)
-        summary_row.consecutive_failures = 0
-    await session.commit()
-    return summary_row
-
-
-async def _load_summary_trace_rows(
-    session: Any,
-    *,
-    session_id: str,
-    covered_turn_ids: list[str],
-    limit: int = 30,
-) -> list[AgentTrace]:
-    if not covered_turn_ids:
-        return []
-    rows = (
-        (
-            await session.execute(
-                select(AgentTrace)
-                .where(
-                    AgentTrace.session_id == session_id,
-                    AgentTrace.turn_id.in_(covered_turn_ids),
-                    AgentTrace.event_type.in_(["tool_call", "tool_result"]),
-                )
-                .order_by(AgentTrace.created_at.asc(), AgentTrace.id.asc())
-                .limit(limit)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return list(rows)
-
-
-def _build_extractive_conversation_summary(
-    *,
-    previous_summary: str | None,
-    covered_rows: list[SessionTurn],
-    trace_rows: list[AgentTrace],
-    covered_turn_index: int,
-) -> str:
-    lines = [
-        f"覆盖 turn_index <= {covered_turn_index}。",
-        "摘要类型：extractive；事实来自历史会话 turn 和工具行动摘要。",
-    ]
-    if previous_summary:
-        lines.extend(["", "上一版摘要：", _truncate_summary(previous_summary, 1800)])
-    if covered_rows:
-        lines.extend(["", "较早对话要点："])
-        for row in covered_rows[-8:]:
-            label = "用户" if row.role == "user" else "CodeAsk"
-            lines.append(
-                f"- turn_index={row.turn_index} {label}: {_truncate_summary(row.content, 360)}"
-            )
-    tool_summary = summarize_tool_actions(trace_rows)
-    if tool_summary:
-        lines.extend(["", "较早工具行动事实：", _truncate_summary(tool_summary, 1800)])
-    lines.extend(
-        [
-            "",
-            "使用要求：继续对话时必须把这段摘要视为历史上下文；",
-            "如果用户追问刚刚、上一轮、是否查过代码或用了什么证据，",
-            "需要结合本摘要和最近 turns 回答，不能回答成第一次交流。",
-        ]
-    )
-    return "\n".join(lines)
-
-
-def _truncate_summary(text: str, limit: int) -> str:
-    cleaned = " ".join(text.split())
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: max(0, limit - 15)] + "...[truncated]"
-
-
-def _attachment_context(row: SessionAttachment) -> dict[str, Any]:
-    return {
-        "id": row.id,
-        "attachment_id": row.id,
-        "display_name": row.display_name,
-        "original_filename": row.original_filename,
-        "aliases": row.aliases,
-        "reference_names": row.reference_names,
-        "description": row.description,
-        "kind": row.kind,
-        "mime_type": row.mime_type,
-        "size_bytes": row.size_bytes,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
-    }
-
-
 def summarize_tool_actions(rows: list[AgentTrace]) -> str | None:
     if not rows:
         return None
-    calls: dict[str, dict[str, Any]] = {}
+    calls: dict[str, _ToolActionBucket] = {}
     order: list[str] = []
     for row in rows:
-        payload = row.payload if isinstance(row.payload, dict) else {}
+        payload = _event_data_dict(row.payload)
         call_id = _trace_call_id(payload)
         if not call_id:
             continue
@@ -943,8 +677,8 @@ def summarize_tool_actions(rows: list[AgentTrace]) -> str | None:
     lines: list[str] = []
     for call_id in order:
         item = calls[call_id]
-        call = item.get("call") or {}
-        result = item.get("result") or {}
+        call = item.get("call", {})
+        result = item.get("result", {})
         tool_name = _text(call.get("tool_name") or result.get("tool_name"))
         if not tool_name:
             continue
@@ -962,7 +696,7 @@ def summarize_tool_actions(rows: list[AgentTrace]) -> str | None:
     return "\n".join(lines) if lines else None
 
 
-def _trace_call_id(payload: dict[str, Any]) -> str | None:
+def _trace_call_id(payload: dict[str, object]) -> str | None:
     value = payload.get("tool_call_id") or payload.get("id")
     return value if isinstance(value, str) and value.strip() else None
 
@@ -1001,25 +735,6 @@ async def persist_runtime_event_trace(
         event_type,
         event_data,
     )
-
-
-async def stream_legacy_orchestrator_response(
-    request: Request,
-    session_id: str,
-    turn_id: str,
-    content: str,
-    *,
-    force_code_investigation: bool,
-) -> AsyncIterator[bytes]:
-    orchestrator = request.app.state.agent_orchestrator
-    multiplexer = SSEMultiplexer()
-    async for event in orchestrator.run(
-        session_id,
-        turn_id,
-        content,
-        force_code_investigation=force_code_investigation,
-    ):
-        yield multiplexer.format(event)
 
 
 async def persist_agent_turn(

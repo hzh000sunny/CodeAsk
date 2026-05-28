@@ -282,6 +282,7 @@ function detailRowsForEvent(event: ActionTraceEventModel) {
   const versionInfo = recordValue(data.version_info) ?? recordValue(result.version_info);
   const args =
     recordValue(data.arguments_summary) ?? recordValue(data.arguments);
+  const openViking = openVikingTraceDetails(data, result, resultData, args ?? {});
   const rows: Array<{ label: string; value: string }> = [];
   addRow(rows, "所属轮次", event.turnId);
   addRow(rows, "发生时间", event.occurredAt);
@@ -305,6 +306,9 @@ function detailRowsForEvent(event: ActionTraceEventModel) {
   }
   addRow(rows, "工具名称", stringValue(data.tool_name) ?? stringValue(data.name));
   addRow(rows, "调用编号", stringValue(data.tool_call_id) ?? stringValue(data.id));
+  addRow(rows, "OpenViking URI", openViking.uri);
+  addRow(rows, "相似度", openViking.score);
+  addRow(rows, "工具耗时", openViking.duration);
   addRow(rows, "调用参数", args ? readableJson(args) : null);
   addRow(rows, "参数解析错误", stringValue(data.arguments_parse_error));
   addRow(rows, "原始参数", stringValue(data.raw_arguments));
@@ -378,6 +382,49 @@ function recordValue(value: unknown): Record<string, unknown> | null {
 
 function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function openVikingTraceDetails(
+  data: Record<string, unknown>,
+  result: Record<string, unknown>,
+  resultData: Record<string, unknown>,
+  args: Record<string, unknown>,
+) {
+  const toolName = stringValue(data.tool_name) ?? stringValue(data.name);
+  if (toolName?.startsWith("openviking_") !== true) {
+    return { duration: null, score: null, uri: null };
+  }
+  const firstHit = firstRecordValue(resultData.hits) ?? firstRecordValue(result.hits);
+  const score = numberValue(firstHit.score);
+  const duration =
+    numberValue(data.duration_ms) ??
+    numberValue(result.duration_ms) ??
+    numberValue(resultData.duration_ms);
+  return {
+    duration: duration !== null ? msDataLabel(duration) : null,
+    score: score !== null ? score.toFixed(3) : null,
+    uri:
+      openVikingUriLabel(firstHit) ??
+      openVikingUriLabel(resultData) ??
+      openVikingUriLabel(result) ??
+      openVikingUriLabel(args),
+  };
+}
+
+function firstRecordValue(value: unknown) {
+  if (!Array.isArray(value)) {
+    return {};
+  }
+  return recordValue(value[0]) ?? {};
+}
+
+function openVikingUriLabel(value: Record<string, unknown>) {
+  return (
+    stringValue(value.uri) ??
+    stringValue(value.resource_uri) ??
+    stringValue(value.resource) ??
+    stringValue(value.path)
+  );
 }
 
 function numberValue(value: unknown) {

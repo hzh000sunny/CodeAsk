@@ -1,7 +1,8 @@
 """Admin diagnostics for the opencode compatibility runtime."""
 
 import inspect
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, cast
 
 from fastapi import APIRouter, Request
 
@@ -23,9 +24,12 @@ async def get_opencode_status(request: Request) -> dict[str, Any]:
             "last_error": "opencode process manager not registered",
             "last_error_code": "not_registered",
         }
-    status = dict(describe())
-    status["active_session_count"] = await _active_session_count(request)
-    return status
+    raw_status = describe()
+    status_payload: dict[str, Any] = (
+        dict(cast(Mapping[str, Any], raw_status)) if isinstance(raw_status, Mapping) else {}
+    )
+    status_payload["active_session_count"] = await _active_session_count(request)
+    return status_payload
 
 
 async def _active_session_count(request: Request) -> int | None:
@@ -33,10 +37,12 @@ async def _active_session_count(request: Request) -> int | None:
     count_active = getattr(store, "count_active", None)
     if not callable(count_active):
         return None
-    value = count_active()
+    value: object = count_active()
     if inspect.isawaitable(value):
         value = await value
-    try:
+    if isinstance(value, (int, float, str)):
         return int(value)
+    try:
+        return int(cast(Any, value))
     except (TypeError, ValueError):
         return None

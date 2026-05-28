@@ -370,11 +370,16 @@ function legacyActionTraceFromEvent(event: AgentEvent): ActionTraceEvent | null 
 
 function toolCallDetail(data: Record<string, unknown>) {
   const args = recordValue(data.arguments_summary) ?? recordValue(data.arguments);
+  const openVikingParts = openVikingToolCallParts(
+    stringValue(data.tool_name) ?? stringValue(data.name),
+    args,
+  );
   const parts = [
     stringValue(data.reason),
     stringValue(args.description),
     stringValue(args.subagent_type),
     stringValue(args.query) ? `query=${stringValue(args.query)}` : null,
+    ...openVikingParts,
     stringValue(args.path),
     stringValue(args.ref) ? `ref=${stringValue(args.ref)}` : null,
     stringValue(data.arguments_parse_error) ? "参数 JSON 解析失败" : null,
@@ -399,8 +404,10 @@ function toolResultDetail(data: Record<string, unknown>) {
     ? data.warnings.filter((item): item is string => typeof item === "string")
     : [];
   const itemsCount = numberValue(data.items_count);
+  const openVikingParts = openVikingToolResultParts(data, result, resultData);
   const parts = [
     summary,
+    ...openVikingParts,
     scopeSourceLabel(stringValue(versionInfo.scope_source)),
     featureIds.length > 0 ? `特性 ${featureIds.join(", ")}` : null,
     repo,
@@ -528,8 +535,79 @@ function toolDisplayName(name: string) {
     search_reports: "报告搜索",
     search_wiki: "Wiki 搜索",
     task: "opencode 子任务",
+    openviking_find: "OpenViking 语义检索",
+    openviking_search: "OpenViking 语义检索",
+    openviking_read: "OpenViking 读取",
+    openviking_list: "OpenViking 列表",
+    openviking_grep: "OpenViking Grep",
+    openviking_glob: "OpenViking Glob",
+    openviking_health: "OpenViking 健康检查",
+    openviking_remember: "OpenViking 写入",
+    openviking_add_resource: "OpenViking 写入",
+    openviking_forget: "OpenViking 删除",
   };
   return labels[name] ?? name;
+}
+
+function openVikingToolCallParts(
+  toolName: string | null,
+  args: Record<string, unknown>,
+) {
+  if (!isOpenVikingTool(toolName)) {
+    return [];
+  }
+  return [
+    openVikingUriLabel(args),
+    numberValue(args.limit) !== null ? `limit=${numberValue(args.limit)}` : null,
+  ].filter(Boolean);
+}
+
+function openVikingToolResultParts(
+  data: Record<string, unknown>,
+  result: Record<string, unknown>,
+  resultData: Record<string, unknown>,
+) {
+  const toolName = stringValue(data.tool_name) ?? stringValue(data.name);
+  if (!isOpenVikingTool(toolName)) {
+    return [];
+  }
+  const firstHit = firstRecordValue(resultData.hits) ?? firstRecordValue(result.hits);
+  const score = numberValue(firstHit.score);
+  const duration =
+    numberValue(data.duration_ms) ??
+    numberValue(result.duration_ms) ??
+    numberValue(resultData.duration_ms);
+  return [
+    openVikingUriLabel(firstHit) ??
+      openVikingUriLabel(resultData) ??
+      openVikingUriLabel(result),
+    score !== null ? `score=${score.toFixed(3)}` : null,
+    duration !== null ? msLabel(duration) : null,
+  ].filter(Boolean);
+}
+
+function isOpenVikingTool(toolName: string | null) {
+  return toolName?.startsWith("openviking_") === true;
+}
+
+function openVikingUriLabel(value: Record<string, unknown>) {
+  return (
+    stringValue(value.uri) ??
+    stringValue(value.resource_uri) ??
+    stringValue(value.resource) ??
+    stringValue(value.path)
+  );
+}
+
+function firstRecordValue(value: unknown) {
+  if (!Array.isArray(value)) {
+    return {};
+  }
+  return recordValue(value[0]);
+}
+
+function msLabel(value: number) {
+  return value < 1000 ? `${value.toFixed(2)} ms` : `${(value / 1000).toFixed(2)} s`;
 }
 
 function objectArrayData(value: unknown) {

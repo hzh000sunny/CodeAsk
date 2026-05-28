@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from difflib import unified_diff
+from typing import cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -24,6 +25,18 @@ from codeask.wiki.documents.markdown_refs import (
 )
 from codeask.wiki.index import WikiIndexService
 from codeask.wiki.permissions import can_admin_feature, can_write_feature
+
+PENDING_OPENVIKING_WIKI_DOC_IDS = "_pending_openviking_wiki_doc_ids"
+
+
+def stash_pending_openviking_wiki_document_id(session: AsyncSession, document_id: int) -> None:
+    pending_raw = session.info.get(PENDING_OPENVIKING_WIKI_DOC_IDS)
+    if isinstance(pending_raw, list):
+        pending = cast(list[int], pending_raw)
+    else:
+        pending: list[int] = []
+        session.info[PENDING_OPENVIKING_WIKI_DOC_IDS] = pending
+    pending.append(int(document_id))
 
 
 class WikiDocumentService:
@@ -69,11 +82,17 @@ class WikiDocumentService:
                 source_node_path=node.path,
                 body_markdown=current_version.body_markdown,
             )
-            broken_refs_json = refs["broken_refs"]
-            resolved_refs_json = refs["resolved_refs"]
+            broken_refs_json = cast(dict[str, object], refs["broken_refs"])
+            resolved_refs_json = cast(list[dict[str, object]], refs["resolved_refs"])
         else:
-            broken_refs_json = document.broken_refs_json or {"links": [], "assets": []}
-            resolved_refs_json = []
+            stored_broken_refs: object = document.broken_refs_json
+            default_broken_refs: dict[str, object] = {"links": [], "assets": []}
+            broken_refs_json = (
+                cast(dict[str, object], stored_broken_refs)
+                if isinstance(stored_broken_refs, dict)
+                else default_broken_refs
+            )
+            resolved_refs_json: list[dict[str, object]] = []
         return {
             "document_id": document.id,
             "node_id": node.id,
@@ -178,6 +197,7 @@ class WikiDocumentService:
         session.add(version)
         await session.flush()
         document.current_version_id = version.id
+        stash_pending_openviking_wiki_document_id(session, int(document.id))
         if draft is not None:
             await session.delete(draft)
         await WikiIndexService().refresh_document(
@@ -197,7 +217,7 @@ class WikiDocumentService:
     ) -> list[WikiDocumentVersion]:
         _node, document = await self.load_document_by_node(session, node_id=node_id)
         await self._load_feature_for_document(session, document=document)
-        return (
+        return list(
             (
                 await session.execute(
                     select(WikiDocumentVersion)
@@ -281,6 +301,7 @@ class WikiDocumentService:
         session.add(new_version)
         await session.flush()
         document.current_version_id = new_version.id
+        stash_pending_openviking_wiki_document_id(session, int(document.id))
         await WikiIndexService().refresh_document(
             session,
             node=node,
@@ -402,19 +423,20 @@ class WikiDocumentService:
     ) -> dict[str, object] | None:
         if not isinstance(provenance_json, dict):
             return None
-        source_name = provenance_json.get("source")
+        provenance = cast(dict[str, object], provenance_json)
+        source_name = provenance.get("source")
         summary: dict[str, object] = {
             "source": source_name,
             "source_label": self._provenance_label(
                 source_name if isinstance(source_name, str) else None
             ),
-            "source_path": provenance_json.get("source_path"),
-            "import_job_id": provenance_json.get("import_job_id"),
-            "import_session_id": provenance_json.get("import_session_id"),
-            "legacy_document_id": provenance_json.get("legacy_document_id"),
-            "source_id": provenance_json.get("source_id"),
+            "source_path": provenance.get("source_path"),
+            "import_job_id": provenance.get("import_job_id"),
+            "import_session_id": provenance.get("import_session_id"),
+            "legacy_document_id": provenance.get("legacy_document_id"),
+            "source_id": provenance.get("source_id"),
         }
-        source_id = provenance_json.get("source_id")
+        source_id = provenance.get("source_id")
         if isinstance(source_id, int):
             source = (
                 await session.execute(select(WikiSource).where(WikiSource.id == source_id))

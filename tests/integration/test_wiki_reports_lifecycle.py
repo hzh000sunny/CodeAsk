@@ -3,11 +3,11 @@
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from codeask.db import session_factory
-from codeask.db.models import Feature
+from codeask.db.models import Feature, Report
 from codeask.migrations import run_migrations
 from codeask.wiki.reports import ReportService, ReportVerificationError
 
@@ -76,13 +76,10 @@ async def test_verify_succeeds_then_unverify(tmp_path: Path) -> None:
         assert int(report[0]) == 1
         assert report[1] == "verified"
         assert report[2] == "alice@dev-1"
-        rows = (
-            await session.execute(
-                text("SELECT report_id FROM reports_fts WHERE report_id = :id"),
-                {"id": report_id},
-            )
-        ).all()
-        assert rows
+        persisted = (
+            await session.execute(select(Report).where(Report.id == report_id))
+        ).scalar_one()
+        assert persisted.verified is True
 
     async with factory() as session:
         await service.unverify(session, report_id=report_id, subject_id="alice@dev-1")
@@ -97,13 +94,6 @@ async def test_verify_succeeds_then_unverify(tmp_path: Path) -> None:
         ).one()
         assert int(report[0]) == 0
         assert report[1] == "draft"
-        rows = (
-            await session.execute(
-                text("SELECT report_id FROM reports_fts WHERE report_id = :id"),
-                {"id": report_id},
-            )
-        ).all()
-        assert not rows
     await engine.dispose()
 
 

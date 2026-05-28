@@ -25,7 +25,10 @@ def _slugify_node_name(value: str) -> str:
 
 
 class LegacyWikiSyncService:
-    async def backfill_feature_content(self, session: AsyncSession, *, feature_id: int) -> None:
+    async def backfill_feature_content(
+        self, session: AsyncSession, *, feature_id: int
+    ) -> list[int]:
+        synced_document_ids: list[int] = []
         documents = (
             (
                 await session.execute(
@@ -41,7 +44,7 @@ class LegacyWikiSyncService:
         )
         for document in documents:
             raw_text = Path(document.raw_file_path).read_text(encoding="utf-8")
-            await self.sync_legacy_markdown_document(
+            synced_document_id = await self.sync_legacy_markdown_document(
                 session,
                 feature_id=feature_id,
                 legacy_document_id=int(document.id),
@@ -50,6 +53,8 @@ class LegacyWikiSyncService:
                 body_markdown=raw_text,
                 subject_id=document.uploaded_by_subject_id,
             )
+            if synced_document_id is not None:
+                synced_document_ids.append(synced_document_id)
 
         reports = (
             (await session.execute(select(Report).where(Report.feature_id == feature_id)))
@@ -63,6 +68,7 @@ class LegacyWikiSyncService:
                 feature_id=report.feature_id,
                 title=report.title,
             )
+        return synced_document_ids
 
     async def sync_legacy_markdown_document(
         self,
@@ -74,14 +80,14 @@ class LegacyWikiSyncService:
         title: str,
         body_markdown: str,
         subject_id: str,
-    ) -> None:
+    ) -> int | None:
         existing = (
             await session.execute(
                 select(WikiDocument).where(WikiDocument.legacy_document_id == legacy_document_id)
             )
         ).scalar_one_or_none()
         if existing is not None:
-            return
+            return None
 
         space = await self._require_current_space(session, feature_id=feature_id)
         root = await self._require_system_root(session, space_id=space.id, role="knowledge_base")
@@ -128,6 +134,7 @@ class LegacyWikiSyncService:
         session.add(version)
         await session.flush()
         document.current_version_id = version.id
+        return int(document.id)
 
     async def soft_delete_legacy_document(
         self,

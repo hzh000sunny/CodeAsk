@@ -127,16 +127,19 @@ def get_feature_info_tool(session_factory: SessionFactory) -> MCPTool:
                     "candidates": candidates,
                     "recovery_hint": "Call get_feature_info again with one candidate feature_id.",
                 }
-            feature_id = feature.id if feature is not None else _feature_id_for_error(arguments)
+            feature_id_for_message = (
+                feature.id if feature is not None else _feature_id_for_error(arguments)
+            )
             if feature is None or feature.status != "active":
                 return {
-                    "summary": f"feature not found: {feature_id}",
+                    "summary": f"feature not found: {feature_id_for_message}",
                     "error": "not_found",
-                    "feature_id": feature_id,
+                    "feature_id": feature_id_for_message,
                     "recovery_hint": (
                         "Call list_features and choose one of the returned active feature ids."
                     ),
                 }
+            feature_id = int(feature.id)
 
             entries = await _load_wiki_entries(session, feature_id)
             repositories = await _load_feature_repositories(

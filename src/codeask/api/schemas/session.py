@@ -133,7 +133,6 @@ class MessageCreate(BaseModel):
     )
     feature_ids: list[int] = Field(default_factory=_empty_feature_ids)
     repo_bindings: list[RepoBindingIn] = Field(default_factory=_empty_repo_bindings)
-    force_code_investigation: bool = False
     reply_to: str | None = None
     guest_llm_config: GuestLLMConfigIn | None = None
 

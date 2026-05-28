@@ -24,7 +24,14 @@ class FakeOpenCodeCompat:
     fail_abort: bool = False
     scripted_run_events_by_model: dict[str, list[ChatRuntimeEvent]] = field(default_factory=dict)
 
-    async def initialize_session(self, session_id, llm_config):  # type: ignore[no-untyped-def]
+    async def initialize_session(  # type: ignore[no-untyped-def]
+        self,
+        session_id,
+        llm_config,
+        *,
+        provider_config_pool=(),
+        force_new_external_session=False,
+    ):
         if self.fail_initialize_code is not None:
             raise OpenCodeProcessError(self.fail_initialize_code, "classified opencode failure")
         if self.fail_initialize:
@@ -35,6 +42,8 @@ class FakeOpenCodeCompat:
                 "session_id": session_id,
                 "model": llm_config.model_name,
                 "opencode_provider_profile": llm_config.opencode_provider_profile,
+                "provider_config_pool": [config.model_name for config in provider_config_pool],
+                "force_new_external_session": force_new_external_session,
             }
         )
         return object()
@@ -526,6 +535,172 @@ async def test_opencode_global_pool_retries_next_config_only_before_text(
         ("run_turn", "model-a"),
         ("initialize_session", "model-b"),
         ("run_turn", "model-b"),
+    ]
+    initialize_calls = [call for call in fake.calls if call["method"] == "initialize_session"]
+    assert initialize_calls[0]["provider_config_pool"] == ["model-a", "model-b"]
+    assert initialize_calls[0]["force_new_external_session"] is False
+    assert initialize_calls[1]["provider_config_pool"] == ["model-a", "model-b"]
+    assert initialize_calls[1]["force_new_external_session"] is True
+
+
+@pytest.mark.asyncio
+async def test_opencode_global_pool_retries_next_config_after_non_text_events(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    app.state.settings.agent_backend = "opencode"
+    fake = FakeOpenCodeCompat(
+        calls=[],
+        scripted_run_events_by_model={
+            "model-a": [
+                ChatRuntimeEvent(
+                    type="assistant_action",
+                    data={"action": "opencode_busy", "summary": "busy"},
+                ),
+                ChatRuntimeEvent(
+                    type="tool_call",
+                    data={"tool_name": "openviking_search", "tool_call_id": "call_1"},
+                ),
+                ChatRuntimeEvent(
+                    type="error",
+                    data={
+                        "backend": "opencode",
+                        "error": {
+                            "name": "APIError",
+                            "data": {"message": "InvalidSubscription"},
+                        },
+                    },
+                ),
+            ]
+        },
+    )
+    app.state.opencode_compat = fake
+    app.state.llm_gateway._random_choice = lambda configs: configs[0]  # pyright: ignore[reportPrivateUsage]
+
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    for suffix, model_name in [("a", "model-a"), ("b", "model-b")]:
+        created_config = await client.post(
+            "/api/admin/llm-configs",
+            json={
+                "name": f"opencode-pool-non-text-{suffix}",
+                "protocol": "openai",
+                "base_url": f"http://llm-non-text-{suffix}.test/v1",
+                "api_key": f"sk-{suffix}",
+                "model_name": model_name,
+                "enabled": True,
+                "is_default": False,
+            },
+        )
+        assert created_config.status_code == 201, created_config.text
+    await client.post("/api/auth/logout")
+
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "OpenCode"}, headers=headers)
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "hello opencode", "client_turn_id": "turn_opencode_non_text_retry"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert "InvalidSubscription" not in response.text
+    assert "opencode answer" in response.text
+    assert [
+        (call["method"], call["model"])
+        for call in fake.calls
+        if call["method"] in {"initialize_session", "run_turn"}
+    ] == [
+        ("initialize_session", "model-a"),
+        ("run_turn", "model-a"),
+        ("initialize_session", "model-b"),
+        ("run_turn", "model-b"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_opencode_global_pool_can_try_all_global_configs_once(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    app.state.settings.agent_backend = "opencode"
+    bad_events = [
+        ChatRuntimeEvent(
+            type="assistant_action",
+            data={"action": "opencode_busy", "summary": "busy"},
+        ),
+        ChatRuntimeEvent(
+            type="error",
+            data={
+                "backend": "opencode",
+                "error": {
+                    "name": "APIError",
+                    "data": {"message": "InvalidSubscription"},
+                },
+            },
+        ),
+    ]
+    fake = FakeOpenCodeCompat(
+        calls=[],
+        scripted_run_events_by_model={
+            **{f"model-{idx}": bad_events for idx in range(5)},
+        },
+    )
+    app.state.opencode_compat = fake
+    app.state.llm_gateway._random_choice = lambda configs: configs[0]  # pyright: ignore[reportPrivateUsage]
+
+    login = await client.post("/api/auth/admin/login", json={"password": "admin"})
+    assert login.status_code == 200
+    for idx in range(6):
+        created_config = await client.post(
+            "/api/admin/llm-configs",
+            json={
+                "name": f"opencode-pool-many-failures-{idx}",
+                "protocol": "openai",
+                "base_url": f"http://llm-many-failures-{idx}.test/v1",
+                "api_key": f"sk-{idx}",
+                "model_name": f"model-{idx}",
+                "enabled": True,
+                "is_default": False,
+            },
+        )
+        assert created_config.status_code == 201, created_config.text
+    await client.post("/api/auth/logout")
+
+    headers = {"X-Subject-Id": "alice@dev-1"}
+    created = await client.post("/api/sessions", json={"title": "OpenCode"}, headers=headers)
+    assert created.status_code == 201, created.text
+    session_id = created.json()["id"]
+
+    response = await client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"content": "hello opencode", "client_turn_id": "turn_opencode_try_all"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert "InvalidSubscription" not in response.text
+    assert "opencode answer" in response.text
+    assert [
+        (call["method"], call["model"])
+        for call in fake.calls
+        if call["method"] in {"initialize_session", "run_turn"}
+    ] == [
+        ("initialize_session", "model-0"),
+        ("run_turn", "model-0"),
+        ("initialize_session", "model-1"),
+        ("run_turn", "model-1"),
+        ("initialize_session", "model-2"),
+        ("run_turn", "model-2"),
+        ("initialize_session", "model-3"),
+        ("run_turn", "model-3"),
+        ("initialize_session", "model-4"),
+        ("run_turn", "model-4"),
+        ("initialize_session", "model-5"),
+        ("run_turn", "model-5"),
     ]
 
 

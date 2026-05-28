@@ -8,6 +8,7 @@ import pytest
 
 import codeask.agent.opencode_compat.backend as opencode_backend
 from codeask.agent.opencode_compat.backend import OpenCodeCompat
+from codeask.agent.opencode_compat.config import OpenVikingMCPConfig
 from codeask.agent.opencode_compat.process import OpenCodeProcessError, OpenCodeServerHandle
 from codeask.agent.opencode_compat.prompts import build_codeask_system_prompt
 from codeask.agent.opencode_compat.sessions import ExternalAgentSessionCreate
@@ -178,11 +179,19 @@ class FakeStore:
         return item
 
 
-async def _dynamic_context(session_id: str, workspace_dir: Path) -> str:
+async def _dynamic_context(
+    session_id: str,
+    workspace_dir: Path,
+    openviking_available: bool = False,
+) -> str:
+    openviking_line = (
+        "- OpenViking: available\n" if openviking_available else "- OpenViking: unavailable\n"
+    )
     return (
         "<!-- CodeAsk Dynamic Context -->\n"
         f"- Session ID: {session_id}\n"
         f"- Workspace: {workspace_dir}\n"
+        f"{openviking_line}"
         "- Feature: AnythingLLM Reference (id=3, slug=anything-llm)\n"
         "- Tool: prepare_worktree\n"
         "<!-- End CodeAsk Dynamic Context -->"
@@ -232,6 +241,227 @@ async def test_initialize_session_writes_workspace_config_and_external_binding(
     assert result.external_session_key == "ses_open"
     assert http_client.health_calls == 1
     assert process_manager.health_ok_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_injects_openviking_mcp_when_resolver_returns_healthy_config(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+        openviking_mcp_resolver=lambda session_id: OpenVikingMCPConfig(
+            url="http://127.0.0.1:1933/mcp",
+            headers={
+                "X-OpenViking-Account": "codeask",
+                "X-OpenViking-User": "admin",
+                "X-OpenViking-Agent": session_id,
+            },
+        ),
+    )
+
+    await compat.initialize_session("sess_1", _llm_config())
+
+    config = json.loads(
+        (_session_workspace_path(tmp_path) / "opencode.json").read_text(encoding="utf-8")
+    )
+    assert config["mcp"]["openviking"] == {
+        "type": "remote",
+        "url": "http://127.0.0.1:1933/mcp",
+        "headers": {
+            "X-OpenViking-Account": "codeask",
+            "X-OpenViking-User": "admin",
+            "X-OpenViking-Agent": "sess_1",
+        },
+        "oauth": False,
+        "timeout": 30000,
+    }
+    assert config["permission"]["openviking_remember"] == "deny"
+    assert config["permission"]["openviking_add_resource"] == "deny"
+    assert config["permission"]["openviking_forget"] == "deny"
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_omits_openviking_mcp_when_resolver_reports_degraded(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+        openviking_mcp_resolver=lambda _session_id: None,
+    )
+
+    await compat.initialize_session("sess_1", _llm_config())
+
+    config = json.loads(
+        (_session_workspace_path(tmp_path) / "opencode.json").read_text(encoding="utf-8")
+    )
+    assert set(config["mcp"]) == {"codeask"}
+    assert "openviking_remember" not in config["permission"]
+    assert "openviking_add_resource" not in config["permission"]
+    assert "openviking_forget" not in config["permission"]
+
+
+@pytest.mark.asyncio
+async def test_run_turn_reuses_initialized_openviking_availability_for_context(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    http_client.events = [
+        {
+            "directory": str(_session_workspace_path(tmp_path)),
+            "payload": {
+                "type": "session.status",
+                "properties": {"sessionID": "ses_open", "status": {"type": "idle"}},
+            },
+        }
+    ]
+    store = FakeStore()
+    resolver_calls = 0
+    context_availability: list[bool] = []
+
+    def resolve_openviking(session_id: str) -> OpenVikingMCPConfig:
+        nonlocal resolver_calls
+        resolver_calls += 1
+        return OpenVikingMCPConfig(
+            url="http://127.0.0.1:1933/mcp",
+            headers={"X-OpenViking-Agent": session_id},
+        )
+
+    async def context_builder(
+        _session_id: str,
+        _workspace_dir: Path,
+        openviking_available: bool,
+    ) -> str:
+        context_availability.append(openviking_available)
+        return "dynamic context"
+
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+        context_builder=context_builder,
+        openviking_mcp_resolver=resolve_openviking,
+    )
+
+    binding = await compat.initialize_session("sess_1", _llm_config())
+    async for _event in compat.run_turn(
+        session_id="sess_1",
+        user_message="hello",
+        llm_config=_llm_config(),
+        binding=binding,
+    ):
+        pass
+
+    assert resolver_calls == 1
+    assert context_availability == [True]
+
+
+@pytest.mark.asyncio
+async def test_run_turn_reuses_degraded_openviking_availability_for_context(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    http_client.events = [
+        {
+            "directory": str(_session_workspace_path(tmp_path)),
+            "payload": {
+                "type": "session.status",
+                "properties": {"sessionID": "ses_open", "status": {"type": "idle"}},
+            },
+        }
+    ]
+    store = FakeStore()
+    resolver_calls = 0
+    context_availability: list[bool] = []
+
+    def resolve_openviking(_session_id: str) -> None:
+        nonlocal resolver_calls
+        resolver_calls += 1
+        return None
+
+    async def context_builder(
+        _session_id: str,
+        _workspace_dir: Path,
+        openviking_available: bool,
+    ) -> str:
+        context_availability.append(openviking_available)
+        return "dynamic context"
+
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+        context_builder=context_builder,
+        openviking_mcp_resolver=resolve_openviking,
+    )
+
+    binding = await compat.initialize_session("sess_1", _llm_config())
+    async for _event in compat.run_turn(
+        session_id="sess_1",
+        user_message="hello",
+        llm_config=_llm_config(),
+        binding=binding,
+    ):
+        pass
+
+    assert resolver_calls == 1
+    assert context_availability == [False]
+    assert "openviking" not in binding.config_json["mcp"]
 
 
 @pytest.mark.asyncio
@@ -670,6 +900,92 @@ async def test_run_turn_sends_prompt_and_maps_opencode_events(tmp_path: Path) ->
         "opencode_status",
     ]
     assert summary_lines[-1]["status"] == "idle"
+
+
+@pytest.mark.asyncio
+async def test_run_turn_does_not_treat_user_text_part_as_assistant_output(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    workspace = workspace_manager.prepare_workspace("sess_1")
+    store.items.append(
+        ExternalAgentSessionCreate(
+            session_id="sess_1",
+            external_session_key="ses_open",
+            session_dir=str(workspace.session_dir),
+            workspace_dir=str(workspace.workspace_dir),
+            server_url="http://127.0.0.1:4100",
+            port=4100,
+            pid=123,
+            config_hash="hash",
+            config_json={},
+        )
+    )
+    http_client.events = [
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "info": {"id": "msg_user", "role": "user"},
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        "id": "text_user",
+                        "messageID": "msg_user",
+                        "type": "text",
+                        "text": "用户原始问题不应进入 assistant 输出",
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "session.error",
+                "properties": {"sessionID": "ses_open", "error": "provider failed"},
+            },
+        },
+    ]
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    events = [
+        event
+        async for event in compat.run_turn(
+            session_id="sess_1",
+            user_message="hi",
+            llm_config=_llm_config(),
+        )
+    ]
+
+    user_visible_events = _without_runtime_observation_events(events)
+    assert [event.type for event in user_visible_events] == ["error"]
+    assert user_visible_events[0].data == {"backend": "opencode", "error": "provider failed"}
 
 
 @pytest.mark.asyncio
@@ -1716,6 +2032,67 @@ async def test_initialize_session_reuses_existing_binding_when_config_is_unchang
     assert http_client.created_directories == [str(_session_workspace_path(tmp_path))]
     assert http_client.list_message_calls == [
         {"session_id": "ses_open", "directory": str(_session_workspace_path(tmp_path))}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_can_force_new_external_session_without_rewriting_pool_config(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    http_client.session_ids = ["ses_old", "ses_new"]
+    store = FakeStore()
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+    cfg_a = _llm_config()
+    cfg_b = LLMConfigWithSecret(
+        **{
+            **_llm_config().__dict__,
+            "id": "cfg_2",
+            "name": "Anthropic",
+            "protocol": "anthropic",
+            "model_name": "model-b",
+        }
+    )
+    pool = (cfg_a, cfg_b)
+
+    first = await compat.initialize_session(
+        "sess_1",
+        cfg_a,
+        provider_config_pool=pool,
+    )
+    config_before = (_session_workspace_path(tmp_path) / "opencode.json").read_text(
+        encoding="utf-8"
+    )
+    second = await compat.initialize_session(
+        "sess_1",
+        cfg_b,
+        provider_config_pool=pool,
+        force_new_external_session=True,
+    )
+    config_after = (_session_workspace_path(tmp_path) / "opencode.json").read_text(encoding="utf-8")
+
+    assert first.external_session_key == "ses_old"
+    assert second.external_session_key == "ses_new"
+    assert config_before == config_after
+    assert http_client.created_directories == [
+        str(_session_workspace_path(tmp_path)),
+        str(_session_workspace_path(tmp_path)),
     ]
 
 

@@ -100,12 +100,27 @@ class Settings(BaseSettings):
         ge=60,
         description="Interval for cleaning idle opencode session resources.",
     )
-    agent_backend: Literal["opencode", "native"] = Field(
-        default="opencode",
+    openviking_enabled: bool = Field(
+        default=True,
         description=(
-            "Agent backend used by /sessions/{id}/messages. Production default is opencode; "
-            "native is retained for legacy regression tests and compatibility diagnostics."
+            "Whether CodeAsk should best-effort manage the OpenViking RAG server. "
+            "When disabled, admin APIs remain available in degraded mode."
         ),
+    )
+    openviking_host: str = "127.0.0.1"
+    openviking_port: int = Field(default=1933, ge=1, le=65535)
+    openviking_keepalive_interval_seconds: int = Field(default=30, ge=5)
+    openviking_sync_interval_seconds: int = Field(default=10, ge=5)
+    openviking_progress_sweep_interval_seconds: int = Field(default=5, ge=5)
+    openviking_scheduled_refresh_hours: int = Field(default=24, ge=1)
+    openviking_sync_workers: int = Field(default=2, ge=1, le=16)
+    openviking_ollama_base_url: str = "http://127.0.0.1:11434"
+    openviking_embedding_model: str = "bge-m3"
+    openviking_embedding_dimension: int = Field(default=1024, ge=1)
+    openviking_embedding_max_concurrent: int = Field(default=1, ge=1, le=128)
+    agent_backend: Literal["opencode"] = Field(
+        default="opencode",
+        description="Agent backend used by /sessions/{id}/messages.",
     )
 
     @model_validator(mode="after")
