@@ -351,6 +351,21 @@ class OpenVikingTuningSetting(Base, TimestampMixin):
 - 报告文件名前缀使用强制日期：`YYYY-MM-DD-<slugified-title>.md`，符合 `docs/rules/problem-report.md`
 - slug 重命名触发：旧 URI 写入 `tombstone` 同步任务 → 调用 OpenViking 删除 → 新 URI 写入 `pending` 同步任务
 
+### 4.1 实现状态（2026-05-30 终验复盘补注）
+
+本表是**设计目标全集**；实际落地分里程碑，避免文档与实现矛盾：
+
+| 资源 / source_type | 状态 | 里程碑 |
+|---|---|---|
+| Wiki 节点 `wiki_doc` | ✅ 已实现 | M5 |
+| 报告 `report`（verified） | ✅ 已实现（draft 有意不同步） | M5 |
+| 仓库 `repo` | ❌ 未实现——`repo_uri` 为零调用方死 helper，cloner 仅发 `repo_synced` 事件、不入队/不上传内容 | → [m11](../plans/m11-repo-openviking-sync.md) |
+| Feature README `feature_readme` | ❌ 未实现——`feature_readme_uri` 仅搜索侧反查路径用，不同步 | → [m12](../plans/m12-sync-coverage-completion.md) |
+| `wiki_dir` | ❌ 未实现（无 helper、语义待定） | → [m12](../plans/m12-sync-coverage-completion.md)（含"是否砍"评估） |
+| 全局目录 `global_index`（feature-index / repo-index / report-index） | ❌ 未实现（待验证 OpenViking 是否消费目录索引，可能砍） | → [m12](../plans/m12-sync-coverage-completion.md) |
+
+注：上方"slug 重命名 → tombstone"规则当前仅对 `wiki_doc` / `report` 经 id 反查生效；`repo` 的 tombstone/重命名随 m11 补齐。
+
 ---
 
 ## 5. OpenViking server 生命周期
