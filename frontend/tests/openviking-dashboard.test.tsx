@@ -124,13 +124,19 @@ describe("OpenVikingDashboard", () => {
         updated_at: "2026-05-26T10:01:00Z",
       },
     ];
-    vi.mocked(api.listOpenVikingSyncJobs).mockImplementation((params = {}) =>
-      Promise.resolve({
-        total: syncJobs.filter((job) => !params.status || job.status === params.status).length,
-        next_cursor: null,
-        items: syncJobs.filter((job) => !params.status || job.status === params.status),
-      }),
-    );
+    vi.mocked(api.listOpenVikingSyncJobs).mockImplementation((params = {}) => {
+      const filtered = syncJobs.filter((job) => !params.status || job.status === params.status);
+      const page = params.page ?? 1;
+      const limit = params.limit ?? 5;
+      const start = (page - 1) * limit;
+      const items = filtered.slice(start, start + limit);
+      return Promise.resolve({
+        total: filtered.length,
+        page,
+        limit,
+        items,
+      });
+    });
     vi.mocked(api.getOpenVikingSyncJobsSummary).mockResolvedValue({
       counts: { pending: 1, running: 0, failed: 1, indexed: 3, cancelled: 0 },
     });
@@ -261,7 +267,10 @@ describe("OpenVikingDashboard", () => {
     const statusOnlyJob = screen.getByText("文档生命周期").closest(".settings-openviking-job-row");
     expect(statusOnlyJob).toBeTruthy();
     expect(within(statusOnlyJob as HTMLElement).queryByRole("progressbar")).not.toBeInTheDocument();
-    expect(within(statusOnlyJob as HTMLElement).getByText("状态 pending")).toBeInTheDocument();
+    expect(within(statusOnlyJob as HTMLElement).queryByText("状态 pending")).not.toBeInTheDocument();
+    expect(within(statusOnlyJob as HTMLElement).queryByText("ETA —")).not.toBeInTheDocument();
+    expect(within(statusOnlyJob as HTMLElement).getByText("等待中")).toBeInTheDocument();
+    expect((statusOnlyJob as HTMLElement).getAttribute("data-status")).toBe("pending");
     expect(screen.queryByText(/\?/)).not.toBeInTheDocument();
     const metricsCard = screen.getByLabelText("OpenViking 运行指标");
     expect(within(metricsCard).queryByText("等待任务")).not.toBeInTheDocument();
@@ -831,7 +840,342 @@ describe("OpenVikingDashboard", () => {
     );
     expect(screen.getByText("共 12 条 · 第 1 / 2 页")).toBeInTheDocument();
   });
+
+  it("shows retry button for cancelled jobs, distinguishes failed/cancelled in status pills, and displays retry metadata", async () => {
+    vi.mocked(api.getOpenVikingSyncJobsSummary).mockResolvedValue({
+      counts: { pending: 0, running: 0, failed: 2, indexed: 3, cancelled: 1 },
+    });
+    const cancelledJob = {
+      id: "ovjob_c1",
+      source_type: "wiki_doc",
+      source_id: "99",
+      display_name: "已停止的文档",
+      feature_slug: "anything-llm",
+      viking_uri: "viking://resources/codeask/features/anything-llm/wiki/cancelled.md",
+      status: "cancelled",
+      attempts: 5,
+      next_retry_at: null,
+      last_synced_at: null,
+      last_indexed_at: null,
+      error: "Connection refused to OpenViking",
+      progress: null,
+      created_at: "2026-05-26T10:00:00Z",
+      updated_at: "2026-05-26T10:05:00Z",
+    };
+    const failedJobWithRetry = {
+      id: "ovjob_f1",
+      source_type: "report",
+      source_id: "88",
+      display_name: "某故障报告",
+      feature_slug: "opencode",
+      viking_uri: "viking://resources/codeask/features/opencode/problem-reports/verified/report.md",
+      status: "failed",
+      attempts: 3,
+      next_retry_at: "2026-05-26T14:30:00Z",
+      last_synced_at: null,
+      last_indexed_at: null,
+      error: "embedding dimension mismatch",
+      progress: null,
+      created_at: "2026-05-26T10:00:00Z",
+      updated_at: "2026-05-26T10:03:00Z",
+    };
+    vi.mocked(api.listOpenVikingSyncJobs).mockImplementation((params = {}) => {
+      const allJobs = [cancelledJob, failedJobWithRetry];
+      const filtered = allJobs.filter((j) => !params.status || j.status === params.status);
+      const page = params.page ?? 1;
+      const limit = params.limit ?? 5;
+      const start = (page - 1) * limit;
+      const items = filtered.slice(start, start + limit);
+      return Promise.resolve({
+        total: filtered.length,
+        page,
+        limit,
+        items,
+      });
+    });
+    vi.mocked(api.retrySyncJob).mockResolvedValue({} as never);
+
+    renderDashboard();
+    await screen.findByRole("heading", { name: "同步任务" });
+
+    // A1: StatusPill split — separate "失败" and "已停止重试" pills
+    const jobSummary = screen.getByLabelText("OpenViking 同步任务");
+    const pills = jobSummary.querySelectorAll(".openviking-status-pill");
+    const failedPill = Array.from(pills).find((p) => p.querySelector("span")?.textContent === "失败");
+    expect(failedPill).toBeTruthy();
+    await waitFor(() => expect(failedPill!.querySelector("strong")?.textContent).toBe("2"));
+    const cancelledPill = Array.from(pills).find((p) => p.querySelector("span")?.textContent === "已停止重试");
+    expect(cancelledPill).toBeTruthy();
+    await waitFor(() => expect(cancelledPill!.querySelector("strong")?.textContent).toBe("1"));
+
+    // A1: cancelled job shows retry button (was the bug — cancelled had no button)
+    const cancelledRow = screen.getByText("已停止的文档").closest(".settings-openviking-job-row");
+    expect(cancelledRow).toBeInTheDocument();
+    expect(within(cancelledRow as HTMLElement).getByRole("button", { name: "重试 ovjob_c1" })).toBeInTheDocument();
+
+    // A1: statusOutcome — cancelled gets error badge (not neutral info)
+    const cancelledBadge = within(cancelledRow as HTMLElement).getByText("已停止重试");
+    expect(cancelledBadge.closest(".settings-openviking-badge")?.getAttribute("data-outcome")).toBe("error");
+
+    // A1: data-status attribute
+    expect((cancelledRow as HTMLElement).getAttribute("data-status")).toBe("cancelled");
+
+    // A2: failed job meta line — attempts + next_retry_at
+    const failedRow = screen.getByText("某故障报告").closest(".settings-openviking-job-row");
+    expect(failedRow).toBeInTheDocument();
+    expect(within(failedRow as HTMLElement).getByText(/已重试 3 次/)).toBeInTheDocument();
+    expect(within(failedRow as HTMLElement).getByText(/下次约/)).toBeInTheDocument();
+    expect(within(failedRow as HTMLElement).getByText(/自动重试/)).toBeInTheDocument();
+
+    // A2: cancelled job meta line — "已停止自动重试"
+    expect(within(cancelledRow as HTMLElement).getByText("已停止自动重试")).toBeInTheDocument();
+
+    // A3: SYNC_STATUS_LABELS — Badge uses Chinese labels
+    expect(within(failedRow as HTMLElement).getByText("失败")).toBeInTheDocument();
+    const failedBadge = within(failedRow as HTMLElement).getByText("失败");
+    expect(failedBadge.closest(".settings-openviking-badge")?.getAttribute("data-outcome")).toBe("error");
+
+    // A3: cancelled error hint (human-readable reason + action)
+    expect(
+      within(cancelledRow as HTMLElement).getByText(/已连续失败 5 次自动停止/),
+    ).toBeInTheDocument();
+    expect(
+      within(cancelledRow as HTMLElement).getByText(/请检查 OpenViking 服务是否在线/),
+    ).toBeInTheDocument();
+
+    // A3: common error pattern mapping — embedding error gets translated
+    expect(
+      within(failedRow as HTMLElement).getByText(/Embedding 模型异常/),
+    ).toBeInTheDocument();
+
+    // A4: no-noise — no "ETA —" or raw "状态" line in either row
+    expect(within(cancelledRow as HTMLElement).queryByText("ETA —")).not.toBeInTheDocument();
+    expect(within(cancelledRow as HTMLElement).queryByText(/^状态 /)).not.toBeInTheDocument();
+    expect(within(failedRow as HTMLElement).queryByText("ETA —")).not.toBeInTheDocument();
+    expect(within(failedRow as HTMLElement).queryByText(/^状态 /)).not.toBeInTheDocument();
+  });
 });
+
+  it("paginates sync jobs across pages and disables prev/next at boundaries", async () => {
+    const manyJobs = Array.from({ length: 7 }, (_, i) => ({
+      id: `ovjob_p${i + 1}`,
+      source_type: "wiki_doc" as const,
+      source_id: String(i + 1),
+      display_name: `分页文档 ${i + 1}`,
+      feature_slug: "anything-llm",
+      viking_uri: `viking://resources/codeask/features/anything-llm/wiki/p${i + 1}.md`,
+      status: "indexed" as const,
+      attempts: 0,
+      next_retry_at: null,
+      last_synced_at: null,
+      last_indexed_at: null,
+      error: null,
+      progress: null,
+      created_at: "2026-05-26T10:00:00Z",
+      updated_at: "2026-05-26T10:01:00Z",
+    }));
+    vi.mocked(api.getOpenVikingSyncJobsSummary).mockResolvedValue({
+      counts: { pending: 0, running: 0, failed: 0, indexed: 7, cancelled: 0 },
+    });
+    let lastCallParams: Record<string, unknown> = {};
+    vi.mocked(api.listOpenVikingSyncJobs).mockImplementation((params = {}) => {
+      lastCallParams = params as Record<string, unknown>;
+      const page = (params as { page?: number }).page ?? 1;
+      const limit = (params as { limit?: number }).limit ?? 5;
+      const start = (page - 1) * limit;
+      return Promise.resolve({ total: 7, page, limit, items: manyJobs.slice(start, start + limit) });
+    });
+
+    renderDashboard();
+    const syncCard = await screen.findByLabelText("OpenViking 同步任务");
+
+    expect(await within(syncCard).findByText("分页文档 1")).toBeInTheDocument();
+    expect(within(syncCard).getByText("分页文档 5")).toBeInTheDocument();
+    expect(within(syncCard).queryByText("分页文档 6")).not.toBeInTheDocument();
+    expect(within(syncCard).getByText("共 7 条 · 第 1 / 2 页")).toBeInTheDocument();
+    expect(within(syncCard).getByRole("button", { name: "上一页同步任务" })).toBeDisabled();
+    expect(within(syncCard).getByRole("button", { name: "下一页同步任务" })).toBeEnabled();
+
+    fireEvent.click(within(syncCard).getByRole("button", { name: "下一页同步任务" }));
+    await waitFor(() => expect(lastCallParams.page).toBe(2));
+    expect(await within(syncCard).findByText("分页文档 6")).toBeInTheDocument();
+    expect(within(syncCard).getByText("分页文档 7")).toBeInTheDocument();
+    expect(within(syncCard).queryByText("分页文档 1")).not.toBeInTheDocument();
+    expect(within(syncCard).getByText("共 7 条 · 第 2 / 2 页")).toBeInTheDocument();
+    expect(within(syncCard).getByRole("button", { name: "下一页同步任务" })).toBeDisabled();
+
+    fireEvent.click(within(syncCard).getByRole("button", { name: "上一页同步任务" }));
+    await waitFor(() => expect(lastCallParams.page).toBe(1));
+    expect(await within(syncCard).findByText("分页文档 1")).toBeInTheDocument();
+    expect(within(syncCard).getByText("共 7 条 · 第 1 / 2 页")).toBeInTheDocument();
+  });
+
+  it("filters by status dropdown and resets page to 1", async () => {
+    // Set up 7 items so we can paginate
+    const manyJobs = Array.from({ length: 7 }, (_, i) => ({
+      id: `ovjob_f${i + 1}`,
+      source_type: "wiki_doc" as const,
+      source_id: String(i + 1),
+      display_name: `筛选文档 ${i + 1}`,
+      feature_slug: "test",
+      viking_uri: `viking://test/p${i + 1}.md`,
+      status: "indexed" as const,
+      attempts: 0,
+      next_retry_at: null,
+      last_synced_at: null,
+      last_indexed_at: null,
+      error: null,
+      progress: null,
+      created_at: "2026-05-26T10:00:00Z",
+      updated_at: "2026-05-26T10:01:00Z",
+    }));
+    let lastCallParams: Record<string, unknown> = {};
+    vi.mocked(api.listOpenVikingSyncJobs).mockImplementation((params = {}) => {
+      lastCallParams = params as Record<string, unknown>;
+      const page = (params as { page?: number }).page ?? 1;
+      const limit = (params as { limit?: number }).limit ?? 5;
+      const start = (page - 1) * limit;
+      return Promise.resolve({ total: 7, page, limit, items: manyJobs.slice(start, start + limit) });
+    });
+    vi.mocked(api.getOpenVikingSyncJobsSummary).mockResolvedValue({
+      counts: { pending: 0, running: 0, failed: 0, indexed: 7, cancelled: 0 },
+    });
+
+    renderDashboard();
+    await screen.findByRole("heading", { name: "同步任务" });
+
+    // Go to page 2 first
+    await screen.findByText("筛选文档 1");
+    fireEvent.click(screen.getByRole("button", { name: "下一页同步任务" }));
+    await waitFor(() => expect(lastCallParams.page).toBe(2), { timeout: 3000 });
+
+    // Now change filter — must reset to page 1
+    const statusSelect = screen.getByLabelText("同步任务状态筛选");
+    fireEvent.change(statusSelect, { target: { value: "failed" } });
+    await waitFor(() => {
+      expect(lastCallParams.status).toBe("failed");
+      expect(lastCallParams.page).toBe(1);
+    });
+  });
+
+  it("clicks StatusPill to filter and toggles off on second click", async () => {
+    renderDashboard();
+    await screen.findByRole("heading", { name: "同步任务" });
+
+    const syncCard2 = screen.getByLabelText("OpenViking 同步任务");
+    const pills = syncCard2.querySelectorAll(".openviking-status-pill[role='button']");
+    const failedPill = Array.from(pills).find((p) => p.querySelector("span")?.textContent === "失败");
+    expect(failedPill).toBeTruthy();
+    fireEvent.click(failedPill as HTMLElement);
+
+    await waitFor(() =>
+      expect(vi.mocked(api.listOpenVikingSyncJobs)).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: "failed" }),
+      ),
+    );
+
+        fireEvent.click(failedPill as HTMLElement); await waitFor(() => {
+      const lastCall = vi.mocked(api.listOpenVikingSyncJobs).mock.lastCall?.[0] ?? {};
+      expect(lastCall.status).toBeUndefined();
+    });
+  });
+
+  it("formats next_retry_at with time and date information", async () => {
+    // Use a date far in the past to guarantee cross-day rendering (MM-DD HH:MM)
+    const pastDate = new Date("2020-01-15T14:30:00Z");
+    const job = {
+      id: "ovjob_sd",
+      source_type: "wiki_doc" as const,
+      source_id: "sd",
+      display_name: "重试文档",
+      feature_slug: "test",
+      viking_uri: "viking://test",
+      status: "failed" as const,
+      attempts: 1,
+      next_retry_at: pastDate.toISOString(),
+      last_synced_at: null,
+      last_indexed_at: null,
+      error: null,
+      progress: null,
+      created_at: "2026-05-26T10:00:00Z",
+      updated_at: "2026-05-26T10:01:00Z",
+    };
+    vi.mocked(api.listOpenVikingSyncJobs).mockImplementation((params = {}) => {
+      const page = (params as { page?: number }).page ?? 1;
+      const limit = (params as { limit?: number }).limit ?? 5;
+      return Promise.resolve({ total: 1, page, limit, items: [job].slice(0, limit) });
+    });
+    vi.mocked(api.getOpenVikingSyncJobsSummary).mockResolvedValue({
+      counts: { pending: 0, running: 0, failed: 1, indexed: 0, cancelled: 0 },
+    });
+
+    renderDashboard();
+    await screen.findByRole("heading", { name: "同步任务" });
+    await screen.findByText("重试文档");
+    // Cross-day (Jan 2020 is always before now): should render "01-15 HH:MM"
+    const metaText = screen.getByText(/已重试 1 次 .*下次约 .* 自动重试/).textContent ?? "";
+    expect(metaText).toMatch(/01-15 \d{2}:\d{2}/);
+  });
+
+  it("maps error patterns to human hints and falls back to raw error for unknowns", async () => {
+    function renderWithError(error: string | null) {
+      const job = {
+        id: "ovjob_err",
+        source_type: "wiki_doc" as const,
+        source_id: "err",
+        display_name: "错误测试文档",
+        feature_slug: "test",
+        viking_uri: "viking://test",
+        status: "failed" as const,
+        attempts: 1,
+        next_retry_at: null,
+        last_synced_at: null,
+        last_indexed_at: null,
+        error,
+        progress: null,
+        created_at: "2026-05-26T10:00:00Z",
+        updated_at: "2026-05-26T10:01:00Z",
+      };
+      vi.mocked(api.listOpenVikingSyncJobs).mockImplementation(() =>
+        Promise.resolve({ total: 1, page: 1, limit: 5, items: [job] }),
+      );
+      vi.mocked(api.getOpenVikingSyncJobsSummary).mockResolvedValue({
+        counts: { pending: 0, running: 0, failed: 1, indexed: 0, cancelled: 0 },
+      });
+      return renderDashboard();
+    }
+
+    const { unmount: u1 } = renderWithError("dial tcp: connection refused");
+    await screen.findByText(/无法连接 OpenViking 服务/);
+    u1();
+
+    const { unmount: u2 } = renderWithError("request timed out after 30s");
+    await screen.findByText(/同步超时/);
+    u2();
+
+    const { unmount: u3 } = renderWithError("unauthorized: 401 invalid token");
+    await screen.findByText(/凭据或权限错误/);
+    u3();
+
+    renderWithError("some obscure internal error XYZ123");
+    await screen.findByText("some obscure internal error XYZ123");
+  });
+
+  it("shows empty state with correct page text when counts are all zero", async () => {
+    vi.mocked(api.getOpenVikingSyncJobsSummary).mockResolvedValue({
+      counts: { pending: 0, running: 0, failed: 0, indexed: 0, cancelled: 0 },
+    });
+    vi.mocked(api.listOpenVikingSyncJobs).mockImplementation(() =>
+      Promise.resolve({ total: 0, page: 1, limit: 5, items: [] }),
+    );
+
+    renderDashboard();
+    const syncCard4 = await screen.findByLabelText("OpenViking 同步任务");
+
+    expect(within(syncCard4).getByText("暂无同步任务")).toBeInTheDocument();
+    expect(within(syncCard4).getByText("共 0 条 · 第 1 / 1 页")).toBeInTheDocument();
+  });
+
 
 function renderDashboard() {
   const client = new QueryClient({

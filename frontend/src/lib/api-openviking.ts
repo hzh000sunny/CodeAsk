@@ -22,7 +22,7 @@ export function getOpenVikingStatus() {
 }
 
 export function listOpenVikingSyncJobs(
-  params: { cursor?: string; limit?: number; sourceType?: string; status?: string } = {},
+  params: { page?: number; limit?: number; sourceType?: string; status?: string } = {},
 ) {
   const search = new URLSearchParams();
   if (params.status) {
@@ -31,8 +31,8 @@ export function listOpenVikingSyncJobs(
   if (params.sourceType) {
     search.set("source_type", params.sourceType);
   }
-  if (params.cursor) {
-    search.set("cursor", params.cursor);
+  if (params.page !== undefined) {
+    search.set("page", String(params.page));
   }
   if (params.limit) {
     search.set("limit", String(params.limit));

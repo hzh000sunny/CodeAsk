@@ -3565,7 +3565,29 @@ textarea:focus-visible {
 }
 
 .settings-diagnostic-grid-metrics {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  max-width: 640px;
+}
+
+.settings-diagnostic-grid-metrics .settings-diagnostic-item {
+  text-align: center;
+  padding: 16px 12px;
+}
+
+.settings-diagnostic-grid-metrics .settings-diagnostic-item span {
+  justify-content: center;
+  font-size: 11px;
+}
+
+.settings-diagnostic-grid-metrics .settings-diagnostic-item strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.settings-diagnostic-grid-metrics .settings-diagnostic-item[data-metric-placeholder] strong {
+  font-size: 13px;
+  font-weight: 400;
+  color: #9aa4b2;
 }
 
 .settings-diagnostic-grid-fixed {
@@ -3645,22 +3667,22 @@ textarea:focus-visible {
   align-self: stretch;
 }
 
-.openviking-card-embedding,
-.openviking-card-metrics {
-  grid-column: span 5;
-}
-
 .openviking-card-embedding {
+  grid-column: span 5;
   align-self: stretch;
 }
 
-.openviking-card-sync,
-.openviking-card-tuning {
+.openviking-card-metrics {
   grid-column: 1 / -1;
 }
 
+.openviking-card-sync,
 .openviking-card-events {
-  grid-column: span 7;
+  grid-column: span 6;
+}
+
+.openviking-card-tuning {
+  grid-column: 1 / -1;
 }
 
 .settings-openviking-controls {
@@ -3745,10 +3767,36 @@ textarea:focus-visible {
 }
 
 .settings-openviking-job-summary {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
   gap: 8px;
   margin-top: 12px;
+}
+
+.settings-openviking-job-summary .openviking-status-pill {
+  flex: 1;
+  min-width: 0;
+}
+
+.openviking-status-pill[role="button"] {
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow 0.15s;
+}
+
+.openviking-status-pill[role="button"]:hover {
+  box-shadow: 0 0 0 2px #2563eb40;
+}
+
+.openviking-status-pill[data-selected] {
+  box-shadow: 0 0 0 2px #2563eb;
+}
+
+.openviking-status-pill[data-selected][data-outcome="error"] {
+  box-shadow: 0 0 0 2px #b42318;
+}
+
+.openviking-status-pill[data-selected][data-outcome="success"] {
+  box-shadow: 0 0 0 2px #0d9488;
 }
 
 .settings-openviking-job-list,
@@ -3840,14 +3888,10 @@ textarea:focus-visible {
 }
 
 .settings-openviking-progress small,
-.settings-openviking-error {
+.settings-openviking-error,
+.settings-openviking-job-meta {
   color: #667085;
   font-size: 12px;
-}
-
-.settings-openviking-status-only {
-  align-content: center;
-  min-height: 30px;
 }
 
 .settings-openviking-load-more {
@@ -4507,7 +4551,10 @@ textarea:focus-visible {
   .settings-openviking-snippet,
   .settings-openviking-filter-row,
   .settings-openviking-pagination,
-  .settings-openviking-job-summary,
+  .settings-openviking-job-summary {
+    flex-wrap: wrap;
+  }
+
   .settings-diagnostic-grid {
     grid-template-columns: 1fr;
   }

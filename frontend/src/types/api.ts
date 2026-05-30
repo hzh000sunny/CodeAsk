@@ -278,7 +278,8 @@ export interface OpenVikingSyncJob {
 export interface OpenVikingSyncJobsResponse {
   items: OpenVikingSyncJob[];
   total: number;
-  next_cursor: string | null;
+  page: number;
+  limit: number;
 }
 
 export interface OpenVikingSyncJobsSummaryResponse {

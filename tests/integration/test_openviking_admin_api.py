@@ -487,7 +487,7 @@ async def test_openviking_sync_jobs_include_display_names_for_wiki_and_reports(c
 
 
 @pytest.mark.asyncio
-async def test_openviking_sync_jobs_summary_and_cursor_pagination(client, app) -> None:
+async def test_openviking_sync_jobs_summary_and_page_pagination(client, app) -> None:
     login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
     assert login.status_code == 200
     now = datetime.now(UTC)
@@ -515,7 +515,7 @@ async def test_openviking_sync_jobs_summary_and_cursor_pagination(client, app) -
         await session.commit()
 
     summary = await client.get("/api/admin/openviking/sync_jobs/summary")
-    first_page = await client.get("/api/admin/openviking/sync_jobs?status=indexed&limit=10")
+    first_page = await client.get("/api/admin/openviking/sync_jobs?status=indexed&page=1&limit=10")
 
     assert summary.status_code == 200, summary.text
     assert summary.json()["counts"]["indexed"] == 30
@@ -523,18 +523,27 @@ async def test_openviking_sync_jobs_summary_and_cursor_pagination(client, app) -
     assert first_page.status_code == 200, first_page.text
     first_body = first_page.json()
     assert len(first_body["items"]) == 10
-    assert first_body["next_cursor"]
+    assert first_body["total"] == 30
+    assert first_body["page"] == 1
 
     second_page = await client.get(
-        f"/api/admin/openviking/sync_jobs?status=indexed&limit=25&cursor={first_body['next_cursor']}"
+        "/api/admin/openviking/sync_jobs?status=indexed&page=2&limit=10"
     )
 
     assert second_page.status_code == 200, second_page.text
     second_body = second_page.json()
-    assert len(second_body["items"]) == 20
-    assert second_body["next_cursor"] is None
+    assert len(second_body["items"]) == 10
+    assert second_body["total"] == 30
+    assert second_body["page"] == 2
     seen_ids = {item["id"] for item in first_body["items"] + second_body["items"]}
-    assert len(seen_ids) == 30
+    assert len(seen_ids) == 20  # 2 pages of 10
+
+    # Page beyond last → empty items, total still correct
+    beyond = await client.get("/api/admin/openviking/sync_jobs?status=indexed&page=10&limit=10")
+    assert beyond.status_code == 200, beyond.text
+    beyond_body = beyond.json()
+    assert len(beyond_body["items"]) == 0
+    assert beyond_body["total"] == 30
 
 
 @pytest.mark.asyncio

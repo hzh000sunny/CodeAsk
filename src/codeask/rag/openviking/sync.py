@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import base64
-import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from secrets import token_hex
 from typing import Any, Literal, Protocol, cast
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from codeask.db.models import (
@@ -61,7 +59,7 @@ class SyncSourceSnapshot:
 @dataclass(frozen=True)
 class SyncJobPage:
     jobs: list[OpenVikingSyncJob]
-    next_cursor: str | None
+    total: int
 
 
 class OpenVikingResourceClient(Protocol):
@@ -293,36 +291,33 @@ class OpenVikingSyncService:
         *,
         status: str | None = None,
         source_type: str | None = None,
+        page: int = 1,
         limit: int = 50,
-        cursor: str | None = None,
     ) -> SyncJobPage:
-        cursor_value = _decode_cursor(cursor) if cursor else None
+        offset = (page - 1) * limit
+        where_clauses: list[Any] = []
+        if status:
+            where_clauses.append(OpenVikingSyncJob.status == status)
+        if source_type:
+            where_clauses.append(OpenVikingSyncJob.source_type == source_type)
+        base_where = and_(*where_clauses) if where_clauses else None
+
+        count_stmt = select(func.count()).select_from(OpenVikingSyncJob)
+        if base_where is not None:
+            count_stmt = count_stmt.where(base_where)
+
         stmt = select(OpenVikingSyncJob).order_by(
             OpenVikingSyncJob.updated_at.desc(),
             OpenVikingSyncJob.id.desc(),
         )
-        if status:
-            stmt = stmt.where(OpenVikingSyncJob.status == status)
-        if source_type:
-            stmt = stmt.where(OpenVikingSyncJob.source_type == source_type)
-        if cursor_value is not None:
-            cursor_updated_at, cursor_id = cursor_value
-            stmt = stmt.where(
-                or_(
-                    OpenVikingSyncJob.updated_at < cursor_updated_at,
-                    and_(
-                        OpenVikingSyncJob.updated_at == cursor_updated_at,
-                        OpenVikingSyncJob.id < cursor_id,
-                    ),
-                )
-            )
-        stmt = stmt.limit(limit + 1)
+        if base_where is not None:
+            stmt = stmt.where(base_where)
+        stmt = stmt.offset(offset).limit(limit)
+
         async with self._session_factory() as session:
+            total = int((await session.scalar(count_stmt)) or 0)
             rows = list((await session.execute(stmt)).scalars().all())
-        has_more = len(rows) > limit
-        jobs = rows[:limit]
-        next_cursor = _encode_cursor(jobs[-1]) if has_more and jobs else None
-        return SyncJobPage(jobs=jobs, next_cursor=next_cursor)
+        return SyncJobPage(jobs=rows, total=total)
 
     async def mark_failed(self, job_id: str, error: str, *, max_repeat_failures: int = 5) -> None:
         event_payload: dict[str, Any] | None = None
@@ -678,29 +673,3 @@ def _job_changed_during_run(job: OpenVikingSyncJob, work_item: SyncWorkItem) -> 
     )
 
 
-def _encode_cursor(job: OpenVikingSyncJob) -> str:
-    updated_at = job.updated_at
-    if updated_at.tzinfo is None:
-        updated_at = updated_at.replace(tzinfo=UTC)
-    payload = {"updated_at": updated_at.isoformat(), "id": job.id}
-    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-
-
-def _decode_cursor(value: str) -> tuple[datetime, str]:
-    try:
-        padded = value + "=" * (-len(value) % 4)
-        raw_payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
-        if not isinstance(raw_payload, dict):
-            raise ValueError("cursor payload is not an object")
-        payload = cast(dict[str, object], raw_payload)
-        updated_at_raw = payload.get("updated_at")
-        cursor_id = payload.get("id")
-        if not isinstance(updated_at_raw, str) or not isinstance(cursor_id, str):
-            raise ValueError("cursor payload missing updated_at or id")
-        updated_at = datetime.fromisoformat(updated_at_raw)
-        if updated_at.tzinfo is None:
-            updated_at = updated_at.replace(tzinfo=UTC)
-        return updated_at, cursor_id
-    except Exception as exc:
-        raise ValueError("invalid sync job cursor") from exc

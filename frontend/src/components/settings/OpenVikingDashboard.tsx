@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
@@ -63,7 +63,7 @@ type DashboardConfirm = (request: DashboardConfirmRequest) => void;
 const EMPTY_VALUE = "—";
 const DEFAULT_EVENT_PAGE_SIZE = 5;
 const EVENT_PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
-const JOB_PAGE_SIZE = 10;
+const JOB_PAGE_SIZE = 5;
 
 const SCOPE_LABELS: Record<string, string> = {
   codeask: "CodeAsk 同步",
@@ -139,6 +139,14 @@ const OUTCOME_LABELS: Record<OpenVikingDashboardEvent["outcome"], string> = {
   info: "信息",
   success: "成功",
   warning: "警告",
+};
+
+const SYNC_STATUS_LABELS: Record<string, string> = {
+  pending: "等待中",
+  running: "运行中",
+  failed: "失败",
+  cancelled: "已停止重试",
+  indexed: "已索引",
 };
 
 type EventView = "all" | "important";
@@ -369,15 +377,27 @@ function OpenVikingConfirmDialog({
 
 function StatusPill({
   label,
+  onClick,
+  selected = false,
   tone = "info",
   value,
 }: {
   label: string;
+  onClick?: () => void;
+  selected?: boolean;
   tone?: "info" | "success" | "warning" | "error";
   value: string;
 }) {
   return (
-    <div className="openviking-status-pill" data-outcome={tone}>
+    <div
+      className="openviking-status-pill"
+      data-outcome={tone}
+      data-selected={selected ? "" : undefined}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onClick(); } } : undefined}
+    >
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -661,7 +681,56 @@ function OpenVikingSyncJobsCard({
     mutationErrorMessage(retryFailedMutation.error) ??
     mutationErrorMessage(resyncMutation.error) ??
     mutationErrorMessage(rebuildMutation.error);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [jobPage, setJobPage] = useState(1);
+  const [jobPageSize, setJobPageSize] = useState(JOB_PAGE_SIZE);
+
+  const shouldPoll =
+    !statusFilter || statusFilter === "pending" || statusFilter === "running" || statusFilter === "failed";
+
+  const jobsQuery = useQuery({
+    queryKey: ["admin-openviking-sync-jobs", statusFilter, jobPage, jobPageSize],
+    queryFn: () =>
+      listOpenVikingSyncJobs({
+        status: statusFilter || undefined,
+        page: jobPage,
+        limit: jobPageSize,
+      }),
+    refetchInterval: shouldPoll ? 5000 : false,
+  });
+
+  useEffect(() => {
+    setJobPage(1);
+  }, [statusFilter, jobPageSize]);
+
   const counts = summaryQuery.data?.counts ?? {};
+  const jobs = jobsQuery.data?.items ?? [];
+  const total = jobsQuery.data?.total ?? 0;
+  const currentPage = jobsQuery.data?.page ?? jobPage;
+
+  const summaryTotal = statusFilter
+    ? (counts[statusFilter] ?? 0)
+    : Object.values(counts).reduce((a: number, b: number) => a + b, 0);
+  const totalPages = Math.max(1, Math.ceil(Math.max(total, summaryTotal) / jobPageSize));
+  const hasNext = currentPage < totalPages;
+  const hasPrevious = currentPage > 1;
+  const [jumpValue, setJumpValue] = useState(String(jobPage));
+
+  useEffect(() => {
+    setJumpValue(String(jobPage));
+  }, [jobPage]);
+
+  function handleRetry(jobId: string) {
+    requestConfirm({
+      confirmLabel: "确认重试",
+      message: `确认重试同步任务 ${jobId}？`,
+      onConfirm: () => {
+        feedback.showSuccess("重试任务已提交");
+        retryMutation.mutate(jobId);
+      },
+      title: "确认重试同步任务",
+    });
+  }
 
   function confirmRetryFailed() {
     requestConfirm({
@@ -729,121 +798,128 @@ function OpenVikingSyncJobsCard({
         title="同步任务"
       />
       <div className="settings-openviking-job-summary">
-        <StatusPill label="pending" value={String(counts.pending ?? 0)} />
-        <StatusPill label="running" value={String(counts.running ?? 0)} />
+        <StatusPill label="等待中" value={String(counts.pending ?? 0)} onClick={() => setStatusFilter(statusFilter === "pending" ? "" : "pending")} selected={statusFilter === "pending"} />
+        <StatusPill label="运行中" value={String(counts.running ?? 0)} onClick={() => setStatusFilter(statusFilter === "running" ? "" : "running")} selected={statusFilter === "running"} />
         <StatusPill
-          label="failed"
-          value={String((counts.failed ?? 0) + (counts.cancelled ?? 0))}
-          tone={(counts.failed ?? 0) + (counts.cancelled ?? 0) ? "error" : "info"}
+          label="失败"
+          value={String(counts.failed ?? 0)}
+          tone={counts.failed ? "error" : "info"}
+          onClick={() => setStatusFilter(statusFilter === "failed" ? "" : "failed")}
+          selected={statusFilter === "failed"}
         />
-        <StatusPill label="indexed" value={String(counts.indexed ?? 0)} tone="success" />
+        <StatusPill
+          label="已停止重试"
+          value={String(counts.cancelled ?? 0)}
+          tone={counts.cancelled ? "error" : "info"}
+          onClick={() => setStatusFilter(statusFilter === "cancelled" ? "" : "cancelled")}
+          selected={statusFilter === "cancelled"}
+        />
+        <StatusPill label="已索引" value={String(counts.indexed ?? 0)} tone="success" onClick={() => setStatusFilter(statusFilter === "indexed" ? "" : "indexed")} selected={statusFilter === "indexed"} />
       </div>
-      <p className="settings-openviking-muted">
-        重排同步队列会重新安排已发布 Wiki 和已验证报告同步；不会切换 Embedding 模型。
-      </p>
-      <div className="settings-openviking-job-groups">
-        {[
-          ["failed", "失败任务"],
-          ["cancelled", "已取消"],
-          ["running", "运行中"],
-          ["pending", "等待中"],
-          ["indexed", "已索引"],
-        ].map(([status, label]) => (
-          <SyncJobStatusGroup
-            count={counts[status] ?? 0}
-            feedback={feedback}
-            key={status}
-            label={label}
-            onRetry={(jobId) => {
-              requestConfirm({
-                confirmLabel: "确认重试",
-                message: `确认重试同步任务 ${jobId}？`,
-                onConfirm: () => {
-                  feedback.showSuccess("重试任务已提交");
-                  retryMutation.mutate(jobId);
-                },
-                title: "确认重试同步任务",
-              });
-            }}
-            status={status}
-          />
-        ))}
+      <div className="settings-openviking-filter-row">
+        <label className="settings-openviking-field">
+          <span>状态</span>
+          <select
+            aria-label="同步任务状态筛选"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+          >
+            <option value="">全部</option>
+            <option value="pending">等待中</option>
+            <option value="running">运行中</option>
+            <option value="failed">失败</option>
+            <option value="cancelled">已停止重试</option>
+            <option value="indexed">已索引</option>
+          </select>
+        </label>
       </div>
-      {mutationError ? <StatusError text={mutationError} /> : null}
-      {Object.values(counts).every((count) => count === 0) ? <p className="empty-note">暂无同步任务</p> : null}
-    </section>
-  );
-}
-
-function SyncJobStatusGroup({
-  count,
-  feedback,
-  label,
-  onRetry,
-  status,
-}: {
-  count: number;
-  feedback: DashboardFeedback;
-  label: string;
-  onRetry: (jobId: string) => void;
-  status: string;
-}) {
-  const defaultOpen = status === "failed" || status === "running" || status === "pending";
-  const jobsQuery = useInfiniteQuery({
-    queryKey: ["admin-openviking-sync-jobs", status],
-    queryFn: ({ pageParam }) =>
-      listOpenVikingSyncJobs({
-        cursor: pageParam,
-        limit: JOB_PAGE_SIZE,
-        status,
-      }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
-    enabled: count > 0,
-    refetchInterval: status === "pending" || status === "running" || status === "failed" ? 5000 : false,
-  });
-  const jobs = jobsQuery.data?.pages.flatMap((page) => page.items) ?? [];
-  if (count <= 0) {
-    return null;
-  }
-  return (
-    <details className="settings-openviking-job-group" open={defaultOpen}>
-      <summary>
-        <span>{label}</span>
-        <strong>{count}</strong>
-      </summary>
       <ul className="data-list settings-config-list settings-openviking-job-list">
         {jobs.map((job) => (
-          <SyncJobItem job={job} key={job.id} onRetry={() => onRetry(job.id)} />
+          <SyncJobItem job={job} key={job.id} onRetry={() => handleRetry(job.id)} />
         ))}
       </ul>
-      {jobsQuery.hasNextPage ? (
-        <button
-          className="button button-secondary settings-openviking-load-more"
-          type="button"
-          onClick={() => {
-            feedback.showSuccess(`正在加载${label}`);
-            void jobsQuery
-              .fetchNextPage()
-              .then(() => feedback.showSuccess(`${label}已加载`))
-              .catch((error: unknown) =>
-                feedback.showError(`加载更多${label}失败：${messageFromApiError(error)}`),
-              );
-          }}
-          disabled={jobsQuery.isFetchingNextPage}
-        >
-          加载更多
-        </button>
+      {jobs.length === 0 && !jobsQuery.isLoading ? (
+        <p className="empty-note">暂无同步任务</p>
       ) : null}
-      {jobs.length === 0 && jobsQuery.isLoading ? <p className="empty-note">正在读取{label}</p> : null}
-    </details>
+      {jobsQuery.isLoading ? (
+        <p className="settings-openviking-muted">正在读取同步任务...</p>
+      ) : null}
+      <div className="settings-openviking-pagination" aria-label="同步任务分页">
+        <div className="settings-openviking-pagination-summary">
+          <span>共 {summaryTotal} 条 · 第 {currentPage} / {totalPages} 页</span>
+          <label>
+            <span>每页</span>
+            <select
+              aria-label="同步任务每页条数"
+              value={jobPageSize}
+              onChange={(event) => setJobPageSize(Number(event.target.value))}
+            >
+              <option value={5}>5 条</option>
+              <option value={10}>10 条</option>
+              <option value={20}>20 条</option>
+              <option value={50}>50 条</option>
+            </select>
+          </label>
+        </div>
+        <div className="settings-openviking-pagination-actions">
+          <button
+            aria-label="上一页同步任务"
+            className="button button-secondary"
+            type="button"
+            onClick={() => setJobPage((prev) => Math.max(1, prev - 1))}
+            disabled={!hasPrevious || jobsQuery.isLoading}
+          >
+            上一页
+          </button>
+          <form className="settings-openviking-page-jump" onSubmit={(event) => { event.preventDefault(); const num = Number(jumpValue); if (num >= 1 && num <= totalPages) { setJobPage(num); setJumpValue(""); } }}>
+            <label>
+              <span>跳至</span>
+              <input
+                aria-label="同步任务页码"
+                max={totalPages}
+                min={1}
+                type="number"
+                value={jumpValue}
+                onChange={(event) => setJumpValue(event.target.value)}
+              />
+            </label>
+            <button
+              aria-label="跳转同步任务页"
+              className="button button-secondary"
+              disabled={jobsQuery.isLoading}
+              type="submit"
+            >
+              跳转
+            </button>
+          </form>
+          <button
+            aria-label="下一页同步任务"
+            className="button button-secondary"
+            type="button"
+            onClick={() => setJobPage((prev) => prev + 1)}
+            disabled={!hasNext || jobsQuery.isLoading}
+          >
+            下一页
+          </button>
+        </div>
+      </div>
+      {mutationError ? <StatusError text={mutationError} /> : null}
+      {Object.values(counts).every((count) => count === 0) ? (
+        <p className="empty-note">暂无同步任务</p>
+      ) : null}
+    </section>
   );
 }
 
 function SyncJobItem({ job, onRetry }: { job: OpenVikingSyncJob; onRetry: () => void }) {
   const progress = syncProgressView(job.progress);
+  const hasProgress = progress.value !== null;
+  const statusLabel = SYNC_STATUS_LABELS[job.status] ?? job.status;
+  const showRetry = job.status === "failed" || job.status === "cancelled";
+  const metaLine = jobMetaLine(job);
+  const errorHint = syncJobErrorHint(job);
   return (
-    <li className="settings-openviking-job-row">
+    <li className="settings-openviking-job-row" data-status={job.status}>
       <div className="settings-openviking-row-main">
         <strong>{job.display_name ?? job.source_type}</strong>
         <span>
@@ -851,24 +927,20 @@ function SyncJobItem({ job, onRetry }: { job: OpenVikingSyncJob; onRetry: () => 
         </span>
         {job.feature_slug ? <small>{job.feature_slug}</small> : null}
       </div>
-      {progress.value !== null ? (
+      {hasProgress ? (
         <div className="settings-openviking-progress">
           <progress
             aria-label={`${job.id} 同步进度`}
             max={100}
-            value={progress.value}
+            value={progress.value!}
           />
           <small>进度 {progress.label}</small>
           <small>ETA {progress.eta}</small>
         </div>
-      ) : (
-        <div className="settings-openviking-progress settings-openviking-status-only">
-          <small>状态 {job.status}</small>
-          <small>ETA {EMPTY_VALUE}</small>
-        </div>
-      )}
-      <Badge text={job.status} outcome={statusOutcome(job.status)} />
-      {job.status === "failed" ? (
+      ) : null}
+      {metaLine ? <small className="settings-openviking-job-meta">{metaLine}</small> : null}
+      <Badge text={statusLabel} outcome={statusOutcome(job.status)} />
+      {showRetry ? (
         <button
           aria-label={`重试 ${job.id}`}
           className="button button-secondary"
@@ -878,7 +950,15 @@ function SyncJobItem({ job, onRetry }: { job: OpenVikingSyncJob; onRetry: () => 
           重试
         </button>
       ) : null}
-      {job.error ? <small className="settings-openviking-error" title={job.error}>{job.error}</small> : null}
+      {errorHint ? (
+        <small className="settings-openviking-error" title={job.error ?? undefined}>
+          {errorHint}
+        </small>
+      ) : job.error ? (
+        <small className="settings-openviking-error" title={job.error}>
+          {job.error}
+        </small>
+      ) : null}
     </li>
   );
 }
@@ -1596,7 +1676,7 @@ function syncProgressView(progress: unknown): { eta: string; label: string; valu
 }
 
 function statusOutcome(status: string): "info" | "success" | "warning" | "error" {
-  if (status === "failed") {
+  if (status === "failed" || status === "cancelled") {
     return "error";
   }
   if (status === "indexed") {
@@ -1606,6 +1686,66 @@ function statusOutcome(status: string): "info" | "success" | "warning" | "error"
     return "warning";
   }
   return "info";
+}
+
+function formatNextRetryAt(iso: string): string {
+  try {
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) {
+      return iso;
+    }
+    const now = new Date();
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const time = `${hours}:${minutes}`;
+    const isSameDay =
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() === now.getDate();
+    return isSameDay ? time : `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${time}`;
+  } catch {
+    return iso;
+  }
+}
+
+function jobMetaLine(job: OpenVikingSyncJob): string | null {
+  if (job.status === "cancelled") {
+    return "已停止自动重试";
+  }
+  if (job.status === "failed") {
+    const parts: string[] = [];
+    if (job.attempts > 0) {
+      parts.push(`已重试 ${job.attempts} 次`);
+    }
+    if (job.next_retry_at) {
+      parts.push(`下次约 ${formatNextRetryAt(job.next_retry_at)} 自动重试`);
+    }
+    return parts.length > 0 ? parts.join(" · ") : null;
+  }
+  return null;
+}
+
+function syncJobErrorHint(job: OpenVikingSyncJob): string | null {
+  if (job.status === "cancelled") {
+    return "已连续失败 5 次自动停止。请检查 OpenViking 服务是否在线、Embedding 配置是否正确后手动重试。";
+  }
+  if (!job.error) {
+    return null;
+  }
+  const lower = job.error.toLowerCase();
+  if (lower.includes("connection refused") || lower.includes("connect") || lower.includes("unreachable")) {
+    return `无法连接 OpenViking 服务，请检查服务是否在线。（原因：${job.error}）`;
+  }
+  if (lower.includes("embedding") || lower.includes("dimension")) {
+    return `Embedding 模型异常，请检查 Ollama 服务和模型配置。（原因：${job.error}）`;
+  }
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return `同步超时，请检查 OpenViking 负载和 Ollama 并发设置。（原因：${job.error}）`;
+  }
+  if (lower.includes("auth") || lower.includes("unauthorized") || lower.includes("401") || lower.includes("403")) {
+    return `凭据或权限错误，请检查 OpenViking 鉴权配置。（原因：${job.error}）`;
+  }
+  return null;
 }
 
 type EventRemediation = {
@@ -1891,10 +2031,12 @@ function displayValue(value: number | string | null | undefined) {
 }
 
 function Metric({ label, value }: { label: string; value: number | string | null | undefined }) {
+  const display = displayValue(value);
+  const isPlaceholder = display === "—" || display === "未采集" || display === "warming up";
   return (
-    <div className="settings-diagnostic-item">
+    <div className="settings-diagnostic-item" data-metric-placeholder={isPlaceholder ? "" : undefined}>
       <span>{label}</span>
-      <strong>{displayValue(value)}</strong>
+      <strong>{display}</strong>
     </div>
   );
 }

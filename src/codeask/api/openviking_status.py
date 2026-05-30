@@ -90,25 +90,26 @@ async def list_openviking_sync_jobs(
         pattern="^(pending|running|indexed|failed|cancelled)$",
     ),
     source_type: str | None = Query(default=None, min_length=1, max_length=32),
+    page: int = Query(default=1, ge=1),
     limit: int = Query(default=25, ge=1, le=100),
-    cursor: str | None = Query(default=None, min_length=1, max_length=512),
 ) -> dict[str, Any]:
     require_admin(request)
     service = _sync_service(request)
     try:
-        page = await service.list_jobs(
+        result = await service.list_jobs(
             status=status_filter,
             source_type=source_type,
+            page=page,
             limit=limit,
-            cursor=cursor,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    display_names = await _resolve_display_names(request, page.jobs)
+    display_names = await _resolve_display_names(request, result.jobs)
     return {
-        "items": [_job_to_dict(job, display_names=display_names) for job in page.jobs],
-        "total": len(page.jobs),
-        "next_cursor": page.next_cursor,
+        "items": [_job_to_dict(job, display_names=display_names) for job in result.jobs],
+        "total": result.total,
+        "page": page,
+        "limit": limit,
     }
 
 
