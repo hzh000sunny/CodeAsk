@@ -27,12 +27,13 @@ M8 把**事件流**做了一轮人话化（中文标题、错误前置、归因+
 
 ## 1. 范围与分批
 
-按"价值 / 必要性"分两批：
+按"价值 / 必要性"分三批：
 
 - **第一批（信息缺口 + 真 bug，价值最高、改动集中）**：§2 cancelled 困死修复、§3 露出 `attempts` / `next_retry_at`。
 - **第二批（体验对齐）**：§4 状态/错误人话化、§5 降噪、§6 测试解耦。
+- **第三批（交互改造，2026-05-30 并入）**：§7 列表从"分状态折叠组"改为"筛选 + 分页扁平列表"，对齐事件流并做视觉打磨。
 
-非目标：不改后端同步调度逻辑、不改 retry 自愈策略、不动 retention/事件生产策略（M8 已定）。本里程碑只动**展示层 + cancelled 的可操作性**。
+非目标：不改后端同步调度逻辑、不改 retry 自愈策略、不动 retention/事件生产策略（M8 已定）。本里程碑动**展示层 + cancelled 可操作性 + 列表交互形态**，仍以前端为主（A5 的任意跳页若要完全对齐事件流需一处后端分页小改，已列为可选后续，见 §7）。
 
 **明确不在本里程碑（边界）**：代码仓 → OpenViking 内容同步（`source_type=repo`）属数据面缺失功能，见 [m11](./m11-repo-openviking-sync.md)；`feature_readme` / `wiki_dir` / `global_index` 三类同步覆盖见 [m12](./m12-sync-coverage-completion.md)。本里程碑的 UX 是**前向兼容**的——m11 落地后 `repo` 类任务无需改前端即自动走本里程碑的人话化/状态/降噪展示。
 
@@ -58,7 +59,8 @@ M8 把**事件流**做了一轮人话化（中文标题、错误前置、归因+
 - 文案区分两种终态语义，避免管理员误以为 cancelled 会自愈：
   - `failed` → "失败（将自动重试）"
   - `cancelled` → "已停止重试（需手动）"
-- StatusPill 的合并计数：保留"失败"主数字，但把 cancelled 拆出来单独可见（如副标 "其中 N 已停止重试"），让"需手动介入"的数量不被淹没。
+- StatusPill 拆成**独立 Pill**（2026-05-30 定）：把现在合并的 `failed`(failed+cancelled) 改成两个——`失败`（只数 `counts.failed`）+ 新增 `已停止重试`（数 `counts.cancelled`，`tone="error"`，count=0 时弱化/不显眼）。理由：下方分组列表（`:744`）本就把"失败任务""已取消"分开，pill 汇总拆开才一致，且让"需人工介入"的数量成为一等信息而非埋在副标。**不要塞 sub-text。**
+- `statusOutcome`（`OpenVikingDashboard.tsx:1598`）给 `cancelled` 补 `"error"`（2026-05-30 定）：现在 cancelled 落 default `"info"`（中性 badge），但它是最需介入的终态，应返回 `"error"`，让 Badge 颜色与"困死"语义一致。随 A1/A3 一起改，纳入本节验收。
 - 顶部"重试失败"批量**不纳入 cancelled**（2026-05-30 已定）：保持"重试失败"按字面只重试 `failed`，cancelled 靠单条按钮覆盖。理由：cancelled 是系统连试 5 次后**有意放弃**的终态，一键批量重启会把已放弃的任务全部唤醒造成刷屏，应由管理员逐条确认。→ **后端 `openviking_status.py:227` 不动**。
 
 ### 验收
@@ -81,6 +83,7 @@ M8 把**事件流**做了一轮人话化（中文标题、错误前置、归因+
 
 - 重试次数："已重试 N / max 次"（max 取 `max_repeat_failures`，前端可用常量 5 或后端透出）。
 - 下次重试："下次约 14:30 自动重试"（`next_retry_at` 存在且 `status === "failed"` 时）；cancelled 时改为"已停止自动重试"。
+  - 格式 = **绝对本地化时间**（2026-05-30 定）：`next_retry_at` 是 ISO 时间戳，**不要套 `formatSeconds`**（那是给 ETA 秒数的）。新写一个格式化函数：同一天显示 `HH:MM`，跨天带日期。理由：退避最长到 6h，绝对时间比"X 分钟后"更不易误读。
 - 可顺带展示 `last_indexed_at` / `last_synced_at`（相对时间），但不是必须，避免行过长。
 
 纯前端、零后端改动、零风险。
@@ -136,30 +139,69 @@ StatusPill（`:732-739`）、Badge（`:870`）、行内 `状态 {job.status}`（
 
 ---
 
-## 7. 影响面 / 涉及文件
+## 7. A5 — 列表交互改造：分组折叠 → 筛选 + 分页（第三批，2026-05-30 并入）
 
-- `frontend/src/components/settings/OpenVikingDashboard.tsx`：`SyncJobItem`、`OpenVikingSyncJobsCard`（StatusPill）、新增 `SYNC_STATUS_LABELS` / 状态文案与建议映射。
-- `frontend/tests/openviking-dashboard.test.tsx`：补 cancelled 重试、`attempts`/`next_retry_at` 渲染、状态文案单测。
-- `frontend/e2e/openviking-dashboard-management-live.spec.ts`：`data-status` 解耦（如改）。
-- 后端：**零改动**（retry/删除接口已支持 cancelled；批量"重试失败"已定不纳入 cancelled，`openviking_status.py:227` 不动）。本里程碑是纯前端。
+背景：现 `SyncJobStatusGroup` 是 5 个 `<details>` 折叠组 + 每组"加载更多"无限滚，和事件流是两套交互；且顶部 StatusPill 已给各状态计数，分组与之重复。改成和 `OpenVikingEventStream` 一致的"筛选 + 分页扁平列表"，并**做的好看点**。
+
+### 改法
+- 删除 `SyncJobStatusGroup` 折叠组结构，改为单一**扁平列表**（复用 `SyncJobItem` 行）。
+- 顶部加**状态筛选下拉**：全部 / 等待中 / 运行中 / 失败 / 已停止重试 / 已索引（文案用 `SYNC_STATUS_LABELS`），调 `listOpenVikingSyncJobs({ status, cursor, limit })`。
+- **分页**：上一页 / 下一页（cursor keyset，复用 `next_cursor`）+ 显示 `total`，分页条样式对齐事件流。保留默认轮询（pending/running/failed 5s）。
+- **StatusPill 汇总行保留**（一眼看各状态量，与筛选互补）。
+- **视觉打磨**：筛选条 + 列表 + 分页条整体对齐 `OpenVikingEventStream`；确保 §4/§3 的 meta 行、错误归因、两个 Pill 在新布局下排版正确（见 §8 CSS 返工项）。
+
+### 边界
+本块仍**前端为主**。**任意跳页**（事件流的 `page` 机制）：sync 接口目前是 cursor、不支持任意页码跳转；如要完全一致需给 `/admin/openviking/sync_jobs` 加 `page`/offset（响应已返回 `total`，改动小）——**列为可选后续，不在 m10**，m10 用 cursor 上一页 / 下一页。
+
+### 验收
+- 列表无折叠组；状态筛选 + 上一页/下一页可用；StatusPill 汇总仍在；视觉与事件流一致、整洁。
 
 ---
 
-## 8. 决策记录（2026-05-30 已定）
+## 8. 复检发现与返工（2026-05-30 首轮提交后）
 
-1. **分批**：第一批 §2 + §3（真 bug + 信息缺口），第二批 §4–§6（体验对齐）。
+开发首轮提交 vitest/lint/tsc 全绿，但复检发现**验证纪律缺口**与两处 CSS 问题——`vitest 绿 ≠ 跑起来对`，UX 里程碑必须亲眼验。代码本体（A1–A4）质量合格，以下为返工项：
+
+1. **CSS·新类无样式**：新增的 `.settings-openviking-job-meta`（jobMetaLine 那行）在 `globals.css` **无对应规则**，当前裸渲染。补样式（字号/颜色/间距，与行内 `small` 协调）。
+2. **CSS·死规则**：被删除的 `.settings-openviking-status-only`（`globals.css:3848`）已无引用，删掉。
+3. **A5 新布局视觉打磨**：两个 Pill、meta 行、错误归因、筛选/分页条在页面上确认整洁好看。
+
+### DoD 收紧（写死，今后所有 UX 改动适用）
+- **必须在运行中的页面亲眼验证**：造一条 `failed` + 一条 `cancelled` 同步任务，确认重试按钮、计数、归因、降噪、A5 列表/筛选/分页都正确渲染，再报"完成"。`vitest 绿` 只是 code-complete，不是 done。
+- 诊断运行态问题先 `ps` / `ss` 看实际进程，不靠猜（首轮把 vite dev 误判为 prebuilt dist）。
+
+---
+
+## 9. 影响面 / 涉及文件
+
+- `frontend/src/components/settings/OpenVikingDashboard.tsx`：`SyncJobItem`、`OpenVikingSyncJobsCard`（StatusPill）、`SYNC_STATUS_LABELS` / 状态文案与建议映射；**A5**：删 `SyncJobStatusGroup` 折叠组、改扁平列表 + 状态筛选 + cursor 分页。
+- `frontend/src/styles/globals.css`：补 `.settings-openviking-job-meta` 样式、删死规则 `.settings-openviking-status-only`、A5 筛选/分页条样式（§8）。
+- `frontend/tests/openviking-dashboard.test.tsx`：补 cancelled 重试、`attempts`/`next_retry_at` 渲染、状态文案、A5 筛选/分页单测。
+- `frontend/e2e/openviking-dashboard-management-live.spec.ts`：`data-status` 解耦 + A5 筛选/分页选择器（E3 sync job 重试用例需对齐新结构）。
+- 后端：**m10 零改动**（retry/删除接口已支持 cancelled；批量"重试失败"已定不纳入 cancelled，`openviking_status.py:227` 不动）。A5 任意跳页 parity 需后端加分页 offset，已列为可选后续、不在 m10。
+
+---
+
+## 10. 决策记录（2026-05-30 已定）
+
+1. **分批**：第一批 §2 + §3（真 bug + 信息缺口），第二批 §4–§6（体验对齐），第三批 §7（A5 交互改造）。
 2. **"重试失败"批量不纳入 cancelled**：保持只重试 `failed`，cancelled 靠 §2 单条按钮覆盖，避免批量唤醒已放弃任务刷屏。后端 `openviking_status.py:227` 不动。
-3. **分工**：由新开发实现 + 自测，架构（Claude）做 review / 最终验收；本里程碑纯前端，开发不碰后端。
+3. **A5 并入 m10**：列表改"筛选 + 分页"对齐事件流并视觉打磨；前端为主，用 cursor 上下页（任意跳页 parity 的后端 offset 列为可选后续，不在 m10）。开发**重写**列表区。
+4. **分工**：由新开发实现 + 自测，架构（Claude）做 review / 最终验收。m10 后端零改动；DoD 收紧——UX 改动必须在运行页面亲眼验证（造 failed/cancelled 数据）后才算完成（§8）。
 
 ---
 
-## 9. 验收清单（汇总）
+## 11. 验收清单（汇总）
 
 - [ ] cancelled 任务行有可用重试按钮，点击后回到调度（§2）
-- [ ] failed / cancelled 文案与计数可区分（§2）
-- [ ] failed 行显示重试次数 + 下次重试时间；cancelled 显示已停止（§3）
+- [ ] failed / cancelled 文案与计数可区分；StatusPill 拆为独立"失败"+"已停止重试"两个 Pill（§2）
+- [ ] `statusOutcome` 对 cancelled 返回 `"error"`，Badge 颜色与终态语义一致（§2）
+- [ ] failed 行显示重试次数 + 下次重试时间（绝对本地化时间，非 `formatSeconds`）；cancelled 显示已停止（§3）
 - [ ] 状态文案三处统一中文、单一来源（§4）
 - [ ] cancelled / 常见失败给出人话归因 + 建议，未知错误不丢信息（§4）
 - [ ] 无进度时不再显示冗余 `ETA —` / `状态` 行（§5）
 - [ ] 行带 `data-status`，e2e 解耦（§6）
+- [ ] **A5**：列表无折叠组，状态筛选 + 上一页/下一页可用，StatusPill 汇总保留，视觉与事件流一致整洁（§7）
+- [ ] **CSS**：`.settings-openviking-job-meta` 有样式（非裸渲染）；死规则 `.settings-openviking-status-only` 已删（§8）
+- [ ] **亲眼验证**：造 failed + cancelled 任务，在运行页面确认全部渲染正确（§8 DoD）
 - [ ] 前端 vitest / e2e 全绿，tsc / eslint clean
