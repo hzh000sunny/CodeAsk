@@ -20,7 +20,9 @@ dependencies = [
     "python-docx>=1.1",
     "python-multipart>=0.0.20",
     "apscheduler>=3.10",
-    "litellm>=1.50",
+    "litellm==1.83.14",
+    "openviking==0.3.17",
+    "socksio>=1.0.0",
     "tiktoken>=0.7",
     "jsonschema>=4.23",
 ]

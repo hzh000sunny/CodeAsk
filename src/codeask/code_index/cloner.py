@@ -41,7 +41,14 @@ class RepoCloner:
         self._session_factory = session_factory
         self._timeout = clone_timeout_seconds
 
-    def run_clone(self, repo_id: str, *, force: bool = False, reason: str = "manual") -> None:
+    def run_clone(
+        self,
+        repo_id: str,
+        *,
+        force: bool = False,
+        reason: str = "manual",
+        emit_success_event: bool = True,
+    ) -> None:
         """Clone or update a registered repo into its bare path.
 
         This method is intentionally synchronous so APScheduler can run it in a
@@ -63,7 +70,8 @@ class RepoCloner:
             if self._is_plain_local_dir(repo):
                 self._sync_plain_local_dir_snapshot(repo, bare_path)
                 self._set_status(repo_id, Repo.STATUS_READY, error=None, mark_synced=True)
-                self._emit_repo_synced(repo, reason=reason)
+                if emit_success_event:
+                    self._emit_repo_synced(repo, reason=reason)
                 log.info(
                     "clone_succeeded",
                     repo_id=repo_id,
@@ -81,18 +89,30 @@ class RepoCloner:
             raise
 
         self._set_status(repo_id, Repo.STATUS_READY, error=None, mark_synced=True)
-        self._emit_repo_synced(repo, reason=reason)
+        if emit_success_event:
+            self._emit_repo_synced(repo, reason=reason)
         log.info("clone_succeeded", repo_id=repo_id, bare_path=str(bare_path), reason=reason)
 
     def refresh_all(self, *, reason: str = "refresh_all") -> None:
         """Refresh every registered repo that is not already cloning."""
 
         repo_ids = self._list_refreshable_repo_ids_sync()
+        succeeded = 0
+        failed = 0
         for repo_id in repo_ids:
             try:
-                self.run_clone(repo_id, force=True, reason=reason)
+                self.run_clone(repo_id, force=True, reason=reason, emit_success_event=False)
+                succeeded += 1
             except CloneError:
+                failed += 1
                 log.warning("repo_refresh_failed", repo_id=repo_id, reason=reason, exc_info=True)
+        if repo_ids:
+            self._emit_repo_refresh_summary(
+                reason=reason,
+                scanned=len(repo_ids),
+                succeeded=succeeded,
+                failed=failed,
+            )
 
     def _build_clone_argv(self, repo: Repo, bare_path: Path) -> list[str]:
         if repo.source == Repo.SOURCE_GIT:
@@ -261,6 +281,41 @@ class RepoCloner:
                 log.warning(
                     "repo_synced_event_failed",
                     repo_id=repo.id,
+                    reason=reason,
+                    exc_info=True,
+                )
+            return
+        loop.create_task(write_event())
+
+    def _emit_repo_refresh_summary(
+        self,
+        *,
+        reason: str,
+        scanned: int,
+        succeeded: int,
+        failed: int,
+    ) -> None:
+        async def write_event() -> None:
+            await emit_event(
+                self._session_factory,
+                event_type="repo_refresh_summary",
+                payload={
+                    "reason": reason,
+                    "scanned": scanned,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                },
+                outcome="warning" if failed else "success",
+            )
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(write_event())
+            except Exception:
+                log.warning(
+                    "repo_refresh_summary_event_failed",
                     reason=reason,
                     exc_info=True,
                 )

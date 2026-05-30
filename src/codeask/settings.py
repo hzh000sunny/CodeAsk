@@ -107,12 +107,16 @@ class Settings(BaseSettings):
             "When disabled, admin APIs remain available in degraded mode."
         ),
     )
+    openviking_bin: str = "openviking-server"
     openviking_host: str = "127.0.0.1"
     openviking_port: int = Field(default=1933, ge=1, le=65535)
     openviking_keepalive_interval_seconds: int = Field(default=30, ge=5)
+    openviking_startup_grace_seconds: int = Field(default=30, ge=30)
     openviking_sync_interval_seconds: int = Field(default=10, ge=5)
     openviking_progress_sweep_interval_seconds: int = Field(default=5, ge=5)
     openviking_scheduled_refresh_hours: int = Field(default=24, ge=1)
+    openviking_event_retention_count: int = Field(default=2000, ge=1)
+    openviking_event_retention_sweep_interval_hours: int = Field(default=24, ge=1)
     openviking_sync_workers: int = Field(default=2, ge=1, le=16)
     openviking_ollama_base_url: str = "http://127.0.0.1:11434"
     openviking_embedding_model: str = "bge-m3"

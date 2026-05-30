@@ -3856,7 +3856,7 @@ textarea:focus-visible {
 
 .settings-openviking-filter-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(180px, 1.4fr);
   gap: 10px;
   margin-top: 12px;
 }
@@ -4234,11 +4234,11 @@ textarea:focus-visible {
   opacity: 0.55;
 }
 
-.settings-openviking-row {
+.settings-openviking-event-list li.settings-openviking-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 72px 58px;
   gap: 10px;
-  align-items: center;
+  align-items: start;
 }
 
 .settings-openviking-row > div {
@@ -4258,41 +4258,151 @@ textarea:focus-visible {
   min-width: 0;
 }
 
-.settings-openviking-event-count {
-  display: inline-flex;
-  align-items: center;
-  min-height: 20px;
-  border: 0;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: #eef4ff;
-  color: #3538cd;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 750;
-}
-
-.settings-openviking-event-children {
-  display: grid;
-  gap: 5px;
-  margin-top: 6px;
-  padding-left: 12px;
-  border-left: 2px solid #e0e7ff;
-}
-
-.settings-openviking-event-child {
+.settings-openviking-event-detail-button {
   display: flex;
+  justify-self: end;
+  width: 72px;
+  min-width: 72px;
+  max-width: 72px;
+  inline-size: 72px;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.settings-openviking-event-remediation {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  justify-content: space-between;
   min-width: 0;
 }
 
-.settings-openviking-paused-note {
-  display: flex;
+.settings-openviking-event-remediation small {
+  color: #6941c6;
+  font-weight: 650;
+}
+
+.settings-openviking-event-remediation .button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.settings-openviking-event-details {
+  display: grid;
   gap: 10px;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 10px;
+  border: 1px solid #eaecf0;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.settings-openviking-event-details dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 0;
+}
+
+.settings-openviking-event-detail-pair {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-openviking-event-detail-pair dt,
+.settings-openviking-event-payload span {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.settings-openviking-event-detail-pair dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #101828;
+  font-size: 12px;
+}
+
+.settings-openviking-event-payload {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.settings-openviking-event-payload pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #eaecf0;
+  border-radius: 6px;
+  background: #fff;
+  color: #344054;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settings-openviking-pagination {
+  display: flex;
   align-items: center;
+  gap: 10px;
   justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #eaecf0;
+}
+
+.settings-openviking-pagination-summary,
+.settings-openviking-pagination-actions,
+.settings-openviking-page-jump,
+.settings-openviking-pagination-summary label,
+.settings-openviking-page-jump label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-openviking-pagination-summary {
+  flex-wrap: wrap;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.settings-openviking-pagination-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.settings-openviking-pagination select,
+.settings-openviking-pagination input {
+  min-height: 32px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #182230;
+  font: inherit;
+}
+
+.settings-openviking-pagination select {
+  padding: 0 28px 0 9px;
+}
+
+.settings-openviking-pagination input {
+  width: 72px;
+  padding: 0 9px;
+}
+
+.settings-openviking-paused-note {
   margin-top: 10px;
   color: #667085;
   font-size: 12px;
@@ -4322,10 +4432,25 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
+.settings-openviking-row .settings-openviking-event-description,
+.settings-openviking-row .settings-openviking-event-remediation small,
+.settings-openviking-row .settings-openviking-event-detail-pair dd {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+@media (max-width: 760px) {
+  .settings-openviking-event-details dl {
+    grid-template-columns: 1fr;
+  }
+}
+
 .settings-openviking-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-width: 58px;
   min-height: 24px;
   padding: 0 9px;
   border: 1px solid #d0d5dd;
@@ -4381,9 +4506,19 @@ textarea:focus-visible {
   .tuning-advanced-row,
   .settings-openviking-snippet,
   .settings-openviking-filter-row,
+  .settings-openviking-pagination,
   .settings-openviking-job-summary,
   .settings-diagnostic-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-openviking-pagination {
+    display: grid;
+    justify-items: stretch;
+  }
+
+  .settings-openviking-pagination-actions {
+    justify-content: flex-start;
   }
 
   .settings-runtime-summary,

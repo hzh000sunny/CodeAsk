@@ -288,7 +288,7 @@ export CODEASK_ADMIN_PASSWORD="<strong-password>"
 
 ## Ollama 与 RAG embedding（v1.0.5）
 
-v1.0.5 起，会话主链路 RAG 由 OpenViking 提供（详见 [docs/v1.0.5/](./docs/v1.0.5/)）。OpenViking 进程由 CodeAsk 后端管理，但 **Ollama 进程和 embedding 模型由 operator 负责**：CodeAsk 不会自动安装 Ollama，也不会自动 `ollama pull` 模型。如果只使用 v1.0.4 行为（不启用 OpenViking），可跳过本节。
+v1.0.5 起，会话主链路 RAG 由 OpenViking 提供（详见 [docs/v1.0.5/](./docs/v1.0.5/)）。OpenViking 作为 CodeAsk 的声明依赖随 `uv sync` 安装，运行期由 CodeAsk 后端通过 `openviking-server` 子进程直接拉起；如果 `openviking-server` 缺失，请先重新执行 `uv sync`，或用 `CODEASK_OPENVIKING_BIN` 指向正确的可执行文件。但 **Ollama 进程和 embedding 模型由 operator 负责**：CodeAsk 不会自动安装 Ollama，也不会自动 `ollama pull` 模型。如果只使用 v1.0.4 行为（不启用 OpenViking），可跳过本节。
 
 ### 安装 Ollama
 

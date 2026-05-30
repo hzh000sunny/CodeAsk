@@ -41,7 +41,7 @@ repo_synced payload: {"repo_id": "...", "name": "Feature scoped claude-code ..."
   - `src/codeask/rag/openviking/client.py`（latency ring buffer instrumentation）
   - `src/codeask/rag/openviking/metrics.py`（**新建**，5min 滚动窗口聚合 throughput / latency p95 / breaker trips）
 - 前端：
-  - `frontend/src/components/settings/OpenVikingDashboard.tsx`（事件 summary 读 payload.name；同步任务卡片按状态分组 + 服务端分页；事件流分页时关 polling、折叠 chip 可展开；调优默认折叠 + scope `<details>` 切换）
+  - `frontend/src/components/settings/OpenVikingDashboard.tsx`（事件 summary 读 payload.name；同步任务卡片按状态分组 + 服务端分页；事件流改为完整分页栏；调优默认折叠 + scope `<details>` 切换）
   - `frontend/src/lib/api-openviking.ts`（新增 status/cursor 参数）
   - `frontend/src/types/api.ts`（`OpenVikingSyncJob.display_name`、`SyncJobsResponse.next_cursor` 等）
 - 测试与 e2e：
@@ -325,7 +325,7 @@ def _metrics_snapshot() -> dict[str, Any]:
 
 ---
 
-## ③ 加载更多 + 折叠 + 计数错觉
+## ③ 事件流直接分页，取消加载更多聚合
 
 ### 现状
 
@@ -357,54 +357,134 @@ useEffect(() => {
 
 ### 目标
 
-- 分页时**暂停** refetchInterval；返回首页时再恢复。
-- 折叠 chip 可展开看到底层每一条。
-- 不再用 `setEventItems(payload.items)` 替换式赋值；改为 React Query 原生 `useInfiniteQuery`，由库管理多页拼接。
+- 取消"加载更多事件"模式，改为明确的上一页 / 下一页分页。
+- 每页只展示当前页事件行，不跨页追加，不显示 `×N` 聚合 chip。
+- 默认每页 5 条；底部显示总条数、当前页 / 总页数，支持选择每页 5 / 10 / 20 / 50 条，并可输入页码直接跳转。
+- 历史页**暂停** refetchInterval；回到第 1 页时恢复实时刷新。
+- 不再用 `setEventItems(payload.items)` 手工拼接，也不再使用 `useInfiniteQuery` 为事件流累积页；改为按 `(eventType, outcome, page, limit)` 查询单页数据。
 
 ### 实施步骤
 
-#### ③-1 用 `useInfiniteQuery` 替换手工拼装
+#### ③-1 用页状态替换手工拼装 / infinite append
 
 - 文件：`OpenVikingDashboard.tsx:128-176, 580-647`
 - 改为：
   ```ts
-  const eventsQuery = useInfiniteQuery({
-    queryKey: ["admin-openviking-events", eventOutcome, eventType],
-    queryFn: ({ pageParam }) => listOpenVikingEvents({
+  const [eventPage, setEventPage] = useState(1);
+  const [eventPageSize, setEventPageSize] = useState(5);
+
+  const eventsQuery = useQuery({
+    queryKey: ["admin-openviking-events", eventOutcome, eventType, eventPage, eventPageSize],
+    queryFn: () => listOpenVikingEvents({
       eventType: eventType || undefined, outcome: eventOutcome || undefined,
-      beforeId: pageParam, limit: EVENT_PAGE_SIZE,
+      page: eventPage, limit: eventPageSize,
     }),
-    initialPageParam: undefined as number | undefined,
-    getNextPageParam: (last) => last.next_before_id ?? undefined,
-    refetchInterval: (query) => query.state.data?.pages.length === 1 ? 5000 : false,
-    //                          ← 第 1 页时才轮询；翻过页就停
+    refetchInterval: eventPage === 1 ? 5000 : false,
   });
-  const events = useMemo(() =>
-    eventsQuery.data?.pages.flatMap((page) => page.items) ?? [], [eventsQuery.data]);
+  const events = eventsQuery.data?.items ?? [];
   ```
 - 删 `eventBeforeId` / `eventItems` / 手工 useEffect。
-- `onOutcomeChange` / `onEventTypeChange` 不需要重置 state，只是改 queryKey，React Query 自动重新拿第 1 页。
-- `加载更多` 改调 `eventsQuery.fetchNextPage()`，按钮 `disabled={!eventsQuery.hasNextPage}`。
+- `onOutcomeChange` / `onEventTypeChange` 同步重置 `eventPage=1`。
+- 下一页 / 上一页：基于接口返回的 `total_pages` 做边界限制。
+- 每页条数变更：重置到第 1 页，避免旧页码越界。
+- 跳页：输入页码后按 `1..total_pages` 夹取；只在接口数据返回后做越界修正，避免加载中误把目标页夹回第 1 页。
 
-#### ③-2 折叠 chip 可展开
+#### ③-2 事件行直接展示
 
-- 文件：`OpenVikingDashboard.tsx:944-960` 的 `collapseConsecutiveEvents` 保留；改返回 `EventGroup` 结构追加 `events: OpenVikingDashboardEvent[]`（完整列表，不止 leader）。
-- `EventItem`（行 650-665）改为：
-  - `group.count > 1` 时 chip "×N" 变成 button：`onClick` 切换 `expanded`；
-  - `expanded` 时下方渲染 group.events 全部 children（每条单独一行，复用现有 row 样式但缩进）。
+- 删除 `collapseConsecutiveEvents` / `EventGroup` / `settings-openviking-event-count` / child rows。
+- `OpenVikingEventStream` 直接 `events.map(event => <EventItem event={event} />)`。
+- 每条事件仍显示 `event_type`、`eventSummary(event)`、`created_at` 和 outcome badge。
 
-#### ③-3 暂停时的可见提示
+#### ③-3 分页控件和暂停提示
 
-- 当 `eventsQuery.isFetchingNextPage === false && eventsQuery.hasNextPage === false && (events.length > EVENT_PAGE_SIZE)` 时（即已经翻过页且到底），卡片底部显示一行小字 "已加载全部事件，刷新自动暂停。返回顶部以恢复实时刷新"。
-- 提供 "返回顶部" 按钮：`onClick={() => eventsQuery.refetch({ refetchPage: (_, index) => index === 0 })}` 或更直接 `queryClient.resetQueries({ queryKey: ["admin-openviking-events", ...] })`。
+- 卡片底部固定显示分页控件：`共 N 条 · 第 X / Y 页`、每页条数选择、`上一页` / `下一页`、页码输入 + `跳转`。
+- 第 1 页时 `上一页` disabled；当前页等于 `total_pages` 时 `下一页` disabled。
+- `pageNumber > 1` 时显示："正在查看历史事件页，实时刷新暂停；回到第 1 页后恢复刷新。"
 
 ### 测试
 
 - vitest：`OpenVikingEventStream` 渲染 fixture
-  1. 给 10 条同 type 事件 → chip "×10"，点击展开后 10 行可见。
-  2. 模拟 `hasNextPage=true`，点击 "加载更多" 调 `fetchNextPage`（mock）；新增 10 条再折叠成"×20"，展开仍能看到 20 行。
-  3. 翻过页后 `refetchInterval` 函数返回 `false`（用 react-query 内部状态断言或 mock fetch 次数）。
-- pytest：`tests/integration/test_openviking_admin_api.py` 已经覆盖 events 接口 cursor 行为；不新增。
+  1. 同一页给多条同 type 事件 → 每条事件都直接可见，不出现 `×N`。
+  2. 默认每页 5 条，分页栏显示总条数与总页数。
+  3. 输入页码跳转后只显示目标页事件，上一页事件不再留在列表里。
+  4. 修改每页条数后回到第 1 页，并使用新的 `limit` 请求接口。
+- pytest：`tests/integration/test_openviking_admin_api.py` 覆盖 events 接口 `page` / `limit` / `total` / `total_pages` 行为。
+
+> **2026-05-28 验收补充**：分页骨架（页码 / 上一页下一页 / 跳页 / 每页条数 / 翻页暂停刷新）验收通过，"×N 数字累加"已消除。但事件**行内容**仍是机器字段、错误信息缺失、无处置入口——见 §⑥。§③-2 中"每条事件仍显示 `event_type`、`eventSummary`、`created_at` 和 badge"被 §⑥ 取代。
+
+---
+
+## ⑥ 事件行人话化与可操作性（2026-05-28 验收反馈追加）
+
+### 现状缺陷（已逐条核对代码）
+
+- **看不懂**：`EventItem`（`OpenVikingDashboard.tsx:1000`）标题直接渲染原始枚举 `event_type`（`repo_synced` / `sync_job_enqueued` / `openviking_breaker_tripped`…），无中文标题映射；`eventSummary`（:1398）多数情况退化成 `key=value · key=value` 的 payload dump；badge 是原始英文 `info/success/warning/error`。
+- **错误信息丢失（真 bug）**：`eventSummary` 末尾 `Object.entries(payload).slice(0, 3)`。`scheduled_refresh_summary` 失败时 payload=`{scanned, enqueued, skipped, error}`，`error` 是第 4 键被切掉，红徽章下只剩 `scanned=0 · enqueued=0 · skipped=0`。全程未对 `error/detail/message/reason` 做优先展示。
+- **失败事件根本没入流（后端缺口）**：同步任务失败走 `sync.py` `mark_failed`→`_apply_failure_state`，只写 `job.error`，**不 emit 任何事件**。管理员最该看到的"某资源索引失败"在事件流里完全缺席。
+- **不可操作**：warning/error 行无处置建议、无指向相关同步任务的链接/按钮（`sync_job_id` 数据里有但 UI 未用）。
+
+### 锁定决策（2026-05-28 负责人拍板）
+
+1. **完整人话行**：每种事件 = 中文标题 + 一句话人话描述；warning/error 时错误原因排在描述最前；badge 中文化。
+2. **建议文案 + 按钮**：warning/error 行显示"建议：…"，并对可处置的事件给一个动作按钮/链接。
+3. **补 emit `sync_job_failed`**：让同步失败出现在事件流里。
+
+### ⑥-1 前端：事件行信息模型
+
+在 `OpenVikingDashboard.tsx` 内新增三张映射 + 重写 `EventItem` / `eventSummary`：
+
+- **标题映射** `EVENT_LABELS: Record<string, string>`（未命中回退原始 `event_type`）。至少覆盖：
+
+  | event_type | 中文标题 |
+  |---|---|
+  | `repo_synced` | 仓库已同步 |
+  | `sync_job_enqueued` | 同步任务已入队 |
+  | `sync_job_failed` | 同步任务失败 |
+  | `tuning_change` | 调优参数变更 |
+  | `manual_retry` / `manual_retry_failed` | 手动重试 / 重试全部失败任务 |
+  | `manual_resync` | 手动重新同步 |
+  | `manual_rebuild_index` | 手动重建索引 |
+  | `openviking_breaker_tripped` | OpenViking 熔断触发 |
+  | `openviking_restart_detected` | OpenViking 进程重启 |
+  | `scheduled_refresh_summary` | 定时同步汇总 |
+  | `embedding_model_switched` / `embedding_rebuild_requested` | 向量模型切换 / 向量重建已请求 |
+  | `ollama_settings_verified` / `ollama_recovery` | Ollama 设置已验证 / Ollama 已恢复 |
+
+- **描述函数** `describeEvent(event): string`——按类型套人话模板，保留已有 `tuning_change`（`scope.key: before → after`）和 `repo_synced`（带 `name`）逻辑，并新增：
+  - `sync_job_failed`：`{资源名} 索引失败：{error}（第 {attempts} 次，{将重试/已放弃}）`
+  - `openviking_breaker_tripped`：`OpenViking 返回 {status_code}：{detail}`
+  - `openviking_restart_detected`：`进程重启（pid {old}→{new}），原因 {reason}`
+  - `scheduled_refresh_summary`：成功→`扫描 {scanned} · 入队 {enqueued} · 跳过 {skipped}`；失败→把 `error` 放最前。
+- **错误优先规则（替代 slice bug）**：当 `outcome` ∈ `{warning, error}`，描述**必须**优先取 `payload.error ?? payload.detail ?? payload.message ?? payload.reason`（熔断额外带 `status_code`）放在最前；**禁止**再用 `Object.entries().slice()` 把错误字段截断。未知类型的兜底仍可列 payload 摘要，但 error 类字段永远不被截掉。
+- **badge 中文化**：`info/success/warning/error → 信息/成功/警告/错误`（颜色/`data-outcome` 不变）。
+
+### ⑥-2 前端：建议文案 + 动作按钮
+
+- 新增 `REMEDIATION: Record<string, { hint: string; action?: {...} }>`，**仅 warning/error 行**渲染 `<small class="settings-openviking-suggest">建议：{hint}</small>` + 可选按钮：
+  - `sync_job_failed` → 按钮"重试该任务"，调 `retrySyncJob(event.sync_job_id)`，成功后 `feedback.showSuccess` 并触发事件流/任务卡刷新。`sync_job_id` 为空时只显示文案。
+  - `scheduled_refresh_summary`(error) → 按钮"立即重新同步"，调 `resyncOpenViking()`。
+  - `manual_rebuild_index`(error) → 文案"清理失败：{clear_result.error}"，按钮"重试重建"（`rebuildOpenVikingIndex()`）。
+  - `openviking_breaker_tripped` → 文案"OpenViking 返回 503，熔断已打开；确认进程健康后稍后重试"，无按钮（或滚动到进程卡）。
+  - `openviking_restart_detected` → 文案"进程已重启，如频繁重启请检查日志"，无按钮。
+- 动作按钮复用既有 `feedback` / `requestConfirm` 模式（破坏性动作走居中确认弹窗，禁用 `window.confirm`）。
+
+### ⑥-3 后端：补发 `sync_job_failed` 事件
+
+- 在 `sync.py` `mark_failed`（commit 之后）`emit_event`：
+  - `event_type="sync_job_failed"`，`source_type=job.source_type`，`source_id=job.source_id`，`sync_job_id=job.id`；
+  - `payload={"error": error, "attempts": job.attempts, "operation": job.operation, "name": <可读名>}`；
+  - `outcome`：`job.status == "cancelled"` → `"error"`（已放弃重试）；否则 `"warning"`（仍会重试）。
+- 复用 §1a 的 `display_name`/`name` 推导逻辑，让描述能显示资源可读名而非 `source_id` 哈希。
+
+### 测试
+
+- vitest（`tests/openviking-dashboard.test.tsx`）：
+  1. `repo_synced` 行显示"仓库已同步"标题与可读资源名，badge 显示"成功"。
+  2. `scheduled_refresh_summary` error fixture（payload 含 `error` 第 4 键）→ 行内可见 `error` 文案（回归 slice bug），且渲染"建议 + 立即重新同步"按钮。
+  3. `sync_job_failed` fixture（带 `sync_job_id`）→ 显示"重试该任务"按钮，点击调用 `retrySyncJob` 并弹成功 toast；`sync_job_id` 缺失时只剩文案、无按钮。
+  4. `openviking_breaker_tripped` → 描述含 `status_code` 与 `detail`，显示熔断建议文案。
+  5. 未知 `event_type` → 回退原始枚举标题，且 error 类字段不被截断。
+- pytest（`tests/integration/test_openviking_admin_api.py` 或 `tests/unit`）：`mark_failed` 后事件表新增一条 `sync_job_failed`，`status="cancelled"` 时 `outcome="error"`、否则 `"warning"`，payload 含 `error`/`attempts`。
 
 ---
 
@@ -511,7 +591,7 @@ useEffect(() => {
 ## 验收口径回填（实现完成后回写 acceptance-checklist.md）
 
 - §4.1（M1 dashboard）受影响行：把 "运行指标 5 分钟窗口" 描述从"占位"改为"真实采集，throughput 来自 sync_jobs，latency p95 来自 client wrapper，breaker_trips 来自 events 表"。
-- §4.x 新增："同步任务卡片按状态分组分页 + summary 接口提供全表 count" / "事件流分页期间不轮询" / "事件 chip 可展开" / "调优默认折叠"。
+- §4.x 新增："同步任务卡片按状态分组分页 + summary 接口提供全表 count" / "事件流完整分页栏，历史页不轮询" / "调优默认折叠"。
 - §4.x 新增："`DELETE /admin/openviking/sync_jobs/{id}` 仅允许 cancelled/failed 行" 与 "e2e fixture 自清"。
 - 具体行号由开发实现后回写。
 
@@ -586,15 +666,15 @@ useEffect(() => {
 - [x] pytest 新增 summary + cursor + 多状态分页用例
 - [x] vitest SyncJobsCard 分组渲染 + 加载更多 + summary 显示全表 count
 
-### ③ 事件流分页 + 折叠展开
+### ③ 事件流直接分页
 
-- [x] `OpenVikingDashboard.tsx` 用 `useInfiniteQuery` 替换 `useState eventItems` + `useEffect` 拼装
-- [x] `refetchInterval` 改为函数，仅首页 5s 轮询；非首页返回 false
-- [x] `collapseConsecutiveEvents` 返回值附加 `events: OpenVikingDashboardEvent[]`
-- [x] `EventItem` chip 改为可点击 button；展开后渲染 group.events
-- [x] 加 "返回顶部" 按钮（仅在已翻过页时显示）
-- [x] 删旧 `eventBeforeId` / `setEventItems` 状态
-- [x] vitest 新增折叠展开、加载更多、翻页关 polling 覆盖
+- [x] `OpenVikingDashboard.tsx` 用单页 `useQuery` + `eventPage` / `eventPageSize` 替换 `useState eventItems` + `useEffect` 拼装
+- [x] `refetchInterval` 仅第 1 页 5s 轮询；历史页返回 false
+- [x] 删除 `collapseConsecutiveEvents` / `EventGroup` / `×N` 聚合 chip
+- [x] `EventItem` 改为一条事件渲染一行
+- [x] 增加 "上一页事件" / "下一页事件" 分页按钮、总条数 / 总页数、每页条数选择、页码输入跳转；默认每页 5 条
+- [x] vitest 新增直接分页用例：同页多条同类事件不聚合，页码跳转只显示目标页，修改每页条数会回到第 1 页
+- [x] pytest 覆盖 `/admin/openviking/events?page=...&limit=...` 的总数和总页数返回
 
 ### ④ 调优折叠配置面板
 
@@ -617,8 +697,66 @@ useEffect(() => {
 - [x] Embedding 切换 / 向量索引重建、同步任务重试 / 重新同步 / 重排队列、调优应用 / 套用预设 / Ollama 验证均在成功时显示居中 toast，接口失败时显示全局错误弹窗
 - [x] 所有会修改后端状态的按钮先弹页面内居中确认框，确认后才提交；取消不发请求。禁止使用浏览器原生 `window.confirm`
 - [x] 调优单项应用在值变更时先弹页面内确认框；取消不发请求，确认后才提交。值未变更时不弹确认，只提示无需应用
-- [x] 事件流加载更多、返回顶部、聚合组展开 / 收起，以及同步任务分组加载更多均有即时 toast 反馈
-- [x] vitest 覆盖代表性按钮：路径复制、事件组展开、Ollama 验证、同步任务重试、调优应用，以及调优失败的全局错误弹窗
+- [x] 同步任务分组加载更多有即时 toast 反馈；事件流分页不弹 toast，以分页栏页码状态作为反馈，避免普通翻页像业务操作
+- [x] vitest 覆盖代表性按钮：路径复制、事件分页、Ollama 验证、同步任务重试、调优应用，以及调优失败的全局错误弹窗
+
+### ⑥ 事件行人话化与可操作性
+
+- [x] `OpenVikingDashboard.tsx` 增加 `EVENT_LABELS` / `OUTCOME_LABELS`，事件标题和 badge 改为中文展示；未知事件类型保留原始枚举作为回退
+- [x] `describeEvent()` 替代旧 `eventSummary()`：按事件类型生成可读描述，`warning` / `error` 优先展示 `payload.error ?? detail ?? message ?? reason`，并覆盖 `scheduled_refresh_summary` 错误字段被截断的回归场景
+- [x] 每条事件行提供"详情 / 收起详情"按钮，展开后显示事件 id、原始 event_type、来源、source_id、sync_job_id、触发人、创建时间与 payload JSON；兜底建议中的"查看事件详情"有明确入口
+- [x] warning/error 行渲染"建议：…"与可选动作按钮：`sync_job_failed` 可重试任务，`scheduled_refresh_summary` error 可立即重新同步，`manual_rebuild_index` error 可重试重建；所有动作使用页面内居中确认与既有 feedback
+- [x] `sync.py` `mark_failed()` 在失败状态落库后补发 `sync_job_failed` 事件，payload 包含 `error` / `attempts` / `operation` / 可读资源名；仍可重试为 warning，达到上限 cancelled 为 error
+- [x] vitest 覆盖 repo 可读名、scheduled error、sync job failed 有/无 `sync_job_id`、breaker status/detail、未知类型错误不被截断；pytest 覆盖 `mark_failed` 的 warning/error 事件输出
+
+### ⑦ 事件生产降噪与保留策略
+
+- [x] 默认事件视图改为"重点事件"，只展示 warning / error 和关键运维汇总；`repo_synced` success、`manual_retry_failed count=0`、`tuning_change` success 等历史噪声默认隐藏，管理员可切换到"全部事件"查看原始事件表，保留审计排查能力
+- [x] `retry_failed` 在没有 failed job 时直接返回 `{queued: 0}`，不再写 `manual_retry_failed count=0` 事件，也不写 no-op audit
+- [x] `POST /admin/openviking/tuning` 在 `previous_value == value` 时跳过，不写 `OpenVikingTuningSetting`、不写 audit、不写 `tuning_change`，避免 no-op 调参污染历史
+- [x] 批量仓库刷新（含 hourly refresh）不再为每个仓库写一条 `repo_synced` 成功事件；改写一条 `repo_refresh_summary`，payload 含 `reason` / `scanned` / `succeeded` / `failed`
+- [x] 单仓库手动同步仍保留 `repo_synced`，用于确认具体仓库同步成功；批量刷新用汇总事件，避免 51 个仓库每小时刷出 51 条 success
+- [x] `openviking_event_retention` APScheduler 任务接入，每 24 小时裁剪 `openviking_dashboard_events`，每个 `event_type` 默认保留最近 2000 条；保留参数来自 `CODEASK_OPENVIKING_EVENT_RETENTION_COUNT`
+- [x] `prune_dashboard_events()` 单测覆盖每 event_type 保留最近 N 条；集成测试覆盖空失败重试不发事件、no-op 调参不落库、重点事件视图过滤 `repo_synced` success 噪声
+
+### ⑦ 补遗（2026-05-29 review 复检，负责人确认要修）
+
+review 通过门禁后又发现 3 处问题，#1 与 §⑦ 降噪目标冲突，必须修；#2/#3 顺手修。
+
+#### 补遗-1（中）：`sync_job_failed` 每次重试都发事件，是降噪反例
+
+- **现状**：`sync.py` `mark_failed` 每次失败都 `emit_event`（仍会重试→warning，cancelled→error）。一个任务重试到 cancelled 最多发 **4 条 warning + 1 条 error**，且全部命中默认"重点事件"视图——几个 flaky 资源就能把刚清干净的看板重新刷满。
+- **决策（负责人 2026-05-29 拍板：按推荐收敛）**：每个失败资源最多发 2 条。判定优先级：
+  1. `job.status == "cancelled"`（已放弃）→ emit **error**（不论 attempts）；
+  2. 否则 `job.attempts == 1`（首次失败）→ emit **warning**；
+  3. 否则（中间重试，status=failed 且 attempts>1）→ **不 emit**。
+  > 边界：若 `max_repeat_failures==1` 导致首次失败即 cancelled，按规则 1 发 error（cancelled 优先于 attempts==1），不发 warning。
+- **测试**：更新 `tests/unit/test_openviking_sync.py`——首次失败(attempts=1, failed)发 1 条 warning；中间重试(attempts=2, failed)发 0 条；cancelled 发 1 条 error。删除/改写原来"每次失败都发"的断言。
+
+#### 补遗-2（低）：EventItem 成功 toast 弹两次
+
+- **现状**：`OpenVikingDashboard.tsx` `handleRemediationAction` 的 onConfirm 弹 "重试任务已提交"（:1133），mutation `onSuccess` 又弹**一模一样**的 "重试任务已提交"（:1098）；resync（:1145/1106）、rebuild（:1157/1114）同样。
+- **改动**：去掉 onConfirm 里的乐观 `feedback.showSuccess(...)`（三处），只保留 mutation `onSuccess` 的成功 toast（请求真正成功才提示，不在请求发出前就声称"已提交"）。
+- **测试**：vitest 断言点击建议按钮→确认后，成功 toast 只出现一次。
+
+#### 补遗-3（低）：后端 no-op 调参守卫与前端口径不一致
+
+- **现状**：`openviking_tuning.py:298` 用裸 `previous_value == change.value`；前端 `valuesEqual` 是 `displayValue(x).trim()` 的**去空格字符串相等**（注意：并非数值归一化，"10" 与 "10.0" 前后端都视为不等）。唯一分歧是**首尾空格**：带空格的语义相同值后端仍会落库+发事件。
+- **改动**：后端比较前对两侧做 `.strip()` 以对齐前端（仅 trim，不引入数值归一化）；`previous_value is None` 时维持"首次设置→写入"语义。
+- **测试**：pytest 覆盖 `previous_value="10"` vs `change.value=" 10 "` 视为相等→跳过写入与事件。
+
+### 复检与修复记录（2026-05-29 Claude 终验接手）
+
+负责人/开发交付后，Claude 做最终验收，跑了全量单测 + live e2e，发现两类问题并修复：
+
+1. **restart 事件 bug（开发已修，已验）**：`_ensure_openviking_server` 把 `pid` 当"最近健康 pid"和"最近观测 pid"混用，重生进程在 health-pending 窗口就覆盖了 pid，导致 `openviking_restart_detected` 永不发出。开发拆出 `healthy_pid`（仅健康分支更新，`app.py:606`）并补回归单测 `test_openviking_restart_event_is_emitted_after_pending_process_becomes_healthy`（pending→healthy 序列）。Claude 验证：该单测 3 passed；开发另附隔离环境实测 kill→重生确有 `openviking_restart_detected{old,new}` 写入。churn 未复现，`startup_grace_seconds=30` 不动。
+2. **3 个 stale live e2e（Claude 修）**：开发的 §⑥ 人话化 + §⑦ 降噪改了行为，但没更新断言原始枚举文案的 live e2e（E3/E5/E10），且 §⑦ 取消 count=0 `manual_retry_failed` 后 E5 的造数前提失效。修复：
+   - 事件行加 `data-event-type={event.event_type}`（`OpenVikingDashboard.tsx`），e2e 按机器枚举选行，与展示文案解耦，根治"一改文案就挂 e2e"。
+   - E3/E10：`hasText:"manual_retry"/"ollama_settings_verified"` → `[data-event-type="…"]` 选择器。
+   - E5 重写：改用"造 13 个失败 e2e_unknown 任务 → 每个发一条 `sync_job_failed`(warning)"凑分页数据，按 `data-event-type` 选行 + outcome 过滤。
+   - 发现并修复连带 flake：E5 新负载并行撞 E9 调参重启（隔离单跑 E9 12.7s 通过），给本 spec 加 `test.describe.configure({ mode: "serial" })`——共享后端 + OpenViking 进程的有状态 live 用例本就该串行。
+3. **终验结果（全绿）**：后端 `pytest tests/` 0 失败 / 8 已知 skip；前端 `vitest` 246/246；ruff / pyright / tsc / eslint clean；OpenViking live e2e 串行 **7 passed / 3 skipped(E2/E4/E7 占位) / 0 failed**。acceptance §3.2 line 69（restart 事件）、§3.2.2 e2e 覆盖此时为真实绿。
+4. **附注**：Playwright 拆栈用的是硬杀，后端 lifespan 优雅 shutdown 未必跑完，会留 openviking-server 孤儿占 1933（优雅 SIGTERM 路径手测能正确回收子进程）；属测试基建小瑕，已手动清理，未改产品代码。
 
 ### 收口
 
@@ -660,7 +798,7 @@ sqlite3 ~/.codeask/data.db "SELECT COUNT(*) FROM openviking_dashboard_events WHE
 | 1c e2e_unknown 残留计数 | 4 | `openviking_sync_jobs` 已清零；`openviking_dashboard_events` 脚本同表规则清理 |
 | 1d 指标 | "未采集" × 3 | throughput / latency p95 / breaker_trips 真实数值 |
 | 2 indexed 展开顺序 | 与 cancelled 时间倒序混排 | 按状态分块，每块独立分页 |
-| 3 加载更多 | 闪一下回去 + 数字膨胀 | 新条目展开可见 + 分页期间不刷新轮询 |
+| 3 加载更多 | 闪一下回去 + 数字膨胀 | 取消加载更多，改为完整分页栏；默认 5 条/页，显示总页数，可选每页条数，可输入页码跳转 |
 | 4 调优 | 11 行 input 表单全展开 | scope 默认折叠，summary 显式提示可展开，展开后统一四列配置表，保留说明和推荐值，只有自定义应用与套用预设 |
 
 ---
@@ -670,8 +808,9 @@ sqlite3 ~/.codeask/data.db "SELECT COUNT(*) FROM openviking_dashboard_events WHE
 2026-05-28 实施完成：
 
 - 后端：新增 `OpenVikingMetricsRecorder`，在 `OpenVikingClient` 包裹请求耗时并写入 breaker 事件；`/admin/openviking/status` 输出真实 5 分钟指标；`/admin/openviking/sync_jobs` 支持 `status` / `cursor` / `limit`，新增 summary 与安全 DELETE；sync job 序列化补 `display_name`。
-- 前端：OpenViking Dashboard 同步任务按状态分组并独立分页；事件流改 `useInfiniteQuery`，分页后暂停轮询，折叠组可展开；调优面板改为普通折叠配置面板，scope 默认折叠，展开后保留说明、推荐值和应用按钮；metrics 卡显示真实采集态与 samples。
+- 前端：OpenViking Dashboard 同步任务按状态分组并独立分页；事件流改为完整分页栏，默认 5 条/页，支持总页数、每页条数选择和页码跳转，默认只看"重点事件"，可切到"全部事件"，历史页暂停轮询，不再跨页追加或聚合；事件行改为中文标题、中文 badge、人话描述，错误原因优先展示且附建议文案 / 可操作按钮，并提供行内详情展开查看原始事件字段与 payload；调优面板改为普通折叠配置面板，scope 默认折叠，展开后保留说明、推荐值和应用按钮；metrics 卡显示真实采集态与 samples。
 - 交互反馈：OpenViking Dashboard 所有按钮统一接入全局反馈；成功显示居中 toast，失败显示居中错误弹窗，复制 / 分页 / 展开收起 / 重试 / 重建 / 调优 / Ollama 验证均已覆盖。所有会修改后端状态的按钮均先弹页面内居中确认框，确认后才提交，不再使用浏览器原生确认框。
+- 事件降噪：空失败重试不写事件；no-op 调参不落库、不写 audit、不写 `tuning_change`；批量 repo refresh 改为单条 `repo_refresh_summary`；事件 retention 接入 APScheduler，每 event_type 默认保留最近 2000 条。
 - 测试：新增 `tests/unit/test_openviking_metrics.py`；扩展 `tests/integration/test_openviking_admin_api.py`；扩展 `frontend/tests/openviking-dashboard.test.tsx`；live management e2e 增加 fixture teardown。
 - 数据清理：已本地执行 `sqlite3 /home/hzh/.codeask/data.db < scripts/cleanup_openviking_e2e_fixture.sql`，并确认 `openviking_sync_jobs` 中 `source_type='e2e_unknown'` 计数为 `0`。
 - 真实浏览器：`openviking-dashboard-live.spec.ts` + `openviking-dashboard-management-live.spec.ts` 在重启后的真实栈通过，结果 `7 passed / 3 skipped`（破坏性隔离用例按计划 skip）。

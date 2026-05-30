@@ -295,6 +295,8 @@ async def _apply_tuning_changes(
                 continue
             previous = latest.get((change.scope, change.key))
             previous_value = previous.value if previous is not None else None
+            if previous_value is not None and previous_value.strip() == change.value.strip():
+                continue
             row = OpenVikingTuningSetting(
                 scope=change.scope,
                 key=change.key,

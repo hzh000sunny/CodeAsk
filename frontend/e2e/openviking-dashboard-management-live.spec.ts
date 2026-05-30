@@ -37,7 +37,9 @@ type TuningPresetResponse = {
   }>;
 };
 
-test.describe.configure({ timeout: 180_000 });
+// 这些 live 用例共用同一个后端 + 同一个 OpenViking 进程，且多数有状态（造失败任务 / 调参重启）。
+// 并行执行会互相干扰（E5 的同步负载撞 E9 的调参重启），故串行跑。
+test.describe.configure({ mode: "serial", timeout: 180_000 });
 test.skip(
   !ENABLED,
   "Set CODEASK_RUN_LIVE_OPENVIKING_E2E=1 to run live OpenViking dashboard management E2E.",
@@ -107,7 +109,7 @@ test("E3 sync job shows real progress and can be retried from the UI", async ({
   await confirmDashboardDialog(page, "确认重试同步任务", "确认重试", "确认重试同步任务");
   await expect.poll(async () => findJobStatus(page, sourceId), { timeout: 30_000 }).toBe("pending");
   await expect(
-    page.locator(".settings-openviking-row").filter({ hasText: "manual_retry" }).first(),
+    page.locator('.settings-openviking-row[data-event-type="manual_retry"]').first(),
   ).toBeVisible();
 });
 
@@ -120,23 +122,52 @@ test("E4 resync and rebuild index are destructive and reserved for isolated data
 
 test("E5 event stream filters by outcome and paginates", async ({ page }) => {
   await loginAdmin(page);
-  for (let index = 0; index < 12; index += 1) {
-    await expectOk(api(page, "/api/admin/openviking/sync_jobs/retry_failed", { method: "POST" }));
+  // 生成足够多的 warning 事件用于分页：每个失败的 e2e_unknown 任务（attempts==1）发一条 sync_job_failed(warning)。
+  // 注意：retry_failed 在无失败任务时按 §⑦ 不再发 count=0 噪声事件，故改用真实失败任务造数。
+  const jobCount = 13;
+  for (let index = 0; index < jobCount; index += 1) {
+    const sourceId = `mgmt-evt-${Date.now()}-${index}`;
+    const enqueued = await api<{ id: string }>(page, "/api/admin/openviking/sync_jobs/enqueue", {
+      body: { source_id: sourceId, source_type: "e2e_unknown" },
+      method: "POST",
+    });
+    expect(enqueued.status).toBe(201);
+    createdSyncJobIds.push(enqueued.body.id);
   }
+  await expect
+    .poll(
+      async () => {
+        await expectOk(
+          api(page, "/api/admin/openviking/sync_jobs/run_pending", { method: "POST" }),
+        );
+        const events = await expectOk<{ total: number }>(
+          api(page, "/api/admin/openviking/events?view=all&event_type=sync_job_failed&limit=1"),
+        );
+        return events.body.total;
+      },
+      { timeout: 120_000 },
+    )
+    .toBeGreaterThanOrEqual(12);
 
   await openDashboard(page);
-  await page.getByLabel("事件结果过滤").selectOption("info");
-  await expect(
-    page.locator(".settings-openviking-row").filter({ hasText: "manual_retry_failed" }).first(),
-  ).toBeVisible();
-  await page.getByLabel("事件类型过滤").selectOption("manual_retry_failed");
+  await page.getByLabel("事件结果过滤").selectOption("warning");
 
-  const rows = page.locator(".settings-openviking-row").filter({ hasText: "manual_retry_failed" });
+  // 事件标题已人话化（§⑥），按机器枚举 data-event-type 选行，避免依赖展示文案。
+  const rows = page.locator('.settings-openviking-row[data-event-type="sync_job_failed"]');
   await expect(rows.first()).toBeVisible();
-  await expect(page.locator(".settings-openviking-event-count").first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "加载更多事件" })).toBeVisible();
-  await page.getByRole("button", { name: "加载更多事件" }).click();
-  await expect(page.locator(".settings-openviking-event-count").first()).toBeVisible();
+  await expect(page.getByLabel("事件每页条数")).toHaveValue("5");
+  await expect(page.getByText(/共 \d+ 条 · 第 1 \/ \d+ 页/)).toBeVisible();
+  await page.getByLabel("事件页码").fill("2");
+  await page.getByRole("button", { name: "跳转事件页" }).click();
+  await expect(page.getByText(/共 \d+ 条 · 第 2 \/ \d+ 页/)).toBeVisible();
+  await expect(page.getByText("正在查看历史事件页，实时刷新暂停")).toBeVisible();
+  await page.getByLabel("事件每页条数").selectOption("10");
+  await expect(page.getByLabel("事件每页条数")).toHaveValue("10");
+  await expect(page.getByText(/共 \d+ 条 · 第 1 \/ \d+ 页/)).toBeVisible();
+  await page.getByRole("button", { name: "下一页事件" }).click();
+  await expect(page.getByText(/共 \d+ 条 · 第 2 \/ \d+ 页/)).toBeVisible();
+  await page.getByRole("button", { name: "上一页事件" }).click();
+  await expect(page.getByText(/共 \d+ 条 · 第 1 \/ \d+ 页/)).toBeVisible();
 });
 
 test("E6 and E8 tuning rejects invalid values, applies valid values, then restores original value", async ({
@@ -230,7 +261,7 @@ test("E10 Ollama systemd snippet is visible and copyable", async ({ context, pag
   await snippetBlock.getByRole("button", { name: "验证 Ollama 设置" }).click();
   await expect(snippetBlock.getByText(/验证通过|验证未通过/)).toBeVisible();
   await expect(
-    page.locator(".settings-openviking-row").filter({ hasText: "ollama_settings_verified" }).first(),
+    page.locator('.settings-openviking-row[data-event-type="ollama_settings_verified"]').first(),
   ).toBeVisible();
 });
 

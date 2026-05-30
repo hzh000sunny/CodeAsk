@@ -109,6 +109,9 @@ async def test_lifespan_registers_openviking_keepalive_and_sync(
                 "Handle", (), {"base_url": "http://127.0.0.1:1933", "port": 1933, "pid": 45678}
             )()
 
+        def describe(self):  # type: ignore[no-untyped-def]
+            return {"available": True, "last_error": None, "last_error_code": None}
+
         def shutdown(self) -> None:
             self.shutdown_calls += 1
 
@@ -120,6 +123,9 @@ async def test_lifespan_registers_openviking_keepalive_and_sync(
         async def run_pending_jobs(self, *, limit: int = 10):  # type: ignore[no-untyped-def]
             self.calls.append(limit)
             return {"processed": 1, "indexed": 1, "failed": 0}
+
+        async def sweep_all(self, *, triggered_by: str):  # type: ignore[no-untyped-def]
+            return {"scanned": 0, "enqueued": 0, "skipped": 0}
 
     monkeypatch.setenv("CODEASK_DATA_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))

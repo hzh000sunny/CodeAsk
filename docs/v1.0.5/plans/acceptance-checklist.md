@@ -20,7 +20,7 @@
 - [x] `docs/v1.0.5/specs/openviking-agpl-review.md` 状态 = Recorded（已完成）
 - [ ] CodeAsk README / INSTALL 包含 OpenViking 引用与许可证披露
 - [ ] CodeAsk 仓库未拷贝 OpenViking 源码（grep 验证）
-- [x] OpenViking 通过 `uvx --from openviking==0.3.17` 子进程运行，不作为 CodeAsk Python 业务依赖内嵌；`process.py` 管理独立 OpenViking server
+- [x] OpenViking 作为 CodeAsk 声明依赖随 `uv sync` 安装；运行期通过 `openviking_bin` 直接拉起独立 `openviking-server` 子进程，不再使用 `uvx` 在线解析依赖；业务代码不 `import openviking`
 - [ ] 没有任何文件 `import openviking` 作为业务代码（grep 验证）
 
 ---
@@ -54,17 +54,25 @@ v1.0.5 按交付里程碑 M1–M5 分段验收（M1–M5 跨 Phase 1/Phase 2 两
 - [x] 切换、重建、失败、回退都写审计日志
 - [ ] rebuild / 批量同步类任务的 `sync_jobs.progress` 由 `progress_sweep` 任务自动更新；admin 卡片仅在有真实 `total/indexed/eta_seconds` 时显示进度条 + ETA，单资源 `add_text_resource` 不显示假进度
 - [x] M8 修复：OpenViking SyncJobs API 支持全表 summary、按状态过滤、cursor keyset 分页与 `display_name`；前端按 failed / pending / running / indexed 分组展示，避免 indexed 大列表按窗口混排
-- [x] M8 修复：OpenViking 事件流改用 infinite pagination；分页后暂停实时轮询，折叠聚合 chip 可展开查看底层事件，返回顶部后恢复实时刷新
+- [x] M8 修复：OpenViking 事件流改为完整分页；默认每页 5 条，每页只展示当前页事件行，底部显示总条数 / 当前页 / 总页数，支持选择每页条数和输入页码跳转，不再跨页追加、不再用 `×N` 聚合 chip 隐藏事件；历史页暂停实时轮询，回到第 1 页恢复实时刷新
 - [x] M8 修复：运行指标卡不再使用 stub；throughput 来自 5 分钟内 `last_indexed_at` 聚合，breaker trips 来自 dashboard events，latency p95 / samples 来自 `OpenVikingClient` 请求耗时 recorder
 - [x] M8 修复：dashboard live e2e fixture 增加 `afterEach` 自清；一次性脚本 `scripts/cleanup_openviking_e2e_fixture.sql` 已清理本地真实库 `e2e_unknown` sync job 残留
 - [x] M8 修复：OpenViking 看板所有按钮均接入全局反馈；成功操作显示居中低密度 toast，失败操作显示居中错误弹窗，覆盖复制、分页、展开/收起、重试、重建、调优和 Ollama 验证；所有会修改后端状态的按钮必须先弹出页面内居中确认框，禁止使用浏览器原生 `window.confirm`
+- [x] M8 修复（§⑥ 事件行人话化）：事件标题用中文标签映射（未命中回退原始枚举），描述为人话模板而非 `key=value` dump，badge 中文化；warning/error 行的错误原因（`error/detail/message/reason`）必须排在描述最前且永不被截断（回归 `scheduled_refresh_summary` 把 `error` slice 掉的 bug）
+- [x] M8 修复（§⑥ 事件详情）：每条事件行提供"详情 / 收起详情"入口，展开后显示事件 id、原始 event_type、来源、source_id、sync_job_id、triggered_by、created_at 与 payload JSON，避免"查看事件详情"没有入口
+- [x] M8 修复（§⑥ 可操作性）：warning/error 行显示"建议：…"文案；`sync_job_failed` 行有"重试该任务"按钮（调 `retrySyncJob(sync_job_id)`），`scheduled_refresh_summary`(error) 有"立即重新同步"按钮，`manual_rebuild_index`(error) 有"重试重建"按钮；按钮复用既有 feedback / 居中确认，禁止 `window.confirm`
+- [x] M8 修复（§⑥ 后端补 emit）：同步任务失败时 `sync.py` `mark_failed` 补发 `sync_job_failed` 事件，带 `error`/`attempts`/`sync_job_id`/资源可读名；`status="cancelled"`（放弃重试）→ `outcome="error"`，仍会重试 → `outcome="warning"`；使索引失败能出现在事件流
+- [x] M8 修复（§⑦ 补遗-1）：`sync_job_failed` 收敛为每个失败资源最多 2 条——cancelled 发 error；否则 attempts==1 发 warning；中间重试（attempts>1 且 failed）不发；避免 flaky 资源刷满默认"重点事件"视图
+- [x] M8 修复（§⑦ 补遗-2）：事件行建议按钮（重试该任务 / 立即重新同步 / 重试重建）成功 toast 只弹一次——去掉 onConfirm 乐观提示，仅保留 mutation onSuccess
+- [x] M8 修复（§⑦ 补遗-3）：后端 no-op 调参守卫与前端 `valuesEqual` 对齐——比较前两侧 `.strip()`，带首尾空格的语义相同值不再落库 / 发 `tuning_change`
 - [x] Wiki / 报告 / 仓库变更 hook 全部接入；启动 backfill 与定时 sweep 行为正确
 - [x] kill OpenViking server 后重启：admin 仪表盘自动出现 `openviking_restart_detected` 事件，sync_jobs 进度从中断点续传，不重置
 - [x] kill Ollama 后重启：仪表盘出现 `ollama_recovery` 事件，sync_jobs 在 1–2 分钟内追上
-- [x] 编辑 Wiki / 新增 verified 报告 / 仓库同步完成 → 仪表盘事件流出现对应 `wiki_doc_changed` / `report_status_changed` / `repo_synced` 事件
+- [x] 编辑 Wiki / 新增 verified 报告 / 单仓库同步完成 → 仪表盘事件流出现对应 `wiki_doc_changed` / `report_status_changed` / `repo_synced` 事件；批量 / hourly repo refresh 只写一条 `repo_refresh_summary`，不刷 per-repo success 洪流
 - [x] 24h scheduled_refresh 触发后产生 `scheduled_refresh_summary` 事件
 - [x] admin 手动触发"单源重同步 / 全量重建 / 失败重试"三个动作走通；事件流出现 `manual_resync` / `manual_retry` 事件
 - [x] events 接口分页可用；每 event_type 保留策略生效（默认 2000 条）
+- [x] 事件流默认视图只展示重点事件；`repo_synced` success、`manual_retry_failed count=0`、`tuning_change` success / no-op 调参等噪声不进入默认看板，管理员可切换"全部事件"排查原始记录
 - [x] 会话事件流返回前端前不泄露宿主机绝对路径（沿用 v1.0.4 会话 trace 出口脱敏）；admin OpenViking 诊断接口例外，需显示完整路径便于运维定位
 - [ ] 失败重试与 cancelled 转换符合 SDD §9（指数退避 30s / 2m / 10m / 1h / 6h）
   - [x] 单次 `add_text_resource` 失败后任务进入 `failed`，`attempts=1`，`next_retry_at≈30s`
@@ -83,7 +91,7 @@ M1 阶段的瞬时护栏已被后续里程碑有意推翻：§3.6 已接入 Open
 ### 3.2.2 M1 本地自测记录（2026-05-25）
 
 - [x] Ollama `/api/tags` 已确认存在 `bge-m3:latest`
-- [x] `openviking-server 0.3.17` 已通过 `uvx --from openviking==0.3.17 --with socksio openviking-server --version` 验证
+- [x] `openviking-server 0.3.17` 已通过 `uv sync` 安装到 CodeAsk `.venv`，并由 `uv run openviking-server --help` 验证；运行期不再依赖 `uvx --from ...`
 - [x] CodeAsk 启动后 admin status API surfacing OpenViking `/health`，返回 healthy 与实测版本 `0.3.17`
 - [x] CodeAsk admin status API surfacing Ollama `/api/tags`，返回 `bge-m3:latest` 可用状态与模型列表
 - [x] Admin API 手动 enqueue 一条 Markdown 文档，并通过 `run_pending` 同步到 OpenViking，任务状态更新为 `indexed`
@@ -124,7 +132,7 @@ M1 阶段的瞬时护栏已被后续里程碑有意推翻：§3.6 已接入 Open
 - [x] 调优面板按钮交互接入全局反馈：点击应用时若值未变更则提示无需应用；若值已变更则先弹出页面内居中确认框，确认后才提交并显示成功 toast；套用预设也先走页面内居中确认框；复制 snippet、验证 Ollama 设置均有成功 toast；接口失败时弹出全局错误对话框并保留卡片内联错误
 - [x] admin 改 `openviking.embedding.max_concurrent` → 写 DB → 重写 ov.conf → restart OpenViking → 返回预计中断时长
 - [x] admin 改 `codeask.sync_workers` → 秒级生效；不重启 OpenViking
-- [x] 改任一参数后事件流出现一条 `tuning_change` 事件，含 scope / key / value_before / value_after / notes / triggered_by
+- [x] 改任一参数后事件流出现一条 `tuning_change` 事件，含 scope / key / value_before / value_after / notes / triggered_by；若新值与当前值一致，不写 tuning setting、不写 audit、不写 `tuning_change`
 - [x] 一次应用推荐预设 → 多个参数一次性改完；不影响 ollama_recommend
 - [x] Ollama systemd snippet 接口返回正确的 NUM_PARALLEL / NUM_THREAD；admin 可点击"验证 Ollama 设置"，CodeAsk 轻量探测实际并发并写入 `ollama_settings_verified`（success / warning）
 - [x] 极端值（如 `codeask.sync_workers=10000`）被后端拒绝；事件 outcome=error；前端卡片显示 rejected 原因；不应用

@@ -166,7 +166,7 @@ CodeAsk 暂时不适合作为：
 - v1.0.3 已补齐统一登录、用户自动注册、admin、特性管理员、全局附件开关、审计日志和真实浏览器 E2E。
 - 未登录访客仍可直接使用会话、查看特性和 Wiki；写操作由服务端权限守卫强制校验。
 - v1.0.4 已新增独立 `src/codeask/agent/opencode_compat/` 模块，默认会话接入 shared `opencode serve`、会话级 workspace、Wiki 零复制挂载、remote MCP、opencode 事件流、Agent 适配方式选择/手动测试和真实浏览器 live E2E 通道。LLM 配置新增/编辑表单连接测试遵循表单语义：先测试当前草稿，保存时才把测试状态写入数据库；API 使用通用 `agent_runtime_*` 字段，历史 `opencode_provider_*` 仅作为兼容层。v1.0.4 已完成人工验收，Agent 事件返回会对宿主机绝对路径做后端出口脱敏，并已覆盖长对话、刷新继续追问、特性源码调查和 opencode 完成事件闭合回归。
-- v1.0.5 已新增独立 `src/codeask/rag/openviking/` 模块，CodeAsk 管理 OpenViking server 子进程、同步队列、健康探测、admin 仪表盘、调优参数和事件流；Wiki UI 搜索改为 OpenViking 优先、SQL ILIKE 兜底；opencode 会话通过 OpenViking MCP 获取语义候选，再通过 CodeAsk MCP 准备真实 worktree 读取源码证据。OpenViking 是增强能力，不可用时用户路径 graceful degrade。
+- v1.0.5 已新增独立 `src/codeask/rag/openviking/` 模块，CodeAsk 管理 OpenViking server 子进程、同步队列、健康探测、admin 仪表盘、调优参数和事件流；Wiki UI 搜索改为 OpenViking 优先、SQL ILIKE 兜底；opencode 会话通过 OpenViking MCP 获取语义候选，再通过 CodeAsk MCP 准备真实 worktree 读取源码证据。OpenViking 作为声明依赖随 `uv sync` 安装，运行期通过 `openviking-server` 子进程直接拉起，不再用 `uvx` 在线解析依赖；OpenViking 是增强能力，不可用时用户路径 graceful degrade。
 
 仍在规划或后续专项中的能力：
 

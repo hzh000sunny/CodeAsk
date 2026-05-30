@@ -20,19 +20,19 @@ OpenViking 仓库 LICENSE 为 GNU Affero General Public License v3（AGPL-3.0）
 | 承诺 | 落地证据 |
 |---|---|
 | **不修改 OpenViking 源码** | v1.0.5 不 fork、不复制、不打补丁；CodeAsk 仓库内不出现任何 OpenViking 源文件；适配代码全部在 `src/codeask/rag/openviking/` |
-| **不内嵌 OpenViking 源码** | CodeAsk 通过 `uvx --from openviking==0.3.17` 拉起独立 `openviking-server` 子进程；适配层只通过 HTTP / MCP 调用，不把 OpenViking 作为 Python 业务依赖导入 |
+| **不内嵌 OpenViking 源码** | CodeAsk 将 `openviking==0.3.17` 作为声明依赖随 `uv sync` 安装，并通过 `openviking-server` 控制台脚本拉起独立子进程；适配层只通过 HTTP / MCP 调用，不在业务代码中 `import openviking` |
 
 进一步的隔离约定（技术上倾向，非强制）：
 
 - CodeAsk 与 OpenViking 以**独立进程**形式通过 HTTP / MCP 调用，不在 CodeAsk 进程内 `import openviking` 作为业务代码
-- CodeAsk 不重新分发 OpenViking 二进制；INSTALL 文档指向官方 PyPI 包
+- CodeAsk 不修改、复制或 fork OpenViking 源码；当前部署通过 `uv sync` 从 PyPI 解析安装依赖，不把 OpenViking 源码纳入 CodeAsk 仓库
 
 ---
 
 ## 3. 文档披露项
 
 - `README.md` 在"开源参考"小节追加 OpenViking 行，标注：上游链接、许可证 AGPL-3.0、CodeAsk 不修改源码
-- `INSTALL.md`（或 v1.0.5 部署说明）注明：OpenViking 是外部子进程组件，由 CodeAsk 通过 `uvx --from openviking==0.3.17` 启动；不随 CodeAsk 主包默认安装，也不在业务代码中 `import openviking`
+- `INSTALL.md`（或 v1.0.5 部署说明）注明：OpenViking 是随 CodeAsk `uv sync` 安装的声明依赖，运行期由 CodeAsk 通过 `openviking-server` 子进程启动；不修改 OpenViking 源码，也不在业务代码中 `import openviking`
 - `docs/v1.0.5/README.md` 末尾"引用"小节保留 OpenViking 仓库路径
 
 ---

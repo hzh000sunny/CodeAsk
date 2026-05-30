@@ -10,7 +10,7 @@ import {
   ListChecks,
   SlidersHorizontal,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -47,11 +47,6 @@ import { useAppFeedback } from "../feedback/AppFeedback";
 import { messageFromApiError } from "./settings-utils";
 
 type TuningRow = OpenVikingTuningItem & { scope: string };
-type EventGroup = {
-  count: number;
-  event: OpenVikingDashboardEvent;
-  events: OpenVikingDashboardEvent[];
-};
 type DashboardConfirmRequest = {
   confirmLabel: string;
   message: string;
@@ -66,7 +61,8 @@ type DashboardFeedback = {
 type DashboardConfirm = (request: DashboardConfirmRequest) => void;
 
 const EMPTY_VALUE = "—";
-const EVENT_PAGE_SIZE = 10;
+const DEFAULT_EVENT_PAGE_SIZE = 5;
+const EVENT_PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
 const JOB_PAGE_SIZE = 10;
 
 const SCOPE_LABELS: Record<string, string> = {
@@ -118,12 +114,44 @@ const TUNING_DESCRIPTIONS: Record<string, { description: string; impact: string 
   },
 };
 
+const EVENT_LABELS: Record<string, string> = {
+  embedding_model_switched: "向量模型切换",
+  embedding_rebuild_requested: "向量重建已请求",
+  manual_rebuild_index: "手动重建索引",
+  manual_resync: "手动重新同步",
+  manual_retry: "手动重试",
+  manual_retry_failed: "重试全部失败任务",
+  ollama_recovery: "Ollama 已恢复",
+  ollama_settings_verified: "Ollama 设置已验证",
+  openviking_breaker_tripped: "OpenViking 熔断触发",
+  openviking_health_failed: "OpenViking 健康检查失败",
+  openviking_restart_detected: "OpenViking 进程重启",
+  repo_refresh_summary: "仓库刷新汇总",
+  repo_synced: "仓库已同步",
+  scheduled_refresh_summary: "定时同步汇总",
+  sync_job_enqueued: "同步任务已入队",
+  sync_job_failed: "同步任务失败",
+  tuning_change: "调优参数变更",
+};
+
+const OUTCOME_LABELS: Record<OpenVikingDashboardEvent["outcome"], string> = {
+  error: "错误",
+  info: "信息",
+  success: "成功",
+  warning: "警告",
+};
+
+type EventView = "all" | "important";
+
 export function OpenVikingDashboard() {
   const queryClient = useQueryClient();
   const feedback = useAppFeedback();
   const [confirmRequest, setConfirmRequest] = useState<DashboardConfirmRequest | null>(null);
   const [eventOutcome, setEventOutcome] = useState("");
+  const [eventPage, setEventPage] = useState(1);
+  const [eventPageSize, setEventPageSize] = useState(DEFAULT_EVENT_PAGE_SIZE);
   const [eventType, setEventType] = useState("");
+  const [eventView, setEventView] = useState<EventView>("important");
   const refresh = () => {
     void queryClient.invalidateQueries({
       predicate: (query) => String(query.queryKey[0]).startsWith("admin-openviking"),
@@ -135,18 +163,24 @@ export function OpenVikingDashboard() {
     queryFn: getOpenVikingStatus,
     refetchInterval: 5000,
   });
-  const eventsQuery = useInfiniteQuery({
-    queryKey: ["admin-openviking-events", eventOutcome, eventType],
-    queryFn: ({ pageParam }) =>
+  const eventsQuery = useQuery({
+    queryKey: [
+      "admin-openviking-events",
+      eventView,
+      eventOutcome,
+      eventType,
+      eventPage,
+      eventPageSize,
+    ],
+    queryFn: () =>
       listOpenVikingEvents({
         eventType: eventType || undefined,
         outcome: eventOutcome || undefined,
-        beforeId: pageParam,
-        limit: EVENT_PAGE_SIZE,
+        limit: eventPageSize,
+        page: eventPage,
+        view: eventView,
       }),
-    initialPageParam: undefined as number | undefined,
-    getNextPageParam: (lastPage) => lastPage.next_before_id ?? undefined,
-    refetchInterval: (query) => (query.state.data?.pages.length === 1 ? 5000 : false),
+    refetchInterval: eventPage === 1 ? 5000 : false,
   });
   const embeddingQuery = useQuery({
     queryKey: ["admin-openviking-embedding"],
@@ -169,18 +203,54 @@ export function OpenVikingDashboard() {
     queryFn: getOllamaSnippet,
   });
 
-  const events = useMemo(
-    () => eventsQuery.data?.pages.flatMap((page) => page.items) ?? [],
-    [eventsQuery.data],
-  );
-  const eventPagesLoaded = eventsQuery.data?.pages.length ?? 0;
+  const events = eventsQuery.data?.items ?? [];
+  const eventTypeOptions = eventsQuery.data?.event_types ?? [];
+  const eventTotal = eventsQuery.data?.total ?? 0;
+  const eventTotalPages = Math.max(1, eventsQuery.data?.total_pages ?? eventPage);
+
+  useEffect(() => {
+    if (eventsQuery.data && eventPage > eventTotalPages) {
+      setEventPage(eventTotalPages);
+    }
+  }, [eventPage, eventTotalPages, eventsQuery.data]);
 
   function handleOutcomeChange(value: string) {
+    resetEventPagination();
     setEventOutcome(value);
   }
 
+  function handleEventViewChange(value: EventView) {
+    resetEventPagination();
+    setEventView(value);
+  }
+
   function handleEventTypeChange(value: string) {
+    resetEventPagination();
     setEventType(value);
+  }
+
+  function resetEventPagination() {
+    setEventPage(1);
+  }
+
+  function handleNextEventPage() {
+    setEventPage((current) => Math.min(eventTotalPages, current + 1));
+  }
+
+  function handlePreviousEventPage() {
+    setEventPage((current) => Math.max(1, current - 1));
+  }
+
+  function handleEventPageSizeChange(value: number) {
+    setEventPageSize(value);
+    setEventPage(1);
+  }
+
+  function handleEventPageJump(value: number) {
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    setEventPage(Math.max(1, Math.min(eventTotalPages, Math.trunc(value))));
   }
 
   return (
@@ -207,29 +277,28 @@ export function OpenVikingDashboard() {
         />
         <OpenVikingEventStream
           events={events}
+          eventTypeOptions={eventTypeOptions}
           feedback={feedback}
+          hasNext={eventPage < eventTotalPages}
+          hasPrevious={eventPage > 1}
+          isLoading={eventsQuery.isLoading}
           outcome={eventOutcome}
           eventType={eventType}
+          eventView={eventView}
+          onRefresh={refresh}
           onOutcomeChange={handleOutcomeChange}
           onEventTypeChange={handleEventTypeChange}
-          hasNext={Boolean(eventsQuery.hasNextPage)}
-          isLoadingMore={eventsQuery.isFetchingNextPage}
-          realtimePaused={eventPagesLoaded > 1}
-          onLoadMore={() => {
-            feedback.showSuccess("正在加载更多事件");
-            void eventsQuery
-              .fetchNextPage()
-              .then(() => feedback.showSuccess("事件已加载"))
-              .catch((error: unknown) =>
-                feedback.showError(`加载更多事件失败：${messageFromApiError(error)}`),
-              );
-          }}
-          onReturnTop={() => {
-            feedback.showSuccess("已返回事件流顶部");
-            void queryClient.resetQueries({
-              queryKey: ["admin-openviking-events", eventOutcome, eventType],
-            });
-          }}
+          onEventViewChange={handleEventViewChange}
+          onNextPage={handleNextEventPage}
+          onPageJump={handleEventPageJump}
+          onPageSizeChange={handleEventPageSizeChange}
+          onPreviousPage={handlePreviousEventPage}
+          pageNumber={eventPage}
+          pageSize={eventPageSize}
+          pageSizeOptions={EVENT_PAGE_SIZE_OPTIONS}
+          requestConfirm={setConfirmRequest}
+          total={eventTotal}
+          totalPages={eventTotalPages}
         />
         <OpenVikingMetricsCard status={statusQuery.data} />
         <OpenVikingTuningCard
@@ -816,37 +885,70 @@ function SyncJobItem({ job, onRetry }: { job: OpenVikingSyncJob; onRetry: () => 
 
 function OpenVikingEventStream({
   events,
+  eventTypeOptions,
   feedback,
+  hasNext,
+  hasPrevious,
+  isLoading,
   outcome,
   eventType,
+  eventView,
+  onRefresh,
   onOutcomeChange,
   onEventTypeChange,
-  hasNext,
-  isLoadingMore,
-  onLoadMore,
-  onReturnTop,
-  realtimePaused,
+  onEventViewChange,
+  onNextPage,
+  onPageJump,
+  onPageSizeChange,
+  onPreviousPage,
+  pageNumber,
+  pageSize,
+  pageSizeOptions,
+  requestConfirm,
+  total,
+  totalPages,
 }: {
   events: OpenVikingDashboardEvent[];
+  eventTypeOptions: string[];
   feedback: DashboardFeedback;
+  hasNext: boolean;
+  hasPrevious: boolean;
+  isLoading: boolean;
   outcome: string;
   eventType: string;
+  eventView: EventView;
+  onRefresh: () => void;
   onOutcomeChange: (value: string) => void;
   onEventTypeChange: (value: string) => void;
-  hasNext: boolean;
-  isLoadingMore: boolean;
-  onLoadMore: () => void;
-  onReturnTop: () => void;
-  realtimePaused: boolean;
+  onEventViewChange: (value: EventView) => void;
+  onNextPage: () => void;
+  onPageJump: (value: number) => void;
+  onPageSizeChange: (value: number) => void;
+  onPreviousPage: () => void;
+  pageNumber: number;
+  pageSize: number;
+  pageSizeOptions: number[];
+  requestConfirm: DashboardConfirm;
+  total: number;
+  totalPages: number;
 }) {
+  const [jumpValue, setJumpValue] = useState(String(pageNumber));
   const eventTypes = Array.from(
-    new Set(
-      [...events.map((event) => event.event_type), eventType].filter(
-        (value): value is string => Boolean(value),
-      ),
-    ),
+    new Set([...eventTypeOptions, eventType].filter((value): value is string => Boolean(value))),
   ).sort();
-  const groupedEvents = useMemo(() => collapseConsecutiveEvents(events), [events]);
+
+  useEffect(() => {
+    setJumpValue(String(pageNumber));
+  }, [pageNumber]);
+
+  function handleJumpSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextPage = Number.parseInt(jumpValue, 10);
+    if (Number.isFinite(nextPage)) {
+      onPageJump(nextPage);
+    }
+  }
+
   return (
     <section className="surface openviking-card openviking-card-events" aria-label="OpenViking 事件流">
       <OpenVikingCardHeader
@@ -856,8 +958,23 @@ function OpenVikingEventStream({
       />
       <div className="settings-openviking-filter-row">
         <label className="settings-openviking-field">
-          <span>事件结果过滤</span>
-          <select value={outcome} onChange={(event) => onOutcomeChange(event.target.value)}>
+          <span>范围</span>
+          <select
+            aria-label="事件范围"
+            value={eventView}
+            onChange={(event) => onEventViewChange(event.target.value as EventView)}
+          >
+            <option value="important">重点事件</option>
+            <option value="all">全部事件</option>
+          </select>
+        </label>
+        <label className="settings-openviking-field">
+          <span>结果</span>
+          <select
+            aria-label="事件结果过滤"
+            value={outcome}
+            onChange={(event) => onOutcomeChange(event.target.value)}
+          >
             <option value="">全部</option>
             <option value="info">info</option>
             <option value="success">success</option>
@@ -866,8 +983,12 @@ function OpenVikingEventStream({
           </select>
         </label>
         <label className="settings-openviking-field">
-          <span>事件类型过滤</span>
-          <select value={eventType} onChange={(event) => onEventTypeChange(event.target.value)}>
+          <span>类型</span>
+          <select
+            aria-label="事件类型过滤"
+            value={eventType}
+            onChange={(event) => onEventTypeChange(event.target.value)}
+          >
             <option value="">全部</option>
             {eventTypes.map((type) => (
               <option value={type} key={type}>
@@ -878,81 +999,229 @@ function OpenVikingEventStream({
         </label>
       </div>
       <ul className="data-list settings-config-list settings-openviking-event-list">
-        {groupedEvents.map((group) => (
-          <EventItem feedback={feedback} group={group} key={`${group.event.id}:${group.count}`} />
+        {events.map((event) => (
+          <EventItem
+            event={event}
+            feedback={feedback}
+            key={event.id}
+            onRefresh={onRefresh}
+            requestConfirm={requestConfirm}
+          />
         ))}
       </ul>
-      {events.length === 0 ? <p className="empty-note">暂无 OpenViking 事件</p> : null}
-      {hasNext ? (
-        <button
-          className="button button-secondary settings-openviking-load-more"
-          type="button"
-          onClick={onLoadMore}
-          disabled={isLoadingMore}
-        >
-          加载更多事件
-        </button>
-      ) : null}
-      {realtimePaused && !hasNext ? (
-        <div className="settings-openviking-paused-note">
-          <span>已加载全部事件，刷新自动暂停。返回顶部以恢复实时刷新</span>
-          <button className="button button-quiet" type="button" onClick={onReturnTop}>
-            返回顶部
+      {events.length === 0 && !isLoading ? <p className="empty-note">暂无 OpenViking 事件</p> : null}
+      {isLoading ? <p className="settings-openviking-muted">正在读取事件页...</p> : null}
+      <div className="settings-openviking-pagination" aria-label="事件分页">
+        <div className="settings-openviking-pagination-summary">
+          <span>共 {total} 条 · 第 {pageNumber} / {totalPages} 页</span>
+          <label>
+            <span>每页</span>
+            <select
+              aria-label="事件每页条数"
+              value={pageSize}
+              onChange={(event) => onPageSizeChange(Number(event.target.value))}
+            >
+              {pageSizeOptions.map((option) => (
+                <option value={option} key={option}>
+                  {option} 条
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="settings-openviking-pagination-actions">
+          <button
+            aria-label="上一页事件"
+            className="button button-secondary"
+            type="button"
+            onClick={onPreviousPage}
+            disabled={!hasPrevious || isLoading}
+          >
+            上一页
+          </button>
+          <form className="settings-openviking-page-jump" onSubmit={handleJumpSubmit}>
+            <label>
+              <span>跳至</span>
+              <input
+                aria-label="事件页码"
+                max={totalPages}
+                min={1}
+                type="number"
+                value={jumpValue}
+                onChange={(event) => setJumpValue(event.target.value)}
+              />
+            </label>
+            <button
+              aria-label="跳转事件页"
+              className="button button-secondary"
+              disabled={isLoading}
+              type="submit"
+            >
+              跳转
+            </button>
+          </form>
+          <button
+            aria-label="下一页事件"
+            className="button button-secondary"
+            type="button"
+            onClick={onNextPage}
+            disabled={!hasNext || isLoading}
+          >
+            下一页
           </button>
         </div>
+      </div>
+      {pageNumber > 1 ? (
+        <p className="settings-openviking-paused-note">
+          正在查看历史事件页，实时刷新暂停；回到第 1 页后恢复刷新。
+        </p>
       ) : null}
     </section>
   );
 }
 
 function EventItem({
+  event,
   feedback,
-  group,
+  onRefresh,
+  requestConfirm,
 }: {
+  event: OpenVikingDashboardEvent;
   feedback: DashboardFeedback;
-  group: EventGroup;
+  onRefresh: () => void;
+  requestConfirm: DashboardConfirm;
 }) {
-  const { event } = group;
-  const [expanded, setExpanded] = useState(false);
+  const retryMutation = useMutation({
+    mutationFn: retrySyncJob,
+    onError: (error) => feedback.showError(`重试任务失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("重试任务已提交");
+    },
+  });
+  const resyncMutation = useMutation({
+    mutationFn: resyncOpenViking,
+    onError: (error) => feedback.showError(`重新同步失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("重新同步已提交");
+    },
+  });
+  const rebuildMutation = useMutation({
+    mutationFn: rebuildOpenVikingIndex,
+    onError: (error) => feedback.showError(`重排同步队列失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("同步队列重排已提交");
+    },
+  });
+  const remediation = eventRemediation(event);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  function handleRemediationAction() {
+    if (!remediation?.action) {
+      return;
+    }
+    if (remediation.action === "retry_sync_job") {
+      const syncJobId = event.sync_job_id;
+      if (!syncJobId) {
+        return;
+      }
+      requestConfirm({
+        confirmLabel: "确认重试",
+        message: `确认重新入队同步任务 ${syncJobId}？`,
+        onConfirm: () => {
+          retryMutation.mutate(syncJobId);
+        },
+        title: "确认重试同步任务",
+      });
+      return;
+    }
+    if (remediation.action === "resync") {
+      requestConfirm({
+        confirmLabel: "确认同步",
+        message: "确认立即触发 OpenViking 全量重新同步？",
+        onConfirm: () => {
+          resyncMutation.mutate({});
+        },
+        title: "确认立即重新同步",
+        tone: "warning",
+      });
+      return;
+    }
+    requestConfirm({
+      confirmLabel: "确认重建",
+      message: "确认重新排队并重建 OpenViking 索引？",
+      onConfirm: () => {
+        rebuildMutation.mutate();
+      },
+      title: "确认重试重建",
+      tone: "danger",
+    });
+  }
+
   return (
-    <li className="settings-openviking-row" data-outcome={event.outcome}>
+    <li className="settings-openviking-row" data-event-type={event.event_type} data-outcome={event.outcome}>
       <div className="settings-openviking-event-main">
         <div className="settings-openviking-event-title">
-          <strong>{event.event_type}</strong>
-          {group.count > 1 ? (
-            <button
-              aria-label={`${expanded ? "收起" : "展开"} ${event.event_type} 事件组`}
-              className="settings-openviking-event-count"
-              type="button"
-              onClick={() =>
-                setExpanded((value) => {
-                  const nextExpanded = !value;
-                  feedback.showSuccess(
-                    `${nextExpanded ? "已展开" : "已收起"} ${event.event_type} 事件组`,
-                  );
-                  return nextExpanded;
-                })
-              }
-            >
-              ×{group.count}
-            </button>
-          ) : null}
+          <strong>{EVENT_LABELS[event.event_type] ?? event.event_type}</strong>
         </div>
-        <span>{eventSummary(event)}</span>
-        <time dateTime={event.created_at ?? undefined}>{formatDateTime(event.created_at)}</time>
-        {expanded ? (
-          <div className="settings-openviking-event-children">
-            {group.events.map((child) => (
-              <div className="settings-openviking-event-child" key={child.id}>
-                <span>{eventSummary(child)}</span>
-                <time dateTime={child.created_at ?? undefined}>{formatDateTime(child.created_at)}</time>
-              </div>
-            ))}
+        <span className="settings-openviking-event-description">{describeEvent(event)}</span>
+        {remediation ? (
+          <div className="settings-openviking-event-remediation">
+            <small>建议：{remediation.hint}</small>
+            {remediation.action ? (
+              <button className="button button-secondary" type="button" onClick={handleRemediationAction}>
+                {remediation.label}
+              </button>
+            ) : null}
           </div>
         ) : null}
+        {detailsOpen ? <EventDetails event={event} /> : null}
+        <time dateTime={event.created_at ?? undefined}>{formatDateTime(event.created_at)}</time>
       </div>
-      <Badge text={event.outcome} outcome={event.outcome} />
+      <button
+        aria-expanded={detailsOpen}
+        className="button button-secondary settings-openviking-event-detail-button"
+        type="button"
+        onClick={() => setDetailsOpen((current) => !current)}
+      >
+        {detailsOpen ? "收起详情" : "详情"}
+      </button>
+      <Badge text={OUTCOME_LABELS[event.outcome]} outcome={event.outcome} />
     </li>
+  );
+}
+
+function EventDetails({ event }: { event: OpenVikingDashboardEvent }) {
+  const rows = [
+    ["事件 ID", String(event.id)],
+    ["事件类型", event.event_type],
+    ["结果", OUTCOME_LABELS[event.outcome]],
+    ["来源", event.source_type ?? EMPTY_VALUE],
+    ["来源 ID", event.source_id ?? EMPTY_VALUE],
+    ["同步任务", event.sync_job_id ?? EMPTY_VALUE],
+    ["触发人", event.triggered_by ?? EMPTY_VALUE],
+    ["创建时间", event.created_at ?? EMPTY_VALUE],
+  ];
+  const payloadText = eventPayloadText(event.payload);
+  return (
+    <div className="settings-openviking-event-details">
+      <dl>
+        {rows.map(([label, value]) => (
+          <div className="settings-openviking-event-detail-pair" key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {payloadText ? (
+        <div className="settings-openviking-event-payload">
+          <span>payload</span>
+          <pre>{payloadText}</pre>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1339,27 +1608,16 @@ function statusOutcome(status: string): "info" | "success" | "warning" | "error"
   return "info";
 }
 
-function collapseConsecutiveEvents(events: OpenVikingDashboardEvent[]): EventGroup[] {
-  const groups: EventGroup[] = [];
-  for (const event of events) {
-    const last = groups.at(-1);
-    if (
-      last &&
-      last.event.event_type === event.event_type &&
-      last.event.outcome === event.outcome &&
-      last.event.source_type === event.source_type
-    ) {
-      last.count += 1;
-      last.events.push(event);
-      continue;
-    }
-    groups.push({ count: 1, event, events: [event] });
-  }
-  return groups;
-}
+type EventRemediation = {
+  action?: "rebuild_index" | "resync" | "retry_sync_job";
+  hint: string;
+  label?: string;
+};
 
-function eventSummary(event: OpenVikingDashboardEvent) {
+function describeEvent(event: OpenVikingDashboardEvent) {
   const payload = recordFromUnknown(event.payload);
+  const error = eventErrorText(event, payload);
+  const name = eventReadableName(event, payload);
   if (event.event_type === "tuning_change") {
     const scope = stringFromUnknown(payload?.scope) ?? event.source_type ?? "system";
     const key = stringFromUnknown(payload?.key) ?? stringFromUnknown(payload?.setting_key);
@@ -1375,31 +1633,182 @@ function eventSummary(event: OpenVikingDashboardEvent) {
       EMPTY_VALUE;
     return `${scope}${key ? `.${key}` : ""}: ${before} → ${after}`;
   }
+  if (event.event_type === "repo_synced") {
+    return `仓库 ${name} 已同步`;
+  }
+  if (event.event_type === "repo_refresh_summary") {
+    const reason = stringFromUnknown(payload?.reason) ?? "refresh";
+    const summary = `扫描 ${displayNumber(payload?.scanned)} · 成功 ${displayNumber(
+      payload?.succeeded,
+    )} · 失败 ${displayNumber(payload?.failed)}`;
+    return `${reason}：${summary}`;
+  }
+  if (event.event_type === "sync_job_failed") {
+    const attempts = numberFromUnknown(payload?.attempts);
+    const retryState = event.outcome === "error" ? "已放弃" : "将重试";
+    const suffix = attempts === null ? `（${retryState}）` : `（第 ${attempts} 次，${retryState}）`;
+    const body = `${name}索引失败${suffix}`;
+    return error ? `${error}；${body}` : body;
+  }
+  if (event.event_type === "openviking_breaker_tripped") {
+    const statusCode =
+      stringFromUnknown(payload?.status_code) ??
+      numberFromUnknown(payload?.status_code)?.toString() ??
+      stringFromUnknown(payload?.status) ??
+      numberFromUnknown(payload?.status)?.toString();
+    if (statusCode && error) {
+      return `OpenViking 返回 ${statusCode}：${error}`;
+    }
+    return error ? `OpenViking 熔断：${error}` : "OpenViking 熔断已触发";
+  }
+  if (event.event_type === "openviking_health_failed") {
+    const pid = stringFromUnknown(payload?.pid);
+    const port = stringFromUnknown(payload?.port);
+    const target = [pid ? `pid ${pid}` : null, port ? `端口 ${port}` : null]
+      .filter(Boolean)
+      .join(" · ");
+    const suffix = target ? `；${target}` : "";
+    return error ? `${error}${suffix}` : `OpenViking 健康检查失败${suffix}`;
+  }
+  if (event.event_type === "openviking_restart_detected") {
+    const oldPid = stringFromUnknown(payload?.old_pid);
+    const newPid = stringFromUnknown(payload?.new_pid) ?? stringFromUnknown(payload?.pid);
+    const pidPart = oldPid && newPid ? `pid ${oldPid}→${newPid}` : newPid ? `pid ${newPid}` : "进程重启";
+    return error ? `${error}；${pidPart}` : `OpenViking ${pidPart}`;
+  }
+  if (event.event_type === "scheduled_refresh_summary") {
+    const summary = `扫描 ${displayNumber(payload?.scanned)} · 入队 ${displayNumber(
+      payload?.enqueued,
+    )} · 跳过 ${displayNumber(payload?.skipped)}`;
+    return error ? `${error}；${summary}` : summary;
+  }
+  if (event.event_type === "manual_rebuild_index" && error) {
+    return `${error}；重建索引未完成`;
+  }
+  if (event.event_type === "sync_job_enqueued") {
+    return `${name} 已加入同步队列`;
+  }
+  if (event.event_type === "manual_retry") {
+    return `${name} 已手动重试`;
+  }
+  if (event.event_type === "manual_retry_failed") {
+    return error ? `${error}；失败任务重试未完成` : "失败任务已重新入队";
+  }
+  if (event.event_type === "manual_resync") {
+    return error ? `${error}；重新同步未完成` : "重新同步已触发";
+  }
+  if (error) {
+    const summary = payloadSummary(payload);
+    return summary ? `${error}；${summary}` : error;
+  }
   if (payload?.count !== undefined) {
     return `${event.source_type ?? "system"} · count=${String(payload.count)}`;
   }
   if (payload?.job_id !== undefined) {
     return `${event.source_type ?? "system"} · job=${String(payload.job_id)}`;
   }
-  const readableName =
+  if (name) {
+    return `${event.source_type ?? "system"} · ${name}`;
+  }
+  return event.source_type ?? "system";
+}
+
+function eventRemediation(event: OpenVikingDashboardEvent): EventRemediation | null {
+  if (event.outcome !== "warning" && event.outcome !== "error") {
+    return null;
+  }
+  if (event.event_type === "sync_job_failed") {
+    return {
+      action: event.sync_job_id ? "retry_sync_job" : undefined,
+      hint: "重新入队该同步任务；如果连续失败，请检查资源正文和 OpenViking 日志。",
+      label: event.sync_job_id ? "重试该任务" : undefined,
+    };
+  }
+  if (event.event_type === "scheduled_refresh_summary" && event.outcome === "error") {
+    return {
+      action: "resync",
+      hint: "立即重新触发全量同步，确认 OpenViking 和 Ollama 健康后观察队列。",
+      label: "立即重新同步",
+    };
+  }
+  if (event.event_type === "manual_rebuild_index" && event.outcome === "error") {
+    return {
+      action: "rebuild_index",
+      hint: "重新排队并重建索引；如果仍失败，请检查 OpenViking 日志。",
+      label: "重试重建",
+    };
+  }
+  if (event.event_type === "openviking_breaker_tripped") {
+    return { hint: "OpenViking 熔断已打开；确认进程健康后稍后重试。" };
+  }
+  if (event.event_type === "openviking_health_failed") {
+    return { hint: "OpenViking 进程未通过健康检查；请查看 OpenViking 服务日志和网络/依赖下载状态。" };
+  }
+  if (event.event_type === "openviking_restart_detected") {
+    return { hint: "进程已重启；如果频繁出现，请检查 OpenViking 日志。" };
+  }
+  return { hint: "查看事件详情和相关服务日志后重试。" };
+}
+
+function eventReadableName(
+  event: OpenVikingDashboardEvent,
+  payload: Record<string, unknown> | null,
+) {
+  return (
     stringFromUnknown(payload?.name) ??
     stringFromUnknown(payload?.title) ??
-    readablePathFromPayload(payload);
-  if (readableName) {
-    return `${event.source_type ?? "system"} · ${readableName}`;
+    readablePathFromPayload(payload) ??
+    event.source_id ??
+    event.source_type ??
+    "system"
+  );
+}
+
+function eventErrorText(
+  event: OpenVikingDashboardEvent,
+  payload: Record<string, unknown> | null,
+) {
+  if (event.outcome !== "warning" && event.outcome !== "error") {
+    return null;
   }
-  if (event.source_id) {
-    return `${event.source_type ?? "system"} · ${event.source_id}`;
-  }
+  return (
+    stringFromUnknown(payload?.error) ??
+    stringFromUnknown(payload?.detail) ??
+    stringFromUnknown(payload?.message) ??
+    stringFromUnknown(payload?.reason) ??
+    null
+  );
+}
+
+function payloadSummary(payload: Record<string, unknown> | null) {
   if (payload) {
     const pairs = Object.entries(payload)
-      .slice(0, 3)
+      .filter(([key]) => !["detail", "error", "message", "reason"].includes(key))
+      .slice(0, 4)
       .map(([key, value]) => `${key}=${String(value)}`);
     if (pairs.length > 0) {
       return pairs.join(" · ");
     }
   }
-  return event.source_type ?? "system";
+  return null;
+}
+
+function eventPayloadText(payload: unknown) {
+  if (payload === null || payload === undefined) {
+    return null;
+  }
+  if (typeof payload === "string") {
+    return payload;
+  }
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
+function displayNumber(value: unknown) {
+  return numberFromUnknown(value)?.toString() ?? EMPTY_VALUE;
 }
 
 function readablePathFromPayload(payload: Record<string, unknown> | null) {

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFeedbackProvider } from "../src/components/feedback/AppFeedback";
@@ -29,6 +29,7 @@ vi.mock("../src/lib/api", () => ({
 
 describe("OpenVikingDashboard", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
@@ -134,6 +135,7 @@ describe("OpenVikingDashboard", () => {
       counts: { pending: 1, running: 0, failed: 1, indexed: 3, cancelled: 0 },
     });
     vi.mocked(api.listOpenVikingEvents).mockResolvedValue({
+      event_types: ["openviking_restart_detected", "repo_synced", "sync_job_failed"],
       items: [
         {
           id: 1,
@@ -162,7 +164,11 @@ describe("OpenVikingDashboard", () => {
           created_at: "2026-05-26T09:59:00Z",
         },
       ],
+      limit: 5,
       next_before_id: null,
+      page: 1,
+      total: 2,
+      total_pages: 1,
     });
     vi.mocked(api.getOpenVikingTuning).mockResolvedValue({
       preset: "small_machine",
@@ -267,13 +273,21 @@ describe("OpenVikingDashboard", () => {
     expect(within(metricsCard).getByText("Breaker trips")).toBeInTheDocument();
     expect(within(metricsCard).getByText("Samples")).toBeInTheDocument();
     expect(within(metricsCard).getByText("42")).toBeInTheDocument();
-    expect(await screen.findByText("repo · Feature scoped claude-code 1778952333054")).toBeInTheDocument();
+    await screen.findByText("仓库 Feature scoped claude-code 1778952333054 已同步");
+    expect(screen.getAllByText("仓库已同步")).toHaveLength(2);
+    expect(await screen.findByText("仓库 Feature scoped claude-code 1778952333054 已同步")).toBeInTheDocument();
+    expect((await screen.findAllByText("成功")).length).toBeGreaterThan(0);
     expect(screen.queryByText("repo · f7606c2988444040")).not.toBeInTheDocument();
-    const collapsedRepoGroup = screen.getByRole("button", { name: "展开 repo_synced 事件组" });
-    expect(collapsedRepoGroup).toHaveTextContent("×2");
-    fireEvent.click(collapsedRepoGroup);
-    expect(screen.getByRole("status")).toHaveTextContent("已展开 repo_synced 事件组");
-    expect(screen.getByText("repo · Feature scoped anything-llm 1778952333055")).toBeInTheDocument();
+    expect(screen.queryByText(/×2/)).not.toBeInTheDocument();
+    expect(screen.getByText("仓库 Feature scoped anything-llm 1778952333055 已同步")).toBeInTheDocument();
+    expect(screen.getByLabelText("事件范围")).toHaveValue("important");
+    expect(screen.getByRole("option", { name: "sync_job_failed" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "openviking_restart_detected" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(vi.mocked(api.listOpenVikingEvents)).toHaveBeenCalledWith(
+        expect.objectContaining({ view: "important" }),
+      ),
+    );
     expect(
       await screen.findByText("用于在宿主机 Ollama 服务中应用当前配置的并发参数。"),
     ).toBeInTheDocument();
@@ -298,6 +312,15 @@ describe("OpenVikingDashboard", () => {
     await waitFor(() =>
       expect(vi.mocked(api.listOpenVikingEvents)).toHaveBeenCalledWith(
         expect.objectContaining({ eventType: "repo_synced" }),
+      ),
+    );
+
+    fireEvent.change(screen.getByLabelText("事件范围"), {
+      target: { value: "all" },
+    });
+    await waitFor(() =>
+      expect(vi.mocked(api.listOpenVikingEvents)).toHaveBeenCalledWith(
+        expect.objectContaining({ view: "all" }),
       ),
     );
 
@@ -397,7 +420,7 @@ describe("OpenVikingDashboard", () => {
   });
 
   it("uses source id fallback when dashboard event has no readable payload name", async () => {
-    vi.mocked(api.listOpenVikingEvents).mockResolvedValueOnce({
+    vi.mocked(api.listOpenVikingEvents).mockResolvedValue({
       items: [
         {
           id: 10,
@@ -411,15 +434,257 @@ describe("OpenVikingDashboard", () => {
           created_at: "2026-05-26T10:00:00Z",
         },
       ],
+      limit: 5,
       next_before_id: null,
+      page: 1,
+      total: 1,
+      total_pages: 1,
+    } as never);
+
+    renderDashboard();
+
+    expect(await screen.findByText("仓库 f7606c2988444040 已同步")).toBeInTheDocument();
+  });
+
+  it("renders actionable human readable warning and error events", async () => {
+    vi.mocked(api.listOpenVikingEvents).mockResolvedValueOnce({
+      items: [
+        {
+          id: 30,
+          event_type: "scheduled_refresh_summary",
+          source_type: "system",
+          source_id: null,
+          sync_job_id: null,
+          triggered_by: "system",
+          payload: {
+            scanned: 0,
+            enqueued: 0,
+            skipped: 0,
+            error: "OpenViking health check timed out",
+          },
+          outcome: "error",
+          created_at: "2026-05-26T10:00:00Z",
+        },
+        {
+          id: 31,
+          event_type: "sync_job_failed",
+          source_type: "wiki_doc",
+          source_id: "42",
+          sync_job_id: "ovjob_failed_1",
+          triggered_by: "system",
+          payload: {
+            error: "embedding backend busy",
+            attempts: 2,
+            operation: "upsert",
+            name: "AnythingLLM 召回说明",
+          },
+          outcome: "warning",
+          created_at: "2026-05-26T09:59:00Z",
+        },
+        {
+          id: 32,
+          event_type: "sync_job_failed",
+          source_type: "wiki_doc",
+          source_id: "43",
+          sync_job_id: null,
+          triggered_by: "system",
+          payload: {
+            error: "document content missing",
+            attempts: 5,
+            operation: "upsert",
+            name: "缺失文档",
+          },
+          outcome: "error",
+          created_at: "2026-05-26T09:58:00Z",
+        },
+        {
+          id: 33,
+          event_type: "openviking_breaker_tripped",
+          source_type: "openviking",
+          source_id: null,
+          sync_job_id: null,
+          triggered_by: "system",
+          payload: {
+            status_code: 503,
+            detail: "circuit breaker open",
+          },
+          outcome: "warning",
+          created_at: "2026-05-26T09:57:00Z",
+        },
+        {
+          id: 34,
+          event_type: "openviking_health_failed",
+          source_type: "openviking",
+          source_id: null,
+          sync_job_id: null,
+          triggered_by: "system",
+          payload: {
+            pid: 4034175,
+            port: 1933,
+            error: "All connection attempts failed",
+          },
+          outcome: "warning",
+          created_at: "2026-05-26T09:56:00Z",
+        },
+        {
+          id: 35,
+          event_type: "unknown_event",
+          source_type: "system",
+          source_id: null,
+          sync_job_id: null,
+          triggered_by: "system",
+          payload: {
+            scanned: 0,
+            enqueued: 0,
+            skipped: 0,
+            error: "unknown failure should not be sliced away",
+          },
+          outcome: "error",
+          created_at: "2026-05-26T09:55:00Z",
+        },
+      ],
+      limit: 10,
+      next_before_id: null,
+      page: 1,
+      total: 6,
+      total_pages: 1,
     });
 
     renderDashboard();
 
-    expect(await screen.findByText("repo · f7606c2988444040")).toBeInTheDocument();
+    expect(await screen.findByText("定时同步汇总")).toBeInTheDocument();
+    expect(screen.getByText(/OpenViking health check timed out/)).toBeInTheDocument();
+    expect(screen.getByText("建议：立即重新触发全量同步，确认 OpenViking 和 Ollama 健康后观察队列。")).toBeInTheDocument();
+    expect(screen.getAllByText("同步任务失败")).toHaveLength(2);
+    expect(screen.getByText(/embedding backend busy；AnythingLLM 召回说明索引失败/)).toBeInTheDocument();
+    expect(
+      screen.getAllByText("建议：重新入队该同步任务；如果连续失败，请检查资源正文和 OpenViking 日志。"),
+    ).toHaveLength(2);
+    expect(screen.getByText(/document content missing；缺失文档索引失败/)).toBeInTheDocument();
+    expect(screen.getAllByText("重试该任务")).toHaveLength(1);
+
+    expect(screen.getByText("OpenViking 熔断触发")).toBeInTheDocument();
+    expect(screen.getByText(/OpenViking 返回 503：circuit breaker open/)).toBeInTheDocument();
+    expect(
+      screen.getByText("建议：OpenViking 熔断已打开；确认进程健康后稍后重试。"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("OpenViking 健康检查失败")).toBeInTheDocument();
+    expect(screen.getByText(/All connection attempts failed；pid 4034175 · 端口 1933/)).toBeInTheDocument();
+    expect(
+      screen.getByText("建议：OpenViking 进程未通过健康检查；请查看 OpenViking 服务日志和网络/依赖下载状态。"),
+    ).toBeInTheDocument();
+
+    expect(screen.getAllByText("unknown_event").length).toBeGreaterThan(0);
+    expect(screen.getByText(/unknown failure should not be sliced away/)).toBeInTheDocument();
+    expect(screen.getAllByText("错误").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("警告").length).toBeGreaterThan(0);
+
+    expect(screen.queryByText("事件类型")).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "详情" })[0] as HTMLElement);
+    expect(screen.getByText("事件类型")).toBeInTheDocument();
+    expect(screen.getAllByText("scheduled_refresh_summary").length).toBeGreaterThan(0);
+    expect(screen.getByText(/"error": "OpenViking health check timed out"/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "重试该任务" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "确认重试同步任务" })).getByRole("button", {
+      name: "确认重试",
+    }));
+    await waitFor(() => {
+      const calls = vi.mocked(api.retrySyncJob).mock.calls;
+      expect(calls.at(-1)?.[0]).toBe("ovjob_failed_1");
+    });
   });
 
-  it("loads additional event pages without resetting the visible stream", async () => {
+  it("runs scheduled refresh remediation from an event row", async () => {
+    vi.mocked(api.listOpenVikingEvents).mockResolvedValue({
+      items: [
+        {
+          id: 40,
+          event_type: "scheduled_refresh_summary",
+          source_type: "system",
+          source_id: null,
+          sync_job_id: null,
+          triggered_by: "system",
+          payload: {
+            scanned: 0,
+            enqueued: 0,
+            skipped: 0,
+            error: "OpenViking health check timed out",
+          },
+          outcome: "error",
+          created_at: "2026-05-26T10:00:00Z",
+        },
+      ],
+      limit: 5,
+      next_before_id: null,
+      page: 1,
+      total: 1,
+      total_pages: 1,
+    } as never);
+
+    renderDashboard();
+
+    expect(await screen.findByText("定时同步汇总")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "立即重新同步" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "确认立即重新同步" })).getByRole("button", {
+      name: "确认同步",
+    }));
+    await waitFor(() => expect(vi.mocked(api.resyncOpenViking)).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows remediation success only after the retry request succeeds", async () => {
+    let resolveRetry: (value: unknown) => void = () => undefined;
+    vi.mocked(api.retrySyncJob).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRetry = resolve;
+        }) as never,
+    );
+    vi.mocked(api.listOpenVikingEvents).mockResolvedValue({
+      items: [
+        {
+          id: 31,
+          event_type: "sync_job_failed",
+          source_type: "wiki_doc",
+          source_id: "42",
+          sync_job_id: "ovjob_failed_1",
+          triggered_by: "system",
+          payload: {
+            error: "embedding backend busy",
+            attempts: 1,
+            operation: "upsert",
+            name: "AnythingLLM 召回说明",
+          },
+          outcome: "warning",
+          created_at: "2026-05-26T09:59:00Z",
+        },
+      ],
+      limit: 5,
+      next_before_id: null,
+      page: 1,
+      total: 1,
+      total_pages: 1,
+    } as never);
+
+    renderDashboard();
+
+    expect(await screen.findByText("同步任务失败")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试该任务" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "确认重试同步任务" })).getByRole("button", {
+      name: "确认重试",
+    }));
+    await waitFor(() => expect(vi.mocked(api.retrySyncJob)).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("重试任务已提交")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveRetry({});
+    });
+
+    expect(await screen.findByText("重试任务已提交")).toBeInTheDocument();
+    expect(screen.getAllByText("重试任务已提交")).toHaveLength(1);
+  });
+
+  it("paginates event stream one page at a time without aggregating loaded pages", async () => {
     vi.mocked(api.listOpenVikingEvents)
       .mockResolvedValueOnce({
         items: [
@@ -434,13 +699,8 @@ describe("OpenVikingDashboard", () => {
             outcome: "success",
             created_at: "2026-05-26T10:00:00Z",
           },
-        ],
-        next_before_id: 20,
-      })
-      .mockResolvedValueOnce({
-        items: [
           {
-            id: 19,
+            id: 21,
             event_type: "repo_synced",
             source_type: "repo",
             source_id: "repo_b",
@@ -448,20 +708,128 @@ describe("OpenVikingDashboard", () => {
             triggered_by: "admin",
             payload: { name: "Repo B" },
             outcome: "success",
+            created_at: "2026-05-26T09:59:30Z",
+          },
+          {
+            id: 22,
+            event_type: "repo_synced",
+            source_type: "repo",
+            source_id: "repo_d",
+            sync_job_id: null,
+            triggered_by: "admin",
+            payload: { name: "Repo D" },
+            outcome: "success",
+            created_at: "2026-05-26T09:59:20Z",
+          },
+          {
+            id: 23,
+            event_type: "repo_synced",
+            source_type: "repo",
+            source_id: "repo_e",
+            sync_job_id: null,
+            triggered_by: "admin",
+            payload: { name: "Repo E" },
+            outcome: "success",
+            created_at: "2026-05-26T09:59:10Z",
+          },
+          {
+            id: 24,
+            event_type: "repo_synced",
+            source_type: "repo",
+            source_id: "repo_f",
+            sync_job_id: null,
+            triggered_by: "admin",
+            payload: { name: "Repo F" },
+            outcome: "success",
+            created_at: "2026-05-26T09:59:05Z",
+          },
+        ],
+        next_before_id: 20,
+        total: 12,
+        page: 1,
+        limit: 5,
+        total_pages: 3,
+      } as never)
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 19,
+            event_type: "repo_synced",
+            source_type: "repo",
+            source_id: "repo_c",
+            sync_job_id: null,
+            triggered_by: "admin",
+            payload: { name: "Repo C" },
+            outcome: "success",
             created_at: "2026-05-26T09:59:00Z",
           },
         ],
         next_before_id: null,
-      });
+        total: 12,
+        page: 3,
+        limit: 5,
+        total_pages: 3,
+      } as never)
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 20,
+            event_type: "repo_synced",
+            source_type: "repo",
+            source_id: "repo_a",
+            sync_job_id: null,
+            triggered_by: "admin",
+            payload: { name: "Repo A" },
+            outcome: "success",
+            created_at: "2026-05-26T10:00:00Z",
+          },
+          {
+            id: 21,
+            event_type: "repo_synced",
+            source_type: "repo",
+            source_id: "repo_b",
+            sync_job_id: null,
+            triggered_by: "admin",
+            payload: { name: "Repo B" },
+            outcome: "success",
+            created_at: "2026-05-26T09:59:30Z",
+          },
+        ],
+        next_before_id: 20,
+        total: 12,
+        page: 1,
+        limit: 10,
+        total_pages: 2,
+      } as never);
 
     renderDashboard();
 
-    expect(await screen.findByText("repo · Repo A")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "加载更多事件" }));
-    const groupButton = await screen.findByRole("button", { name: "展开 repo_synced 事件组" });
-    fireEvent.click(groupButton);
-    expect(await screen.findByText("repo · Repo B")).toBeInTheDocument();
-    expect(screen.getByText("已加载全部事件，刷新自动暂停。返回顶部以恢复实时刷新")).toBeInTheDocument();
+    expect(await screen.findByText("仓库 Repo A 已同步")).toBeInTheDocument();
+    expect(screen.getByText("仓库 Repo B 已同步")).toBeInTheDocument();
+    expect(screen.queryByText(/×2/)).not.toBeInTheDocument();
+    expect(vi.mocked(api.listOpenVikingEvents)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 5, page: 1 }),
+    );
+    expect(screen.getByText("共 12 条 · 第 1 / 3 页")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("事件页码"), { target: { value: "3" } });
+    fireEvent.click(await screen.findByRole("button", { name: "跳转事件页" }));
+    expect(await screen.findByText("仓库 Repo C 已同步")).toBeInTheDocument();
+    expect(screen.queryByText("仓库 Repo A 已同步")).not.toBeInTheDocument();
+    expect(screen.queryByText("仓库 Repo B 已同步")).not.toBeInTheDocument();
+    expect(vi.mocked(api.listOpenVikingEvents)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 5, page: 3 }),
+    );
+    expect(screen.getByText("共 12 条 · 第 3 / 3 页")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("事件每页条数"), { target: { value: "10" } });
+    expect(await screen.findByText("仓库 Repo A 已同步")).toBeInTheDocument();
+    expect(await screen.findByText("仓库 Repo B 已同步")).toBeInTheDocument();
+    expect(screen.queryByText("仓库 Repo C 已同步")).not.toBeInTheDocument();
+    expect(vi.mocked(api.listOpenVikingEvents)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 10, page: 1 }),
+    );
+    expect(screen.getByText("共 12 条 · 第 1 / 2 页")).toBeInTheDocument();
   });
 });
 

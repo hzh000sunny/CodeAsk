@@ -534,7 +534,8 @@ OpenViking 在 parse 阶段切完所有文件后才知道精确 chunk 数。这�
 | Report `verified=true` 状态下编辑 | report 编辑 endpoint | `source_type=report` | `report_status_changed` | ✅ 入队（hash 不同才入） |
 | Report `verified=false` / draft 状态下编辑 | — | — | — | **不入队**（PRD §3.3） |
 | Report 软删 | delete endpoint | `source_type=report`，`tombstone=true` | `report_status_changed` | 入队 tombstone（仅曾 verified 过的） |
-| 仓库 ready/refresh 完成 | code_index hook | `source_type=repo` | `repo_synced` | 全部入队 |
+| 单仓库 ready 完成 | code_index hook | `source_type=repo` | `repo_synced` | 单仓事件 |
+| 批量 / hourly 仓库 refresh 完成 | code_index hook | — | `repo_refresh_summary` | 汇总事件，避免 per-repo success 洪流 |
 | 特性创建/重命名/归档 | feature CRUD | `source_type=feature_readme` + `global_index` | `feature_changed` | 全部入队 |
 | APScheduler 周期 sweep（默认 24h） | 后台 | 对存在但 sync_hash 不匹配的对象 | `scheduled_refresh` | sweep 时也遵守上述过滤（drafts / unverified 跳过）|
 | admin UI 手动重同步 | API | 单对象 / 单特性 / 全量 | `manual_resync` | 同上 |
@@ -747,6 +748,7 @@ class OpenVikingDashboardEvent(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     # wiki_doc_changed / wiki_dir_changed / report_status_changed / repo_synced /
+    # repo_refresh_summary /
     # feature_changed / scheduled_refresh / scheduled_refresh_summary /
     # manual_resync / manual_retry / startup_sweep /
     # embedding_model_switched / openviking_restart_detected /
@@ -808,7 +810,7 @@ async def emit_event(
 ```text
 GET /api/admin/openviking/status               # 全局健康 + 当前 embedding 配置
 GET /api/admin/openviking/sync_jobs?status=...  # sync_jobs 当前状态 + progress
-GET /api/admin/openviking/events?limit=...      # 事件流分页
+GET /api/admin/openviking/events?page=...&limit=...  # 事件流分页，总数 / 总页数
 ```
 
 仪表盘默认每 5 s 轮询 `status` + `sync_jobs`；`events` 按用户进入页面或下拉刷新触发。
@@ -942,7 +944,7 @@ admin 应用后，**仪表盘自动探测**新值是否生效：
 #### 13.6.7 安全与审计
 
 - 所有 tuning API 走 admin 权限通道（v1.0.3）
-- 每条变更同时写 `audit_log` 与 `openviking_dashboard_events`
+- 每条实际变更同时写 `audit_log` 与 `openviking_dashboard_events`；若 `previous_value == value`，视为 no-op，不写 setting / audit / event
 - 单次 `POST /tuning` 可批量改多个参数，但每个 (scope, key) 独立成事件，便于审计与必要时通过后端恢复
 - 极端值（如 `max_concurrent=1000`）走后端 schema 校验拒绝，事件 outcome=error
 

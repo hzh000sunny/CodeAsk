@@ -285,7 +285,7 @@ GET /api/admin/openviking/sync_jobs?status=running|pending|failed&limit=50
 ### 7.1.2 事件流接口
 
 ```python
-GET /api/admin/openviking/events?event_type=...&source_type=...&limit=100&before_id=...
+GET /api/admin/openviking/events?event_type=...&outcome=...&page=1&limit=5
 → {
   "items": [
     {
@@ -300,7 +300,11 @@ GET /api/admin/openviking/events?event_type=...&source_type=...&limit=100&before
       "created_at": str
     }
   ],
-  "next_before_id": int|null   // 翻页用
+  "next_before_id": int|null,  // 兼容旧 cursor 调用
+  "total": int,
+  "page": int,
+  "limit": int,
+  "total_pages": int
 }
 ```
 

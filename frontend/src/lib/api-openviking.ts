@@ -54,7 +54,14 @@ export function deleteOpenVikingSyncJob(jobId: string) {
 }
 
 export function listOpenVikingEvents(
-  params: { eventType?: string; outcome?: string; beforeId?: number; limit?: number } = {},
+  params: {
+    beforeId?: number;
+    eventType?: string;
+    limit?: number;
+    outcome?: string;
+    page?: number;
+    view?: "all" | "important";
+  } = {},
 ) {
   const search = new URLSearchParams();
   if (params.eventType) {
@@ -63,11 +70,17 @@ export function listOpenVikingEvents(
   if (params.outcome) {
     search.set("outcome", params.outcome);
   }
+  if (params.view) {
+    search.set("view", params.view);
+  }
   if (params.beforeId) {
     search.set("before_id", String(params.beforeId));
   }
   if (params.limit) {
     search.set("limit", String(params.limit));
+  }
+  if (params.page) {
+    search.set("page", String(params.page));
   }
   const query = search.toString();
   return apiRequest<OpenVikingEventsResponse>(

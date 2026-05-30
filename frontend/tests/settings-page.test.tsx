@@ -341,7 +341,11 @@ describe("SettingsPage LLM configuration", () => {
               created_at: "2026-05-25T08:00:00Z",
             },
           ],
+          limit: 5,
           next_before_id: null,
+          page: 1,
+          total: 1,
+          total_pages: 1,
         });
       }
       if (path === "/api/admin/openviking/embedding/candidates") {
@@ -387,7 +391,7 @@ describe("SettingsPage LLM configuration", () => {
     expect((await screen.findAllByText("bge-m3")).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Ollama / 模型")).toBeInTheDocument();
     expect(screen.getAllByText("ready").length).toBeGreaterThanOrEqual(1);
-    expect((await screen.findAllByText("sync_job_enqueued")).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText("同步任务已入队")).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("/home/hzh")).not.toBeInTheDocument();
 
     unmount();

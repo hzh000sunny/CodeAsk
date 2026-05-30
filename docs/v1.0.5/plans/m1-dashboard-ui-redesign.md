@@ -1,7 +1,7 @@
 # M1 看板 UI / UX 重做 — OpenViking Admin Dashboard
 
 > 版本：v1.0.5
-> 状态：Completed。第一轮重做、第二轮对齐/去重、第三轮标题区压缩已实现；2026-05-28 M8 进一步完成真实数据可读性、分页、事件展开、指标采集和调优折叠配置面板收敛。
+> 状态：Completed。第一轮重做、第二轮对齐/去重、第三轮标题区压缩已实现；2026-05-28 M8 进一步完成真实数据可读性、完整分页事件流、指标采集和调优折叠配置面板收敛。
 > 关联：[功能补齐 m1-dashboard-management](./m1-dashboard-management.md) · [设计 SDD §13.4](../design/openviking-integration.md) · 截图证据 `/home/hzh/img/1.png`、`/home/hzh/img/2.png`、`/home/hzh/img/3.png`、`/home/hzh/img/4.png`、`/home/hzh/img/6.png`、`/home/hzh/img/7.png`
 > 现状文件：`frontend/src/components/settings/OpenVikingDashboard.tsx` · `frontend/src/styles/globals.css`（`.settings-openviking-*` / `.settings-diagnostic-*`）
 
@@ -38,7 +38,7 @@
 - **控件尺寸合理**：数值输入框按内容宽（数字类 80–120px），不要 1fr 撑满；按钮视觉文案短（"应用"），key 放在行标签处，无障碍 label 可包含 key。
 - **可解释**：每个会改状态/破坏性的操作旁边有一句说明或 tooltip（这个按钮干嘛、有什么后果）。
 - **空/加载/错误三态统一**：缺数据显示 `—` 或"暂无/未采集"，不要显示 `?`；加载用骨架/占位；失败有内联错误。
-- **长列表要可控**：同步任务分页/分组/折叠 + 默认收起 indexed；事件流分页（已有"加载更多"，但需配时间 + 摘要才有意义）。
+- **长列表要可控**：同步任务分页/分组/折叠 + 默认收起 indexed；事件流使用完整分页栏，默认 5 条/页，提供总页数、每页条数和页码跳转，每页展示独立事件行，不用无限加载或跨页聚合。
 - **一致性**：复用现有 design token / 间距；只读路径用只读视觉（非输入框样式）。
 - **响应式**：窄屏单列、宽屏合理分栏，卡片不溢出裁切。
 
@@ -73,8 +73,8 @@
 ### 4.4 EventStream（图2-3）
 - [x] 每条事件补 **`created_at` 时间** + **一行摘要**（从 `payload` 提炼，如 tuning_change 显示 `key: before→after`），不能只有 `event_type/system/success`
 - [x] outcome 着色（现有 `data-outcome` 可用）做成明显的状态标签
-- [x] 分页（已有"加载更多"）保留；按 outcome / event_type 过滤
-- [x] 同一类型连续多条折叠聚合（避免一面墙 `tuning_change`）
+- [x] 改为完整分页；默认 5 条/页，显示总条数 / 当前页 / 总页数，支持每页条数选择和页码跳转；按 outcome / event_type 过滤
+- [x] 每页直接展示事件行，不再把连续同类型事件折叠成 `×N`，避免"加载更多后数字膨胀但看不到新事件"
 
 ### 4.5 TuningCard（图5）
 - [x] 按 scope（openviking / codeask / ollama_recommend）**分组小节**，每组默认折叠；summary 显式显示"展开参数 / 收起参数"、参数数量和 chevron，hover / focus / open 状态有反馈，让首次进入页面也能判断可展开
@@ -116,7 +116,7 @@ UI 重做依赖这些数据真实化，否则再美也是空壳：
 
 - [x] **逐项对照本文截图问题**复核：6 指标不溢出、Embedding 独立成卡、路径只读样式、调参输入窄+按钮短+分组+说明、推荐值/进度/指标无 `?`/假占位、事件有时间+摘要、同步任务不再无限平铺
 - [x] 真实浏览器在 1280/1440/窄屏三档宽度下不溢出、不错位；窄屏设置二级导航已改为横向紧凑 tabs，避免占用半屏空白
-- [x] 视觉/交互 e2e：在 [m1-dashboard-management §4](./m1-dashboard-management.md) 的 E1（五卡布局/对齐）基础上，已覆盖"事件含时间列""调参输入非全宽""同步任务分页/折叠/真实进度"等结构特征
+- [x] 视觉/交互 e2e：在 [m1-dashboard-management §4](./m1-dashboard-management.md) 的 E1（五卡布局/对齐）基础上，已覆盖"事件含时间列""事件流总页数 / 每页条数 / 页码跳转""调参输入非全宽""同步任务分页/折叠/真实进度"等结构特征
 - [x] 前端 tsc + vitest + eslint 绿；改动不破坏其它 settings 页
 
 ## 10. 排序建议
@@ -153,7 +153,7 @@ UI 重做依赖这些数据真实化，否则再美也是空壳：
 
 ### 11.D 布局打磨
 
-- [x] 🟡 **事件流大片空白**：聚合后常只剩 1 条、卡被 Metrics 撑高；高度自适应或与 Metrics 重新配对。
+- [x] 🟡 **事件流大片空白**：取消跨事件聚合后，每页直接展示事件行；卡片高度随当前页内容自适应，不再因单个 `×N` 聚合组显得空。
 - [x] 🟡 **运行指标网格不齐**：删重复计数后重排为整齐网格（不要"Breaker trips"单独吊行）。
 - [x] 🟡 **Health 与 Embedding 卡不等高**：右列底部留空；等高或重排。
 - [x] 🟡 **调参行收敛**：调优参数默认折叠；展开后 `参数 | 自定义值 | 推荐值 | 操作` 四列对齐；数值输入 ~100px；操作列只保留短按钮"应用"。

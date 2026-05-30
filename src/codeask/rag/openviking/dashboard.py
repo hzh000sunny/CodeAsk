@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import structlog
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from codeask.rag.openviking.models import OpenVikingDashboardEvent
@@ -60,3 +61,54 @@ def _redact_payload(value: object) -> Any:
     if isinstance(value, str) and value.startswith("/"):
         return "[absolute-path-redacted]"
     return value
+
+
+async def prune_dashboard_events(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    per_event_type_limit: int,
+) -> dict[str, Any]:
+    """Keep only the newest dashboard events for each event type."""
+
+    if per_event_type_limit < 1:
+        raise ValueError("per_event_type_limit must be at least 1")
+
+    deleted_total = 0
+    per_event_type: dict[str, int] = {}
+    async with session_factory() as session:
+        event_types = (
+            (await session.execute(select(OpenVikingDashboardEvent.event_type).distinct()))
+            .scalars()
+            .all()
+        )
+        for event_type in event_types:
+            event_count = int(
+                (
+                    await session.scalar(
+                        select(func.count())
+                        .select_from(OpenVikingDashboardEvent)
+                        .where(OpenVikingDashboardEvent.event_type == event_type)
+                    )
+                )
+                or 0
+            )
+            if event_count <= per_event_type_limit:
+                continue
+            keep_ids = (
+                select(OpenVikingDashboardEvent.id)
+                .where(OpenVikingDashboardEvent.event_type == event_type)
+                .order_by(OpenVikingDashboardEvent.id.desc())
+                .limit(per_event_type_limit)
+            )
+            await session.execute(
+                delete(OpenVikingDashboardEvent)
+                .where(OpenVikingDashboardEvent.event_type == event_type)
+                .where(~OpenVikingDashboardEvent.id.in_(keep_ids))
+                .execution_options(synchronize_session=False)
+            )
+            deleted = event_count - per_event_type_limit
+            if deleted:
+                per_event_type[str(event_type)] = deleted
+                deleted_total += deleted
+        await session.commit()
+    return {"deleted": deleted_total, "per_event_type": per_event_type}

@@ -55,7 +55,7 @@ async def test_scheduled_refresh_event_payload(db_factory) -> None:
 @pytest.mark.asyncio
 async def test_openviking_keepalive_emits_restart_event_when_pid_changes(db_factory) -> None:
     manager = FakeProcessManager([100, 200])
-    state = {"pid": None}
+    state: dict[str, object | None] = {"pid": None, "healthy": None}
     _ensure_openviking_server(
         structlog.get_logger("test"),
         manager,
@@ -70,7 +70,7 @@ async def test_openviking_keepalive_emits_restart_event_when_pid_changes(db_fact
         handle_state=state,
         session_factory=db_factory,
     )
-    await asyncio.sleep(0)
+    await asyncio.sleep(0.05)
 
     async with db_factory() as session:
         event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
@@ -95,7 +95,7 @@ async def test_openviking_restart_event_does_not_reset_sync_job_progress(db_fact
         await session.commit()
 
     manager = FakeProcessManager([100, 200])
-    state = {"pid": None}
+    state: dict[str, object | None] = {"pid": None, "healthy": None}
     _ensure_openviking_server(
         structlog.get_logger("test"),
         manager,
@@ -110,12 +110,149 @@ async def test_openviking_restart_event_does_not_reset_sync_job_progress(db_fact
         handle_state=state,
         session_factory=db_factory,
     )
-    await asyncio.sleep(0)
+    await asyncio.sleep(0.05)
 
     async with db_factory() as session:
         job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
     assert job.progress == {"total": 10, "indexed": 4, "eta_seconds": 90}
     assert job.status == "running"
+
+
+@pytest.mark.asyncio
+async def test_openviking_keepalive_emits_health_failed_event_when_wrapper_is_unavailable(
+    db_factory,
+) -> None:
+    manager = FakeProcessManager(
+        [300],
+        available=False,
+        last_error="All connection attempts failed",
+    )
+    state: dict[str, object | None] = {"pid": None, "healthy": None}
+
+    _ensure_openviking_server(
+        structlog.get_logger("test"),
+        manager,
+        reason="keepalive",
+        handle_state=state,
+        session_factory=db_factory,
+    )
+    await asyncio.sleep(0.05)
+
+    async with db_factory() as session:
+        event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
+    assert event.event_type == "openviking_health_failed"
+    assert event.outcome == "warning"
+    assert event.payload == {
+        "pid": 300,
+        "port": 1933,
+        "reason": "keepalive",
+        "error": "All connection attempts failed",
+    }
+
+
+@pytest.mark.asyncio
+async def test_openviking_startup_pending_health_does_not_emit_failure_event(
+    db_factory,
+) -> None:
+    manager = FakeProcessManager(
+        [300],
+        available=False,
+        last_error="All connection attempts failed",
+        last_error_code="openviking_health_pending",
+    )
+    state: dict[str, object | None] = {"pid": None, "healthy": None, "last_error": None}
+
+    _ensure_openviking_server(
+        structlog.get_logger("test"),
+        manager,
+        reason="startup",
+        handle_state=state,
+        session_factory=db_factory,
+    )
+    await asyncio.sleep(0.05)
+
+    async with db_factory() as session:
+        events = (await session.execute(select(OpenVikingDashboardEvent))).scalars().all()
+    assert events == []
+
+
+@pytest.mark.asyncio
+async def test_openviking_restart_event_is_emitted_after_pending_process_becomes_healthy(
+    db_factory,
+) -> None:
+    manager = FakeProcessManager(
+        [100, 200, 200],
+        available_sequence=[True, False, True],
+        last_error_sequence=[None, "All connection attempts failed", None],
+        last_error_code_sequence=[None, "openviking_health_pending", None],
+    )
+    state: dict[str, object | None] = {
+        "pid": None,
+        "healthy": None,
+        "healthy_pid": None,
+        "last_error": None,
+    }
+
+    _ensure_openviking_server(
+        structlog.get_logger("test"),
+        manager,
+        reason="startup",
+        handle_state=state,
+        session_factory=db_factory,
+    )
+    _ensure_openviking_server(
+        structlog.get_logger("test"),
+        manager,
+        reason="keepalive",
+        handle_state=state,
+        session_factory=db_factory,
+    )
+    _ensure_openviking_server(
+        structlog.get_logger("test"),
+        manager,
+        reason="keepalive",
+        handle_state=state,
+        session_factory=db_factory,
+    )
+    await asyncio.sleep(0.05)
+
+    async with db_factory() as session:
+        event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
+    assert event.event_type == "openviking_restart_detected"
+    assert event.outcome == "warning"
+    assert event.payload == {"old_pid": 100, "new_pid": 200, "reason": "keepalive"}
+
+
+@pytest.mark.asyncio
+async def test_openviking_keepalive_does_not_emit_duplicate_unhealthy_events(
+    db_factory,
+) -> None:
+    manager = FakeProcessManager(
+        [300, 301],
+        available=False,
+        last_error="All connection attempts failed",
+    )
+    state: dict[str, object | None] = {"pid": None, "healthy": None, "last_error": None}
+
+    _ensure_openviking_server(
+        structlog.get_logger("test"),
+        manager,
+        reason="keepalive",
+        handle_state=state,
+        session_factory=db_factory,
+    )
+    _ensure_openviking_server(
+        structlog.get_logger("test"),
+        manager,
+        reason="keepalive",
+        handle_state=state,
+        session_factory=db_factory,
+    )
+    await asyncio.sleep(0.05)
+
+    async with db_factory() as session:
+        events = (await session.execute(select(OpenVikingDashboardEvent))).scalars().all()
+    assert [event.event_type for event in events] == ["openviking_health_failed"]
 
 
 @pytest.mark.asyncio
@@ -166,8 +303,57 @@ class FakeHandle:
 
 
 class FakeProcessManager:
-    def __init__(self, pids: list[int]) -> None:
+    def __init__(
+        self,
+        pids: list[int],
+        *,
+        available: bool = True,
+        last_error: str | None = None,
+        last_error_code: str | None = None,
+        available_sequence: list[bool] | None = None,
+        last_error_sequence: list[str | None] | None = None,
+        last_error_code_sequence: list[str | None] | None = None,
+    ) -> None:
         self._pids = pids
+        self._current_pid: int | None = None
+        self._available = available
+        self._last_error = last_error
+        self._last_error_code = last_error_code
+        self._available_sequence = available_sequence
+        self._last_error_sequence = last_error_sequence
+        self._last_error_code_sequence = last_error_code_sequence
+        self._describe_index = 0
 
     def ensure_server(self) -> FakeHandle:
-        return FakeHandle(pid=self._pids.pop(0))
+        if self._pids:
+            self._current_pid = self._pids.pop(0)
+        assert self._current_pid is not None
+        return FakeHandle(pid=self._current_pid)
+
+    def describe(self) -> dict[str, object]:
+        index = self._describe_index
+        self._describe_index += 1
+        available = (
+            self._available_sequence[index]
+            if self._available_sequence is not None and index < len(self._available_sequence)
+            else self._available
+        )
+        last_error = (
+            self._last_error_sequence[index]
+            if self._last_error_sequence is not None and index < len(self._last_error_sequence)
+            else self._last_error
+        )
+        last_error_code = (
+            self._last_error_code_sequence[index]
+            if self._last_error_code_sequence is not None
+            and index < len(self._last_error_code_sequence)
+            else self._last_error_code
+        )
+        return {
+            "running": self._current_pid is not None,
+            "available": available,
+            "port": 1933,
+            "pid": self._current_pid,
+            "last_error": last_error,
+            "last_error_code": last_error_code,
+        }

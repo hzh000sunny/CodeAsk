@@ -325,12 +325,38 @@ class OpenVikingSyncService:
         return SyncJobPage(jobs=jobs, next_cursor=next_cursor)
 
     async def mark_failed(self, job_id: str, error: str, *, max_repeat_failures: int = 5) -> None:
+        event_payload: dict[str, Any] | None = None
+        event_source_type: str | None = None
+        event_source_id: str | None = None
+        event_outcome: Literal["error", "warning"] | None = None
         async with self._session_factory() as session:
             job = await session.get(OpenVikingSyncJob, job_id)
             if job is None:
                 return
             _apply_failure_state(job, error, max_repeat_failures=max_repeat_failures)
+            display_name = await _display_name_for_job(session, job)
+            event_source_type = job.source_type
+            event_source_id = job.source_id
+            if job.status == "cancelled" or job.attempts == 1:
+                event_outcome = "error" if job.status == "cancelled" else "warning"
+                event_payload = {
+                    "attempts": job.attempts,
+                    "error": error,
+                    "name": display_name,
+                    "operation": _operation_from_job(job),
+                }
             await session.commit()
+        if event_payload is None or event_outcome is None:
+            return
+        await emit_event(
+            self._session_factory,
+            event_type="sync_job_failed",
+            source_type=event_source_type,
+            source_id=event_source_id,
+            sync_job_id=job_id,
+            payload=event_payload,
+            outcome=event_outcome,
+        )
 
 
 async def _wiki_doc_snapshots(session: AsyncSession) -> list[SyncSourceSnapshot]:
@@ -521,6 +547,54 @@ async def _viking_uri_from_job(session: AsyncSession, job: OpenVikingSyncJob) ->
         work_item = await _report_work_item(session, job)
         return work_item.viking_uri if work_item is not None else None
     return None
+
+
+async def _display_name_for_job(session: AsyncSession, job: OpenVikingSyncJob) -> str:
+    manual_name = _manual_display_name_from_job(job)
+    if manual_name:
+        return manual_name
+    if job.source_type == "wiki_doc":
+        document_id = _int_or_none(job.source_id)
+        if document_id is not None:
+            row = (
+                await session.execute(
+                    select(WikiNode)
+                    .join(WikiDocument, WikiDocument.node_id == WikiNode.id)
+                    .where(WikiDocument.id == document_id)
+                )
+            ).scalar_one_or_none()
+            if row is not None:
+                return row.name or _relative_wiki_path(row.path)
+    if job.source_type == "report":
+        report_id = _int_or_none(job.source_id)
+        if report_id is not None:
+            report = (
+                await session.execute(select(Report).where(Report.id == report_id))
+            ).scalar_one_or_none()
+            if report is not None and report.title:
+                return report.title
+    return _filename_from_uri(job.viking_uri) or job.source_id
+
+
+def _manual_display_name_from_job(job: OpenVikingSyncJob) -> str | None:
+    progress = job.progress
+    manual = (progress or {}).get("manual")
+    if not isinstance(manual, dict):
+        return None
+    manual_payload = cast(dict[str, Any], manual)
+    filename = manual_payload.get("filename")
+    title = manual_payload.get("title") or manual_payload.get("name")
+    if isinstance(title, str) and title:
+        return title
+    if isinstance(filename, str) and filename:
+        return filename
+    return None
+
+
+def _filename_from_uri(value: str | None) -> str | None:
+    if not value:
+        return None
+    return value.rstrip("/").rsplit("/", 1)[-1] or None
 
 
 def _delete_work_item_from_existing_uri(job: OpenVikingSyncJob) -> SyncWorkItem | None:

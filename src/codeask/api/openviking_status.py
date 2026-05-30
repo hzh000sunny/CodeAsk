@@ -8,7 +8,8 @@ from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
+from sqlalchemy.sql.elements import ColumnElement
 
 from codeask.db.models import Report, WikiDocument, WikiNode
 from codeask.identity import require_admin
@@ -25,6 +26,20 @@ from codeask.rag.openviking.sync import OpenVikingSyncService
 
 router = APIRouter()
 _OPENVIKING_ROOT_URI = "viking://resources/codeask"
+_IMPORTANT_EVENT_TYPES = (
+    "embedding_model_switched",
+    "embedding_rebuild_requested",
+    "manual_rebuild_index",
+    "manual_resync",
+    "manual_retry",
+    "ollama_recovery",
+    "ollama_settings_verified",
+    "openviking_breaker_tripped",
+    "openviking_restart_detected",
+    "repo_refresh_summary",
+    "scheduled_refresh_summary",
+    "sync_job_failed",
+)
 
 
 class OpenVikingEnqueueRequest(BaseModel):
@@ -215,6 +230,8 @@ async def retry_failed_openviking_sync_jobs(request: Request) -> dict[str, int]:
             .scalars()
             .all()
         )
+        if not jobs:
+            return {"queued": 0}
         for job in jobs:
             _reset_job_for_retry(job)
         await record_audit_log(
@@ -311,26 +328,62 @@ async def list_openviking_events(
     request: Request,
     event_type: str | None = Query(default=None, min_length=1, max_length=64),
     outcome: str | None = Query(default=None, pattern="^(info|success|warning|error)$"),
-    limit: int = Query(default=100, ge=1, le=500),
+    view: str = Query(default="all", pattern="^(all|important)$"),
+    limit: int = Query(default=5, ge=1, le=100),
+    page: int = Query(default=1, ge=1),
     before_id: int | None = Query(default=None, ge=1),
 ) -> dict[str, Any]:
     require_admin(request)
     factory = request.app.state.session_factory
-    stmt = (
-        select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.id.desc()).limit(limit)
-    )
+    filters: list[ColumnElement[bool]] = []
     if event_type is not None:
-        stmt = stmt.where(OpenVikingDashboardEvent.event_type == event_type)
+        filters.append(OpenVikingDashboardEvent.event_type == event_type)
     if outcome is not None:
-        stmt = stmt.where(OpenVikingDashboardEvent.outcome == outcome)
+        filters.append(OpenVikingDashboardEvent.outcome == outcome)
+    if view == "important":
+        filters.append(
+            or_(
+                OpenVikingDashboardEvent.outcome.in_(("warning", "error")),
+                OpenVikingDashboardEvent.event_type.in_(_IMPORTANT_EVENT_TYPES),
+            )
+        )
     if before_id is not None:
-        stmt = stmt.where(OpenVikingDashboardEvent.id < before_id)
+        filters.append(OpenVikingDashboardEvent.id < before_id)
+    type_filters: list[ColumnElement[bool]] = []
+    if outcome is not None:
+        type_filters.append(OpenVikingDashboardEvent.outcome == outcome)
+    if view == "important":
+        type_filters.append(
+            or_(
+                OpenVikingDashboardEvent.outcome.in_(("warning", "error")),
+                OpenVikingDashboardEvent.event_type.in_(_IMPORTANT_EVENT_TYPES),
+            )
+        )
+    stmt = select(OpenVikingDashboardEvent)
+    total_stmt = select(func.count()).select_from(OpenVikingDashboardEvent)
+    type_stmt = select(OpenVikingDashboardEvent.event_type).distinct()
+    if filters:
+        stmt = stmt.where(*filters)
+        total_stmt = total_stmt.where(*filters)
+    if type_filters:
+        type_stmt = type_stmt.where(*type_filters)
+    stmt = stmt.order_by(OpenVikingDashboardEvent.id.desc())
+    type_stmt = type_stmt.order_by(OpenVikingDashboardEvent.event_type.asc())
+    offset = (page - 1) * limit
     async with factory() as session:
-        rows = (await session.execute(stmt)).scalars().all()
-    next_before_id = rows[-1].id if len(rows) == limit else None
+        total = int((await session.scalar(total_stmt)) or 0)
+        rows = (await session.execute(stmt.offset(offset).limit(limit))).scalars().all()
+        event_types = [str(value) for value in (await session.execute(type_stmt)).scalars().all()]
+    total_pages = max(1, (total + limit - 1) // limit)
+    next_before_id = rows[-1].id if rows and page < total_pages else None
     return {
         "items": [_event_to_dict(row) for row in rows],
+        "event_types": event_types,
         "next_before_id": next_before_id,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": total_pages,
     }
 
 

@@ -298,8 +298,13 @@ export interface OpenVikingDashboardEvent {
 }
 
 export interface OpenVikingEventsResponse {
+  event_types?: string[];
   items: OpenVikingDashboardEvent[];
+  limit: number;
   next_before_id: number | null;
+  page: number;
+  total: number;
+  total_pages: number;
 }
 
 export interface OpenVikingEmbeddingResponse {

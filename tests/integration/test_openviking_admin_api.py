@@ -10,6 +10,7 @@ from codeask.rag.openviking.models import (
     OpenVikingDashboardEvent,
     OpenVikingEmbeddingSetting,
     OpenVikingSyncJob,
+    OpenVikingTuningSetting,
 )
 
 
@@ -141,6 +142,138 @@ async def test_openviking_status_returns_real_metrics_snapshot(client, app) -> N
     assert metrics["breaker_trips"] == 1
     assert metrics["latency_p95_ms"] == 42
     assert metrics["latency_samples"] == 20
+
+
+@pytest.mark.asyncio
+async def test_openviking_events_support_page_limit_and_total(client, app) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    async with app.state.session_factory() as session:
+        for index in range(12):
+            session.add(
+                OpenVikingDashboardEvent(
+                    event_type="m8_page_event",
+                    source_type="repo",
+                    source_id=f"event-{index}",
+                    outcome="info",
+                    created_at=_now(),
+                )
+            )
+        await session.commit()
+
+    response = await client.get(
+        "/api/admin/openviking/events?event_type=m8_page_event&page=2&limit=5"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 12
+    assert body["page"] == 2
+    assert body["limit"] == 5
+    assert body["total_pages"] == 3
+    assert [item["source_id"] for item in body["items"]] == [
+        "event-6",
+        "event-5",
+        "event-4",
+        "event-3",
+        "event-2",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openviking_events_return_type_options_outside_current_page(client, app) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    now = datetime.now(UTC)
+    async with app.state.session_factory() as session:
+        session.add_all(
+            [
+                OpenVikingDashboardEvent(
+                    event_type="openviking_restart_detected",
+                    source_type=None,
+                    source_id=None,
+                    outcome="warning",
+                    created_at=now - timedelta(hours=1),
+                ),
+                OpenVikingDashboardEvent(
+                    event_type="repo_synced",
+                    source_type="repo",
+                    source_id="repo-current-page",
+                    outcome="success",
+                    created_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+
+    response = await client.get("/api/admin/openviking/events?view=all&limit=1")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [item["event_type"] for item in body["items"]] == ["repo_synced"]
+    assert "repo_synced" in body["event_types"]
+    assert "openviking_restart_detected" in body["event_types"]
+
+
+@pytest.mark.asyncio
+async def test_openviking_events_important_view_filters_success_noise(client, app) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    async with app.state.session_factory() as session:
+        session.add_all(
+            [
+                OpenVikingDashboardEvent(
+                    event_type="repo_synced",
+                    source_type="repo",
+                    source_id="repo-noise",
+                    outcome="success",
+                    created_at=_now(),
+                ),
+                OpenVikingDashboardEvent(
+                    event_type="manual_retry_failed",
+                    source_type=None,
+                    source_id="empty-retry-noise",
+                    payload={"count": 0},
+                    outcome="info",
+                    created_at=_now(),
+                ),
+                OpenVikingDashboardEvent(
+                    event_type="tuning_change",
+                    source_type=None,
+                    source_id="noop-tuning-noise",
+                    payload={"scope": "codeask", "key": "sync_workers"},
+                    outcome="success",
+                    created_at=_now(),
+                ),
+                OpenVikingDashboardEvent(
+                    event_type="repo_refresh_summary",
+                    source_type=None,
+                    source_id=None,
+                    outcome="success",
+                    created_at=_now(),
+                ),
+                OpenVikingDashboardEvent(
+                    event_type="sync_job_failed",
+                    source_type="wiki_doc",
+                    source_id="doc-failed",
+                    outcome="warning",
+                    created_at=_now(),
+                ),
+            ]
+        )
+        await session.commit()
+
+    response = await client.get("/api/admin/openviking/events?view=important&limit=10")
+
+    assert response.status_code == 200, response.text
+    ids = [item["source_id"] for item in response.json()["items"]]
+    assert "repo-noise" not in ids
+    assert "empty-retry-noise" not in ids
+    assert "noop-tuning-noise" not in ids
+    assert "doc-failed" in ids
+    assert any(item["event_type"] == "repo_refresh_summary" for item in response.json()["items"])
+    assert "repo_synced" not in response.json()["event_types"]
+    assert "sync_job_failed" in response.json()["event_types"]
 
 
 @pytest.mark.asyncio
@@ -610,6 +743,77 @@ async def test_openviking_tuning_apply_writes_append_only_setting_and_event(clie
 
 
 @pytest.mark.asyncio
+async def test_openviking_tuning_skips_noop_without_setting_audit_or_event(client, app) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    tuning = await client.get("/api/admin/openviking/tuning")
+    current_value = next(
+        item["value"]
+        for item in tuning.json()["scopes"]["codeask"]
+        if item["key"] == "sync_workers"
+    )
+    async with app.state.session_factory() as session:
+        before_settings = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingTuningSetting)
+            .where(OpenVikingTuningSetting.scope == "codeask")
+            .where(OpenVikingTuningSetting.key == "sync_workers")
+        )
+        before_events = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingDashboardEvent)
+            .where(OpenVikingDashboardEvent.event_type == "tuning_change")
+        )
+        before_audits = await session.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.entity_type == "openviking_tuning")
+            .where(AuditLog.entity_id == "codeask.sync_workers")
+            .where(AuditLog.action == "update")
+        )
+
+    response = await client.post(
+        "/api/admin/openviking/tuning",
+        json={
+            "changes": [
+                {
+                    "scope": "codeask",
+                    "key": "sync_workers",
+                    "value": f" {current_value} ",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["applied"] == []
+    assert response.json()["rejected"] == []
+    assert response.json()["estimated_downtime_seconds"] == 0
+    async with app.state.session_factory() as session:
+        after_settings = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingTuningSetting)
+            .where(OpenVikingTuningSetting.scope == "codeask")
+            .where(OpenVikingTuningSetting.key == "sync_workers")
+        )
+        after_events = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingDashboardEvent)
+            .where(OpenVikingDashboardEvent.event_type == "tuning_change")
+        )
+        after_audits = await session.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.entity_type == "openviking_tuning")
+            .where(AuditLog.entity_id == "codeask.sync_workers")
+            .where(AuditLog.action == "update")
+        )
+    assert after_settings == before_settings
+    assert after_events == before_events
+    assert after_audits == before_audits
+
+
+@pytest.mark.asyncio
 async def test_openviking_tuning_rejects_extreme_values_without_applying(client) -> None:
     login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
     assert login.status_code == 200
@@ -792,6 +996,43 @@ async def test_openviking_retry_single_failed_sync_job(client, app) -> None:
             )
         ).scalar_one()
     assert event.triggered_by == "admin"
+
+
+@pytest.mark.asyncio
+async def test_openviking_retry_failed_noops_without_event_or_audit_when_empty(client, app) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    async with app.state.session_factory() as session:
+        before_events = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingDashboardEvent)
+            .where(OpenVikingDashboardEvent.event_type == "manual_retry_failed")
+        )
+        before_audits = await session.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.entity_type == "openviking_sync_jobs")
+            .where(AuditLog.action == "retry_failed")
+        )
+
+    response = await client.post("/api/admin/openviking/sync_jobs/retry_failed")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"queued": 0}
+    async with app.state.session_factory() as session:
+        after_events = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingDashboardEvent)
+            .where(OpenVikingDashboardEvent.event_type == "manual_retry_failed")
+        )
+        after_audits = await session.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.entity_type == "openviking_sync_jobs")
+            .where(AuditLog.action == "retry_failed")
+        )
+    assert after_events == before_events
+    assert after_audits == before_audits
 
 
 @pytest.mark.asyncio

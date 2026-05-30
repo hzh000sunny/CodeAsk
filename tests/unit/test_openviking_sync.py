@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from codeask.db import Base, session_factory
@@ -15,7 +15,7 @@ from codeask.db.models import (
     WikiNode,
     WikiSpace,
 )
-from codeask.rag.openviking.dashboard import emit_event
+from codeask.rag.openviking.dashboard import emit_event, prune_dashboard_events
 from codeask.rag.openviking.models import OpenVikingDashboardEvent, OpenVikingSyncJob
 from codeask.rag.openviking.sync import OpenVikingSyncService, SyncResource
 
@@ -117,6 +117,64 @@ async def test_emit_event_never_raises_to_business_flow(db_factory) -> None:
     assert event.event_type == "openviking_restart_detected"
     assert event.outcome == "warning"
     assert event.payload == {"path": "[absolute-path-redacted]"}
+
+
+@pytest.mark.asyncio
+async def test_prune_dashboard_events_keeps_newest_rows_per_event_type(db_factory) -> None:
+    now = datetime.now(UTC)
+    async with db_factory() as session:
+        for index in range(5):
+            session.add(
+                OpenVikingDashboardEvent(
+                    event_type="repo_synced",
+                    source_type="repo",
+                    source_id=f"repo-{index}",
+                    outcome="success",
+                    created_at=now - timedelta(seconds=index),
+                )
+            )
+        for index in range(2):
+            session.add(
+                OpenVikingDashboardEvent(
+                    event_type="sync_job_failed",
+                    source_type="wiki_doc",
+                    source_id=f"doc-{index}",
+                    outcome="warning",
+                    created_at=now - timedelta(seconds=index),
+                )
+            )
+        await session.commit()
+
+    result = await prune_dashboard_events(db_factory, per_event_type_limit=2)
+
+    async with db_factory() as session:
+        repo_events = (
+            (
+                await session.execute(
+                    select(OpenVikingDashboardEvent)
+                    .where(OpenVikingDashboardEvent.event_type == "repo_synced")
+                    .order_by(OpenVikingDashboardEvent.id.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        failed_events = (
+            (
+                await session.execute(
+                    select(OpenVikingDashboardEvent)
+                    .where(OpenVikingDashboardEvent.event_type == "sync_job_failed")
+                    .order_by(OpenVikingDashboardEvent.id.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert result["deleted"] == 3
+    assert result["per_event_type"]["repo_synced"] == 3
+    assert [event.source_id for event in repo_events] == ["repo-4", "repo-3"]
+    assert [event.source_id for event in failed_events] == ["doc-1", "doc-0"]
 
 
 @pytest.mark.asyncio
@@ -301,6 +359,93 @@ async def test_run_pending_jobs_schedules_retry_after_first_client_failure(db_fa
     assert (
         before + timedelta(seconds=30) <= _aware(job.next_retry_at) <= after + timedelta(seconds=31)
     )
+    async with db_factory() as session:
+        event = (
+            await session.execute(
+                select(OpenVikingDashboardEvent)
+                .where(OpenVikingDashboardEvent.event_type == "sync_job_failed")
+                .order_by(OpenVikingDashboardEvent.id.desc())
+            )
+        ).scalar_one()
+    assert event.sync_job_id == job.id
+    assert event.source_type == "manual_text"
+    assert event.source_id == "doc_retry"
+    assert event.outcome == "warning"
+    assert event.payload == {
+        "attempts": 1,
+        "error": "embedding backend busy",
+        "name": "retry.md",
+        "operation": "upsert",
+    }
+
+
+@pytest.mark.asyncio
+async def test_mark_failed_does_not_emit_warning_for_intermediate_retry(db_factory) -> None:
+    service = OpenVikingSyncService(db_factory)
+    job = await service.enqueue(
+        source_type="manual_text",
+        source_id="doc_retry_second",
+        viking_uri="viking://resources/codeask/features/anything/knowledge-base/retry-second.md",
+        payload={"content": "# Retry", "filename": "retry-second.md"},
+    )
+    async with db_factory() as session:
+        stored = await session.get(OpenVikingSyncJob, job.id)
+        assert stored is not None
+        stored.attempts = 2
+        await session.commit()
+
+    await service.mark_failed(job.id, "still busy")
+
+    async with db_factory() as session:
+        stored = await session.get(OpenVikingSyncJob, job.id)
+        event_count = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingDashboardEvent)
+            .where(OpenVikingDashboardEvent.event_type == "sync_job_failed")
+        )
+
+    assert stored is not None
+    assert stored.status == "failed"
+    assert event_count == 0
+
+
+@pytest.mark.asyncio
+async def test_mark_failed_emits_error_event_after_retry_budget_is_exhausted(db_factory) -> None:
+    service = OpenVikingSyncService(db_factory)
+    job = await service.enqueue(
+        source_type="manual_text",
+        source_id="doc_cancel",
+        viking_uri="viking://resources/codeask/features/anything/knowledge-base/cancel.md",
+        payload={"content": "# Cancel", "filename": "cancel.md"},
+    )
+    async with db_factory() as session:
+        stored = await session.get(OpenVikingSyncJob, job.id)
+        assert stored is not None
+        stored.attempts = 5
+        await session.commit()
+
+    await service.mark_failed(job.id, "permanent failure")
+
+    async with db_factory() as session:
+        stored = await session.get(OpenVikingSyncJob, job.id)
+        event = (
+            await session.execute(
+                select(OpenVikingDashboardEvent)
+                .where(OpenVikingDashboardEvent.event_type == "sync_job_failed")
+                .order_by(OpenVikingDashboardEvent.id.desc())
+            )
+        ).scalar_one()
+
+    assert stored is not None
+    assert stored.status == "cancelled"
+    assert event.sync_job_id == job.id
+    assert event.outcome == "error"
+    assert event.payload == {
+        "attempts": 5,
+        "error": "permanent failure",
+        "name": "cancel.md",
+        "operation": "upsert",
+    }
 
 
 @pytest.mark.asyncio

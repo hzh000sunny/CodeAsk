@@ -72,7 +72,7 @@ from codeask.llm.repo import LLMConfigRepo
 from codeask.logging_config import configure_logging
 from codeask.migrations import run_migrations
 from codeask.rag.openviking.client import OpenVikingClient
-from codeask.rag.openviking.dashboard import emit_event
+from codeask.rag.openviking.dashboard import emit_event, prune_dashboard_events
 from codeask.rag.openviking.health import (
     OllamaModelStatus,
     OpenVikingHealthStatus,
@@ -96,6 +96,20 @@ class _Scheduler(Protocol):
 
 
 class _OpenVikingProcessStatus(Protocol):
+    def describe(self) -> dict[str, object]: ...
+
+
+class _OpenVikingServerHandle(Protocol):
+    @property
+    def pid(self) -> int: ...
+
+    @property
+    def port(self) -> int: ...
+
+
+class _OpenVikingProcessManager(Protocol):
+    def ensure_server(self) -> _OpenVikingServerHandle: ...
+
     def describe(self) -> dict[str, object]: ...
 
 
@@ -154,8 +168,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         opencode_session_store = ExternalAgentSessionStore(factory)
         openviking_process_manager = OpenVikingProcessManager(
             data_dir=Path(settings.data_dir),
+            openviking_bin=settings.openviking_bin,
             host=settings.openviking_host,
             port=settings.openviking_port,
+            startup_grace_seconds=settings.openviking_startup_grace_seconds,
         )
         openviking_metrics_recorder = OpenVikingMetricsRecorder()
         openviking_client = OpenVikingClient(
@@ -247,7 +263,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await ensure_default_embedding_setting(cast(Request, _StateRequest(app)))
         await ensure_default_tuning_settings(cast(Request, _StateRequest(app)))
         if settings.openviking_enabled:
-            openviking_handle_state: dict[str, int | None] = {"pid": None}
+            openviking_handle_state: dict[str, object | None] = {
+                "pid": None,
+                "healthy": None,
+                "healthy_pid": None,
+            }
             ollama_health_state: dict[str, bool | None] = {"healthy": None}
             _ensure_openviking_server(
                 log,
@@ -318,6 +338,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 seconds=settings.openviking_progress_sweep_interval_seconds,
                 id="openviking_ollama_health",
                 misfire_grace_time=settings.openviking_progress_sweep_interval_seconds,
+                coalesce=True,
+                max_instances=1,
+            )
+            scheduler.add_job(
+                lambda: _run_openviking_event_retention(
+                    log,
+                    factory,
+                    per_event_type_limit=settings.openviking_event_retention_count,
+                ),
+                "interval",
+                hours=settings.openviking_event_retention_sweep_interval_hours,
+                id="openviking_event_retention",
+                misfire_grace_time=3600,
                 coalesce=True,
                 max_instances=1,
             )
@@ -492,10 +525,10 @@ class _StateRequest:
 
 def _ensure_openviking_server(
     log: structlog.BoundLogger,
-    process_manager: OpenVikingProcessManager,
+    process_manager: _OpenVikingProcessManager,
     *,
     reason: str,
-    handle_state: dict[str, int | None] | None = None,
+    handle_state: dict[str, object | None] | None = None,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> None:
     try:
@@ -503,27 +536,74 @@ def _ensure_openviking_server(
     except Exception:
         log.exception("openviking_server_ensure_failed", reason=reason)
         return
+    status = process_manager.describe()
+    available = bool(status.get("available"))
     previous_pid = handle_state.get("pid") if handle_state is not None else None
+    previous_healthy = handle_state.get("healthy") if handle_state is not None else None
+    previous_healthy_pid = handle_state.get("healthy_pid") if handle_state is not None else None
+    if previous_healthy_pid is None and previous_healthy is True:
+        previous_healthy_pid = previous_pid
+    previous_error = handle_state.get("last_error") if handle_state is not None else None
     if handle_state is not None:
         handle_state["pid"] = handle.pid
-    log.info(
-        "openviking_server_ensure_ok",
-        reason=reason,
-        port=handle.port,
-        pid=handle.pid,
-    )
+        handle_state["healthy"] = available
+    if not available:
+        last_error = str(status.get("last_error") or "OpenViking health check failed")
+        last_error_code = str(status.get("last_error_code") or "")
+        if last_error_code == "openviking_health_pending":
+            log.debug(
+                "openviking_server_health_pending",
+                reason=reason,
+                port=handle.port,
+                pid=handle.pid,
+                previous_pid=previous_pid,
+                error=last_error,
+                error_code=last_error_code,
+            )
+            return
+        if handle_state is not None:
+            handle_state["last_error"] = last_error
+        should_alert = previous_healthy is not False or previous_error != last_error
+        log_method = log.warning if should_alert else log.debug
+        log_method(
+            "openviking_server_unhealthy" if should_alert else "openviking_server_still_unhealthy",
+            reason=reason,
+            port=handle.port,
+            pid=handle.pid,
+            previous_pid=previous_pid,
+            error=last_error,
+            error_code=last_error_code,
+        )
+        if session_factory is not None and should_alert:
+            _emit_dashboard_event_sync(
+                session_factory,
+                event_type="openviking_health_failed",
+                outcome="warning",
+                payload={
+                    "pid": handle.pid,
+                    "port": handle.port,
+                    "reason": reason,
+                    "error": last_error,
+                },
+            )
+        return
+    if handle_state is not None:
+        handle_state["last_error"] = None
+    log.info("openviking_server_ensure_ok", reason=reason, port=handle.port, pid=handle.pid)
     if (
         reason != "startup"
-        and previous_pid is not None
-        and previous_pid != handle.pid
+        and previous_healthy_pid is not None
+        and previous_healthy_pid != handle.pid
         and session_factory is not None
     ):
         _emit_dashboard_event_sync(
             session_factory,
             event_type="openviking_restart_detected",
             outcome="warning",
-            payload={"old_pid": previous_pid, "new_pid": handle.pid, "reason": reason},
+            payload={"old_pid": previous_healthy_pid, "new_pid": handle.pid, "reason": reason},
         )
+    if handle_state is not None:
+        handle_state["healthy_pid"] = handle.pid
 
 
 async def _openviking_scheduled_refresh(
@@ -632,6 +712,30 @@ def _run_openviking_ollama_health_check(
             state=state,
         )
     )
+
+
+def _run_openviking_event_retention(
+    log: structlog.BoundLogger,
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    per_event_type_limit: int,
+) -> None:
+    try:
+        result = asyncio.run(
+            prune_dashboard_events(
+                session_factory,
+                per_event_type_limit=per_event_type_limit,
+            )
+        )
+    except Exception:
+        log.exception("openviking_event_retention_failed")
+        return
+    if result.get("deleted"):
+        log.info(
+            "openviking_event_retention_completed",
+            deleted=result.get("deleted"),
+            per_event_type=result.get("per_event_type"),
+        )
 
 
 def _emit_dashboard_event_sync(

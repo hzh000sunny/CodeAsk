@@ -26,7 +26,7 @@ M1 的 OpenViking admin 看板**只交付了只读状态展示**，规格里整�
 ## 1.1 2026-05-26 实现记录
 
 - 后端已补 `src/codeask/rag/openviking/tuning.py`，包含主机预设识别、推荐参数、Ollama systemd snippet 与可插拔验证 helper；`POST /admin/openviking/tuning/ollama_verify` 已接入轻量探测并发送 `ollama_settings_verified`。
-- 后端已补 tuning 写端点、rollback、apply preset、history、snippet；每条应用/拒绝都会写 `openviking_dashboard_events` 与 `audit_log`。Dashboard UI 不再暴露单项回滚按钮，rollback 端点仅作为历史审计 / 测试恢复 / 后续运维入口保留。
+- 后端已补 tuning 写端点、rollback、apply preset、history、snippet；实际变更/拒绝会写 `openviking_dashboard_events` 与 `audit_log`，`previous_value == value` 的 no-op 调参不落库、不写 audit、不写事件。Dashboard UI 不再暴露单项回滚按钮，rollback 端点仅作为历史审计 / 测试恢复 / 后续运维入口保留。
 - 后端已补 embedding candidates、switch、rebuild、history；切模型/重建会重写配置、重启 OpenViking、将现有 sync jobs 置 pending，并 best-effort 清理 `viking://resources/codeask`。
 - 后端已补单 job retry、retry failed、resync、rebuild index；写操作都会记录 `triggered_by`、dashboard event 与 audit log。
 - 前端已从只读堆叠改为职责分离的网格：Health、Embedding、SyncJobs、EventStream、Tuning、Metrics；补齐 mutation API、过滤、分页、预设/snippet 入口。Tuning UI 以默认折叠的 scope 配置表为主，展开后按 `参数 | 自定义值 | 推荐值 | 操作` 修改，不再展示对齐推荐或回滚按钮。
@@ -96,7 +96,7 @@ M1 的 OpenViking admin 看板**只交付了只读状态展示**，规格里整�
 - [x] **OpenVikingHealthCard**：进程/健康/Ollama 状态 + admin 绝对路径只读展示与复制
 - [x] **OpenVikingEmbeddingCard**：从 Health 拆出，候选模型下拉 + 切换 / 重建入口（确认弹窗提示清库重建）
 - [x] **OpenVikingSyncJobsCard**：默认折叠 indexed、分页、状态计数、失败重试；只有真实 `job.progress` 存在时显示进度条 + ETA，无增量进度时只显示状态
-- [x] **OpenVikingEventStream**：**分页 + 按 outcome / event_type 过滤**；每条显示时间、payload 摘要、outcome 状态，同类型连续事件折叠聚合
+- [x] **OpenVikingEventStream**：**完整分页 + 按 outcome / event_type 过滤**；默认 5 条/页，显示总条数 / 当前页 / 总页数，支持每页条数选择和页码跳转；每页显示独立事件行、时间、payload 摘要、outcome 状态，不再把连续同类型事件折叠成 `×N`
 - [x] **OpenVikingTuningCard**：按 scope 分组并默认折叠；summary 明确展示"展开参数 / 收起参数"和 chevron，展开后用四列布局 `参数 | 自定义值 | 推荐值 | 操作`。每个 key 显示说明、影响、推荐值和短按钮 **应用**；不再展示对齐推荐 / 回滚按钮，支持套用预设与 **Ollama systemd snippet 复制按钮**
 - [x] **OpenVikingMetricsCard**：只显示 throughput / latency / breaker trips 等运行指标；队列计数归 SyncJobs 卡，未采集时明确显示"未采集"，不再使用假 0/`-`
 - [x] 写操作成功后刷新并显示居中低密度 toast；失败时显示居中错误弹窗并保留当前卡片局部错误 / rejected 原因。所有会修改后端状态的按钮（调优应用、套用预设、重试、重建、切模型等）在提交前必须使用页面内居中确认框，禁止使用浏览器原生 `window.confirm`。
@@ -117,7 +117,7 @@ M1 的 OpenViking admin 看板**只交付了只读状态展示**，规格里整�
 | E2 | HealthCard · Embedding 切换 | `embedding model switch is destructive and reserved for isolated data dirs`：切模型会清库重建，因此只保留占位，需隔离数据目录跑 | 已占位 skip：破坏性 |
 | E3 | SyncJobsCard · 状态/重试 | `sync job shows real progress and can be retried from the UI`：列表项只在有真实 `job.progress` 时显示进度条；无 progress 的 failed job 显示状态；点"重试"后状态回到 pending，事件流出现 `manual_retry` | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
 | E4 | SyncJobsCard · resync/rebuild | `resync and rebuild index are destructive and reserved for isolated data dirs`：rebuild 会清向量库，因此只保留占位，需隔离数据目录跑 | 已占位 skip：破坏性 |
-| E5 | EventStream · 分页/过滤 | `event stream filters by outcome and paginates`：制造多条 `manual_retry_failed` 事件，按 `outcome=info` 和 `event_type=manual_retry_failed` 过滤，加载更多后条数增长 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
+| E5 | EventStream · 分页/过滤 | `event stream filters by outcome and paginates`：制造多条 `manual_retry_failed` 事件，按 `outcome=info` 和 `event_type=manual_retry_failed` 过滤；默认每页 5 条，显示总页数；输入页码可跳转，切换每页 10 条后回到第 1 页，上一页 / 下一页可正常切换；不再通过"加载更多"把事件累计到同一个列表 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
 | E6 | TuningCard · 应用 | `tuning rejects invalid values, applies valid values, then restores original value`：非法 `10000` 显示 rejected 原因且不落库；合法 `codeask.sync_workers` 经居中确认后落库生效；测试收尾通过 API 恢复原值，**不是 UI 回滚按钮** | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
 | E7 | TuningCard · openviking 应用+重启 | `openviking-scope tuning restart is reserved for isolated data dirs`：openviking scope 调参会重启后端 RAG 服务，因此只保留占位，需隔离数据目录跑 | 已占位 skip：破坏性 |
 | E8 | TuningCard · 历史恢复边界 | UI 已取消单项回滚按钮；保留后端 rollback/history 能力用于审计、测试恢复和后续运维入口。本轮真实浏览器覆盖点并入 E6：变更后通过 API restore 恢复原值，确认 UI 不再展示"回滚"按钮 | 已覆盖：`openviking-dashboard-management-live.spec.ts` |
