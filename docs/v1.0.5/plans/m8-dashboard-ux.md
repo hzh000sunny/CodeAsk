@@ -758,6 +758,19 @@ review 通过门禁后又发现 3 处问题，#1 与 §⑦ 降噪目标冲突，
 3. **终验结果（全绿）**：后端 `pytest tests/` 0 失败 / 8 已知 skip；前端 `vitest` 246/246；ruff / pyright / tsc / eslint clean；OpenViking live e2e 串行 **7 passed / 3 skipped(E2/E4/E7 占位) / 0 failed**。acceptance §3.2 line 69（restart 事件）、§3.2.2 e2e 覆盖此时为真实绿。
 4. **附注**：Playwright 拆栈用的是硬杀，后端 lifespan 优雅 shutdown 未必跑完，会留 openviking-server 孤儿占 1933（优雅 SIGTERM 路径手测能正确回收子进程）；属测试基建小瑕，已手动清理，未改产品代码。
 
+### 复检与修复记录（2026-05-31 同步任务卡片可读性）
+
+负责人复查后指出：事件流已经能读懂，但 SyncJobs 卡片仍暴露 `wiki_doc`、数字主键、内部 URI 与失败原因碎片，第一次打开页面仍难判断"在同步什么、属于哪个特性、当前卡在哪、该不该处理"。
+
+本轮前端收口：
+
+- `SyncJobItem` 默认态改为人话摘要：`同步/删除 + 来源类型中文名`、资源可读名、状态句、所属特性、更新时间、重试元数据、状态 badge 与操作按钮。
+- 内部诊断字段移入行内 `详情 / 收起详情`：任务 ID、source_type、source_id、同步动作、Viking URI、重试次数、最近同步/索引、原始错误。默认态不再显示 `wiki_doc · 47` 这类机器字段。
+- 处置建议只保留在 `failed` / `cancelled` 行；`indexed`、`pending`、`running` 不再重复显示"无需操作"建议，避免成功任务刷屏时形成噪音。
+- CSS 修正 `settings-config-list` 对 SyncJobs 行的通用 flex 覆盖，任务卡片恢复单列结构；详情里的长 URI 可换行，避免展开后仍截断。
+- vitest 扩展 `frontend/tests/openviking-dashboard.test.tsx`：覆盖默认态不显示 raw source 字段、详情展开后可看到内部字段、真实进度显示"预计剩余"。
+- 真实浏览器用当前 dev server 复核 1440px 默认态与详情态，截图写入 `/tmp/openviking-sync-humanized-default-v2.png` / `/tmp/openviking-sync-humanized-detail-final.png`。
+
 ### 收口
 
 - [x] 更新 `acceptance-checklist.md`（受影响行 + 新增行号回填）

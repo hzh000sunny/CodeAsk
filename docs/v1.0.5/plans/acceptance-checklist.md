@@ -107,6 +107,7 @@ M1 阶段的瞬时护栏已被后续里程碑有意推翻：§3.6 已接入 Open
 - [x] OpenViking 仪表盘前端显示 OpenViking health、Ollama / 模型 readiness、Embedding 模型与可用模型列表
 - [x] OpenViking SyncJobs 卡片不再按 status 伪造进度；只读取真实 `job.progress`，缺失时只显示任务状态，不展示空进度条 / `进度 ?`
 - [x] OpenViking SyncJobs 卡片不再显示不可读主键作为主标题；wiki_doc / report 使用后端解析的 `display_name`，未知来源才回落到 source_type/source_id
+- [x] OpenViking SyncJobs 卡片默认态已人话化：显示同步/删除动作、来源中文名、资源可读名、状态句、所属特性、更新时间和重试元数据；`source_type` / `source_id` / `Viking URI` / 原始错误等内部字段只在"详情"展开区展示，失败/停止任务才显示处置建议
 - [x] OpenViking EventStream 卡片优先显示 `payload.name` / `payload.title` / `feature_slug+relative_path`，避免 `repo · <hex-id>` 这类不可读摘要成为主信息
 - [x] OpenViking 看板 UI 已按 1440 / 1280 / 390 三档真实浏览器截图复核：Health + Embedding 分离，SyncJobs 全宽，EventStream + Metrics 同行，Tuning 全宽；移动端设置二级导航为横向紧凑 tabs，不再占半屏空白
 - [x] 本轮 live E2E 后已清理真实库测试污染：`e2e_unknown` / `mgmt-retry-*` / `m1_smoke_*` 在 `openviking_sync_jobs` 与 `openviking_dashboard_events` 中残留计数均为 0

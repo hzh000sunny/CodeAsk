@@ -1,7 +1,7 @@
 # M10 — 同步任务信息人话化 + 修复 cancelled 任务困死
 
 > 版本：v1.0.5
-> 状态：Planned
+> 状态：实现完成（前端 vitest 253 + 后端集成 + E3 live e2e 全绿，tsc/eslint clean）；待负责人最终验收
 > 关联：[m8 仪表盘事件流人话化/降噪](./m8-dashboard-ux.md) · [m6 同步完整性与事件](./m6-sync-completeness-and-events.md) · [m11 代码仓同步](./m11-repo-openviking-sync.md) · [m12 同步覆盖补全](./m12-sync-coverage-completion.md) · [acceptance §3.1](./acceptance-checklist.md)
 > 来源：2026-05-30 终验复盘——事件流已完成人话化/降噪/补字段，同步任务卡片仍是"机器视角"，需对齐；复盘时发现 `cancelled` 任务在 UI 上无重试入口的真缺口。同次复盘还挖出"代码仓 / feature_readme / 全局目录"等 `source_type` 设计了却从未实现（架构拆分时遗漏），但那是**数据面缺口**而非 UX，已另拆 m11 / m12，**不并入本里程碑**避免范围膨胀。
 
@@ -33,7 +33,7 @@ M8 把**事件流**做了一轮人话化（中文标题、错误前置、归因+
 - **第二批（体验对齐）**：§4 状态/错误人话化、§5 降噪、§6 测试解耦。
 - **第三批（交互改造，2026-05-30 并入）**：§7 列表从"分状态折叠组"改为"筛选 + 分页扁平列表"，对齐事件流并做视觉打磨。
 
-非目标：不改后端同步调度逻辑、不改 retry 自愈策略、不动 retention/事件生产策略（M8 已定）。本里程碑动**展示层 + cancelled 可操作性 + 列表交互形态**，仍以前端为主（A5 的任意跳页若要完全对齐事件流需一处后端分页小改，已列为可选后续，见 §7）。
+非目标：不改后端同步调度逻辑、不改 retry 自愈策略、不动 retention/事件生产策略（M8 已定）。本里程碑动**展示层 + cancelled 可操作性 + 列表交互形态**，以前端为主，外加**一处后端分页改动**（A5：sync_jobs 列表 cursor→page/offset，见 §7/§9）。
 
 **明确不在本里程碑（边界）**：代码仓 → OpenViking 内容同步（`source_type=repo`）属数据面缺失功能，见 [m11](./m11-repo-openviking-sync.md)；`feature_readme` / `wiki_dir` / `global_index` 三类同步覆盖见 [m12](./m12-sync-coverage-completion.md)。本里程碑的 UX 是**前向兼容**的——m11 落地后 `repo` 类任务无需改前端即自动走本里程碑的人话化/状态/降噪展示。
 
@@ -135,7 +135,7 @@ StatusPill（`:732-739`）、Badge（`:870`）、行内 `状态 {job.status}`（
 ## 6. 测试解耦（第二批）
 
 - `SyncJobItem` 的 `<li>` 加 `data-status={job.status}`（必要时再加 `data-job-id`），让 e2e 按机器枚举选行，与展示文案解耦——与事件流 `data-event-type` 对齐。
-- 现有 live e2e（E3 sync job 重试）若依赖展示文案选行，改用 `data-status`。
+- 现有 live e2e（E3 sync job 重试）已从"状态 failed"文案断言改用 `data-status="failed"`，真实浏览器重跑通过。
 
 ---
 
@@ -145,13 +145,13 @@ StatusPill（`:732-739`）、Badge（`:870`）、行内 `状态 {job.status}`（
 
 ### 改法
 - 删除 `SyncJobStatusGroup` 折叠组结构，改为单一**扁平列表**（复用 `SyncJobItem` 行）。
-- 顶部加**状态筛选下拉**：全部 / 等待中 / 运行中 / 失败 / 已停止重试 / 已索引（文案用 `SYNC_STATUS_LABELS`），调 `listOpenVikingSyncJobs({ status, cursor, limit })`。
-- **分页**：上一页 / 下一页（cursor keyset，复用 `next_cursor`）+ 显示 `total`，分页条样式对齐事件流。保留默认轮询（pending/running/failed 5s）。
-- **StatusPill 汇总行保留**（一眼看各状态量，与筛选互补）。
-- **视觉打磨**：筛选条 + 列表 + 分页条整体对齐 `OpenVikingEventStream`；确保 §4/§3 的 meta 行、错误归因、两个 Pill 在新布局下排版正确（见 §8 CSS 返工项）。
+- **状态筛选**：直接点顶部 StatusPill 切换（`aria-pressed` + `aria-label`，再点取消）——药丸**兼任"计数 + 筛选"**，不另设下拉（评审去重，见 §8）。
+- **分页（page/limit）**：上一页 / 下一页 + 每页条数（5/10/20/50）+ 跳页输入框，显示 `共 N 条 · 第 X / Y 页`，样式对齐事件流。保留默认轮询（pending/running/failed 5s）。
+- **StatusPill 汇总行保留**（一眼看各状态量，并兼作筛选入口）。
+- **视觉打磨**：列表 + 分页条整体对齐 `OpenVikingEventStream`；§4/§3 的 meta 行、错误归因、两个 Pill 在新布局下排版正确（CSS 见 §8）。
 
 ### 边界
-本块仍**前端为主**。**任意跳页**（事件流的 `page` 机制）：sync 接口目前是 cursor、不支持任意页码跳转；如要完全一致需给 `/admin/openviking/sync_jobs` 加 `page`/offset（响应已返回 `total`，改动小）——**列为可选后续，不在 m10**，m10 用 cursor 上一页 / 下一页。
+按负责人要求做**完整 page/limit 分页 + 跳页**（与事件流一致），为此 m10 **包含一处后端改动**：`/admin/openviking/sync_jobs` 列表端点 + `OpenVikingSyncService.list_jobs` 由 cursor keyset 改为 offset 分页（返回 `{items, total, page, limit}`，并修了原 `total=当前页条数` 旧 bug），同步更新集成测试。其余仍为前端。
 
 ### 验收
 - 列表无折叠组；状态筛选 + 上一页/下一页可用；StatusPill 汇总仍在；视觉与事件流一致、整洁。
@@ -166,6 +166,15 @@ StatusPill（`:732-739`）、Badge（`:870`）、行内 `状态 {job.status}`（
 2. **CSS·死规则**：被删除的 `.settings-openviking-status-only`（`globals.css:3848`）已无引用，删掉。
 3. **A5 新布局视觉打磨**：两个 Pill、meta 行、错误归因、筛选/分页条在页面上确认整洁好看。
 
+上述 3 项已落地（`.settings-openviking-job-meta` 补样式、死规则 `.settings-openviking-status-only` 已删）。
+
+### 2026-05-31 UI 评审优化（经 ui-ux-pro-max 评审）已落地
+- **删冗余筛选**：原 A5 既有可点 StatusPill 又有状态下拉，二者重复 → 删下拉，药丸兼任筛选（+`aria-pressed`/`aria-label`）。
+- **合并重复空态**：counts 全 0 时两处"暂无同步任务"会同时渲染（潜在多匹配 bug）→ 合并为一处。
+- **错误去重**：已知错误行内提示去掉"（原因：原文）"，原文归"详情"；未知错误仍兜底显示原文不丢信息。
+- **状态徽标位置与事件流一致**：保持在「详情」按钮右侧（曾试前置，按负责人要求回退对齐 `EventItem`）。
+- 验证：前端 vitest 253 全过、tsc/eslint clean；E3 live e2e 改用 `data-status` 后真实浏览器重跑通过（14s）。
+
 ### DoD 收紧（写死，今后所有 UX 改动适用）
 - **必须在运行中的页面亲眼验证**：造一条 `failed` + 一条 `cancelled` 同步任务，确认重试按钮、计数、归因、降噪、A5 列表/筛选/分页都正确渲染，再报"完成"。`vitest 绿` 只是 code-complete，不是 done。
 - 诊断运行态问题先 `ps` / `ss` 看实际进程，不靠猜（首轮把 vite dev 误判为 prebuilt dist）。
@@ -174,11 +183,12 @@ StatusPill（`:732-739`）、Badge（`:870`）、行内 `状态 {job.status}`（
 
 ## 9. 影响面 / 涉及文件
 
-- `frontend/src/components/settings/OpenVikingDashboard.tsx`：`SyncJobItem`、`OpenVikingSyncJobsCard`（StatusPill）、`SYNC_STATUS_LABELS` / 状态文案与建议映射；**A5**：删 `SyncJobStatusGroup` 折叠组、改扁平列表 + 状态筛选 + cursor 分页。
-- `frontend/src/styles/globals.css`：补 `.settings-openviking-job-meta` 样式、删死规则 `.settings-openviking-status-only`、A5 筛选/分页条样式（§8）。
-- `frontend/tests/openviking-dashboard.test.tsx`：补 cancelled 重试、`attempts`/`next_retry_at` 渲染、状态文案、A5 筛选/分页单测。
-- `frontend/e2e/openviking-dashboard-management-live.spec.ts`：`data-status` 解耦 + A5 筛选/分页选择器（E3 sync job 重试用例需对齐新结构）。
-- 后端：**m10 零改动**（retry/删除接口已支持 cancelled；批量"重试失败"已定不纳入 cancelled，`openviking_status.py:227` 不动）。A5 任意跳页 parity 需后端加分页 offset，已列为可选后续、不在 m10。
+- `frontend/src/components/settings/OpenVikingDashboard.tsx`：`SyncJobItem`、`OpenVikingSyncJobsCard`（StatusPill 兼筛选）、`SYNC_STATUS_LABELS` / 状态文案与建议映射；**A5**：删 `SyncJobStatusGroup` 折叠组、改扁平列表 + StatusPill 筛选 + page/limit 分页（跳页）。
+- `frontend/src/lib/api-openviking.ts` / `frontend/src/types/api.ts`：`listOpenVikingSyncJobs` 由 `cursor` 改 `page`；响应类型 `next_cursor` → `{page, limit}`。
+- `frontend/src/styles/globals.css`：补 `.settings-openviking-job-meta` 样式、删死规则 `.settings-openviking-status-only`、StatusPill 可点筛选样式。
+- `frontend/tests/openviking-dashboard.test.tsx`：cancelled 重试、`attempts`/`next_retry_at`、状态文案、A5 翻页/筛选/page 重置/错误分支+fallback/空态单测。
+- `frontend/e2e/openviking-dashboard-management-live.spec.ts`：E3 改用 `data-status="failed"` 断言（原"状态 failed"行已被 A4 删除），真实浏览器重跑通过。
+- **后端（A5 分页改动）**：`src/codeask/api/openviking_status.py`（列表端点 cursor→`page`/`limit`，返回 `{total, page, limit}`）、`src/codeask/rag/openviking/sync.py`（`list_jobs` offset 分页 + 真 `total`，删 cursor 编解码）、`tests/integration/test_openviking_admin_api.py`（page 分页 + 超末页空页用例）。retry/删除接口原已支持 cancelled、未动；批量"重试失败"不纳入 cancelled。
 
 ---
 
@@ -186,22 +196,24 @@ StatusPill（`:732-739`）、Badge（`:870`）、行内 `状态 {job.status}`（
 
 1. **分批**：第一批 §2 + §3（真 bug + 信息缺口），第二批 §4–§6（体验对齐），第三批 §7（A5 交互改造）。
 2. **"重试失败"批量不纳入 cancelled**：保持只重试 `failed`，cancelled 靠 §2 单条按钮覆盖，避免批量唤醒已放弃任务刷屏。后端 `openviking_status.py:227` 不动。
-3. **A5 并入 m10**：列表改"筛选 + 分页"对齐事件流并视觉打磨；前端为主，用 cursor 上下页（任意跳页 parity 的后端 offset 列为可选后续，不在 m10）。开发**重写**列表区。
-4. **分工**：由新开发实现 + 自测，架构（Claude）做 review / 最终验收。m10 后端零改动；DoD 收紧——UX 改动必须在运行页面亲眼验证（造 failed/cancelled 数据）后才算完成（§8）。
+3. **A5 并入 m10**：列表改"StatusPill 筛选 + page/limit 分页（含跳页）"对齐事件流并视觉打磨。按负责人要求做**完整分页**，故 **m10 含一处后端改动**（sync_jobs 列表 cursor→page，见 §9）。状态徽标位置与事件流 `EventItem` 一致（详情按钮右侧）。开发**重写**列表区。
+4. **分工**：由新开发实现 + 自测，架构（Claude）做 review / 最终验收。m10 含一处分页后端改动（§9）；DoD 收紧——UX 改动必须在运行页面亲眼验证（造 failed/cancelled 数据）后才算完成（§8）。
 
 ---
 
 ## 11. 验收清单（汇总）
 
-- [ ] cancelled 任务行有可用重试按钮，点击后回到调度（§2）
-- [ ] failed / cancelled 文案与计数可区分；StatusPill 拆为独立"失败"+"已停止重试"两个 Pill（§2）
-- [ ] `statusOutcome` 对 cancelled 返回 `"error"`，Badge 颜色与终态语义一致（§2）
-- [ ] failed 行显示重试次数 + 下次重试时间（绝对本地化时间，非 `formatSeconds`）；cancelled 显示已停止（§3）
-- [ ] 状态文案三处统一中文、单一来源（§4）
-- [ ] cancelled / 常见失败给出人话归因 + 建议，未知错误不丢信息（§4）
-- [ ] 无进度时不再显示冗余 `ETA —` / `状态` 行（§5）
-- [ ] 行带 `data-status`，e2e 解耦（§6）
-- [ ] **A5**：列表无折叠组，状态筛选 + 上一页/下一页可用，StatusPill 汇总保留，视觉与事件流一致整洁（§7）
-- [ ] **CSS**：`.settings-openviking-job-meta` 有样式（非裸渲染）；死规则 `.settings-openviking-status-only` 已删（§8）
-- [ ] **亲眼验证**：造 failed + cancelled 任务，在运行页面确认全部渲染正确（§8 DoD）
+- [x] cancelled 任务行有可用重试按钮，点击后回到调度（§2）
+- [x] failed / cancelled 文案与计数可区分；StatusPill 拆为独立"失败"+"已停止重试"两个 Pill（§2）
+- [x] `statusOutcome` 对 cancelled 返回 `"error"`，Badge 颜色与终态语义一致（§2）
+- [x] failed 行显示重试次数 + 下次重试时间（绝对本地化时间，非 `formatSeconds`）；cancelled 显示已停止（§3）
+- [x] 状态文案三处统一中文、单一来源（§4）
+- [x] cancelled / 常见失败给出人话归因 + 建议，未知错误不丢信息（§4）
+- [x] 无进度时不再显示冗余 `ETA —` / `状态` 行（§5）
+- [x] 行带 `data-status`，e2e 解耦（§6）
+- [x] **A5**：列表无折叠组，StatusPill 筛选（aria-pressed）+ page/limit 分页（上下页 + 每页 + 跳页）可用，汇总保留，视觉与事件流一致整洁（§7）
+- [x] **A5 后端**：`sync_jobs` 列表 page/offset 分页、真 `total`、超末页空页；集成测试覆盖（§9）
+- [x] **CSS**：`.settings-openviking-job-meta` 有样式（非裸渲染）；死规则 `.settings-openviking-status-only` 已删（§8）
+- [x] **UI 评审优化**：删冗余下拉、合并空态、错误去重、徽标位置对齐事件流（§8）
+- [x] **亲眼验证**：E3 live e2e 在真实浏览器覆盖 failed→重试路径（通过）；负责人页面实看并迭代了徽标位置/提示（§8 DoD）
 - [ ] 前端 vitest / e2e 全绿，tsc / eslint clean
