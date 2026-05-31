@@ -103,7 +103,7 @@ test("E3 sync job shows real progress and can be retried from the UI", async ({
   const row = page.locator(".settings-openviking-job-row").filter({ hasText: sourceId });
   await expect(row).toBeVisible();
   await expect(row.getByRole("progressbar")).toHaveCount(0);
-  await expect(row.getByText("状态 failed")).toBeVisible();
+  await expect(row).toHaveAttribute("data-status", "failed");
 
   await row.getByRole("button", { name: /重试 ovjob_/ }).click();
   await confirmDashboardDialog(page, "确认重试同步任务", "确认重试", "确认重试同步任务");

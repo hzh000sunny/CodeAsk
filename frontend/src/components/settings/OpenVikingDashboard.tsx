@@ -149,6 +149,13 @@ const SYNC_STATUS_LABELS: Record<string, string> = {
   indexed: "已索引",
 };
 
+const SYNC_SOURCE_LABELS: Record<string, string> = {
+  manual_text: "手动内容",
+  report: "问题报告",
+  repo: "代码仓",
+  wiki_doc: "Wiki 文档",
+};
+
 type EventView = "all" | "important";
 
 export function OpenVikingDashboard() {
@@ -394,6 +401,8 @@ function StatusPill({
       data-outcome={tone}
       data-selected={selected ? "" : undefined}
       role={onClick ? "button" : undefined}
+      aria-pressed={onClick ? selected : undefined}
+      aria-label={onClick ? `按${label}筛选` : undefined}
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
       onKeyDown={onClick ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onClick(); } } : undefined}
@@ -816,23 +825,6 @@ function OpenVikingSyncJobsCard({
         />
         <StatusPill label="已索引" value={String(counts.indexed ?? 0)} tone="success" onClick={() => setStatusFilter(statusFilter === "indexed" ? "" : "indexed")} selected={statusFilter === "indexed"} />
       </div>
-      <div className="settings-openviking-filter-row">
-        <label className="settings-openviking-field">
-          <span>状态</span>
-          <select
-            aria-label="同步任务状态筛选"
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-          >
-            <option value="">全部</option>
-            <option value="pending">等待中</option>
-            <option value="running">运行中</option>
-            <option value="failed">失败</option>
-            <option value="cancelled">已停止重试</option>
-            <option value="indexed">已索引</option>
-          </select>
-        </label>
-      </div>
       <ul className="data-list settings-config-list settings-openviking-job-list">
         {jobs.map((job) => (
           <SyncJobItem job={job} key={job.id} onRetry={() => handleRetry(job.id)} />
@@ -904,9 +896,6 @@ function OpenVikingSyncJobsCard({
         </div>
       </div>
       {mutationError ? <StatusError text={mutationError} /> : null}
-      {Object.values(counts).every((count) => count === 0) ? (
-        <p className="empty-note">暂无同步任务</p>
-      ) : null}
     </section>
   );
 }
@@ -914,18 +903,48 @@ function OpenVikingSyncJobsCard({
 function SyncJobItem({ job, onRetry }: { job: OpenVikingSyncJob; onRetry: () => void }) {
   const progress = syncProgressView(job.progress);
   const hasProgress = progress.value !== null;
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const statusLabel = SYNC_STATUS_LABELS[job.status] ?? job.status;
   const showRetry = job.status === "failed" || job.status === "cancelled";
   const metaLine = jobMetaLine(job);
   const errorHint = syncJobErrorHint(job);
+  const title = syncJobTitle(job);
+  const displayName = syncJobDisplayName(job);
+  const suggestion = syncJobSuggestion(job, errorHint);
+  const statusDescription = syncJobStatusDescription(job);
   return (
     <li className="settings-openviking-job-row" data-status={job.status}>
-      <div className="settings-openviking-row-main">
-        <strong>{job.display_name ?? job.source_type}</strong>
-        <span>
-          {job.source_type} · {job.source_id}
-        </span>
-        {job.feature_slug ? <small>{job.feature_slug}</small> : null}
+      <div className="settings-openviking-job-header">
+        <div className="settings-openviking-row-main">
+          <span className="settings-openviking-job-kind">{title}</span>
+          <strong>{displayName}</strong>
+          {statusDescription ? <span>{statusDescription}</span> : null}
+          <div className="settings-openviking-job-context">
+            {job.feature_slug ? <small>所属特性 {job.feature_slug}</small> : null}
+            {job.updated_at ? <small>更新于 {formatDisplayDateTime(job.updated_at)}</small> : null}
+            {metaLine ? <small>{metaLine}</small> : null}
+          </div>
+        </div>
+        <div className="settings-openviking-job-actions">
+          {showRetry ? (
+            <button
+              aria-label={`重试 ${job.id}`}
+              className="button button-secondary"
+              type="button"
+              onClick={onRetry}
+            >
+              重试
+            </button>
+          ) : null}
+          <button
+            className="button button-secondary settings-openviking-job-detail-button"
+            type="button"
+            onClick={() => setDetailsOpen((current) => !current)}
+          >
+            {detailsOpen ? "收起详情" : "详情"}
+          </button>
+          <Badge text={statusLabel} outcome={statusOutcome(job.status)} />
+        </div>
       </div>
       {hasProgress ? (
         <div className="settings-openviking-progress">
@@ -935,31 +954,41 @@ function SyncJobItem({ job, onRetry }: { job: OpenVikingSyncJob; onRetry: () => 
             value={progress.value!}
           />
           <small>进度 {progress.label}</small>
-          <small>ETA {progress.eta}</small>
+          <small>预计剩余 {progress.eta}</small>
         </div>
       ) : null}
-      {metaLine ? <small className="settings-openviking-job-meta">{metaLine}</small> : null}
-      <Badge text={statusLabel} outcome={statusOutcome(job.status)} />
-      {showRetry ? (
-        <button
-          aria-label={`重试 ${job.id}`}
-          className="button button-secondary"
-          type="button"
-          onClick={onRetry}
-        >
-          重试
-        </button>
+      {suggestion ? (
+        <div className="settings-openviking-job-guidance" data-tone={job.status}>
+          {suggestion}
+        </div>
       ) : null}
-      {errorHint ? (
-        <small className="settings-openviking-error" title={job.error ?? undefined}>
-          {errorHint}
-        </small>
-      ) : job.error ? (
-        <small className="settings-openviking-error" title={job.error}>
-          {job.error}
-        </small>
-      ) : null}
+      {detailsOpen ? <SyncJobDetails job={job} /> : null}
     </li>
+  );
+}
+
+function SyncJobDetails({ job }: { job: OpenVikingSyncJob }) {
+  const details = [
+    ["任务 ID", job.id],
+    ["来源类型", job.source_type],
+    ["来源 ID", job.source_id],
+    ["同步动作", syncJobOperationLabel(job)],
+    ["Viking URI", job.viking_uri],
+    ["重试次数", String(job.attempts)],
+    ["下次重试", job.next_retry_at ? formatDisplayDateTime(job.next_retry_at) : null],
+    ["最近同步", job.last_synced_at ? formatDisplayDateTime(job.last_synced_at) : null],
+    ["最近索引", job.last_indexed_at ? formatDisplayDateTime(job.last_indexed_at) : null],
+    ["原始错误", job.error],
+  ].filter(([, value]) => Boolean(value));
+  return (
+    <dl className="settings-openviking-job-details">
+      {details.map(([label, value]) => (
+        <div className="settings-openviking-job-detail" key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -1708,6 +1737,71 @@ function formatNextRetryAt(iso: string): string {
   }
 }
 
+function formatDisplayDateTime(iso: string): string {
+  try {
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) {
+      return iso;
+    }
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${month}-${day} ${hours}:${minutes}`;
+  } catch {
+    return iso;
+  }
+}
+
+function syncJobSourceLabel(job: OpenVikingSyncJob): string {
+  return SYNC_SOURCE_LABELS[job.source_type] ?? job.source_type;
+}
+
+function syncJobOperation(job: OpenVikingSyncJob): "delete" | "upsert" {
+  const progress = recordFromUnknown(job.progress);
+  return progress?.op === "delete" ? "delete" : "upsert";
+}
+
+function syncJobOperationLabel(job: OpenVikingSyncJob): string {
+  return syncJobOperation(job) === "delete" ? "删除索引" : "同步索引";
+}
+
+function syncJobTitle(job: OpenVikingSyncJob): string {
+  return `${syncJobOperation(job) === "delete" ? "删除" : "同步"} ${syncJobSourceLabel(job)}`;
+}
+
+function syncJobDisplayName(job: OpenVikingSyncJob): string {
+  if (job.display_name) {
+    return job.display_name;
+  }
+  if (job.viking_uri) {
+    const lastSegment = job.viking_uri.split("/").filter(Boolean).at(-1);
+    if (lastSegment) {
+      return decodeURIComponent(lastSegment);
+    }
+  }
+  return `${syncJobSourceLabel(job)} ${job.source_id}`;
+}
+
+function syncJobStatusDescription(job: OpenVikingSyncJob): string | null {
+  if (job.status === "pending") {
+    return "排队等待写入语义索引";
+  }
+  if (job.status === "running") {
+    return "正在写入 OpenViking 语义索引";
+  }
+  if (job.status === "indexed") {
+    return null;
+  }
+  if (job.status === "failed") {
+    return "已失败，等待处理或下一次自动重试";
+  }
+  if (job.status === "cancelled") {
+    return "连续失败后已停止自动重试";
+  }
+  return job.status;
+}
+
 function jobMetaLine(job: OpenVikingSyncJob): string | null {
   if (job.status === "cancelled") {
     return "已停止自动重试";
@@ -1725,6 +1819,16 @@ function jobMetaLine(job: OpenVikingSyncJob): string | null {
   return null;
 }
 
+function syncJobSuggestion(job: OpenVikingSyncJob, errorHint: string | null): string | null {
+  if (job.status === "failed") {
+    return `建议：检查失败原因；${errorHint ?? job.error ?? "确认 OpenViking、Ollama 和资源正文是否正常。"}`;
+  }
+  if (job.status === "cancelled") {
+    return `建议：先确认依赖恢复后手动重试；${errorHint ?? job.error ?? "该任务已停止自动重试。"}`;
+  }
+  return null;
+}
+
 function syncJobErrorHint(job: OpenVikingSyncJob): string | null {
   if (job.status === "cancelled") {
     return "已连续失败 5 次自动停止。请检查 OpenViking 服务是否在线、Embedding 配置是否正确后手动重试。";
@@ -1734,16 +1838,16 @@ function syncJobErrorHint(job: OpenVikingSyncJob): string | null {
   }
   const lower = job.error.toLowerCase();
   if (lower.includes("connection refused") || lower.includes("connect") || lower.includes("unreachable")) {
-    return `无法连接 OpenViking 服务，请检查服务是否在线。（原因：${job.error}）`;
+    return "无法连接 OpenViking 服务，请检查服务是否在线（原始错误见详情）。";
   }
   if (lower.includes("embedding") || lower.includes("dimension")) {
-    return `Embedding 模型异常，请检查 Ollama 服务和模型配置。（原因：${job.error}）`;
+    return "Embedding 模型异常，请检查 Ollama 服务和模型配置（原始错误见详情）。";
   }
   if (lower.includes("timeout") || lower.includes("timed out")) {
-    return `同步超时，请检查 OpenViking 负载和 Ollama 并发设置。（原因：${job.error}）`;
+    return "同步超时，请检查 OpenViking 负载和 Ollama 并发设置（原始错误见详情）。";
   }
   if (lower.includes("auth") || lower.includes("unauthorized") || lower.includes("401") || lower.includes("403")) {
-    return `凭据或权限错误，请检查 OpenViking 鉴权配置。（原因：${job.error}）`;
+    return "凭据或权限错误，请检查 OpenViking 鉴权配置（原始错误见详情）。";
   }
   return null;
 }

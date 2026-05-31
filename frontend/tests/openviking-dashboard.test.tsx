@@ -261,16 +261,36 @@ describe("OpenVikingDashboard", () => {
     expect(screen.getByRole("button", { name: "重排同步队列" })).toBeInTheDocument();
     const progress = await screen.findByRole("progressbar", { name: "ovjob_1 同步进度" });
     expect(progress).toHaveAttribute("value", "40");
-    expect(screen.getByText("ETA 90s")).toBeInTheDocument();
-    expect(screen.getByText("AnythingLLM 召回说明")).toBeInTheDocument();
-    expect(screen.getByText(/wiki_doc · 12/)).toBeInTheDocument();
+    const failedSyncJob = screen.getByText("AnythingLLM 召回说明").closest(".settings-openviking-job-row");
+    expect(failedSyncJob).toBeTruthy();
+    expect(within(failedSyncJob as HTMLElement).getByText("预计剩余 90s")).toBeInTheDocument();
+    expect(within(failedSyncJob as HTMLElement).getByText("同步 Wiki 文档")).toBeInTheDocument();
+    expect(within(failedSyncJob as HTMLElement).getByText("所属特性 anything-llm")).toBeInTheDocument();
+    expect(within(failedSyncJob as HTMLElement).getByText("已失败，等待处理或下一次自动重试")).toBeInTheDocument();
+    expect(within(failedSyncJob as HTMLElement).getByText(/建议：检查失败原因/)).toBeInTheDocument();
+    expect(screen.queryByText(/wiki_doc · 12/)).not.toBeInTheDocument();
     const statusOnlyJob = screen.getByText("文档生命周期").closest(".settings-openviking-job-row");
     expect(statusOnlyJob).toBeTruthy();
     expect(within(statusOnlyJob as HTMLElement).queryByRole("progressbar")).not.toBeInTheDocument();
     expect(within(statusOnlyJob as HTMLElement).queryByText("状态 pending")).not.toBeInTheDocument();
     expect(within(statusOnlyJob as HTMLElement).queryByText("ETA —")).not.toBeInTheDocument();
     expect(within(statusOnlyJob as HTMLElement).getByText("等待中")).toBeInTheDocument();
+    expect(within(statusOnlyJob as HTMLElement).getByText("排队等待写入语义索引")).toBeInTheDocument();
     expect((statusOnlyJob as HTMLElement).getAttribute("data-status")).toBe("pending");
+    expect(within(statusOnlyJob as HTMLElement).getByRole("button", { name: "详情" })).toHaveClass(
+      "settings-openviking-job-detail-button",
+    );
+    // Badge 现在前置为行首状态指示，不再是操作组末位
+    const pendingBadge = (statusOnlyJob as HTMLElement).querySelector(".settings-openviking-badge");
+    expect(pendingBadge).toHaveTextContent("等待中");
+    fireEvent.click(within(statusOnlyJob as HTMLElement).getByRole("button", { name: "详情" }));
+    expect(within(statusOnlyJob as HTMLElement).getByText("任务 ID")).toBeInTheDocument();
+    expect(within(statusOnlyJob as HTMLElement).getByText("ovjob_2")).toBeInTheDocument();
+    expect(within(statusOnlyJob as HTMLElement).getByText("来源类型")).toBeInTheDocument();
+    expect(within(statusOnlyJob as HTMLElement).getByText("wiki_doc")).toBeInTheDocument();
+    expect(within(statusOnlyJob as HTMLElement).getByText("来源 ID")).toBeInTheDocument();
+    expect(within(statusOnlyJob as HTMLElement).getByText("13")).toBeInTheDocument();
+    fireEvent.click(within(statusOnlyJob as HTMLElement).getByRole("button", { name: "收起详情" }));
     expect(screen.queryByText(/\?/)).not.toBeInTheDocument();
     const metricsCard = screen.getByLabelText("OpenViking 运行指标");
     expect(within(metricsCard).queryByText("等待任务")).not.toBeInTheDocument();
@@ -588,9 +608,11 @@ describe("OpenVikingDashboard", () => {
     expect(screen.getAllByText("错误").length).toBeGreaterThan(0);
     expect(screen.getAllByText("警告").length).toBeGreaterThan(0);
 
-    expect(screen.queryByText("事件类型")).not.toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("button", { name: "详情" })[0] as HTMLElement);
-    expect(screen.getByText("事件类型")).toBeInTheDocument();
+    const scheduledRefreshRow = screen.getByText("定时同步汇总").closest(".settings-openviking-row");
+    expect(scheduledRefreshRow).toBeTruthy();
+    expect(within(scheduledRefreshRow as HTMLElement).queryByText("事件类型")).not.toBeInTheDocument();
+    fireEvent.click(within(scheduledRefreshRow as HTMLElement).getByRole("button", { name: "详情" }));
+    expect(within(scheduledRefreshRow as HTMLElement).getByText("事件类型")).toBeInTheDocument();
     expect(screen.getAllByText("scheduled_refresh_summary").length).toBeGreaterThan(0);
     expect(screen.getByText(/"error": "OpenViking health check timed out"/)).toBeInTheDocument();
 
@@ -925,7 +947,7 @@ describe("OpenVikingDashboard", () => {
     expect(failedRow).toBeInTheDocument();
     expect(within(failedRow as HTMLElement).getByText(/已重试 3 次/)).toBeInTheDocument();
     expect(within(failedRow as HTMLElement).getByText(/下次约/)).toBeInTheDocument();
-    expect(within(failedRow as HTMLElement).getByText(/自动重试/)).toBeInTheDocument();
+    expect(within(failedRow as HTMLElement).getByText(/下次约 .* 自动重试/)).toBeInTheDocument();
 
     // A2: cancelled job meta line — "已停止自动重试"
     expect(within(cancelledRow as HTMLElement).getByText("已停止自动重试")).toBeInTheDocument();
@@ -991,6 +1013,7 @@ describe("OpenVikingDashboard", () => {
 
     expect(await within(syncCard).findByText("分页文档 1")).toBeInTheDocument();
     expect(within(syncCard).getByText("分页文档 5")).toBeInTheDocument();
+    expect(within(syncCard).queryByText("已写入语义索引，可被语义检索召回")).not.toBeInTheDocument();
     expect(within(syncCard).queryByText("分页文档 6")).not.toBeInTheDocument();
     expect(within(syncCard).getByText("共 7 条 · 第 1 / 2 页")).toBeInTheDocument();
     expect(within(syncCard).getByRole("button", { name: "上一页同步任务" })).toBeDisabled();
@@ -1010,7 +1033,7 @@ describe("OpenVikingDashboard", () => {
     expect(within(syncCard).getByText("共 7 条 · 第 1 / 2 页")).toBeInTheDocument();
   });
 
-  it("filters by status dropdown and resets page to 1", async () => {
+  it("filters by status pill and resets page to 1", async () => {
     // Set up 7 items so we can paginate
     const manyJobs = Array.from({ length: 7 }, (_, i) => ({
       id: `ovjob_f${i + 1}`,
@@ -1049,9 +1072,8 @@ describe("OpenVikingDashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: "下一页同步任务" }));
     await waitFor(() => expect(lastCallParams.page).toBe(2), { timeout: 3000 });
 
-    // Now change filter — must reset to page 1
-    const statusSelect = screen.getByLabelText("同步任务状态筛选");
-    fireEvent.change(statusSelect, { target: { value: "failed" } });
+    // Now apply a status filter by clicking the 失败 pill — must reset to page 1
+    fireEvent.click(screen.getByRole("button", { name: "按失败筛选" }));
     await waitFor(() => {
       expect(lastCallParams.status).toBe("failed");
       expect(lastCallParams.page).toBe(1);
@@ -1066,15 +1088,18 @@ describe("OpenVikingDashboard", () => {
     const pills = syncCard2.querySelectorAll(".openviking-status-pill[role='button']");
     const failedPill = Array.from(pills).find((p) => p.querySelector("span")?.textContent === "失败");
     expect(failedPill).toBeTruthy();
-    fireEvent.click(failedPill as HTMLElement);
 
+    fireEvent.click(failedPill as HTMLElement);
     await waitFor(() =>
       expect(vi.mocked(api.listOpenVikingSyncJobs)).toHaveBeenLastCalledWith(
         expect.objectContaining({ status: "failed" }),
       ),
     );
+    // 选中态：pill 反映 aria-pressed
+    expect(failedPill).toHaveAttribute("aria-pressed", "true");
 
-        fireEvent.click(failedPill as HTMLElement); await waitFor(() => {
+    fireEvent.click(failedPill as HTMLElement);
+    await waitFor(() => {
       const lastCall = vi.mocked(api.listOpenVikingSyncJobs).mock.lastCall?.[0] ?? {};
       expect(lastCall.status).toBeUndefined();
     });
@@ -1158,7 +1183,7 @@ describe("OpenVikingDashboard", () => {
     u3();
 
     renderWithError("some obscure internal error XYZ123");
-    await screen.findByText("some obscure internal error XYZ123");
+    await screen.findByText(/some obscure internal error XYZ123/);
   });
 
   it("shows empty state with correct page text when counts are all zero", async () => {
@@ -1172,7 +1197,7 @@ describe("OpenVikingDashboard", () => {
     renderDashboard();
     const syncCard4 = await screen.findByLabelText("OpenViking 同步任务");
 
-    expect(within(syncCard4).getByText("暂无同步任务")).toBeInTheDocument();
+    expect(await within(syncCard4).findByText("暂无同步任务")).toBeInTheDocument();
     expect(within(syncCard4).getByText("共 0 条 · 第 1 / 1 页")).toBeInTheDocument();
   });
 

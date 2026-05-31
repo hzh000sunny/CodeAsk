@@ -3843,17 +3843,46 @@ textarea:focus-visible {
   border-top: 1px solid #e4e9f2;
 }
 
-.settings-openviking-job-row {
+.settings-openviking-job-list .settings-openviking-job-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 0.9fr) auto auto;
-  gap: 10px;
-  align-items: center;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  align-items: stretch;
   max-width: 100%;
+}
+
+.settings-openviking-job-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
 }
 
 .settings-openviking-job-row .button {
   min-width: 0;
   white-space: nowrap;
+}
+
+.settings-openviking-job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: start;
+}
+
+.settings-openviking-job-detail-button,
+.settings-openviking-event-detail-button {
+  display: flex;
+  justify-self: end;
+  width: 72px;
+  min-width: 72px;
+  max-width: 72px;
+  inline-size: 72px;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
 }
 
 .settings-openviking-row-main {
@@ -3869,6 +3898,31 @@ textarea:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-openviking-job-kind {
+  color: #475467;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings-openviking-row-main strong {
+  color: #182230;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.settings-openviking-row-main span,
+.settings-openviking-row-main small {
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.settings-openviking-job-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .settings-openviking-progress {
@@ -3892,6 +3946,54 @@ textarea:focus-visible {
 .settings-openviking-job-meta {
   color: #667085;
   font-size: 12px;
+}
+
+.settings-openviking-job-guidance {
+  border: 1px solid #e4e9f2;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #344054;
+  font-size: 12px;
+  line-height: 18px;
+  padding: 8px 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.settings-openviking-job-guidance[data-tone="failed"],
+.settings-openviking-job-guidance[data-tone="cancelled"] {
+  border-color: #fedf89;
+  background: #fffaeb;
+  color: #7a2e0e;
+}
+
+.settings-openviking-job-details {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #e4e9f2;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.settings-openviking-job-detail {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.settings-openviking-job-detail dt {
+  color: #667085;
+  font-size: 12px;
+}
+
+.settings-openviking-job-detail dd {
+  margin: 0;
+  color: #101828;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .settings-openviking-load-more {
@@ -4300,18 +4402,6 @@ textarea:focus-visible {
   gap: 8px;
   align-items: center;
   min-width: 0;
-}
-
-.settings-openviking-event-detail-button {
-  display: flex;
-  justify-self: end;
-  width: 72px;
-  min-width: 72px;
-  max-width: 72px;
-  inline-size: 72px;
-  min-height: 26px;
-  padding: 0 8px;
-  font-size: 12px;
 }
 
 .settings-openviking-event-remediation {
