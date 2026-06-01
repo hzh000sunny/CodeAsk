@@ -1,5 +1,7 @@
 # M11 — 代码仓 → OpenViking 内容同步
 
+> ⛔ **已延后（2026-06-01 负责人决策）**：代码仓进 OpenViking 在本版本暂不做（调研成本偏高），推迟到后续版本。**M11 编号现已重新指派给 [OpenViking HTTP→SDK 迁移](./m11-openviking-sdk-migration.md)**。本文保留为后续版本的调研/设计底稿，不在当前迭代实现；文内"✅已落地"的开发回填记录指向的代码若未合入即为历史草稿。
+>
 > 版本：v1.0.5
 > 状态：**Ready for B1（2026-05-31 架构复核重测：B0.1 闸门通过，写入策略已定）**。开发曾因"删除后 find 残留"冻结；复核证明删除本身干净，所谓残留经受控复现复不出、疑似异步竞态而非确定性 bug → 解冻。最终写入配方见 [feasibility §6.2](./m11-openviking-repo-feasibility-research.md#62-最终方向m11-b-可落地配方)。
 > 关联：[openviking-integration 设计 §2.1/§4](../design/openviking-integration.md) · [m5 写路径 hook](./m5-write-path-hooks.md) · [m6 同步完整性](./m6-sync-completeness-and-events.md) · [m10 同步任务 UX](./m10-sync-jobs-ux.md) · [acceptance §3.2/§3.7](./acceptance-checklist.md) · [可行性再调研](./m11-openviking-repo-feasibility-research.md)
