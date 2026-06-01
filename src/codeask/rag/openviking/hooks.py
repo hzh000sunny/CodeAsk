@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from hashlib import sha256
 from typing import Literal, cast
 
 import structlog
@@ -13,14 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.db.models import (
     Feature,
-    Report,
     WikiDocument,
-    WikiDocumentVersion,
     WikiNode,
     WikiSpace,
 )
 from codeask.rag.openviking.sync import OpenVikingSyncService, SyncOperation
-from codeask.rag.openviking.uri import report_uri, wiki_doc_uri
+from codeask.rag.openviking.uri import wiki_feature_uri
 from codeask.wiki.documents.service import PENDING_OPENVIKING_WIKI_DOC_IDS
 
 log = structlog.get_logger("codeask.rag.openviking.hooks")
@@ -28,7 +25,7 @@ log = structlog.get_logger("codeask.rag.openviking.hooks")
 
 @dataclass(frozen=True, slots=True)
 class OpenVikingHookJob:
-    source_type: Literal["wiki_doc", "report"]
+    source_type: Literal["wiki_feature"]
     source_id: str
     operation: SyncOperation
     feature_slug: str | None
@@ -112,12 +109,8 @@ async def enqueue_report_sync(
     report_id: int,
     operation: SyncOperation = "upsert",
 ) -> None:
-    try:
-        job = await _build_report_job(request, report_id=report_id, operation=operation)
-        if job is not None:
-            await enqueue_prebuilt_sync_job(request, job)
-    except Exception:
-        log.exception("openviking_report_hook_failed", report_id=report_id, operation=operation)
+    del request, report_id, operation
+    return
 
 
 async def enqueue_prebuilt_sync_job(request: Request, job: OpenVikingHookJob) -> None:
@@ -157,7 +150,7 @@ async def emit_named_change_event(
 ) -> None:
     from codeask.rag.openviking.dashboard import emit_event
 
-    event_type = "wiki_doc_changed" if job.source_type == "wiki_doc" else "report_status_changed"
+    event_type = "wiki_feature_changed"
     await emit_event(
         request.app.state.session_factory,
         event_type=event_type,
@@ -177,23 +170,8 @@ async def emit_named_change_event(
 async def build_report_delete_job(
     session: AsyncSession, *, report_id: int
 ) -> OpenVikingHookJob | None:
-    row = (
-        await session.execute(
-            select(Report, Feature)
-            .join(Feature, Feature.id == Report.feature_id)
-            .where(Report.id == report_id)
-        )
-    ).one_or_none()
-    if row is None:
-        return None
-    report, feature = row
-    return OpenVikingHookJob(
-        source_type="report",
-        source_id=str(report.id),
-        operation="delete",
-        feature_slug=feature.slug,
-        viking_uri=report_uri(feature.slug, f"{report.id}.md"),
-    )
+    del session, report_id
+    return None
 
 
 async def _build_wiki_document_job(
@@ -215,60 +193,15 @@ async def _build_wiki_document_job(
         ).one_or_none()
         if row is None:
             return None
-        document, node, _space, feature = row
-        body = await _current_body_markdown(session, document=document)
-        relative_path = _relative_wiki_path(node.path)
+        _document, _node, _space, feature = row
         return OpenVikingHookJob(
-            source_type="wiki_doc",
-            source_id=str(document.id),
+            source_type="wiki_feature",
+            source_id=feature.slug,
             operation=operation,
             feature_slug=feature.slug,
-            viking_uri=wiki_doc_uri(feature.slug, relative_path),
-            source_hash=_sha256_text(body) if body is not None else None,
+            viking_uri=wiki_feature_uri(feature.slug),
+            source_hash=None,
         )
-
-
-async def _build_report_job(
-    request: Request,
-    *,
-    report_id: int,
-    operation: SyncOperation,
-) -> OpenVikingHookJob | None:
-    factory = request.app.state.session_factory
-    async with factory() as session:
-        row = (
-            await session.execute(
-                select(Report, Feature)
-                .join(Feature, Feature.id == Report.feature_id)
-                .where(Report.id == report_id)
-            )
-        ).one_or_none()
-        if row is None:
-            return None
-        report, feature = row
-        return OpenVikingHookJob(
-            source_type="report",
-            source_id=str(report.id),
-            operation=operation,
-            feature_slug=feature.slug,
-            viking_uri=report_uri(feature.slug, f"{report.id}.md"),
-            source_hash=_sha256_text(report.body_markdown) if operation == "upsert" else None,
-        )
-
-
-async def _current_body_markdown(
-    session: AsyncSession,
-    *,
-    document: WikiDocument,
-) -> str | None:
-    if document.current_version_id is None:
-        return None
-    version = (
-        await session.execute(
-            select(WikiDocumentVersion).where(WikiDocumentVersion.id == document.current_version_id)
-        )
-    ).scalar_one_or_none()
-    return version.body_markdown if version is not None else None
 
 
 def _sync_service_or_none(request: Request) -> OpenVikingSyncService | None:
@@ -276,14 +209,3 @@ def _sync_service_or_none(request: Request) -> OpenVikingSyncService | None:
     if isinstance(service, OpenVikingSyncService):
         return service
     return None
-
-
-def _relative_wiki_path(node_path: str) -> str:
-    parts = [part for part in node_path.strip("/").split("/") if part]
-    if parts and parts[0] == "knowledge-base":
-        parts = parts[1:]
-    return "/".join(parts) or "index.md"
-
-
-def _sha256_text(value: str) -> str:
-    return sha256(value.encode("utf-8")).hexdigest()

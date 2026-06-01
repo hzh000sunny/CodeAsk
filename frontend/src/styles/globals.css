@@ -3590,6 +3590,27 @@ textarea:focus-visible {
   color: #9aa4b2;
 }
 
+.settings-diagnostic-grid-indexing {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  max-width: none;
+}
+
+.settings-diagnostic-grid-indexing .settings-diagnostic-item {
+  min-height: 68px;
+  padding: 10px 6px;
+  text-align: center;
+}
+
+.settings-diagnostic-grid-indexing .settings-diagnostic-item span {
+  justify-content: center;
+  font-size: 10px;
+}
+
+.settings-diagnostic-grid-indexing .settings-diagnostic-item strong {
+  font-size: 13px;
+}
+
 .settings-diagnostic-grid-fixed {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -3673,7 +3694,11 @@ textarea:focus-visible {
 }
 
 .openviking-card-metrics {
-  grid-column: 1 / -1;
+  grid-column: span 6;
+}
+
+.openviking-card-indexing {
+  grid-column: span 6;
 }
 
 .openviking-card-sync,
@@ -3775,6 +3800,13 @@ textarea:focus-visible {
 .settings-openviking-job-summary .openviking-status-pill {
   flex: 1;
   min-width: 0;
+}
+
+.settings-openviking-indexing-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .openviking-status-pill[role="button"] {
@@ -4619,6 +4651,7 @@ textarea:focus-visible {
   .openviking-card-tuning,
   .openviking-card-embedding,
   .openviking-card-events,
+  .openviking-card-indexing,
   .openviking-card-metrics {
     grid-column: 1 / -1;
   }
@@ -4635,6 +4668,7 @@ textarea:focus-visible {
 
   .settings-openviking-grid,
   .settings-openviking-controls,
+  .settings-openviking-indexing-head,
   .settings-openviking-job-row,
   .tuning-advanced-header,
   .tuning-advanced-row,
@@ -4647,6 +4681,10 @@ textarea:focus-visible {
 
   .settings-diagnostic-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-diagnostic-grid-indexing {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .settings-openviking-pagination {

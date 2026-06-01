@@ -157,17 +157,20 @@ async def build_dynamic_codeask_context(
             [
                 "",
                 "## OpenViking Knowledge",
-                "- Semantic knowledge root: viking://resources/codeask",
+                "- Semantic wiki root: viking://resources/codeask/wiki",
+                "- Feature wiki roots use viking://resources/codeask/wiki/<feature_slug>.",
+                "- Code roots are reserved under viking://resources/codeask/code/<repo_slug> "
+                "for future repository indexing; do not assume code resources exist yet.",
                 "- Use openviking_find/openviking_search for semantic recall across "
-                "published wiki pages and verified problem reports.",
+                "published wiki knowledge.",
+                "- If the relevant feature is not yet clear, search the semantic wiki "
+                "root first. Once a feature is clear, narrow follow-up recall to that "
+                "feature wiki root.",
                 "- Use openviking_list/openviking_read/openviking_grep/openviking_glob "
                 "only for read-only inspection of returned knowledge resources.",
                 "- OpenViking read results are knowledge snapshots, not prepared source "
                 "files. If source-code evidence is required, call prepare_worktree "
                 "before reading repository files.",
-                "- Verified problem reports have higher evidence weight than draft or "
-                "unverified material. Treat reports as reference only unless the "
-                "symptom, scene, and root cause match exactly.",
                 "- Do not claim a semantic hit exists when OpenViking returns no "
                 "relevant result. Fall back to ./wiki/ glob/grep/read or ask a concise "
                 "clarification when evidence is insufficient.",

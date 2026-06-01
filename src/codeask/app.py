@@ -179,7 +179,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             metrics_recorder=openviking_metrics_recorder,
             session_factory=factory,
         )
-        openviking_sync_service = OpenVikingSyncService(factory, client=openviking_client)
+        openviking_sync_service = OpenVikingSyncService(
+            factory,
+            client=openviking_client,
+            data_dir=Path(settings.data_dir),
+        )
 
         async def resolve_openviking_mcp(session_id: str) -> OpenVikingMCPConfig | None:
             return await _resolve_openviking_mcp_config(
@@ -412,6 +416,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await openviking_client.close()
             openviking_process_manager.shutdown()
             opencode_process_manager.shutdown()
             scheduler.shutdown(wait=True)

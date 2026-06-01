@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -26,6 +28,9 @@ from codeask.rag.openviking.sync import OpenVikingSyncService
 
 router = APIRouter()
 _OPENVIKING_ROOT_URI = "viking://resources/codeask"
+_INDEXING_ETA_WINDOW: list[tuple[float, int]] = []
+_INDEXING_ETA_WINDOW_SECONDS = 900
+_INDEXING_ETA_SAFETY_FACTOR = 1.2
 _IMPORTANT_EVENT_TYPES = (
     "embedding_model_switched",
     "embedding_rebuild_requested",
@@ -71,6 +76,7 @@ async def get_openviking_status(request: Request) -> dict[str, Any]:
         status_payload["version"] = health.version
     queue = await _queue_counts(request)
     status_payload["queue"] = queue
+    status_payload["indexing"] = await _indexing_snapshot(request, queue)
     status_payload["metrics_5min"] = await _metrics_snapshot(request)
     status_payload["degraded"] = (
         not bool(status_payload.get("running"))
@@ -496,6 +502,193 @@ async def _metrics_snapshot(request: Request) -> dict[str, Any]:
         "breaker_trips": int(breaker_count or 0),
         "message": latency.get("message"),
     }
+
+
+async def _indexing_snapshot(request: Request, sync_counts: dict[str, int]) -> dict[str, Any]:
+    embedding_queue = _embedding_queue_snapshot(request)
+    total_jobs = sum(sync_counts.values())
+    active_jobs = sync_counts.get("pending", 0) + sync_counts.get("running", 0)
+    failed_jobs = sync_counts.get("failed", 0) + sync_counts.get("cancelled", 0)
+    indexed_jobs = sync_counts.get("indexed", 0)
+    embedding_active = embedding_queue["pending"] + embedding_queue["processing"]
+    phase = "idle"
+    message = "没有待处理的 OpenViking 索引任务。"
+    if failed_jobs:
+        phase = "blocked"
+        message = "存在失败或已停止重试的同步任务，需要先处理失败项。"
+    elif active_jobs:
+        phase = "embedding" if embedding_active else "syncing"
+        message = (
+            "正在将 Wiki 内容生成向量，队列下降表示索引构建正常推进。"
+            if embedding_active
+            else "同步任务已提交，正在等待 OpenViking 返回任务状态。"
+        )
+    elif total_jobs and indexed_jobs == total_jobs:
+        phase = "indexed"
+        message = "当前 Wiki feature 已完成索引。"
+
+    progress_percent = _indexing_progress_percent(sync_counts, embedding_queue)
+    eta = _indexing_eta_snapshot(embedding_queue)
+    return {
+        "phase": phase,
+        "message": message,
+        "sync_jobs": {
+            "total": total_jobs,
+            "pending": sync_counts.get("pending", 0),
+            "running": sync_counts.get("running", 0),
+            "indexed": indexed_jobs,
+            "failed": sync_counts.get("failed", 0),
+            "cancelled": sync_counts.get("cancelled", 0),
+        },
+        "embedding_queue": embedding_queue,
+        "progress_percent": progress_percent,
+        "eta_seconds": eta["eta_seconds"],
+        "eta_label": _eta_label(eta["eta_seconds"], embedding_queue),
+        "items_per_minute": eta["items_per_minute"],
+        "eta_sample_seconds": eta["sample_seconds"],
+        "eta_safety_factor": _INDEXING_ETA_SAFETY_FACTOR,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def _embedding_queue_snapshot(request: Request) -> dict[str, Any]:
+    queue_db = _openviking_queue_db_path(request)
+    counts: dict[str, Any] = {
+        "pending": 0,
+        "processing": 0,
+        "completed": 0,
+        "failed": 0,
+        "total_visible": 0,
+        "oldest_pending_age_seconds": None,
+        "current_processing_age_seconds": None,
+        "error": None,
+    }
+    if queue_db is None or not queue_db.exists():
+        counts["error"] = "OpenViking queue database is not available"
+        return counts
+    now = int(datetime.now(UTC).timestamp())
+    try:
+        with sqlite3.connect(f"file:{queue_db}?mode=ro", uri=True, timeout=1.0) as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                """
+                select
+                    status,
+                    count(*) as count,
+                    min(created_at) as oldest_created_at,
+                    max(processing_started_at) as latest_processing_started_at
+                from queue_messages
+                where queue_name = 'Embedding'
+                group by status
+                """
+            ).fetchall()
+    except sqlite3.Error as exc:
+        counts["error"] = str(exc)
+        return counts
+    for row in rows:
+        status_name = str(row["status"])
+        count = int(row["count"] or 0)
+        if status_name in counts:
+            counts[status_name] = count
+        counts["total_visible"] = int(counts["total_visible"]) + count
+        if status_name == "pending" and row["oldest_created_at"] is not None:
+            counts["oldest_pending_age_seconds"] = max(
+                0,
+                now - int(row["oldest_created_at"]),
+            )
+        if status_name == "processing" and row["latest_processing_started_at"] is not None:
+            age_seconds = max(0, now - int(row["latest_processing_started_at"]))
+            counts["current_processing_age_seconds"] = age_seconds
+    return counts
+
+
+def _openviking_queue_db_path(request: Request) -> Path | None:
+    process_manager = getattr(request.app.state, "openviking_process_manager", None)
+    status_payload = _describe_process(process_manager)
+    workspace = status_payload.get("workspace_path")
+    if not isinstance(workspace, str) or not workspace:
+        return None
+    return Path(workspace) / "_system" / "queue" / "queue.db"
+
+
+def _indexing_progress_percent(
+    sync_counts: dict[str, int],
+    embedding_queue: dict[str, Any],
+) -> int | None:
+    total_jobs = sum(sync_counts.values())
+    if total_jobs <= 0:
+        return None
+    active_embedding = int(embedding_queue.get("pending") or 0) + int(
+        embedding_queue.get("processing") or 0
+    )
+    if active_embedding > 0:
+        return None
+    return round((sync_counts.get("indexed", 0) / total_jobs) * 100)
+
+
+def _indexing_eta_snapshot(embedding_queue: dict[str, Any]) -> dict[str, Any]:
+    pending = int(embedding_queue.get("pending") or 0)
+    processing = int(embedding_queue.get("processing") or 0)
+    remaining = pending + processing
+    now = datetime.now(UTC).timestamp()
+    _record_indexing_eta_sample(now, remaining)
+    if remaining <= 0:
+        return {"eta_seconds": 0, "items_per_minute": None, "sample_seconds": None}
+    speed = _indexing_items_per_second(now)
+    if speed is None or speed <= 0:
+        return {"eta_seconds": None, "items_per_minute": None, "sample_seconds": None}
+    sample_seconds = int(now - _INDEXING_ETA_WINDOW[0][0]) if _INDEXING_ETA_WINDOW else None
+    return {
+        "eta_seconds": int((remaining / speed) * _INDEXING_ETA_SAFETY_FACTOR),
+        "items_per_minute": round(speed * 60, 2),
+        "sample_seconds": sample_seconds,
+    }
+
+
+def _record_indexing_eta_sample(now: float, remaining: int) -> None:
+    if _INDEXING_ETA_WINDOW and remaining > _INDEXING_ETA_WINDOW[-1][1]:
+        _INDEXING_ETA_WINDOW.clear()
+    _INDEXING_ETA_WINDOW.append((now, remaining))
+    cutoff = now - _INDEXING_ETA_WINDOW_SECONDS
+    while len(_INDEXING_ETA_WINDOW) > 1 and _INDEXING_ETA_WINDOW[0][0] < cutoff:
+        _INDEXING_ETA_WINDOW.pop(0)
+
+
+def _indexing_items_per_second(now: float) -> float | None:
+    if len(_INDEXING_ETA_WINDOW) < 2:
+        return None
+    start_time, start_remaining = _INDEXING_ETA_WINDOW[0]
+    end_time, end_remaining = _INDEXING_ETA_WINDOW[-1]
+    elapsed = max(end_time - start_time, 0)
+    processed = start_remaining - end_remaining
+    if elapsed < 30 or processed <= 0:
+        return None
+    return processed / elapsed
+
+
+def _eta_label(eta_seconds: int | None, embedding_queue: dict[str, Any]) -> str:
+    if embedding_queue.get("error"):
+        return "无法读取 OpenViking 队列"
+    pending = int(embedding_queue.get("pending") or 0)
+    processing = int(embedding_queue.get("processing") or 0)
+    if pending + processing <= 0:
+        return "无待处理 embedding"
+    if eta_seconds is None:
+        return "速度样本不足，暂无法估算"
+    return _format_duration(eta_seconds)
+
+
+def _format_duration(seconds: int) -> str:
+    if seconds < 60:
+        return f"{seconds} 秒"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} 分钟"
+    hours = minutes // 60
+    rest_minutes = minutes % 60
+    if rest_minutes == 0:
+        return f"{hours} 小时"
+    return f"{hours} 小时 {rest_minutes} 分钟"
 
 
 async def _probe_status_health(

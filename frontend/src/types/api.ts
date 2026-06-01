@@ -234,6 +234,35 @@ export interface OpenVikingStatusResponse {
   workspace_path?: string | null;
   log_file?: string | null;
   queue: Record<string, number>;
+  indexing?: {
+    phase: "idle" | "syncing" | "embedding" | "indexed" | "blocked" | "degraded";
+    message: string;
+    sync_jobs: {
+      total: number;
+      pending: number;
+      running: number;
+      indexed: number;
+      failed: number;
+      cancelled: number;
+    };
+    embedding_queue: {
+      pending: number;
+      processing: number;
+      completed?: number;
+      failed?: number;
+      total_visible: number;
+      oldest_pending_age_seconds?: number | null;
+      current_processing_age_seconds?: number | null;
+      error?: string | null;
+    };
+    progress_percent: number | null;
+    eta_seconds: number | null;
+    eta_label: string | null;
+    items_per_minute?: number | null;
+    eta_sample_seconds?: number | null;
+    eta_safety_factor?: number | null;
+    updated_at: string;
+  };
   metrics_5min?: {
     collected: boolean;
     window_seconds: number;

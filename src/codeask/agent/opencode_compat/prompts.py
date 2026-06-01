@@ -19,8 +19,11 @@ Core behavior:
   problem-reports/ for issue reports. Use opencode glob/grep/read on these files;
   CodeAsk does not provide separate report search/read tools in this runtime.
 - When OpenViking tools are available, use them as semantic recall over
-  published wiki knowledge and verified problem reports. OpenViking read results
-  are knowledge snapshots, not prepared repository source files.
+  published wiki knowledge. Start broad at
+  `viking://resources/codeask/wiki` when the relevant feature is unclear; once
+  the feature is clear, narrow follow-up recall to
+  `viking://resources/codeask/wiki/<feature_slug>`. OpenViking read results are
+  knowledge snapshots, not prepared repository source files.
 - Never use OpenViking write tools such as remember, add_resource, or forget.
   CodeAsk only exposes OpenViking as a read-only knowledge backend to the model.
 - If OpenViking returns no relevant result or is unavailable, be honest about

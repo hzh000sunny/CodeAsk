@@ -7,6 +7,7 @@ import {
   Copy,
   Database,
   Gauge,
+  LoaderCircle,
   ListChecks,
   SlidersHorizontal,
 } from "lucide-react";
@@ -315,6 +316,7 @@ export function OpenVikingDashboard() {
           total={eventTotal}
           totalPages={eventTotalPages}
         />
+        <OpenVikingIndexingCard status={statusQuery.data} />
         <OpenVikingMetricsCard status={statusQuery.data} />
         <OpenVikingTuningCard
           feedback={feedback}
@@ -929,7 +931,7 @@ function SyncJobItem({ job, onRetry }: { job: OpenVikingSyncJob; onRetry: () => 
           {showRetry ? (
             <button
               aria-label={`重试 ${job.id}`}
-              className="button button-secondary"
+              className="button button-secondary settings-openviking-job-detail-button"
               type="button"
               onClick={onRetry}
             >
@@ -1492,7 +1494,6 @@ function OpenVikingMetricsCard({
   status?: OpenVikingStatusResponse;
 }) {
   const metrics = status?.metrics_5min;
-  const collected = metrics?.collected === true;
   const notCollected = metrics?.message ?? "未采集";
   return (
     <section className="surface openviking-card openviking-card-metrics" aria-label="OpenViking 运行指标">
@@ -1502,11 +1503,70 @@ function OpenVikingMetricsCard({
         title="运行指标"
       />
       <div className="settings-diagnostic-grid settings-diagnostic-grid-metrics">
-        <Metric label="吞吐 / min" value={collected ? metrics?.throughput_per_min : notCollected} />
-        <Metric label="Latency p95" value={collected ? metrics?.latency_p95_ms : notCollected} />
-        <Metric label="Breaker trips" value={collected ? metrics?.breaker_trips : notCollected} />
-        <Metric label="Samples" value={collected ? metrics?.latency_samples : notCollected} />
+        <Metric label="吞吐 / min" value={metrics?.throughput_per_min} />
+        <Metric label="Latency p95" value={metrics?.latency_p95_ms ?? notCollected} />
+        <Metric label="Breaker trips" value={metrics?.breaker_trips} />
+        <Metric label="Samples" value={metrics?.latency_samples} />
       </div>
+    </section>
+  );
+}
+
+function OpenVikingIndexingCard({
+  status,
+}: {
+  status?: OpenVikingStatusResponse;
+}) {
+  const indexing = status?.indexing;
+  const queue = indexing?.embedding_queue;
+  const jobs = indexing?.sync_jobs;
+  const progressValue = indexing?.progress_percent;
+  const phaseLabel = indexing ? indexingPhaseLabel(indexing.phase) : EMPTY_VALUE;
+  const phaseTone = indexing ? indexingPhaseTone(indexing.phase) : "info";
+  return (
+    <section className="surface openviking-card openviking-card-indexing" aria-label="OpenViking 索引构建">
+      <OpenVikingCardHeader
+        description="当前 Wiki 入库、embedding 队列和预计完成时间。"
+        icon={<LoaderCircle aria-hidden="true" size={16} />}
+        title="索引构建"
+      />
+      {indexing ? (
+        <>
+          <div className="settings-openviking-indexing-head">
+            <StatusPill label="阶段" tone={phaseTone} value={phaseLabel} />
+            <StatusPill label="预计剩余" tone="info" value={indexing.eta_label ?? EMPTY_VALUE} />
+          </div>
+          <div className="settings-openviking-progress settings-openviking-progress-block">
+            <progress
+              aria-label="OpenViking 索引构建进度"
+              max={100}
+              value={progressValue ?? (indexing.phase === "indexed" ? 100 : 0)}
+            />
+            <small>
+              {progressValue === null
+                ? "目录级任务已提交，embedding 队列处理中；当前阶段无法给出精确百分比。"
+                : `${progressValue}%`}
+            </small>
+          </div>
+          <div className="settings-diagnostic-grid settings-diagnostic-grid-indexing">
+            <Metric label="Embedding 等待" value={queue?.pending} />
+            <Metric label="Embedding 处理中" value={queue?.processing} />
+            <Metric label="处理速度" value={indexing.items_per_minute === null || indexing.items_per_minute === undefined ? EMPTY_VALUE : `${indexing.items_per_minute}/min`} />
+            <Metric label="同步运行中" value={jobs?.running} />
+            <Metric label="已索引 feature" value={`${jobs?.indexed ?? 0}/${jobs?.total ?? 0}`} />
+          </div>
+          <p className="settings-openviking-muted">{indexing.message}</p>
+          {queue?.current_processing_age_seconds ? (
+            <p className="settings-openviking-muted">
+              当前 embedding 已处理 {formatSeconds(queue.current_processing_age_seconds)}
+              {indexing.eta_sample_seconds ? `；ETA 基于最近 ${formatSeconds(indexing.eta_sample_seconds)} 的平均处理速度并加 20% 余量。` : "；速度样本不足时暂不估算 ETA。"}
+            </p>
+          ) : null}
+          {queue?.error ? <StatusError text={queue.error} /> : null}
+        </>
+      ) : (
+        <p className="empty-note">正在读取索引构建状态</p>
+      )}
     </section>
   );
 }
@@ -1712,6 +1772,33 @@ function statusOutcome(status: string): "info" | "success" | "warning" | "error"
     return "success";
   }
   if (status === "running") {
+    return "warning";
+  }
+  return "info";
+}
+
+function indexingPhaseLabel(phase: NonNullable<OpenVikingStatusResponse["indexing"]>["phase"]) {
+  const labels: Record<typeof phase, string> = {
+    blocked: "需要处理",
+    degraded: "已降级",
+    embedding: "生成向量",
+    idle: "空闲",
+    indexed: "已完成",
+    syncing: "提交同步",
+  };
+  return labels[phase] ?? phase;
+}
+
+function indexingPhaseTone(
+  phase: NonNullable<OpenVikingStatusResponse["indexing"]>["phase"],
+): "info" | "success" | "warning" | "error" {
+  if (phase === "indexed") {
+    return "success";
+  }
+  if (phase === "blocked" || phase === "degraded") {
+    return "error";
+  }
+  if (phase === "embedding" || phase === "syncing") {
     return "warning";
   }
   return "info";

@@ -1,18 +1,26 @@
-"""HTTP client for OpenViking server APIs used by CodeAsk."""
+"""Official OpenViking HTTP SDK client used by CodeAsk."""
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import time
+import weakref
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, cast
 
-import httpx
 import structlog
+from openviking import AsyncHTTPClient  # type: ignore[reportMissingTypeStubs]
+from openviking_cli.exceptions import (  # type: ignore[reportMissingTypeStubs]
+    NotFoundError,
+    OpenVikingError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from codeask.rag.openviking.dashboard import emit_event
 from codeask.rag.openviking.metrics import OpenVikingMetricsRecorder
-from codeask.rag.openviking.sync import SyncResource
+from codeask.rag.openviking.uri import wiki_feature_uri
 
 log = structlog.get_logger("codeask.rag.openviking.client")
 
@@ -36,83 +44,75 @@ class OpenVikingClient:
     def __init__(
         self,
         *,
-        base_url: str,
+        base_url: str | None = None,
         timeout: float = 60.0,
-        transport: httpx.AsyncBaseTransport | None = None,
+        sdk_client_factory: Any = AsyncHTTPClient,
         metrics_recorder: OpenVikingMetricsRecorder | None = None,
         session_factory: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
+        self._sdk_client_factory = sdk_client_factory
+        self._sdk_clients: weakref.WeakKeyDictionary[object, Any] = weakref.WeakKeyDictionary()
+        self._base_url = base_url.rstrip("/") if base_url is not None else None
         self._timeout = timeout
-        self._transport = transport
         self._metrics_recorder = metrics_recorder
         self._session_factory = session_factory
 
-    async def add_text_resource(self, resource: SyncResource) -> dict[str, Any]:
+    async def add_wiki_feature(
+        self,
+        *,
+        feature_slug: str,
+        knowledge_base_path: Path,
+    ) -> dict[str, Any]:
         started_at = time.perf_counter()
-        async with self._client() as client:
-            try:
-                upload_response = await client.post(
-                    "/api/v1/resources/temp_upload",
-                    files={
-                        "file": (
-                            resource.filename,
-                            resource.content.encode("utf-8"),
-                            "text/markdown",
-                        )
-                    },
-                    data={"upload_mode": "local"},
-                )
-                await self._raise_for_status(upload_response)
-                upload_result = _unwrap_result(upload_response.json())
-                temp_file_id = upload_result.get("temp_file_id")
-                if not isinstance(temp_file_id, str) or not temp_file_id:
-                    raise OpenVikingClientError(
-                        "OpenViking temp_upload did not return temp_file_id"
-                    )
-                add_response = await client.post(
-                    "/api/v1/resources",
-                    json={
-                        "temp_file_id": temp_file_id,
-                        "to": resource.viking_uri,
-                        "reason": f"CodeAsk sync {resource.source_type}:{resource.source_id}",
-                        "instruction": (
-                            "Index this CodeAsk trusted knowledge resource for semantic retrieval."
-                        ),
-                        "wait": False,
-                        "source_name": resource.filename,
-                        "strict": False,
-                    },
-                )
-                await self._raise_for_status(add_response)
-                return _unwrap_result(add_response.json())
-            finally:
-                await self._record_latency_since(started_at)
+        if not knowledge_base_path.is_dir():
+            raise ValueError(f"knowledge-base path does not exist: {knowledge_base_path}")
+        try:
+            client = await self.sdk_client()
+            result = await client.add_resource(
+                path=str(knowledge_base_path),
+                to=wiki_feature_uri(feature_slug),
+                reason=f"CodeAsk wiki feature sync {feature_slug}",
+                instruction=(
+                    "Index this CodeAsk feature wiki knowledge base for semantic retrieval."
+                ),
+                wait=False,
+                strict=False,
+                preserve_structure=True,
+            )
+            return _unwrap_result(result)
+        except OpenVikingError as exc:
+            await self._handle_sdk_error(exc)
+            raise
+        finally:
+            await self._record_latency_since(started_at)
 
     async def task_status(self, task_id: str) -> dict[str, Any]:
         started_at = time.perf_counter()
-        async with self._client() as client:
-            try:
-                response = await client.get(f"/api/v1/tasks/{task_id}")
-                await self._raise_for_status(response)
-                return _unwrap_result(response.json())
-            finally:
-                await self._record_latency_since(started_at)
+        try:
+            client = await self.sdk_client()
+            result = await client.get_task(task_id)
+            if result is None:
+                return {"task_id": task_id, "not_found": True}
+            return _unwrap_result(result)
+        except OpenVikingError as exc:
+            await self._handle_sdk_error(exc)
+            raise
+        finally:
+            await self._record_latency_since(started_at)
 
     async def delete_resource(self, viking_uri: str, *, recursive: bool = True) -> dict[str, Any]:
         started_at = time.perf_counter()
-        async with self._client() as client:
-            try:
-                response = await client.delete(
-                    "/api/v1/fs",
-                    params={"uri": viking_uri, "recursive": str(recursive).lower()},
-                )
-                if response.status_code == 404:
-                    return {"uri": viking_uri, "not_found": True}
-                await self._raise_for_status(response)
-                return _unwrap_result(response.json())
-            finally:
-                await self._record_latency_since(started_at)
+        try:
+            client = await self.sdk_client()
+            await client.rm(viking_uri, recursive=recursive)
+            return {"uri": viking_uri, "deleted": True}
+        except NotFoundError:
+            return {"uri": viking_uri, "not_found": True}
+        except OpenVikingError as exc:
+            await self._handle_sdk_error(exc)
+            raise
+        finally:
+            await self._record_latency_since(started_at)
 
     async def find(
         self,
@@ -123,56 +123,64 @@ class OpenVikingClient:
         score_threshold: float = 0.0,
     ) -> list[OpenVikingSearchHit]:
         started_at = time.perf_counter()
-        async with self._client() as client:
-            try:
-                response = await client.post(
-                    "/api/v1/search/find",
-                    json={
-                        "query": query,
-                        "target_uri": target_uri,
-                        "limit": limit,
-                        "score_threshold": score_threshold,
-                    },
-                )
-                await self._raise_for_status(response)
-                result = _unwrap_result(response.json())
-            finally:
-                await self._record_latency_since(started_at)
+        try:
+            client = await self.sdk_client()
+            result = await client.find(
+                query=query,
+                target_uri=target_uri,
+                limit=limit,
+                score_threshold=score_threshold,
+            )
+        except OpenVikingError as exc:
+            await self._handle_sdk_error(exc)
+            raise
+        finally:
+            await self._record_latency_since(started_at)
         return _parse_search_hits(result)
 
-    def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            base_url=self._base_url,
-            headers={
-                "X-OpenViking-Account": "codeask",
-                "X-OpenViking-User": "codeask",
-                "X-OpenViking-Agent": "codeask",
-            },
+    async def sdk_client(self) -> Any:
+        loop = asyncio.get_running_loop()
+        client = self._sdk_clients.get(loop)
+        if client is not None:
+            return client
+        if self._base_url is None:
+            raise OpenVikingClientError("OpenViking base_url is required for SDK HTTP mode")
+        client = self._sdk_client_factory(
+            url=self._base_url,
+            account="codeask",
+            user="codeask",
+            agent_id="codeask",
             timeout=self._timeout,
-            transport=self._transport,
-            trust_env=False,
         )
+        await client.initialize()
+        self._sdk_clients[loop] = client
+        return client
+
+    async def close(self) -> None:
+        clients = list(self._sdk_clients.values())
+        self._sdk_clients.clear()
+        for client in clients:
+            close = getattr(client, "close", None)
+            if callable(close):
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
 
     async def _record_latency_since(self, started_at: float) -> None:
         if self._metrics_recorder is None:
             return
         await self._metrics_recorder.record_latency((time.perf_counter() - started_at) * 1000)
 
-    async def _raise_for_status(self, response: httpx.Response) -> None:
-        if _is_breaker_response(response):
-            await self._emit_breaker_event(response)
-        response.raise_for_status()
-
-    async def _emit_breaker_event(self, response: httpx.Response) -> None:
-        if self._session_factory is None:
+    async def _handle_sdk_error(self, exc: OpenVikingError) -> None:
+        if exc.code not in _BREAKER_ERROR_CODES or self._session_factory is None:
             return
         try:
             await emit_event(
                 self._session_factory,
                 event_type="openviking_breaker_tripped",
                 payload={
-                    "status_code": response.status_code,
-                    "detail": _response_preview(response),
+                    "code": exc.code,
+                    "detail": str(exc)[:500],
                 },
                 outcome="warning",
             )
@@ -180,18 +188,7 @@ class OpenVikingClient:
             log.exception("openviking_breaker_event_failed")
 
 
-def _is_breaker_response(response: httpx.Response) -> bool:
-    if response.status_code != 503:
-        return False
-    preview = _response_preview(response).lower()
-    return "circuit" in preview or "breaker" in preview or "unavailable" in preview
-
-
-def _response_preview(response: httpx.Response) -> str:
-    try:
-        return response.text[:500]
-    except Exception:
-        return ""
+_BREAKER_ERROR_CODES = {"UNAVAILABLE", "RESOURCE_EXHAUSTED"}
 
 
 def _unwrap_result(data: object) -> dict[str, Any]:
@@ -204,12 +201,21 @@ def _unwrap_result(data: object) -> dict[str, Any]:
     raise OpenVikingClientError("OpenViking response was not an object")
 
 
-def _parse_search_hits(data: dict[str, Any]) -> list[OpenVikingSearchHit]:
-    raw_items = data.get("results")
-    if raw_items is None:
-        raw_items = data.get("resources")
-    if raw_items is None:
-        raw_items = []
+def _parse_search_hits(data: object) -> list[OpenVikingSearchHit]:
+    to_dict = getattr(data, "to_dict", None)
+    if callable(to_dict):
+        data = to_dict()
+    if isinstance(data, list):
+        raw_items: object = cast(list[object], data)
+    elif isinstance(data, dict):
+        payload = cast(dict[str, Any], data)
+        raw_items = payload.get("results")
+        if raw_items is None:
+            raw_items = payload.get("resources")
+        if raw_items is None:
+            raw_items = []
+    else:
+        raise OpenVikingClientError("OpenViking search response was not a list or object")
     if not isinstance(raw_items, list):
         raise OpenVikingClientError("OpenViking search result items were not a list")
 

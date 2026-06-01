@@ -2,10 +2,10 @@ from pathlib import Path
 
 from codeask.rag.openviking.config import OpenVikingRuntimeConfig, build_ov_conf
 from codeask.rag.openviking.uri import (
-    feature_readme_uri,
-    repo_uri,
-    report_uri,
-    wiki_doc_uri,
+    code_repo_uri,
+    code_root_uri,
+    wiki_feature_uri,
+    wiki_root_uri,
 )
 
 
@@ -29,16 +29,7 @@ def test_build_ov_conf_uses_codeask_data_dir_and_ollama_defaults(tmp_path: Path)
 
 
 def test_uri_mapping_uses_codeask_resource_namespace() -> None:
-    assert (
-        feature_readme_uri("anything-llm")
-        == "viking://resources/codeask/features/anything-llm/README.md"
-    )
-    assert (
-        wiki_doc_uri("anything-llm", "Ingestion And Document Lifecycle.md")
-        == "viking://resources/codeask/features/anything-llm/knowledge-base/Ingestion%20And%20Document%20Lifecycle.md"
-    )
-    assert (
-        report_uri("anything-llm", "2026-05-09 AnythingLLM 文档摄入.md")
-        == "viking://resources/codeask/features/anything-llm/problem-reports/verified/2026-05-09%20AnythingLLM%20%E6%96%87%E6%A1%A3%E6%91%84%E5%85%A5.md"
-    )
-    assert repo_uri("claude-code") == "viking://resources/codeask/repos/claude-code/"
+    assert wiki_root_uri() == "viking://resources/codeask/wiki"
+    assert wiki_feature_uri("anything-llm") == "viking://resources/codeask/wiki/anything-llm"
+    assert code_root_uri() == "viking://resources/codeask/code"
+    assert code_repo_uri("claude-code") == "viking://resources/codeask/code/claude-code/"

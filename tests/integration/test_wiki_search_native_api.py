@@ -4,7 +4,6 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from codeask.db.models import WikiDocument, WikiDocumentVersion, WikiNode, WikiSpace
-from codeask.rag.openviking.models import OpenVikingDashboardEvent, OpenVikingSyncJob
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -268,31 +267,6 @@ async def test_wiki_search_groups_global_results_by_context_and_is_case_insensit
 
 
 @pytest.mark.asyncio
-async def test_wiki_search_uses_openviking_hit_when_it_maps_to_native_document(
-    client: AsyncClient,
-    app,
-) -> None:  # type: ignore[no-untyped-def]
-    feature_id, document_id, node_id = await _publish_search_document(
-        client,
-        app,
-        slug="openviking-hit",
-        body="# OpenViking Hit\n\nThis document is returned by semantic search only.",
-    )
-    uri = "viking://resources/codeask/features/openviking-hit/knowledge-base/openviking-hit.md"
-    await _index_openviking_mapping(
-        app, source_type="wiki_doc", source_id=str(document_id), uri=uri
-    )
-    _install_openviking_search(app, [_OpenVikingHit(uri=f"{uri}/openviking-hit.md", score=0.91)])
-
-    response = await client.get(f"/api/wiki/search?q=semantic-only-marker&feature_id={feature_id}")
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert [item["node_id"] for item in body["items"]] == [node_id]
-    assert body["items"][0]["score"] == 0.91
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("hits", "raises"),
     [
@@ -306,13 +280,14 @@ async def test_wiki_search_falls_back_to_native_when_openviking_misses_or_errors
     hits: list[object] | None,
     raises: bool,
 ) -> None:  # type: ignore[no-untyped-def]
+    del hits, raises
     feature_id, _document_id, node_id = await _publish_search_document(
         client,
         app,
         slug="openviking-fallback",
         body="# Native Fallback\n\nContains OPENVIKING_FALLBACK_MARKER.",
     )
-    _install_openviking_search(app, hits or [], raises=raises)
+    _install_openviking_search(app)
 
     response = await client.get(
         f"/api/wiki/search?q=OPENVIKING_FALLBACK_MARKER&feature_id={feature_id}"
@@ -324,7 +299,7 @@ async def test_wiki_search_falls_back_to_native_when_openviking_misses_or_errors
 
 
 @pytest.mark.asyncio
-async def test_wiki_search_falls_back_when_openviking_is_not_running(
+async def test_wiki_search_ignores_openviking_runtime_state(
     client: AsyncClient,
     app,
 ) -> None:  # type: ignore[no-untyped-def]
@@ -349,49 +324,6 @@ async def test_wiki_search_falls_back_when_openviking_is_not_running(
         f"/api/wiki/search?q=OPENVIKING_STOPPED_MARKER&feature_id={feature_id}"
     )
     assert repeat.status_code == 200, repeat.text
-    async with app.state.session_factory() as session:
-        events = (
-            (
-                await session.execute(
-                    select(OpenVikingDashboardEvent).where(
-                        OpenVikingDashboardEvent.event_type == "openviking_search_unavailable"
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert len(events) == 1
-
-
-class _OpenVikingHit:
-    def __init__(self, *, uri: str, score: float) -> None:
-        self.uri = uri
-        self.score = score
-        self.context_type = "resource"
-        self.level = 2
-        self.abstract = None
-        self.overview = None
-        self.content = None
-
-
-class _FakeOpenVikingSearchClient:
-    def __init__(self, hits: list[object], *, raises: bool = False) -> None:
-        self._hits = hits
-        self._raises = raises
-
-    async def find(
-        self,
-        *,
-        query: str,
-        target_uri: str,
-        limit: int,
-        score_threshold: float = 0.0,
-    ) -> list[object]:
-        del query, target_uri, limit, score_threshold
-        if self._raises:
-            raise RuntimeError("openviking unavailable")
-        return self._hits
 
 
 class _FakeOpenVikingProcess:
@@ -407,16 +339,10 @@ class _FakeOpenVikingProcess:
 
 def _install_openviking_search(
     app,
-    hits: list[object],
-    *,
-    raises: bool = False,
 ) -> None:  # type: ignore[no-untyped-def]
     app.state.settings.openviking_enabled = True
     app.state.openviking_process_manager = _FakeOpenVikingProcess()
-    app.state.openviking_wiki_search_client = _FakeOpenVikingSearchClient(
-        hits,
-        raises=raises,
-    )
+    app.state.openviking_wiki_search_client = object()
 
 
 async def _publish_search_document(
@@ -467,32 +393,3 @@ async def _publish_search_document(
         ).scalar_one()
         document_id = int(document.id)
     return feature_id, document_id, node_id
-
-
-async def _index_openviking_mapping(
-    app,
-    *,
-    source_type: str,
-    source_id: str,
-    uri: str,
-) -> None:  # type: ignore[no-untyped-def]
-    async with app.state.session_factory() as session:
-        existing = (
-            await session.execute(
-                select(OpenVikingSyncJob).where(
-                    OpenVikingSyncJob.source_type == source_type,
-                    OpenVikingSyncJob.source_id == source_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if existing is None:
-            existing = OpenVikingSyncJob(
-                id=f"ovjob_{source_type}_{source_id}",
-                source_type=source_type,
-                source_id=source_id,
-            )
-            session.add(existing)
-        existing.viking_uri = uri
-        existing.status = "indexed"
-        existing.attempts = 1
-        await session.commit()

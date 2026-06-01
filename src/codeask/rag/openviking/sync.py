@@ -5,15 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from pathlib import Path
 from secrets import token_hex
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal, Protocol
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from codeask.db.models import (
     Feature,
-    Report,
     WikiDocument,
     WikiDocumentVersion,
     WikiNode,
@@ -21,7 +21,7 @@ from codeask.db.models import (
 )
 from codeask.rag.openviking.dashboard import emit_event
 from codeask.rag.openviking.models import OpenVikingSyncJob
-from codeask.rag.openviking.uri import report_uri, wiki_doc_uri
+from codeask.rag.openviking.uri import wiki_feature_uri
 
 TERMINAL_STATUSES = {"indexed", "cancelled"}
 _RETRY_DELAYS = [30, 120, 600, 3600, 21600]
@@ -29,27 +29,17 @@ SyncOperation = Literal["upsert", "delete"]
 
 
 @dataclass(frozen=True)
-class SyncResource:
-    source_type: str
-    source_id: str
-    content: str
-    filename: str
-    viking_uri: str
-    source_hash: str | None = None
-
-
-@dataclass(frozen=True)
 class SyncWorkItem:
     operation: SyncOperation
     viking_uri: str
-    resource: SyncResource | None = None
+    feature_slug: str | None = None
     source_hash: str | None = None
     requested_operation: SyncOperation = "upsert"
 
 
 @dataclass(frozen=True)
 class SyncSourceSnapshot:
-    source_type: Literal["wiki_doc", "report"]
+    source_type: Literal["wiki_feature"]
     source_id: str
     feature_slug: str
     source_hash: str
@@ -63,9 +53,16 @@ class SyncJobPage:
 
 
 class OpenVikingResourceClient(Protocol):
-    async def add_text_resource(self, resource: SyncResource) -> dict[str, Any]: ...
+    async def add_wiki_feature(
+        self,
+        *,
+        feature_slug: str,
+        knowledge_base_path: Path,
+    ) -> dict[str, Any]: ...
 
     async def delete_resource(self, viking_uri: str) -> dict[str, Any]: ...
+
+    async def task_status(self, task_id: str) -> dict[str, Any]: ...
 
 
 class OpenVikingSyncService:
@@ -74,9 +71,11 @@ class OpenVikingSyncService:
         session_factory: async_sessionmaker[AsyncSession],
         *,
         client: OpenVikingResourceClient | None = None,
+        data_dir: Path | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._client = client
+        self._data_dir = data_dir
 
     async def enqueue(
         self,
@@ -101,14 +100,15 @@ class OpenVikingSyncService:
                 )
             ).scalar_one_or_none()
             if existing is not None:
+                was_running = existing.status == "running"
                 existing.feature_slug = feature_slug
                 existing.source_hash = source_hash
                 existing.viking_uri = viking_uri or existing.viking_uri
-                existing.progress = _progress_payload(operation=operation, payload=payload)
-                existing.task_id = None
-                existing.error = None
-                existing.next_retry_at = None
-                if existing.status != "running":
+                if not was_running:
+                    existing.progress = _progress_payload(operation=operation, payload=payload)
+                    existing.task_id = None
+                    existing.error = None
+                    existing.next_retry_at = None
                     existing.status = "pending"
                     existing.attempts = 0
                 await session.commit()
@@ -153,9 +153,7 @@ class OpenVikingSyncService:
         enqueued = 0
         skipped = 0
         async with self._session_factory() as session:
-            wiki_snapshots = await _wiki_doc_snapshots(session)
-            report_snapshots = await _report_snapshots(session)
-            snapshots = [*wiki_snapshots, *report_snapshots]
+            snapshots = await _wiki_feature_snapshots(session)
             existing_rows: list[OpenVikingSyncJob] = []
             if snapshots:
                 existing_rows = list(
@@ -180,6 +178,12 @@ class OpenVikingSyncService:
         existing = {(row.source_type, row.source_id): row for row in existing_rows}
         for snapshot in snapshots:
             scanned += 1
+            if self._data_dir is not None and not _knowledge_base_path(
+                self._data_dir,
+                snapshot.feature_slug,
+            ).is_dir():
+                skipped += 1
+                continue
             previous = existing.get((snapshot.source_type, snapshot.source_id))
             if (
                 previous is not None
@@ -203,9 +207,10 @@ class OpenVikingSyncService:
     async def run_pending_jobs(self, *, limit: int = 10) -> dict[str, int]:
         if self._client is None:
             return {"processed": 0, "indexed": 0, "failed": 0}
-        processed = 0
-        indexed = 0
-        failed = 0
+        processed, indexed, failed = await self._refresh_running_jobs(limit=limit)
+        remaining_limit = max(limit - processed, 0)
+        if remaining_limit <= 0:
+            return {"processed": processed, "indexed": indexed, "failed": failed}
         now = datetime.now(UTC)
         async with self._session_factory() as session:
             job_ids = [
@@ -225,7 +230,7 @@ class OpenVikingSyncService:
                                 )
                             )
                             .order_by(OpenVikingSyncJob.created_at.asc())
-                            .limit(limit)
+                            .limit(remaining_limit)
                         )
                     )
                     .scalars()
@@ -255,9 +260,15 @@ class OpenVikingSyncService:
                 if work_item.operation == "delete":
                     result = await self._client.delete_resource(work_item.viking_uri)
                 else:
-                    if work_item.resource is None:
-                        raise RuntimeError("sync upsert work item did not contain a resource")
-                    result = await self._client.add_text_resource(work_item.resource)
+                    if work_item.feature_slug is None:
+                        raise RuntimeError("sync upsert work item did not contain a feature slug")
+                    result = await self._client.add_wiki_feature(
+                        feature_slug=work_item.feature_slug,
+                        knowledge_base_path=_knowledge_base_path(
+                            self._data_dir,
+                            work_item.feature_slug,
+                        ),
+                    )
             except Exception as exc:
                 failed += 1
                 await self.mark_failed(job_id, str(exc))
@@ -272,19 +283,80 @@ class OpenVikingSyncService:
                     job.error = None
                     await session.commit()
                     continue
-                indexed += 1
-                job.status = "indexed"
                 job.task_id = _string_or_none(result.get("task_id"))
-                job.viking_uri = (
-                    _string_or_none(result.get("uri"))
-                    or _string_or_none(result.get("root_uri"))
-                    or work_item.viking_uri
-                )
-                job.last_indexed_at = datetime.now(UTC)
+                job.viking_uri = work_item.viking_uri
                 job.next_retry_at = None
                 job.error = None
+                if job.task_id:
+                    job.status = "running"
+                    job.progress = _merge_progress(
+                        job.progress,
+                        openviking_task_status=_string_or_none(result.get("status")) or "running",
+                    )
+                else:
+                    indexed += 1
+                    job.status = "indexed"
+                    job.last_indexed_at = datetime.now(UTC)
                 await session.commit()
         return {"processed": processed, "indexed": indexed, "failed": failed}
+
+    async def _refresh_running_jobs(self, *, limit: int) -> tuple[int, int, int]:
+        if self._client is None:
+            return 0, 0, 0
+        processed = 0
+        indexed = 0
+        failed = 0
+        async with self._session_factory() as session:
+            running_jobs = (
+                (
+                    await session.execute(
+                        select(OpenVikingSyncJob)
+                        .where(
+                            OpenVikingSyncJob.status == "running",
+                            OpenVikingSyncJob.task_id.is_not(None),
+                        )
+                        .order_by(OpenVikingSyncJob.updated_at.asc())
+                        .limit(limit)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        for running_job in running_jobs:
+            task_id = running_job.task_id
+            if not task_id:
+                continue
+            processed += 1
+            try:
+                task = await self._client.task_status(task_id)
+            except Exception as exc:
+                failed += 1
+                await self.mark_failed(running_job.id, str(exc))
+                continue
+            task_status = _string_or_none(task.get("status")) or "unknown"
+            async with self._session_factory() as session:
+                job = await session.get(OpenVikingSyncJob, running_job.id)
+                if job is None or job.status != "running":
+                    continue
+                job.progress = _merge_progress(
+                    job.progress,
+                    openviking_task_status=task_status,
+                )
+                if _is_task_success(task_status):
+                    indexed += 1
+                    job.status = "indexed"
+                    job.last_indexed_at = datetime.now(UTC)
+                    job.next_retry_at = None
+                    job.error = None
+                elif _is_task_failure(task_status):
+                    failed += 1
+                    _apply_failure_state(
+                        job,
+                        _string_or_none(task.get("error")) or f"OpenViking task {task_status}",
+                        max_repeat_failures=5,
+                    )
+                await session.commit()
+        return processed, indexed, failed
 
     async def list_jobs(
         self,
@@ -354,7 +426,7 @@ class OpenVikingSyncService:
         )
 
 
-async def _wiki_doc_snapshots(session: AsyncSession) -> list[SyncSourceSnapshot]:
+async def _wiki_feature_snapshots(session: AsyncSession) -> list[SyncSourceSnapshot]:
     rows = (
         await session.execute(
             select(WikiDocument, WikiNode, WikiSpace, Feature, WikiDocumentVersion)
@@ -364,42 +436,36 @@ async def _wiki_doc_snapshots(session: AsyncSession) -> list[SyncSourceSnapshot]
             .join(WikiDocumentVersion, WikiDocumentVersion.id == WikiDocument.current_version_id)
             .where(WikiDocument.current_version_id.is_not(None))
             .where(WikiNode.deleted_at.is_(None))
+            .where(Feature.status == "active")
+            .where(WikiSpace.scope == "current")
         )
     ).all()
-    snapshots: list[SyncSourceSnapshot] = []
+    grouped: dict[str, tuple[Feature, list[str]]] = {}
     for document, node, _space, feature, version in rows:
         relative_path = _relative_wiki_path(node.path)
-        body_hash = _sha256_text(version.body_markdown)
-        snapshots.append(
-            SyncSourceSnapshot(
-                source_type="wiki_doc",
-                source_id=str(document.id),
-                feature_slug=feature.slug,
-                source_hash=body_hash,
-                viking_uri=wiki_doc_uri(feature.slug, relative_path),
+        _stored_feature, hashes = grouped.setdefault(feature.slug, (feature, []))
+        hashes.append(
+            _sha256_text(
+                "\n".join(
+                    [
+                        str(document.id),
+                        relative_path,
+                        str(version.id),
+                        version.body_markdown,
+                    ]
+                )
             )
         )
-    return snapshots
-
-
-async def _report_snapshots(session: AsyncSession) -> list[SyncSourceSnapshot]:
-    rows = (
-        await session.execute(
-            select(Report, Feature)
-            .join(Feature, Feature.id == Report.feature_id)
-            .where(Report.verified.is_(True))
-            .where(Report.status == "verified")
-        )
-    ).all()
     snapshots: list[SyncSourceSnapshot] = []
-    for report, feature in rows:
+    for feature_slug, (_feature, hashes) in grouped.items():
+        feature_hash = _sha256_text("\n".join(sorted(hashes)))
         snapshots.append(
             SyncSourceSnapshot(
-                source_type="report",
-                source_id=str(report.id),
-                feature_slug=feature.slug,
-                source_hash=_sha256_text(report.body_markdown),
-                viking_uri=report_uri(feature.slug, f"{report.id}.md"),
+                source_type="wiki_feature",
+                source_id=feature_slug,
+                feature_slug=feature_slug,
+                source_hash=feature_hash,
+                viking_uri=wiki_feature_uri(feature_slug),
             )
         )
     return snapshots
@@ -418,116 +484,20 @@ async def _work_item_from_job(session: AsyncSession, job: OpenVikingSyncJob) -> 
             requested_operation="delete",
         )
 
-    manual_resource = _manual_resource_from_job(job)
-    if manual_resource is not None:
-        return SyncWorkItem(
-            operation="upsert",
-            viking_uri=manual_resource.viking_uri,
-            resource=manual_resource,
-            source_hash=job.source_hash,
-        )
-    if job.source_type == "wiki_doc":
-        return await _wiki_doc_work_item(session, job)
-    if job.source_type == "report":
-        return await _report_work_item(session, job)
+    if job.source_type == "wiki_feature":
+        return _wiki_feature_work_item(job)
     return None
 
 
-def _manual_resource_from_job(job: OpenVikingSyncJob) -> SyncResource | None:
-    progress = job.progress
-    manual = (progress or {}).get("manual")
-    if not isinstance(manual, dict):
+def _wiki_feature_work_item(job: OpenVikingSyncJob) -> SyncWorkItem | None:
+    feature_slug = job.feature_slug or job.source_id
+    if not feature_slug:
         return None
-    manual_payload = cast(dict[str, Any], manual)
-    content = manual_payload.get("content")
-    filename = manual_payload.get("filename") or f"{job.source_id}.md"
-    if not isinstance(content, str) or not content:
-        return None
-    if not isinstance(filename, str) or not filename:
-        return None
-    if not isinstance(job.viking_uri, str) or not job.viking_uri:
-        return None
-    return SyncResource(
-        source_type=job.source_type,
-        source_id=job.source_id,
-        content=content,
-        filename=filename,
-        viking_uri=job.viking_uri,
-        source_hash=job.source_hash,
-    )
-
-
-async def _wiki_doc_work_item(session: AsyncSession, job: OpenVikingSyncJob) -> SyncWorkItem | None:
-    document_id = _int_or_none(job.source_id)
-    if document_id is None:
-        return None
-    row = (
-        await session.execute(
-            select(WikiDocument, WikiNode, WikiSpace, Feature)
-            .join(WikiNode, WikiNode.id == WikiDocument.node_id)
-            .join(WikiSpace, WikiSpace.id == WikiNode.space_id)
-            .join(Feature, Feature.id == WikiSpace.feature_id)
-            .where(WikiDocument.id == document_id)
-        )
-    ).one_or_none()
-    if row is None:
-        return _delete_work_item_from_existing_uri(job)
-    document, node, _space, feature = row
-    viking_uri = job.viking_uri or wiki_doc_uri(feature.slug, _relative_wiki_path(node.path))
-    if node.deleted_at is not None or document.current_version_id is None:
-        return SyncWorkItem(operation="delete", viking_uri=viking_uri, source_hash=job.source_hash)
-    version = (
-        await session.execute(
-            select(WikiDocumentVersion).where(WikiDocumentVersion.id == document.current_version_id)
-        )
-    ).scalar_one_or_none()
-    if version is None:
-        return SyncWorkItem(operation="delete", viking_uri=viking_uri, source_hash=job.source_hash)
-    resource = SyncResource(
-        source_type=job.source_type,
-        source_id=job.source_id,
-        content=version.body_markdown,
-        filename=_markdown_filename(_relative_wiki_path(node.path), fallback=f"{document.id}.md"),
-        viking_uri=viking_uri,
-        source_hash=job.source_hash,
-    )
+    viking_uri = job.viking_uri or wiki_feature_uri(feature_slug)
     return SyncWorkItem(
         operation="upsert",
         viking_uri=viking_uri,
-        resource=resource,
-        source_hash=job.source_hash,
-    )
-
-
-async def _report_work_item(session: AsyncSession, job: OpenVikingSyncJob) -> SyncWorkItem | None:
-    report_id = _int_or_none(job.source_id)
-    if report_id is None:
-        return None
-    row = (
-        await session.execute(
-            select(Report, Feature)
-            .join(Feature, Feature.id == Report.feature_id)
-            .where(Report.id == report_id)
-        )
-    ).one_or_none()
-    if row is None:
-        return _delete_work_item_from_existing_uri(job)
-    report, feature = row
-    viking_uri = job.viking_uri or report_uri(feature.slug, f"{report.id}.md")
-    if not report.verified or report.status != "verified":
-        return SyncWorkItem(operation="delete", viking_uri=viking_uri, source_hash=job.source_hash)
-    resource = SyncResource(
-        source_type=job.source_type,
-        source_id=job.source_id,
-        content=report.body_markdown,
-        filename=f"{report.id}.md",
-        viking_uri=viking_uri,
-        source_hash=job.source_hash,
-    )
-    return SyncWorkItem(
-        operation="upsert",
-        viking_uri=viking_uri,
-        resource=resource,
+        feature_slug=feature_slug,
         source_hash=job.source_hash,
     )
 
@@ -535,55 +505,16 @@ async def _report_work_item(session: AsyncSession, job: OpenVikingSyncJob) -> Sy
 async def _viking_uri_from_job(session: AsyncSession, job: OpenVikingSyncJob) -> str | None:
     if isinstance(job.viking_uri, str) and job.viking_uri:
         return job.viking_uri
-    if job.source_type == "wiki_doc":
-        work_item = await _wiki_doc_work_item(session, job)
-        return work_item.viking_uri if work_item is not None else None
-    if job.source_type == "report":
-        work_item = await _report_work_item(session, job)
+    if job.source_type == "wiki_feature":
+        work_item = _wiki_feature_work_item(job)
         return work_item.viking_uri if work_item is not None else None
     return None
 
 
 async def _display_name_for_job(session: AsyncSession, job: OpenVikingSyncJob) -> str:
-    manual_name = _manual_display_name_from_job(job)
-    if manual_name:
-        return manual_name
-    if job.source_type == "wiki_doc":
-        document_id = _int_or_none(job.source_id)
-        if document_id is not None:
-            row = (
-                await session.execute(
-                    select(WikiNode)
-                    .join(WikiDocument, WikiDocument.node_id == WikiNode.id)
-                    .where(WikiDocument.id == document_id)
-                )
-            ).scalar_one_or_none()
-            if row is not None:
-                return row.name or _relative_wiki_path(row.path)
-    if job.source_type == "report":
-        report_id = _int_or_none(job.source_id)
-        if report_id is not None:
-            report = (
-                await session.execute(select(Report).where(Report.id == report_id))
-            ).scalar_one_or_none()
-            if report is not None and report.title:
-                return report.title
+    if job.source_type == "wiki_feature":
+        return job.feature_slug or job.source_id
     return _filename_from_uri(job.viking_uri) or job.source_id
-
-
-def _manual_display_name_from_job(job: OpenVikingSyncJob) -> str | None:
-    progress = job.progress
-    manual = (progress or {}).get("manual")
-    if not isinstance(manual, dict):
-        return None
-    manual_payload = cast(dict[str, Any], manual)
-    filename = manual_payload.get("filename")
-    title = manual_payload.get("title") or manual_payload.get("name")
-    if isinstance(title, str) and title:
-        return title
-    if isinstance(filename, str) and filename:
-        return filename
-    return None
 
 
 def _filename_from_uri(value: str | None) -> str | None:
@@ -592,12 +523,10 @@ def _filename_from_uri(value: str | None) -> str | None:
     return value.rstrip("/").rsplit("/", 1)[-1] or None
 
 
-def _delete_work_item_from_existing_uri(job: OpenVikingSyncJob) -> SyncWorkItem | None:
-    if isinstance(job.viking_uri, str) and job.viking_uri:
-        return SyncWorkItem(
-            operation="delete", viking_uri=job.viking_uri, source_hash=job.source_hash
-        )
-    return None
+def _knowledge_base_path(data_dir: Path | None, feature_slug: str) -> Path:
+    if data_dir is None:
+        raise RuntimeError("OpenViking wiki feature sync requires data_dir")
+    return data_dir / "wiki_workspace" / "current" / feature_slug / "knowledge-base"
 
 
 def _apply_failure_state(
@@ -621,13 +550,6 @@ def _string_or_none(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _int_or_none(value: str) -> int | None:
-    try:
-        return int(value)
-    except ValueError:
-        return None
-
-
 def _operation_from_job(job: OpenVikingSyncJob) -> SyncOperation:
     progress = job.progress
     raw_operation = progress.get("op") if isinstance(progress, dict) else None
@@ -647,18 +569,29 @@ def _progress_payload(
     return progress
 
 
+def _merge_progress(
+    progress: dict[str, Any] | None,
+    *,
+    openviking_task_status: str,
+) -> dict[str, Any]:
+    payload = dict(progress or {})
+    payload["openviking_task_status"] = openviking_task_status
+    return payload
+
+
+def _is_task_success(status: str) -> bool:
+    return status in {"success", "succeeded", "completed", "complete", "done", "indexed"}
+
+
+def _is_task_failure(status: str) -> bool:
+    return status in {"failed", "error", "cancelled"}
+
+
 def _relative_wiki_path(node_path: str) -> str:
     parts = [part for part in node_path.strip("/").split("/") if part]
     if parts and parts[0] == "knowledge-base":
         parts = parts[1:]
     return "/".join(parts) or "index.md"
-
-
-def _markdown_filename(relative_path: str, *, fallback: str) -> str:
-    leaf = relative_path.rstrip("/").rsplit("/", 1)[-1] or fallback
-    if "." not in leaf:
-        return f"{leaf}.md"
-    return leaf
 
 
 def _sha256_text(value: str) -> str:
@@ -671,5 +604,3 @@ def _job_changed_during_run(job: OpenVikingSyncJob, work_item: SyncWorkItem) -> 
         or job.source_hash != work_item.source_hash
         or job.viking_uri != work_item.viking_uri
     )
-
-
