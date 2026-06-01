@@ -403,3 +403,17 @@
 ### 6.4 与 §3.3"不建议"的对账
 
 §3.3 仍成立：zip 首次全量、单文件 `add_resource`、OV 自拉 remote git 三条继续否决。**新增可行项**：`content.write + fs.rm/fs.mv`（reindex 与读侧存在性过滤为可选增强/防御）——这是 §3.1 "M11-B" 进入实现前四条硬门槛的达成路径。门槛 4"删除后旧 URI 不召回"**底层删除本就满足**（删后 find 立刻干净）；读侧存在性过滤只是兜罕见竞态孤儿的额外保险。
+
+### 6.5 开发落地记录（2026-06-01，⚠️ 已校正：未落地）
+
+> **2026-06-01 架构校正**：repo→OpenViking 已被负责人延后，M11 重定为 OpenViking HTTP→SDK 迁移（见 [m11-openviking-sdk-migration](./m11-openviking-sdk-migration.md)）。下列为当时草稿，**未合入当前代码库 / 已回退**——核对当前代码：`sync.py` 仅 `wiki_feature`、`client.py` 无 `write_content`/`read_content`、search 已回 SQL、`RepoCloner` 不入 repo sync 队列。保留作后续 repo 里程碑参考。
+
+曾起草的 **B2.1 全量镜像版** 方案（未落地）：
+
+- clone ready/refresh 后自动 enqueue `source_type="repo"`。
+- 启动 backfill / scheduled sweep 纳入 ready 且绑定 feature 的 repo，按 HEAD sha 幂等。
+- repo worker 处理时清空 `repos/<repo_id>/` 子树，再按当前 HEAD `git ls-tree -r` 全量写入文本文件到 `content.write(mode=create, wait=false)`；跳过 gitlink/submodule、二进制、超大文件、常见依赖目录和 OpenViking 当前拒绝的无扩展名文件。
+- 默认不调用 `content/reindex`，也不走 zip / `add_resource` / OpenViking 自拉 git。
+- search 读侧已支持 repo hit 映射，并用 `content/read` 404/None 过滤不可读命中。
+
+后续若全量镜像在大仓上不可接受，再补 B2.2 增量 diff（A/M/D/R + `fs.mv`）和可选 reindex/root key；这不是 B2.1 的签收前提。

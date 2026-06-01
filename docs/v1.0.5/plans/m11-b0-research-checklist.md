@@ -569,3 +569,16 @@ curl -sS -X DELETE "$BASE_URL/api/v1/fs?uri=viking://resources/codeask/repos/<sl
 **负责人三决策**（据此实现，详见 feasibility §6.3）：① 走 reindex 路线 → CodeAsk 配 root/admin key；② 吞吐慢可接受，只要异步可观测（status/sync_jobs/events/metrics）、任务慢慢推进；③ embedder 将可换（默认改 OV 自带，ollama/三方走自定义配置），设计不写死 bge-m3。
 
 → 故本文 §0 的 R/X/P 三组闸门已不再是阻塞：R（可读可检索）由 content.write + 队列嵌入满足（reindex 仅补 abstract，可选）；X（删除不残留）由删除本身干净满足，读侧存在性过滤兜罕见竞态孤儿；P（权限）仅在启用 reindex 时才需 root/admin key。**B1/B2 解冻，按 feasibility §6.2 配方进入实现。**
+
+### 6.1 开发回填（2026-06-01，⚠️ 已校正：未落地）
+
+> **2026-06-01 架构校正**：repo→OpenViking 已被负责人延后，M11 重定为 OpenViking HTTP→SDK 迁移（见 [m11-openviking-sdk-migration](./m11-openviking-sdk-migration.md)）。下列"已进入代码"为当时草稿记录，**实际未合入当前代码库 / 已随 wiki-only 迁移回退**——核对当前代码：`sync.py` 仅 `wiki_feature`、无 repo 分派；`client.py` 无 `write_content`/`read_content`；search 已回 SQL；`RepoCloner` 未注入 `OpenVikingSyncService`、不入 repo sync 队列。保留作后续 repo 里程碑的实现参考。
+
+曾起草的实现路径（未落地）：
+
+- B1：`RepoCloner` 注入 `OpenVikingSyncService`，clone ready/refresh 成功后 enqueue repo sync job。
+- B2.1：首版采用全量文件镜像，而非增量 diff。worker 清 `repos/<repo_id>/` 后按当前 HEAD 写入文本文件；跳过 gitlink/submodule、二进制、超大文件、常见依赖目录和 OpenViking 当前拒绝的无扩展名文件；不默认 reindex，不使用 zip / `add_resource`。
+- B3：startup backfill / scheduled sweep 纳入已 ready 且绑定 feature 的 repo，HEAD sha 未变时跳过。
+- 读侧：repo hit 映射为 `kind=code` 搜索结果，并通过 `content/read` 过滤不可读/漂移 URI。
+
+B2.2 增量 diff（A/M/D/R + `fs.mv`）与可选 reindex/root key 仍保留为后续优化项。

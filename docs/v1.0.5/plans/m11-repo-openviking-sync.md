@@ -3,7 +3,7 @@
 > ⛔ **已延后（2026-06-01 负责人决策）**：代码仓进 OpenViking 在本版本暂不做（调研成本偏高），推迟到后续版本。**M11 编号现已重新指派给 [OpenViking HTTP→SDK 迁移](./m11-openviking-sdk-migration.md)**。本文保留为后续版本的调研/设计底稿，不在当前迭代实现；文内"✅已落地"的开发回填记录指向的代码若未合入即为历史草稿。
 >
 > 版本：v1.0.5
-> 状态：**Ready for B1（2026-05-31 架构复核重测：B0.1 闸门通过，写入策略已定）**。开发曾因"删除后 find 残留"冻结；复核证明删除本身干净，所谓残留经受控复现复不出、疑似异步竞态而非确定性 bug → 解冻。最终写入配方见 [feasibility §6.2](./m11-openviking-repo-feasibility-research.md#62-最终方向m11-b-可落地配方)。
+> 状态：**已延后（2026-06-01）**——见顶部 banner。以下为延后前的调研/复核记录（B0.1 闸门曾通过、写入策略曾定稿、解冻结论曾成立），保留作后续 repo 里程碑底稿，**当前迭代不实现**。最终写入配方见 [feasibility §6.2](./m11-openviking-repo-feasibility-research.md#62-最终方向m11-b-可落地配方)。
 > 关联：[openviking-integration 设计 §2.1/§4](../design/openviking-integration.md) · [m5 写路径 hook](./m5-write-path-hooks.md) · [m6 同步完整性](./m6-sync-completeness-and-events.md) · [m10 同步任务 UX](./m10-sync-jobs-ux.md) · [acceptance §3.2/§3.7](./acceptance-checklist.md) · [可行性再调研](./m11-openviking-repo-feasibility-research.md)
 > 来源：2026-05-30 终验复盘——设计自始至终包含"代码仓进 OpenViking"，但实现只接了 `wiki_doc` / `report` 两类 `source_type`，repo 同步链从未接线。**这是架构拆任务时的遗漏**（M5 引擎只实现 wiki_doc/report 正文解析、M6 backfill 只枚举 wiki+report、cloner 仅发 `repo_synced` 事件不入队），本里程碑补齐。
 
@@ -130,52 +130,54 @@ CodeAsk 的 bare 克隆带完整历史，repo 同步任务已记 `source_hash`�
 - 负责人决策：① 配 root/admin key 启用 reindex；② 吞吐慢可接受、靠现有可观测面（status/sync_jobs/events/metrics）暴露异步进度，job 长期 `running` 是正常态；③ embedder 将可换（默认 OV 自带，三方走自定义配置），不写死 bge-m3。
 - 落地物：更新 `design/openviking-integration.md` §2.1/§4 为 content.write 配方（随 B2 实现一并改）。
 
-### B1 —— cloner 接入入队
-- `cloner.py` 仓库 ready / refresh 成功后，除现有 `repo_synced` 事件外，`enqueue(source_type="repo", source_id=<repo_id>, feature_slug=…, viking_uri=repo_uri(repo_slug), source_hash=<当前 HEAD commit sha>)`。
-- 放宽 `sync.py` / `hooks.py` 的 `source_type` `Literal` 纳入 `"repo"`。
+### B1 —— cloner 接入入队（2026-06-01 草稿，未落地）
+
+> **2026-06-01 架构校正**：repo→OpenViking 已被负责人延后，M11 重定为 OpenViking HTTP→SDK 迁移（见 [m11-openviking-sdk-migration](./m11-openviking-sdk-migration.md)）。本节及 B2/B3 下方的"已落地"为当时开发草稿记录，**实际未合入当前代码库 / 已随 wiki-only 迁移回退**——核对当前代码：`sync.py` 仅 `wiki_feature`、无 repo 分派；`client.py` 无 `write_content`/`read_content`；search 已回 SQL；`RepoCloner` 未注入 `OpenVikingSyncService`、不入 repo sync 队列。本文整体维持顶部"⛔已延后"状态，下列保留作后续 repo 里程碑的设计/实现参考。
+- `cloner.py` 仓库 ready / refresh 成功后，除现有 `repo_synced` 事件外，`enqueue(source_type="repo", source_id=<repo_id>)`。
+- `app.py` 构造 `RepoCloner` 时注入 `OpenVikingSyncService`，保证 clone 成功后自动入 OpenViking sync 队列。
+- `sync.py` 的 `SyncSourceSnapshot.source_type` 已纳入 `"repo"`。
 - 去重语义沿用 M5：job 只表示"该 repo 脏了"，worker 跑时取最新 HEAD；`(source_type, source_id)` 非终态唯一约束对 repo 同样成立。
 - 注意 commit 边界：沿用 M5 §"commit 后再 enqueue"，避免孤儿 job。
-- **记录 last-synced sha**：worker 需要"上次同步到的 commit"来算 diff。沿用 `source_hash` 语义——成功后把本次 HEAD sha 落库，下次 worker 以它为 diff 基线。
+- **记录 last-synced sha**：沿用 `source_hash` 语义——worker 解析当前 HEAD sha，成功后落库。首版先不做 diff 基线，仅用于幂等判定和后续 B2.2 增量 diff。
 
-### B2 —— 引擎 + client 的 repo 分派（B0.1 已定稿，配方见 feasibility §6.2）
-- `run_pending_jobs` 增加 `repo` 分支，按 `git diff --name-status <last>..<HEAD>` 映射：
-  - `A`/`M` → `fs.mkdir(parent, 幂等)` + `content.write(uri=repos/<slug>/<rel>, mode=create|replace)`
-  - `D` → `fs.rm(uri, recursive=false)`（删除自清理，无需事后 reindex 该文件）
-  - `R` → `fs.mv(from_uri, to_uri)`（重命名干净，旧 URI 不残留）
-  - **禁止** `add_resource`（目录化）/ zip（不稳定）/ 逐文件 reindex（409 树锁）。
-- 写后内容靠队列嵌入即可被 find 召回（**不依赖 reindex**）。**可选增强**：一批写完后做**子树** `content/reindex(uri=repos/<slug>/, mode=semantic_and_vectors)` 生成 abstract / 提升摘要级召回；这一步才需 root/admin key + `X-OpenViking-Account/User` 头。先按"无 reindex"跑通，确认 abstract 对 repo 召回确有价值再启用。
-- `OpenVikingClient` 新增：`write_content` / `mkdir` / `mv` / `read`(/`stat`)；`reindex`（带 root 凭据与租户头，启用 reindex 时才需）；`delete_resource` 复用。
-- **读侧护栏（防御性）**：`openviking_find/search` wrapper 丢弃 `fs.stat`/`content/read`→404 的命中。它本就要把 find 命中映射到真实仓库读取（代码经 worktree 读），零额外成本；顺带兜 feasibility §6.1.3 那种罕见竞态孤儿及任何 fs↔向量漂移，**非堵确定性 bug**。两阶段完成判据：`read`/`stat` 存在（mirrored/running）→ 目标文件 find 可召回且命中 URI 仍可 read（indexed）；删除文件 `read`→404。**绝不**用"find 不再返回旧 URI"判定删除。
-- 失败 / 重试 / cancelled 走既有 `mark_failed`（M8）。embedding 慢导致 find 暂不可见时，job 保持 `running` 慢慢推进（负责人决策②），不算失败。
+### B2 —— 引擎 + client 的 repo 分派（2026-06-01 草稿，未落地）
+- `run_pending_jobs` 增加 `repo` 分支。**首版采用全量文件镜像**：每次处理 repo job 时先 `delete_resource(repos/<repo_id>/, recursive=True)` 清空 repo root，再按当前 HEAD 的 `git ls-tree -r` 将文本文件逐个 `content.write` 到真实 repo 相对 URI。
+- 首版刻意不做批尾 `content/reindex`，也不使用 `add_resource` / zip / OpenViking 自拉 git。`content.write(wait=false)` 交给 OpenViking 队列异步嵌入；同步任务的 `indexed` 表示 CodeAsk 已完成 repo 文件镜像提交，不等价于所有向量已 drain。
+- 受 OpenViking `content.write(create)` 当前限制，首版跳过 gitlink/submodule、二进制、超大文件、常见依赖目录以及无扩展名文件（如 `LICENSE` / `CODEOWNERS` / `.dockerignore`）。
+- `OpenVikingClient` 新增 `write_content` 和 `read_content`：`write_content` 会先幂等创建 parent，再 `content/write(mode=create, wait=false)`；`read_content` 用于读侧存在性过滤，404 返回 `None`。
+- **读侧护栏（草稿，未落地）**：拟让 search 对 repo hit 调 `read_content`、丢弃 404/None 命中以兜 fs↔向量漂移。注：当前 wiki search 已退回纯 SQL ILIKE（见 [m11-openviking-sdk-migration](./m11-openviking-sdk-migration.md)），不含 OpenViking-first / repo 映射；本项随 repo 里程碑一并实现。
+- **后续 B2.2**：若全量镜像在大仓上吞吐不可接受，再基于 `source_hash` 增量实现 `git diff --name-status <last>..<HEAD>`：A/M→`content.write`，D→`fs.rm(recursive=false)`，R→`fs.mv`。这不是本次首版签收前提。
+- 失败 / 重试 / cancelled 走既有 `mark_failed`（M8）。embedding 慢导致语义 find 暂不可见时，不在本轮 worker 中同步等待，避免把 600s+ 队列耗时伪装成短任务。
 - tombstone：**repo 全局删除** / slug 重命名 → 旧 uri `delete_resource(repos/<slug>/, recursive=True)`（一次清整棵子树）。对应设计 §4 "slug 重命名 → tombstone → 删除 → 新 pending"，此前对 repo 不存在，本里程碑补上。删除入队点在 `code_index` 删仓 API commit 后（沿用 M5 commit 边界）。
 - 失败 / 重试 / cancelled 走既有 `mark_failed` 收敛（M8 已定），repo 类失败自动出现在事件流与 m10 卡片。
 
-### B3 —— backfill 纳入 repo
-- M6 的启动 backfill / 定时 sweep 枚举范围从"WikiDocument + verified Report"扩展到"+ 已 ready 的 repo"。
-- 幂等：`source_hash`（HEAD commit sha）未变 → `enqueued=0`；变更 → 重新入队（worker 据 last sha 走增量）。
+### B3 —— backfill 纳入 repo（2026-06-01 草稿，未落地）
+- M6 的启动 backfill / 定时 sweep 枚举范围已从"WikiDocument + verified Report"扩展到"+ 已 ready 且绑定 feature 的 repo"。
+- 幂等：`source_hash`（HEAD commit sha）未变 → `enqueued=0`；变更 → 重新入队。首版重新入队后走全量镜像。
 
-### B4 —— UX 自动覆盖（无新前端）
-- m10 落地后，repo 类同步任务在卡片中**自动**走人话化/状态/降噪/`data-status` 展示。本里程碑只需确认 `display_name` 反查对 repo 给出可读名（避免 `repo · <hex-id>`），其余零前端改动。
+### B4 —— UX / 搜索自动覆盖（无新前端）✅ 部分落地（2026-06-01）
+- repo 类同步任务的 `display_name` 反查已覆盖 repo name，避免失败事件或卡片详情只显示 `repo · <id>`。
+- wiki search 的 OpenViking-first 结果已能把 repo hit 映射为 `kind="code"`、`path="repos/<repo_id>/<rel>"`、`group_label="代码仓库"` 的结果。前端沿用现有搜索结果 schema，无新 UI。
 
 ---
 
 ## 3. 影响面 / 涉及文件
-- `src/codeask/code_index/cloner.py`：ready/refresh 后 enqueue repo + 落 HEAD sha（B1）。
+- `src/codeask/code_index/cloner.py`：ready/refresh 后 enqueue repo（B1）。
 - `src/codeask/api/code_index.py`：删仓端点 commit 后 enqueue tombstone（B2 删除路径）。
-- `src/codeask/rag/openviking/sync.py`：`source_type` Literal 纳入 repo；`run_pending_jobs` repo 分支（写入策略待 B0.1 定稿）；last sha 落库；backfill 枚举 repo（B1/B2/B3）。
+- `src/codeask/rag/openviking/sync.py`：`source_type` Literal 纳入 repo；`run_pending_jobs` repo 全量镜像分支；last sha 落库；backfill 枚举 repo（B1/B2/B3）。
 - `src/codeask/rag/openviking/hooks.py`：`source_type` Literal 纳入 repo（B1）。
 - `src/codeask/rag/openviking/config.py`：**启用 reindex 时**才在生成的 `ov.conf` 配 root/admin key（决策①）；**不写死 embedder**——保留 ollama/bge-m3 为可换默认，后续切 OV 自带 embedding（决策③）。
-- `src/codeask/rag/openviking/client.py`：新增 `write_content` / `mkdir` / `mv` / `read`(/`stat`)；`reindex`（带 root 凭据 + 租户头，启用 reindex 时才用）；`find/search` wrapper 加 `read/stat` 存在性过滤；复用 `delete_resource`（B2）。
+- `src/codeask/rag/openviking/client.py`：新增 `write_content` / `read_content`；`find/search` wrapper 加 `read_content` 存在性过滤；复用 `delete_resource`（B2）。
 - `src/codeask/rag/openviking/uri.py`：`repo_uri` 复活为真实调用方；repo uri = `repos/<slug>/<仓库相对路径>`（B2）。
 - `src/codeask/api/openviking_status.py`：`display_name` 反查覆盖 repo（B4）。
 - 设计文档 `design/openviking-integration.md` §2.1/§4（B0）。
-- 测试：cloner enqueue 单测、引擎 repo 分派单测、backfill 含 repo 单测、live e2e（repo → OpenViking → find 召回）。
+- 测试：cloner enqueue 单测、引擎 repo 分派单测、backfill 含 repo 单测、wiki search repo hit 映射与 404 过滤集成测试、live e2e（repo → OpenViking → find 召回）。
 
 ---
 
 ## 4. 依赖与边界
 - **依赖**：B0 spike 是 B1–B3 的硬闸门。与 m10（前端 UX）**可并行**，互不阻塞。
-- **不含**：`feature_readme` / `wiki_dir` / `global_index` 三类 source_type → [m12](./m12-sync-coverage-completion.md)。
+- **不含**：`feature_readme` / `wiki_dir` / `global_index` 三类 source_type（已被「按 feature 目录 import」取代，内容覆盖并入 [m12 wiki workspace 增量持久化](./m12-wiki-workspace-incremental.md)）。
 - **前置修正**：[acceptance-checklist.md](./acceptance-checklist.md) §3.2 中"仓库变更 hook 全部接入 `[x]`"系误判（实际仅 `repo_synced` 事件），已拆为"事件 ✅ / 内容同步 ❌（本里程碑跟踪）"。
 
 ---
@@ -185,13 +187,14 @@ CodeAsk 的 bare 克隆带完整历史，repo 同步任务已记 `source_hash`�
 - [x] **B0.1 第二轮调研** 已跑：三 fixture repo ready + 绑定；remote git / zip / 单文件 add 否决
 - [x] **B0.2 正向验证** 已跑：`content.write(create) + content/reindex` 可让新增文件按 repo path 被 read/grep/find
 - [x] **B0.2 删除残留** ✅ 复核澄清（2026-05-31）：删除本身干净（`fs.rm` 后未 reindex 即不召回、`read`→404）；所谓残留经受控复现复不出、疑似异步竞态而非确定性 bug（读侧存在性过滤作防御保险）。**闸门通过，B1/B2 解冻**
-- [ ] **B1** cloner ready/refresh 成功后入队 `source_type="repo"` 任务（带 HEAD sha），`source_type` Literal 已纳入 repo，commit 后入队无孤儿
-- [ ] **B1** 成功后落库 last-synced sha 作下次 diff 基线；`(source_type, source_id)` 非终态唯一约束对 repo 成立
-- [ ] **B2** 按 feasibility §6.2 配方实现 repo 分派：A/M→`content.write`、D→`fs.rm`、R→`fs.mv`；写后队列嵌入即可 find（不依赖 reindex）；读侧 `read/stat` 存在性过滤；两阶段完成判据（mirrored=存在性 / indexed=find 可召回且命中可 read），不用"find 不返回旧 URI"判删除
+- [x] **B1** cloner ready/refresh 成功后入队 `source_type="repo"` 任务，`source_type` Literal 已纳入 repo，commit 后入队无孤儿
+- [x] **B1/B3** 成功后落库 HEAD sha；`(source_type, source_id)` 唯一约束对 repo 成立；sweep 按 HEAD sha 幂等
+- [x] **B2.1** repo 分派首版：清 repo root → 当前 HEAD 文本文件全量 `content.write`；禁止 `add_resource` / zip / 默认 reindex；读侧 `read_content` 存在性过滤；不用"find 不返回旧 URI"判删除
+- [ ] **B2.2** 增量 diff 优化：A/M→`content.write`、D→`fs.rm`、R→`fs.mv`；仅在全量镜像吞吐不可接受或需要保留增量语义时补
 - [ ] **B2（可选增强）** 若确认 abstract 对 repo 召回有价值：子树 `semantic_and_vectors` reindex；此时才在 ov.conf 配 root/admin key、client reindex 调用带 root 凭据 + 租户头
 - [ ] **B2** repo 全局删除 / slug 重命名触发 tombstone：`delete_resource(repos/<slug>/, recursive=True)` 清整棵子树
 - [ ] **B2** repo 失败走 `mark_failed` 收敛，出现在事件流与 m10 卡片
-- [ ] **B3** 启动 backfill / 定时 sweep 纳入已 ready 的 repo；`source_hash` 未变 → enqueued=0，变更 → 重新入队
-- [ ] **B4** repo 类同步任务在卡片显示可读 `display_name`，不出现 `repo · <hex-id>`；其余 UX 复用 m10，零新前端
+- [x] **B3** 启动 backfill / 定时 sweep 纳入已 ready 的 repo；`source_hash` 未变 → enqueued=0，变更 → 重新入队
+- [x] **B4** repo 类同步任务/失败事件显示可读 repo name；OpenViking repo hit 可映射为代码搜索结果
 - [ ] live e2e：发布/刷新一个 repo → OpenViking `find` 能召回该 repo 的代码片段
 - [ ] 后端 pytest / 前端 vitest / e2e 全绿，ruff / pyright / tsc / eslint clean
