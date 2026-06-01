@@ -44,6 +44,11 @@ def test_process_manager_builds_direct_command_without_unsetting_proxy(
         openviking_bin="/opt/codeask/bin/openviking-server",
         popen_factory=fake_popen,
         version_resolver=lambda: "openviking-server 0.3.17",
+        health_probe=lambda _base_url, _timeout: OpenVikingHealthStatus(
+            healthy=False,
+            version=None,
+            error="connection refused",
+        ),
     )
 
     handle = manager.ensure_server()
@@ -64,6 +69,11 @@ def test_process_manager_classifies_missing_openviking_binary(tmp_path: Path) ->
         data_dir=tmp_path,
         port=1933,
         openviking_bin="definitely-missing-openviking-server",
+        health_probe=lambda _base_url, _timeout: OpenVikingHealthStatus(
+            healthy=False,
+            version=None,
+            error="connection refused",
+        ),
     )
 
     with pytest.raises(RuntimeError, match="未找到 openviking-server"):
@@ -74,6 +84,36 @@ def test_process_manager_classifies_missing_openviking_binary(tmp_path: Path) ->
     assert status["configured_bin"] == "definitely-missing-openviking-server"
     assert status["resolved_bin"] is None
     assert status["last_error_code"] == "openviking_bin_not_found"
+
+
+def test_process_manager_adopts_existing_healthy_server_before_spawning(tmp_path: Path) -> None:
+    spawned: list[list[str]] = []
+
+    def fake_popen(cmd, env):
+        spawned.append(list(cmd))
+        raise AssertionError("should not spawn when configured endpoint is already healthy")
+
+    def fake_health_probe(base_url: str, timeout: float) -> OpenVikingHealthStatus:
+        assert base_url == "http://127.0.0.1:1933"
+        assert timeout == 2.0
+        return OpenVikingHealthStatus(healthy=True, version="0.3.17", error=None)
+
+    manager = OpenVikingProcessManager(
+        data_dir=tmp_path,
+        port=1933,
+        popen_factory=fake_popen,
+        health_probe=fake_health_probe,
+    )
+
+    handle = manager.ensure_server()
+    status = manager.describe()
+
+    assert spawned == []
+    assert handle.base_url == "http://127.0.0.1:1933"
+    assert status["running"] is True
+    assert status["available"] is True
+    assert status["pid"] is None
+    assert status["last_error"] is None
 
 
 def test_process_manager_does_not_mark_wrapper_available_until_health_passes(
@@ -201,7 +241,16 @@ def test_process_manager_restart_shutdowns_existing_process_and_starts_new(tmp_p
         started.append(list(cmd))
         return FakeProcess()
 
-    manager = OpenVikingProcessManager(data_dir=tmp_path, port=1933, popen_factory=fake_popen)
+    manager = OpenVikingProcessManager(
+        data_dir=tmp_path,
+        port=1933,
+        popen_factory=fake_popen,
+        health_probe=lambda _base_url, _timeout: OpenVikingHealthStatus(
+            healthy=False,
+            version=None,
+            error="connection refused",
+        ),
+    )
 
     first = manager.ensure_server()
     second = manager.restart_openviking()

@@ -37,7 +37,7 @@ Clock = Callable[[], float]
 class OpenVikingServerHandle:
     base_url: str
     port: int
-    pid: int
+    pid: int | None
 
 
 class OpenVikingProcessError(RuntimeError):
@@ -84,7 +84,11 @@ class OpenVikingProcessManager:
         self._started_at: float | None = None
 
     def ensure_server(self) -> OpenVikingServerHandle:
+        return self._ensure_server(adopt_existing=True)
+
+    def _ensure_server(self, *, adopt_existing: bool) -> OpenVikingServerHandle:
         with self._lock:
+            base_url = f"http://{self._host}:{self._port}"
             if (
                 self._process is not None
                 and self._process.poll() is None
@@ -105,6 +109,17 @@ class OpenVikingProcessManager:
                 self._process = None
                 self._handle = None
                 self._started_at = None
+            if self._process is None and adopt_existing:
+                external_handle = OpenVikingServerHandle(
+                    base_url=base_url,
+                    port=self._port,
+                    pid=None,
+                )
+                self._refresh_health(external_handle)
+                if self._available:
+                    self._handle = external_handle
+                    self._started_at = None
+                    return external_handle
             write_ov_conf(self._runtime_config)
             cmd = [
                 self._openviking_bin,
@@ -129,7 +144,7 @@ class OpenVikingProcessManager:
                 raise error from exc
             self._process = proc
             self._handle = OpenVikingServerHandle(
-                base_url=f"http://{self._host}:{self._port}",
+                base_url=base_url,
                 port=self._port,
                 pid=proc.pid,
             )
@@ -165,12 +180,14 @@ class OpenVikingProcessManager:
             self.shutdown()
             self._process = None
             self._handle = None
-            return self.ensure_server()
+            return self._ensure_server(adopt_existing=False)
 
     def describe(self) -> dict[str, object]:
         with self._lock:
             returncode = self._process.poll() if self._process is not None else None
-            running = self._process is not None and returncode is None
+            running = (self._process is not None and returncode is None) or (
+                self._process is None and self._handle is not None and self._available
+            )
             return {
                 "running": running,
                 "available": running and self._available,

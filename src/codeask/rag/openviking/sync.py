@@ -260,7 +260,6 @@ class OpenVikingSyncService:
 
         summary = await self.sweep_all(
             triggered_by=triggered_by,
-            force_enqueue=True,
         )
         return {**summary, "running": 0, "cooldown": 0}
 

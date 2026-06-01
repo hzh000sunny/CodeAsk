@@ -101,7 +101,7 @@ class _OpenVikingProcessStatus(Protocol):
 
 class _OpenVikingServerHandle(Protocol):
     @property
-    def pid(self) -> int: ...
+    def pid(self) -> int | None: ...
 
     @property
     def port(self) -> int: ...
@@ -612,6 +612,7 @@ def _ensure_openviking_server(
     if (
         reason != "startup"
         and previous_healthy_pid is not None
+        and handle.pid is not None
         and previous_healthy_pid != handle.pid
         and session_factory is not None
     ):

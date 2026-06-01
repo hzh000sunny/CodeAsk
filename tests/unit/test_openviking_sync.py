@@ -909,7 +909,7 @@ async def test_scheduled_add_resource_sweep_uses_db_cooldown_to_avoid_restart_re
 
 
 @pytest.mark.asyncio
-async def test_scheduled_add_resource_sweep_enqueues_even_when_hash_is_unchanged_after_cooldown(
+async def test_scheduled_add_resource_sweep_skips_when_hash_is_unchanged_after_cooldown(
     db_factory,
     tmp_path: Path,
 ) -> None:
@@ -946,12 +946,12 @@ async def test_scheduled_add_resource_sweep_enqueues_even_when_hash_is_unchanged
     assert first == {"scanned": 1, "enqueued": 1, "skipped": 0}
     assert second == {
         "scanned": 1,
-        "enqueued": 1,
-        "skipped": 0,
+        "enqueued": 0,
+        "skipped": 1,
         "running": 0,
         "cooldown": 0,
     }
-    assert job.status == "pending"
+    assert job.status == "indexed"
     assert job.source_hash == first_hash
 
 
