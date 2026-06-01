@@ -30,7 +30,7 @@
 
 ### B0 spike 调研结论（2026-05-30，免环境调研已完成）
 
-只读查阅已安装 `openviking==0.3.17` 的 HTTP API 与解析器（不 import、不改源码，符合 AGPL 边界），关键事实：
+只读查阅已安装 `openviking==0.3.17` 的 HTTP API 与解析器，关键事实：
 
 - **`POST /api/v1/resources`（`add_resource`）只接两种来源**：① `path` = 远程源（`http(s)://` / `git@` / `ssh://` / `git://` 仓库 URL）；② `temp_file_id` = 经 `POST /resources/temp_upload` 上传的**单个本地文件**。
 - **HTTP server 明确拒绝 host 本地路径**：`server/local_input_guard.py:require_remote_resource_source` 对非远程源直接抛 `PermissionDeniedError`。→ **不能把 cloner 的本地裸仓/工作树路径直接指给 OpenViking。**

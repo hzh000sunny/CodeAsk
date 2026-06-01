@@ -424,7 +424,6 @@ VLM / LLM 的作用是生成 L0 Abstract / L1 Overview 等语义层内容：
 
 需要在正式版本开发前验证：
 
-- OpenViking 当前许可证为 AGPL-3.0；如果作为依赖嵌入、修改源码或对外提供网络服务，需要在正式发布前做许可证审查。
 - PyPI wheel 是否覆盖 CodeAsk 常见部署平台；如果落到源码构建，是否需要 Rust / Cargo / C++ / CMake。
 - `openviking-server` 的 CLI 参数和文档差异需要锁版本后重新确认。
 - 本地 embedding 在中文 Wiki、代码注释、问题报告上的召回质量和耗时。

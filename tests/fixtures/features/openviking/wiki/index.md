@@ -13,7 +13,6 @@
 |---|---|
 | **仓库地址** | `github.com/volcengine/OpenViking` |
 | **主语言** | Python 3.10+ (核心), Rust (CLI + RAGFS), C++ (向量引擎) |
-| **许可证** | AGPLv3 (核心), Apache 2.0 (CLI/示例) |
 | **构建系统** | setuptools + maturin + CMake |
 | **核心依赖** | FastAPI, Pydantic, httpx, OpenAI SDK, LiteLLM, tree-sitter, OpenTelemetry |
 

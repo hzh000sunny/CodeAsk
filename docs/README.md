@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-[**v1.0.5**](./v1.0.5/) — Wiki 与代码仓 RAG（Completed；引入 OpenViking 作为统一上下文数据库，让 opencode 通过 OpenViking MCP 检索 Wiki / 问题报告 / 代码仓候选；OpenViking 集成边界已声明，无许可证前置门槛）
+[**v1.0.5**](./v1.0.5/) — Wiki 与代码仓 RAG（Completed；引入 OpenViking 作为统一上下文数据库，让 opencode 通过 OpenViking MCP 检索 Wiki / 问题报告 / 代码仓候选）
 
 ## 上一稳定版本
 

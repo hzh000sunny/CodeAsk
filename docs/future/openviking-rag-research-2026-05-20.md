@@ -533,32 +533,8 @@ opencode 动态上下文应告诉模型：
 7. OpenViking 不可用时，CodeAsk 是否降级到当前 workspace 文件检索能力。
 8. local embedding 在中文文档和代码场景下的质量与性能。
 9. VLM 缺失时，L0/L1 质量是否足够支撑第一版使用。
-10. OpenViking 的 AGPL-3.0 许可证对 CodeAsk 发布形态的影响。
 
-## 11. 许可证风险
-
-OpenViking 当前 `pyproject.toml` 标记为：
-
-```toml
-license = { text = "AGPL-3.0" }
-```
-
-仓库 `LICENSE` 也是 GNU Affero General Public License v3。
-
-对 CodeAsk 的影响需要在进入实现前单独确认：
-
-- 如果 CodeAsk 直接把 OpenViking 作为 Python 依赖嵌入同一进程，许可证义务可能影响 CodeAsk 的整体分发方式。
-- 如果 CodeAsk 以独立进程方式调用未修改的 OpenViking server，风险边界可能更清晰，但仍需要确认网络服务场景下的 AGPL 要求。
-- 如果未来修改 OpenViking 源码或复制其代码进入 CodeAsk，许可证义务会更强，不建议这样做。
-- CodeAsk 文档需要明确 OpenViking 是外部可选组件，并保留源码、版本和许可证引用。
-
-当前技术建议：
-
-- 第一版优先采用“独立 OpenViking server + CodeAsk Adapter”的边界，不复制 OpenViking 源码。
-- 在 README / 文档中保留 OpenViking 引用和许可证说明。
-- 正式发布前做一次许可证审查，确认 CodeAsk 自身发布方式是否需要调整。
-
-## 12. 当前结论
+## 11. 当前结论
 
 当前调研足以支撑继续做 OpenViking 方案设计，但还不足以直接开发完整 RAG：
 

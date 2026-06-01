@@ -2,7 +2,7 @@
 
 > 版本：v1.0.5
 > 状态：Completed
-> 关联：[产品契约](../prd/rag-knowledge.md) | [Phase 0 spike](../plans/phase-0-spike.md) | [集成边界声明](../specs/openviking-agpl-review.md)
+> 关联：[产品契约](../prd/rag-knowledge.md) | [Phase 0 spike](../plans/phase-0-spike.md)
 
 ---
 
@@ -660,7 +660,6 @@ Tool usage principles:
 | OpenViking 版本与已验证不一致 | 启动 warning；可配置阻止启动 | 阻止启动场景下进入 `backend_unavailable` 同样兜底 | warning |
 | MCP token 不一致 | 拒绝调用；审计 | opencode 退回 native grep | 行动轨迹错误事件 |
 | 资源不存在（read/list） | OpenViking 返回 not_found；模型自行处理 | 模型走其它工具 | 行动轨迹错误事件 |
-| 集成边界承诺被破坏（修改 OpenViking 源码 / 内嵌源码 / SaaS 化） | 触发 specs/openviking-agpl-review.md §4 回访；阻止该改动合入 | — | 项目负责人可见 |
 | OpenViking server 重启（手动 / 崩溃 / keepalive 拉起） | OpenViking 持久化队列（QueueFS + RedoLog）保证未完成 SemanticMsg 不丢；启动时自动恢复；in-flight 少数 chunk 重新入队；sync_jobs.progress 由 sweep 自动追上 | 重启窗口期内走兜底，恢复后自动续传 | 仪表盘事件 `openviking_restart_detected` + 进度从中断点继续 |
 | Ollama 进程重启 | OpenViking 端进度完全保留；in-flight HTTP connection reset 由 OpenViking re-enqueue；可能触发 circuit breaker 60 s 等待 | 同上 | 仪表盘事件 `ollama_recovery`；卡片显示"恢复中" |
 | CodeAsk 进程重启 | OpenViking 独立运行，sync_jobs `running` 状态保留；CodeAsk 重启后 sweep 自动对齐 | 重启完成立即恢复全功能 | 仪表盘事件 `codeask_restart_sweep` |
@@ -744,7 +743,6 @@ class Settings:
 - 单 Wiki / 单仓库同步耗时基线
 - 召回质量基线（min / mean / max score；零召回率）
 - 是否需要 VLM
-- 集成边界声明回访（指向 `specs/openviking-agpl-review.md`）
 
 ---
 

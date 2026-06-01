@@ -1,8 +1,8 @@
 # Phase 0 — OpenViking 可行性 Spike
 
 > 版本：v1.0.5
-> 状态：Completed（实验记录已落；无许可证前置门槛）
-> 关联：[PRD](../prd/rag-knowledge.md) · [设计](../design/openviking-integration.md) · [集成边界声明](../specs/openviking-agpl-review.md) · [收口验收](./acceptance-checklist.md)
+> 状态：Completed（实验记录已落）
+> 关联：[PRD](../prd/rag-knowledge.md) · [设计](../design/openviking-integration.md) · [收口验收](./acceptance-checklist.md)
 
 ---
 
@@ -45,9 +45,8 @@ Phase 0 不做：
 | 2 | 本机 `uv` 可用 | `uv --version`（实测 0.11.8） | OK |
 | 3 | 本机磁盘空间预留 ≥ 5 GiB | OpenViking 索引 + Ollama 模型 + 临时下载 | 检查 |
 | 4 | CodeAsk 当前可正常运行（v1.0.4） | `./start.sh` 跑通；admin 可登录 | 检查 |
-| 5 | OpenViking 集成边界声明已记录 | `specs/openviking-agpl-review.md` 状态 = Recorded（已完成） | OK |
 
-许可证不再作为前置门槛；用户已确认不修改 OpenViking 源码且不规划 SaaS，详见 [`../specs/openviking-agpl-review.md`](../specs/openviking-agpl-review.md)。其余门槛逐项确认后写入 §10 实验记录。
+各门槛逐项确认后写入 §10 实验记录。
 
 ---
 

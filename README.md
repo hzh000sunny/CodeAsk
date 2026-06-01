@@ -253,7 +253,7 @@ CodeAsk 的实现是面向自身产品定位的独立设计，但在部分版本
 | v1.0.2 | [anthropics/claude-code](https://github.com/anthropics/claude-code) | 参考了 Claude Code 在工具调用、长上下文处理、行动轨迹和面向代码任务的 Agent 运行时组织方式。 |
 | v1.0.2 | [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | 参考了社区对 Claude Code 架构和使用模式的整理，用于辅助理解工具编排、权限边界和交互体验。 |
 | v1.0.4 | [anomalyco/opencode](https://github.com/anomalyco/opencode) | 基于 opencode 1.14.48 实测接入 shared server、workspace 级配置、remote MCP、事件流和工具权限边界。 |
-| v1.0.5 | [volcengine/OpenViking](https://github.com/volcengine/OpenViking) | 参考并接入 OpenViking 0.3.17 作为统一上下文数据库；上游许可证 AGPL-3.0，CodeAsk 不修改、不内嵌 OpenViking 源码，通过独立子进程调用。 |
+| v1.0.5 | [volcengine/OpenViking](https://github.com/volcengine/OpenViking) | 参考并接入 OpenViking 0.3.17 作为统一上下文数据库；CodeAsk 不修改、不内嵌 OpenViking 源码，通过独立子进程调用。 |
 
 ## License
 

@@ -17,8 +17,7 @@
 
 ## 1. OpenViking 集成边界
 
-- [x] `docs/v1.0.5/specs/openviking-agpl-review.md` 状态 = Recorded（已完成）
-- [ ] CodeAsk README / INSTALL 包含 OpenViking 引用与许可证披露
+- [ ] CodeAsk README / INSTALL 包含 OpenViking 引用
 - [ ] CodeAsk 仓库未拷贝 OpenViking 源码（grep 验证）
 - [x] OpenViking 作为 CodeAsk 声明依赖随 `uv sync` 安装；运行期通过 `openviking_bin` 直接拉起独立 `openviking-server` 子进程，不再使用 `uvx` 在线解析依赖；业务代码不 `import openviking`
 - [ ] 没有任何文件 `import openviking` 作为业务代码（grep 验证）

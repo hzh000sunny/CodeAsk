@@ -8,7 +8,6 @@
 | 显示名 | OpenViking |
 | 上游仓库 | `https://github.com/volcengine/OpenViking` |
 | Git URL | `git@github.com:volcengine/OpenViking.git` |
-| 上游许可证 | AGPL-3.0（核心）+ Apache-2.0（部分 CLI / 示例） |
 | 上游主语言 | Python 3.10+（核心）/ Rust / C++ |
 | 已锁定 PyPI 版本 | `0.3.17`（与 `docs/future/openviking-rag-research-2026-05-20.md` 实测一致） |
 | wiki 抓取日期 | 2026-05-20 |
@@ -36,7 +35,7 @@ git clone git@github.com:volcengine/OpenViking.git $CODEASK_REFERENCES_DIR/OpenV
 
 `references/OpenViking/` 已在 `.gitignore`。
 
-> 重要：CodeAsk 不修改、不内嵌 OpenViking 源码。代码仓注册时只作为只读检索目标。详见 [`../../../docs/v1.0.5/specs/openviking-agpl-review.md`](../../../docs/v1.0.5/specs/openviking-agpl-review.md)。
+> 重要：CodeAsk 不修改、不内嵌 OpenViking 源码。代码仓注册时只作为只读检索目标。
 
 ## 使用入口
 

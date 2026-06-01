@@ -69,7 +69,6 @@ v1.0.5 不做：
 | RAG 后端 | OpenViking 统一后端 | Wiki、问题报告、代码仓都进入同一 `viking://resources/codeask/` 资源空间 |
 | Embedding provider | 本机 Ollama | OpenViking ov.conf 顶层 `embedding.dense.provider = ollama`；默认模型 `bge-m3`（admin UI 可切换） |
 | OpenViking 进程 | CodeAsk 后端管理 | 参考 v1.0.4 shared opencode serve：启动拉起 + keepalive + admin 诊断；Ollama 进程不归 CodeAsk 管 |
-| AGPL 边界 | 边界承诺已记录，无前置门槛 | CodeAsk 不修改 OpenViking 源码、不内嵌源码、当前不规划 SaaS；详见 `specs/openviking-agpl-review.md` |
 | 数据目录 | `$CODEASK_DATA_DIR/openviking/{ov.conf,workspace,models,logs}` | 不使用用户默认 `~/.openviking` |
 | 处理参考 | anything-llm | chunk header、vector cache、sync queue、source dedup、worker SSE 进度等模式 |
 | 退化策略 | **graceful degradation**：OpenViking 不可用时，Wiki UI 搜索框走 SQL ILIKE 兜底，opencode 会话走 native `read/grep/glob` 在 `workspace/wiki/` symlink 上检索；admin 仪表盘标 degraded，但用户路径保持可用、不弹窗中断 | OpenViking 是 v1.0.5 的**增强**而不是 hard dependency |
@@ -89,7 +88,6 @@ v1.0.5/
 │   ├── phase-2-opencode-integration.md    # Phase 2 opencode 主链路接入计划（框架）
 │   └── acceptance-checklist.md            # 多环境 E2E 与收口验收清单
 └── specs/
-    ├── openviking-agpl-review.md          # OpenViking 集成边界声明（许可证承诺记录）
     ├── ollama-installation.md             # Ollama 安装实测记录（Phase 0）
     └── openviking-server-bootstrap.md     # OpenViking server 首次启动实测记录（Phase 0）
 ```
@@ -109,7 +107,7 @@ v1.0.5/
 
 ## 当前实施进度
 
-- 2026-05-20：v1.0.5 文档骨架建立；OpenViking 集成边界已声明（不修改源码、不内嵌源码、不规划 SaaS），无许可证前置门槛。
+- 2026-05-20：v1.0.5 文档骨架建立；OpenViking 集成边界已声明（不修改源码、不内嵌源码）。
 - 2026-05-20：Phase 0 spike 启动；本机 Ollama 0.24.0 + OpenViking 0.3.17 + MCP 10 tools 全部验证通过；实测记录见 `specs/ollama-installation.md` 与 `specs/openviking-server-bootstrap.md`。
 - 2026-05-21：embedding 模型选定 `bge-m3`（中文 wiki 优先，admin UI 可切换；PRD §7.1、SDD §3.3 已补）。
 - 2026-05-21：发现 CPU 上 Ollama embedding 并发雪崩（默认 max_concurrent=10 → 单 chunk 88s），收敛为 `max_concurrent=1` 顺序处理，单 chunk 稳定 ~3s。

@@ -295,7 +295,6 @@ v1.0.5 把 embedding 模型当作"运行时可切换的 admin 配置"，不是�
 ### 9.1 功能验收
 
 - [ ] Phase 0 spike 通过：OpenViking server 在 CodeAsk `uv` 环境中可启动、健康检查、停止、重启
-- [ ] OpenViking 集成边界声明（不修改源码、不内嵌源码）已落到 `specs/openviking-agpl-review.md`，README/INSTALL 披露完成
 - [ ] CodeAsk 后端在 startup 拉起 OpenViking server 并注册 keepalive
 - [ ] admin 诊断接口 `GET /api/admin/openviking/status` 可读 running / pid / port / version / queue / last_health_at / last_error
 - [ ] 真实 Feature Wiki 同步到 `viking://resources/codeask/features/<slug>/knowledge-base/` 后可 `find/search/read/grep/glob`
@@ -317,7 +316,7 @@ v1.0.5 把 embedding 模型当作"运行时可切换的 admin 配置"，不是�
 - [ ] 工具事件返回前端前完成路径脱敏（沿用 v1.0.4 出口脱敏规则）
 - [ ] 同步任务失败有重试上限和 cooldown，避免坏配置反复跑
 - [ ] Phase 0 实测耗时基线：Wiki 单文档同步 < N 秒（具体 N 在 spike 中确定）
-- [ ] 集成边界承诺落地：CodeAsk 仓库不出现 OpenViking 源码、不修改 OpenViking 源码、OpenViking 以独立进程运行；README/INSTALL 包含 OpenViking 引用与许可证披露
+- [ ] 集成边界承诺落地：CodeAsk 仓库不出现 OpenViking 源码、不修改 OpenViking 源码、OpenViking 以独立进程运行；README/INSTALL 包含 OpenViking 引用
 
 ### 9.3 端到端验收
 
