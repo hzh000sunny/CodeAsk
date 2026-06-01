@@ -1,7 +1,7 @@
 # M11 — 代码仓 → OpenViking 内容同步
 
 > 版本：v1.0.5
-> 状态：**Ready for B1（2026-05-31 架构复核重测：B0.1 闸门通过，写入策略已定）**。开发曾因"删除后 find 残留"冻结，复核证明那是 delete→reindex 顺序产生的可过滤幽灵，删除本身干净 → 解冻。最终写入配方见 [feasibility §6.2](./m11-openviking-repo-feasibility-research.md#62-最终方向m11-b-可落地配方)。
+> 状态：**Ready for B1（2026-05-31 架构复核重测：B0.1 闸门通过，写入策略已定）**。开发曾因"删除后 find 残留"冻结；复核证明删除本身干净，所谓残留经受控复现复不出、疑似异步竞态而非确定性 bug → 解冻。最终写入配方见 [feasibility §6.2](./m11-openviking-repo-feasibility-research.md#62-最终方向m11-b-可落地配方)。
 > 关联：[openviking-integration 设计 §2.1/§4](../design/openviking-integration.md) · [m5 写路径 hook](./m5-write-path-hooks.md) · [m6 同步完整性](./m6-sync-completeness-and-events.md) · [m10 同步任务 UX](./m10-sync-jobs-ux.md) · [acceptance §3.2/§3.7](./acceptance-checklist.md) · [可行性再调研](./m11-openviking-repo-feasibility-research.md)
 > 来源：2026-05-30 终验复盘——设计自始至终包含"代码仓进 OpenViking"，但实现只接了 `wiki_doc` / `report` 两类 `source_type`，repo 同步链从未接线。**这是架构拆任务时的遗漏**（M5 引擎只实现 wiki_doc/report 正文解析、M6 backfill 只枚举 wiki+report、cloner 仅发 `repo_synced` 事件不入队），本里程碑补齐。
 
@@ -26,7 +26,7 @@
 
 ## 1. 决策（2026-05-30 负责人认可）
 
-> repo 内容如果进入 OpenViking，必须由 **CodeAsk 驱动同步**：以 CodeAsk 的 bare 克隆快照为准（保证 RAG 索引 == agent 在 worktree 所见，无漂移），**不**让 OpenViking 自己 watch URL 拉取。这个方向保留。具体写入策略：原候选 B′（首次 zip + 逐文件 `add_resource`）已证伪；**2026-05-31 架构复核重测确定改用 `content.write` 文件镜像配方**（A/M→`content.write`、D→`fs.rm`、R→`fs.mv`，子树 `semantic_and_vectors` reindex 生成 abstract，读侧按 `read/stat` 存在性过滤幽灵）。开发曾报"删除后 find 仍返回已删 URI"，复核证明删除本身干净，该现象是一次成功的子树 reindex 复活已删文件成空-abstract 幽灵（`read`→404，可过滤），**不是删除失败**。B0.1 闸门通过，B1/B2 解冻。详见 [feasibility §6](./m11-openviking-repo-feasibility-research.md#6-架构复核重测--最终方向2026-05-31reviewer)。
+> repo 内容如果进入 OpenViking，必须由 **CodeAsk 驱动同步**：以 CodeAsk 的 bare 克隆快照为准（保证 RAG 索引 == agent 在 worktree 所见，无漂移），**不**让 OpenViking 自己 watch URL 拉取。这个方向保留。具体写入策略：原候选 B′（首次 zip + 逐文件 `add_resource`）已证伪；**2026-05-31 架构复核重测确定改用 `content.write` 文件镜像配方**（A/M→`content.write`、D→`fs.rm`、R→`fs.mv`；**写后队列嵌入即可 find，reindex 仅为可选 abstract 增强**；读侧 `read/stat` 存在性过滤作防御）。开发曾报"删除后 find 仍返回已删 URI"，复核证明删除本身干净，该现象经受控复现复不出、疑似异步竞态而非确定性 bug，**不是删除失败**。B0.1 闸门通过，B1/B2 解冻。详见 [feasibility §6](./m11-openviking-repo-feasibility-research.md#6-架构复核重测--最终方向2026-05-31reviewer)。
 
 ### B0 spike 调研结论（2026-05-30，免环境调研已完成）
 
@@ -123,7 +123,7 @@ CodeAsk 的 bare 克隆带完整历史，repo 同步任务已记 `source_hash`�
 
 ### B0.1 —— spike：重新确定写入策略（架构，闸门）✅ 已通过（2026-05-31 复核）
 - 第二轮 live PoC：remote git / zip / 单文件 `add_resource` 均不可用（已否决）。
-- **架构复核重测定案**（[feasibility §6](./m11-openviking-repo-feasibility-research.md#6-架构复核重测--最终方向2026-05-31reviewer)）：选 **A 方向（content.write 文件镜像 + root/admin reindex + 读侧存在性过滤）**。删除残留被证明是 delete→reindex 顺序的可过滤幽灵，删除本身干净，闸门通过。
+- **架构复核重测定案**（[feasibility §6](./m11-openviking-repo-feasibility-research.md#6-架构复核重测--最终方向2026-05-31reviewer)）：选 **`content.write` 文件镜像**为主路径——写后队列嵌入即可 find，**reindex（补 abstract）与读侧存在性过滤均为可选增强/防御，非主路径必需**。"删除残留"经受控复现复不出、疑似异步竞态而非确定性 bug，删除本身干净，闸门通过。
 - repo URI 对外契约：agent/UI 看到的必须是仓库相对路径；用 `content.write` 直接写真实文件节点，**不会**产生 `src/foo.py/foo.md`（那是 `add_resource` 的形态，本方案不用）。
 - 负责人决策：① 配 root/admin key 启用 reindex；② 吞吐慢可接受、靠现有可观测面（status/sync_jobs/events/metrics）暴露异步进度，job 长期 `running` 是正常态；③ embedder 将可换（默认 OV 自带，三方走自定义配置），不写死 bge-m3。
 - 落地物：更新 `design/openviking-integration.md` §2.1/§4 为 content.write 配方（随 B2 实现一并改）。
@@ -141,9 +141,9 @@ CodeAsk 的 bare 克隆带完整历史，repo 同步任务已记 `source_hash`�
   - `D` → `fs.rm(uri, recursive=false)`（删除自清理，无需事后 reindex 该文件）
   - `R` → `fs.mv(from_uri, to_uri)`（重命名干净，旧 URI 不残留）
   - **禁止** `add_resource`（目录化）/ zip（不稳定）/ 逐文件 reindex（409 树锁）。
-- 一批写完后做**子树** `content/reindex(uri=repos/<slug>/, mode=semantic_and_vectors)` 生成 abstract；需 root/admin key + `X-OpenViking-Account/User` 头。
-- `OpenVikingClient` 新增：`write_content` / `mkdir` / `mv` / `reindex`（带 root 凭据与租户头）；`delete_resource` 复用。
-- **读侧护栏（关键）**：`openviking_find/search` wrapper 丢弃 `fs.stat`/`content/read`→404 的命中（中和子树 reindex 复活的空-abstract 幽灵）。完成判据=触达文件 `read`/`stat` 存在性（+可选 find 可见）、删除文件 `read`→404；**绝不**用"find 不再返回旧 URI"判定。
+- 写后内容靠队列嵌入即可被 find 召回（**不依赖 reindex**）。**可选增强**：一批写完后做**子树** `content/reindex(uri=repos/<slug>/, mode=semantic_and_vectors)` 生成 abstract / 提升摘要级召回；这一步才需 root/admin key + `X-OpenViking-Account/User` 头。先按"无 reindex"跑通，确认 abstract 对 repo 召回确有价值再启用。
+- `OpenVikingClient` 新增：`write_content` / `mkdir` / `mv` / `read`(/`stat`)；`reindex`（带 root 凭据与租户头，启用 reindex 时才需）；`delete_resource` 复用。
+- **读侧护栏（防御性）**：`openviking_find/search` wrapper 丢弃 `fs.stat`/`content/read`→404 的命中。它本就要把 find 命中映射到真实仓库读取（代码经 worktree 读），零额外成本；顺带兜 feasibility §6.1.3 那种罕见竞态孤儿及任何 fs↔向量漂移，**非堵确定性 bug**。两阶段完成判据：`read`/`stat` 存在（mirrored/running）→ 目标文件 find 可召回且命中 URI 仍可 read（indexed）；删除文件 `read`→404。**绝不**用"find 不再返回旧 URI"判定删除。
 - 失败 / 重试 / cancelled 走既有 `mark_failed`（M8）。embedding 慢导致 find 暂不可见时，job 保持 `running` 慢慢推进（负责人决策②），不算失败。
 - tombstone：**repo 全局删除** / slug 重命名 → 旧 uri `delete_resource(repos/<slug>/, recursive=True)`（一次清整棵子树）。对应设计 §4 "slug 重命名 → tombstone → 删除 → 新 pending"，此前对 repo 不存在，本里程碑补上。删除入队点在 `code_index` 删仓 API commit 后（沿用 M5 commit 边界）。
 - 失败 / 重试 / cancelled 走既有 `mark_failed` 收敛（M8 已定），repo 类失败自动出现在事件流与 m10 卡片。
@@ -162,8 +162,8 @@ CodeAsk 的 bare 克隆带完整历史，repo 同步任务已记 `source_hash`�
 - `src/codeask/api/code_index.py`：删仓端点 commit 后 enqueue tombstone（B2 删除路径）。
 - `src/codeask/rag/openviking/sync.py`：`source_type` Literal 纳入 repo；`run_pending_jobs` repo 分支（写入策略待 B0.1 定稿）；last sha 落库；backfill 枚举 repo（B1/B2/B3）。
 - `src/codeask/rag/openviking/hooks.py`：`source_type` Literal 纳入 repo（B1）。
-- `src/codeask/rag/openviking/config.py`：生成的 `ov.conf` 配 root/admin key（启用 reindex）；**不写死 embedder**——保留 ollama/bge-m3 为可换默认，后续切 OV 自带 embedding（负责人决策①③）。
-- `src/codeask/rag/openviking/client.py`：新增 `write_content` / `mkdir` / `mv` / `reindex`（带 root 凭据 + 租户头）；`find/search` wrapper 加 `read/stat` 存在性过滤；复用 `delete_resource`（B2）。
+- `src/codeask/rag/openviking/config.py`：**启用 reindex 时**才在生成的 `ov.conf` 配 root/admin key（决策①）；**不写死 embedder**——保留 ollama/bge-m3 为可换默认，后续切 OV 自带 embedding（决策③）。
+- `src/codeask/rag/openviking/client.py`：新增 `write_content` / `mkdir` / `mv` / `read`(/`stat`)；`reindex`（带 root 凭据 + 租户头，启用 reindex 时才用）；`find/search` wrapper 加 `read/stat` 存在性过滤；复用 `delete_resource`（B2）。
 - `src/codeask/rag/openviking/uri.py`：`repo_uri` 复活为真实调用方；repo uri = `repos/<slug>/<仓库相对路径>`（B2）。
 - `src/codeask/api/openviking_status.py`：`display_name` 反查覆盖 repo（B4）。
 - 设计文档 `design/openviking-integration.md` §2.1/§4（B0）。
@@ -182,11 +182,11 @@ CodeAsk 的 bare 克隆带完整历史，repo 同步任务已记 `source_hash`�
 - [x] **B0** live PoC 已跑：单文件 add 可召回、zip 可解包，但 zip 与逐文件 add 不能混用；原 B′ 判定未通过
 - [x] **B0.1 第二轮调研** 已跑：三 fixture repo ready + 绑定；remote git / zip / 单文件 add 否决
 - [x] **B0.2 正向验证** 已跑：`content.write(create) + content/reindex` 可让新增文件按 repo path 被 read/grep/find
-- [x] **B0.2 删除残留** ✅ 复核澄清（2026-05-31）：删除本身干净（`fs.rm` 后未 reindex 即不召回、`read`→404）；所谓残留是子树 reindex 复活的空-abstract 幽灵（`read`→404，读侧存在性过滤中和）。**闸门通过，B1/B2 解冻**
+- [x] **B0.2 删除残留** ✅ 复核澄清（2026-05-31）：删除本身干净（`fs.rm` 后未 reindex 即不召回、`read`→404）；所谓残留经受控复现复不出、疑似异步竞态而非确定性 bug（读侧存在性过滤作防御保险）。**闸门通过，B1/B2 解冻**
 - [ ] **B1** cloner ready/refresh 成功后入队 `source_type="repo"` 任务（带 HEAD sha），`source_type` Literal 已纳入 repo，commit 后入队无孤儿
 - [ ] **B1** 成功后落库 last-synced sha 作下次 diff 基线；`(source_type, source_id)` 非终态唯一约束对 repo 成立
-- [ ] **B2** 按 feasibility §6.2 配方实现 repo 分派：A/M→`content.write`、D→`fs.rm`、R→`fs.mv`、子树 `semantic_and_vectors` reindex；读侧 `read/stat` 存在性过滤；完成判据=存在性+find 可见，不用"find 不返回旧 URI"
-- [ ] **B2** CodeAsk 生成的 ov.conf 配 root/admin key，client reindex 调用带 root 凭据 + 租户头
+- [ ] **B2** 按 feasibility §6.2 配方实现 repo 分派：A/M→`content.write`、D→`fs.rm`、R→`fs.mv`；写后队列嵌入即可 find（不依赖 reindex）；读侧 `read/stat` 存在性过滤；两阶段完成判据（mirrored=存在性 / indexed=find 可召回且命中可 read），不用"find 不返回旧 URI"判删除
+- [ ] **B2（可选增强）** 若确认 abstract 对 repo 召回有价值：子树 `semantic_and_vectors` reindex；此时才在 ov.conf 配 root/admin key、client reindex 调用带 root 凭据 + 租户头
 - [ ] **B2** repo 全局删除 / slug 重命名触发 tombstone：`delete_resource(repos/<slug>/, recursive=True)` 清整棵子树
 - [ ] **B2** repo 失败走 `mark_failed` 收敛，出现在事件流与 m10 卡片
 - [ ] **B3** 启动 backfill / 定时 sweep 纳入已 ready 的 repo；`source_hash` 未变 → enqueued=0，变更 → 重新入队

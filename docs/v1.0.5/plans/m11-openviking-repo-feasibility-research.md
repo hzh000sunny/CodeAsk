@@ -5,7 +5,7 @@
 > 关联：[m11-repo-openviking-sync](./m11-repo-openviking-sync.md) · [m11-b0-research-checklist](./m11-b0-research-checklist.md) · [openviking-integration 设计](../design/openviking-integration.md)
 > 背景：负责人要求抛开原 zip 方案，重新全面调研 git repo / local code repo 进入 OpenViking 的可实施方向。
 >
-> ⚠️ **读这份文档先看 §6**：§0–§5 是开发第二轮的结论（曾据此冻结 M11-B），其核心阻塞"删除后 find 仍返回已删 URI"在 §6 的架构复核重测中被证明是**流程伪命题**（delete→reindex 顺序产生的可过滤幽灵），M11-B 因此**解冻、方向已定**。
+> ⚠️ **读这份文档先看 §6**：§0–§5 是开发第二轮的结论（曾据此冻结 M11-B），其核心阻塞"删除后 find 仍返回已删 URI"在 §6 的架构复核重测中被推翻——删除本身干净，该现象经受控复现复不出、疑似异步竞态而非确定性 bug。M11-B 因此**解冻、方向已定**。
 
 ---
 
@@ -356,7 +356,7 @@
 
 ## 6. 架构复核重测 + 最终方向（2026-05-31，reviewer）
 
-带着质疑在真实 OpenViking 上重跑了 §2.5/§2.5.1 的关键结论。**§0–§5 用来冻结 M11-B 的核心阻塞——"删除文件并 reindex 后 find 仍返回已删 URI"——是流程伪命题，不是 OpenViking 限制。M11-B 解冻、方向已定。**
+带着质疑在真实 OpenViking 上重跑了 §2.5/§2.5.1 的关键结论。**§0–§5 用来冻结 M11-B 的核心阻塞——"删除文件并 reindex 后 find 仍返回已删 URI"——经受控复现证明：删除本身干净，该现象不是 OpenViking 的确定性行为（见 §6.1.3）。M11-B 解冻、方向已定。**
 
 测试用两台实例：root/admin `:1944`（带 reindex 权限）+ 真实 trusted `:1933`（throwaway 前缀，已清理）。每步抓原始返回。
 
@@ -366,9 +366,11 @@
 
 2. **删除本身干净（自清理）。** `fs.rm(recursive=false)` 后**未 reindex 前**，find 立刻不返回该文件、`content/read`→404。trusted `:1933` 与 root `:1944` 均如此。
 
-3. **§2.5.1 的"删除残留"是一次成功的子树 `semantic_and_vectors` reindex 把已删文件复活成幽灵**，不是删除失败。幽灵键在旧 URI、`abstract` 为空、`content/read`→404，**可确定性过滤**。
-   - 证据：删 `alpha.py`(rec=false) → find 干净 → `reindex(ROOT, semantic_and_vectors)` 成功 → `alpha.py` 以 `abstract:""`、score 与删前**逐字节相同**（0.531）重新出现；`content/read`→404。
-   - 开发只测了 `vectors_only`；我把 `semantic_and_vectors` 也测了，**两种 mode 都不剪枝、都会复活**——reindex 只重建树内记录，从不删孤儿。
+3. **§2.5.1 的"删除残留"不是删除失败，也不是 reindex 的确定性行为——疑似异步竞态，受控复现复不出。**
+   - 早期两次（probe1/probe2，reindex 仅 8–31s、且**未** drain 异步队列）确实抓到：删文件 → find 干净 → 一次成功的子树 reindex 后，已删文件以 `abstract:""`、score 与删前**逐字节相同**（0.635 / 0.531）、`content/read`→404 重新出现在 find 里——即向量索引留了孤儿。证据真实。
+   - **但随后两次受控复现（每步用 `system/wait` drain 队列、reindex 175–216s）均无法重现**：删除后无论是否有存活兄弟文件、无论 `vectors_only` 还是 `semantic_and_vectors`，reindex 后 `find` 都不再返回已删文件（命中=False、`read`→404）。
+   - 结论修正：**幽灵不是"reindex 必然复活已删文件"**（此前我据 probe1/2 下的强断言过度了，开发复现不出来是对的）。两次出现与复不出的唯一差别是**删除前后异步嵌入/语义队列是否已 drain**——最可能是 **in-flight 嵌入任务与删除的竞态**：任务在删除后才完成、把向量写回，被随后的 reindex/find 暴露；队列 settle 后即不出现。具体触发条件未进一步钉死（负责人指示先不深究）。
+   - 影响：孤儿从"确定性阻塞"降级为"罕见瞬态竞态"，读侧存在性过滤因此是**廉价防御保险**，不是堵确定性 bug 的必备护栏（见 §6.2）。
 
 4. **"空 abstract" 不是墓碑信号。** 刚写入、embedding 已入队的**活文件**，在子树 reindex 生成 abstract 之前，find 里 `abstract` 同样为空（实测 `gamma.py` score 0.542、abstract 空、`content/read`→200）。唯一可靠判据是 **`content/read`/`fs.stat` 存在性**。开发提议的完成/删除判据"find 不再返回 URI"两头都错（活文件可能 abstract 空；幽灵可能仍被 find 返回）。
 
@@ -388,9 +390,9 @@
 | `D` | `fs.rm(recursive=false)`（自清理） |
 | `R` | `fs.mv(from, to)`（干净迁移，含向量/abstract） |
 
-- **索引**：内容靠 embedding 队列自动入向量（基础 content 召回可用）；子树 `content/reindex(semantic_and_vectors)` 用于生成 abstract / 摘要级召回。
-- **读侧护栏**：CodeAsk 的 `openviking_find/search` wrapper **丢弃任何 `fs.stat`/`content/read`→404 的命中**（幽灵）。它本就要把 find 命中的路径映射到真实仓库读取（代码经 worktree 读），存在性检查零额外成本。
-- **完成判据**：触达文件 `read`/`stat` 存在性（+ 可选 find 可见）；删除文件 `read`→404。**绝不**用"find 不再返回旧 URI"做判据。
+- **索引**：内容靠 embedding 队列自动入向量（基础 content 召回即可用，**不依赖 reindex**——write 后队列嵌入完即可 find，实测 score 0.83/0.74）；子树 `content/reindex(semantic_and_vectors)` **仅用于补 abstract / 摘要级召回，是可选增强**，不是建索引必经步骤。
+- **读侧护栏（防御性，非必备）**：CodeAsk 的 `openviking_find/search` wrapper **丢弃任何 `fs.stat`/`content/read`→404 的命中**。它本就要把 find 命中映射到真实仓库读取（代码经 worktree 读），存在性检查零额外成本；顺带兜住 §6.1.3 那种罕见异步竞态孤儿及任何 fs↔向量漂移。**不是为了堵一个确定性 bug**。
+- **完成判据**：触达文件 `read`/`stat` 存在性（mirrored）→ 目标文件 `find` 可召回且命中 URI 仍可 `read`（indexed）；删除文件 `read`→404。**绝不**用"find 不再返回旧 URI"做删除判据（既因竞态孤儿可能短暂存在，也因活文件 abstract 可能为空）。
 
 ### 6.3 负责人 2026-05-31 决策（据此实现）
 
@@ -400,4 +402,4 @@
 
 ### 6.4 与 §3.3"不建议"的对账
 
-§3.3 仍成立：zip 首次全量、单文件 `add_resource`、OV 自拉 remote git 三条继续否决。**新增可行项**：`content.write + fs.rm/fs.mv + 子树 reindex + 读侧存在性过滤`——这是 §3.1 "M11-B" 进入实现前四条硬门槛的达成路径（门槛 4"删除后旧 URI 不召回"由读侧存在性过滤等价满足，因为底层删除本就干净）。
+§3.3 仍成立：zip 首次全量、单文件 `add_resource`、OV 自拉 remote git 三条继续否决。**新增可行项**：`content.write + fs.rm/fs.mv`（reindex 与读侧存在性过滤为可选增强/防御）——这是 §3.1 "M11-B" 进入实现前四条硬门槛的达成路径。门槛 4"删除后旧 URI 不召回"**底层删除本就满足**（删后 find 立刻干净）；读侧存在性过滤只是兜罕见竞态孤儿的额外保险。

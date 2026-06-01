@@ -5,7 +5,7 @@
 > 关联：[m11 实现计划](./m11-repo-openviking-sync.md) · [openviking-integration 设计 §2.1/§4](../design/openviking-integration.md) · [m9 运行时预备](./m9-openviking-runtime-provisioning.md)
 > 用途：记录 B′ 方案 live PoC 的真实行为与证据；后续 B0.1 在此基础上补新增/修改/读取契约验证。
 >
-> ⚠️ §5 总判定"不通过/B1/B2 冻结"已被 §6 复核更正：删除本身干净，所谓残留是 delete→reindex 顺序产生的可过滤幽灵。**M11-B 已解冻**。
+> ⚠️ §5 总判定"不通过/B1/B2 冻结"已被 §6 复核更正：删除本身干净；所谓"残留"经受控复现复不出，疑似异步竞态而非确定性 bug。**M11-B 已解冻**。
 
 ---
 
@@ -560,12 +560,12 @@ curl -sS -X DELETE "$BASE_URL/api/v1/fs?uri=viking://resources/codeask/repos/<sl
 
 §5 的"不通过 / 删除残留未解 / B1/B2 冻结"已被真实重测推翻。完整证据与最终方向见 **[feasibility §6](./m11-openviking-repo-feasibility-research.md#6-架构复核重测--最终方向2026-05-31reviewer)**，要点：
 
-- **删除本身干净**：`fs.rm(rec=false)` 后未 reindex 前 find 立刻不返回、`read`→404（trusted 与 root 实例均验证）。
-- **§5 的"删除残留"= 一次成功的子树 `semantic_and_vectors` reindex 把已删文件复活成幽灵**（旧 URI、abstract 空、`read`→404），可确定性过滤。`vectors_only` 与 `semantic_and_vectors` 都会复活，都不剪枝。
+- **删除本身干净**：`fs.rm(rec=false)` 后未 reindex 前 find 立刻不返回、`read`→404（trusted 与 root 实例、每次都验证）。
+- **§5 的"删除残留"不是确定性 bug**：早期两次（未 drain 异步队列、reindex 很快）抓到 reindex 后已删文件以空 abstract、相同 score、`read`→404 复活；但随后**两次受控复现（drain 队列后）均复不出**，无论有无存活兄弟、无论哪种 mode。修正：**幽灵疑似 in-flight 嵌入任务与删除的异步竞态**，非"reindex 必然复活"。开发复现不出来是对的。触发条件按负责人指示先不深究。
+- **写用 `content.write`（真实文件节点，无目录化），且不 reindex 即可 find 召回**（队列嵌入完即可，实测 0.83/0.74）；reindex 仅补 abstract，是可选增强。A/M→write、D→`fs.rm`、R→`fs.mv`（mv 重命名干净）。逐文件 reindex 不可行（409 树锁）。
 - **"空 abstract" 不是墓碑信号**：活的新文件在子树 reindex 前 abstract 也空。判据只能用 `read`/`fs.stat` 存在性。
-- **写用 `content.write`（真实文件节点，无目录化）**，A/M→write、D→`fs.rm`、R→`fs.mv`（mv 重命名干净）。逐文件 reindex 不可行（409 树锁），reindex 子树级 + 需 root/admin + 租户头。
 - **瓶颈是 embedding 吞吐**（ollama bge-m3 单次 5–20s，`max_concurrent=1`），非语义缺陷。
 
 **负责人三决策**（据此实现，详见 feasibility §6.3）：① 走 reindex 路线 → CodeAsk 配 root/admin key；② 吞吐慢可接受，只要异步可观测（status/sync_jobs/events/metrics）、任务慢慢推进；③ embedder 将可换（默认改 OV 自带，ollama/三方走自定义配置），设计不写死 bge-m3。
 
-→ 故本文 §0 的 R/X/P 三组闸门已不再是阻塞：R（可读可检索）由 content.write + 子树 reindex 满足；X（删除不残留）由删除本身干净 + 读侧存在性过滤满足；P（权限）由配 root/admin key 满足。**B1/B2 解冻，按 feasibility §6.2 配方进入实现。**
+→ 故本文 §0 的 R/X/P 三组闸门已不再是阻塞：R（可读可检索）由 content.write + 队列嵌入满足（reindex 仅补 abstract，可选）；X（删除不残留）由删除本身干净满足，读侧存在性过滤兜罕见竞态孤儿；P（权限）仅在启用 reindex 时才需 root/admin key。**B1/B2 解冻，按 feasibility §6.2 配方进入实现。**
