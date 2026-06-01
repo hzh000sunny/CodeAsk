@@ -360,9 +360,9 @@ class OpenVikingTuningSetting(Base, TimestampMixin):
 | Wiki 节点 `wiki_doc` | ✅ 已实现 | M5 |
 | 报告 `report`（verified） | ✅ 已实现（draft 有意不同步） | M5 |
 | 仓库 `repo` | ❌ 未实现——`repo_uri` 为零调用方死 helper，cloner 仅发 `repo_synced` 事件、不入队/不上传内容 | → [m11](../plans/m11-repo-openviking-sync.md) |
-| Feature README `feature_readme` | ❌ 未实现——`feature_readme_uri` 仅搜索侧反查路径用，不同步 | → [m12](../plans/m12-sync-coverage-completion.md) |
-| `wiki_dir` | ❌ 未实现（无 helper、语义待定） | → [m12](../plans/m12-sync-coverage-completion.md)（含"是否砍"评估） |
-| 全局目录 `global_index`（feature-index / repo-index / report-index） | ❌ 未实现（待验证 OpenViking 是否消费目录索引，可能砍） | → [m12](../plans/m12-sync-coverage-completion.md) |
+| Feature README `feature_readme` | ⚠️ m11 起 wiki 改「按 feature 目录 import」，不再作独立 source_type；README 是否投影进 feature 目录由 m12 内容决策定 | → [m12](../plans/m12-wiki-workspace-incremental.md) §5 |
+| `wiki_dir` | ✅ 随 feature 目录 import（`preserve_structure`）自带，**作废为独立 source_type** | → [m12](../plans/m12-wiki-workspace-incremental.md) §5 |
+| 全局目录 `global_index`（feature-index / repo-index / report-index） | ⚠️ report-index 随 report 退出 OV 作废；repo-index 属延后代码仓；默认不再单造全局索引 | → [m12](../plans/m12-wiki-workspace-incremental.md) §5 |
 
 注：上方"slug 重命名 → tombstone"规则当前仅对 `wiki_doc` / `report` 经 id 反查生效；`repo` 的 tombstone/重命名随 m11 补齐。
 

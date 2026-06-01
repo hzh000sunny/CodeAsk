@@ -66,7 +66,7 @@ v1.0.5 按交付里程碑 M1–M5 分段验收（M1–M5 跨 Phase 1/Phase 2 两
 - [x] M8 修复（§⑦ 补遗-3）：后端 no-op 调参守卫与前端 `valuesEqual` 对齐——比较前两侧 `.strip()`，带首尾空格的语义相同值不再落库 / 发 `tuning_change`
 - [x] Wiki / 报告变更 hook 全部接入；启动 backfill 与定时 sweep 对 wiki_doc / verified report 行为正确
 - [ ] 仓库变更 → OpenViking **内容同步**（`source_type=repo`）：⚠️ 2026-05-30 复盘修正——此前误判为已完成，实际 `cloner.py` 仅发 `repo_synced` **事件**、未入队/未上传仓库内容；`repo_uri` 为死 helper。真实内容同步与 backfill 纳入 repo 由 [m11](./m11-repo-openviking-sync.md) 跟踪
-- [ ] `feature_readme` / `wiki_dir` / `global_index` 三类 `source_type`：设计 §3.1/§4 保留，实现推迟到 [m12](./m12-sync-coverage-completion.md)
+- [ ] `feature_readme` / `wiki_dir` / `global_index`：m11 起 wiki 改「按 feature 目录 import」，三类不再作独立 `source_type`（`wiki_dir` 随目录结构自带、`global_index` 默认作废、`feature_readme` 转为目录内容决策）→ 由 [m12 wiki workspace 增量持久化](./m12-wiki-workspace-incremental.md) §5 收口
 - [x] kill OpenViking server 后重启：admin 仪表盘自动出现 `openviking_restart_detected` 事件，sync_jobs 进度从中断点续传，不重置
 - [x] kill Ollama 后重启：仪表盘出现 `ollama_recovery` 事件，sync_jobs 在 1–2 分钟内追上
 - [x] 编辑 Wiki / 新增 verified 报告 / 单仓库同步完成 → 仪表盘事件流出现对应 `wiki_doc_changed` / `report_status_changed` / `repo_synced` 事件；批量 / hourly repo refresh 只写一条 `repo_refresh_summary`，不刷 per-repo success 洪流

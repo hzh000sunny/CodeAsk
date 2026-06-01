@@ -2,7 +2,7 @@
 
 > 版本：v1.0.5
 > 状态：实现完成（前端 vitest 253 + 后端集成 + E3 live e2e 全绿，tsc/eslint clean）；待负责人最终验收
-> 关联：[m8 仪表盘事件流人话化/降噪](./m8-dashboard-ux.md) · [m6 同步完整性与事件](./m6-sync-completeness-and-events.md) · [m11 代码仓同步](./m11-repo-openviking-sync.md) · [m12 同步覆盖补全](./m12-sync-coverage-completion.md) · [acceptance §3.1](./acceptance-checklist.md)
+> 关联：[m8 仪表盘事件流人话化/降噪](./m8-dashboard-ux.md) · [m6 同步完整性与事件](./m6-sync-completeness-and-events.md) · [m11 代码仓同步](./m11-repo-openviking-sync.md) · [m12 wiki workspace 增量持久化](./m12-wiki-workspace-incremental.md) · [acceptance §3.1](./acceptance-checklist.md)
 > 来源：2026-05-30 终验复盘——事件流已完成人话化/降噪/补字段，同步任务卡片仍是"机器视角"，需对齐；复盘时发现 `cancelled` 任务在 UI 上无重试入口的真缺口。同次复盘还挖出"代码仓 / feature_readme / 全局目录"等 `source_type` 设计了却从未实现（架构拆分时遗漏），但那是**数据面缺口**而非 UX，已另拆 m11 / m12，**不并入本里程碑**避免范围膨胀。
 
 ---
@@ -35,7 +35,7 @@ M8 把**事件流**做了一轮人话化（中文标题、错误前置、归因+
 
 非目标：不改后端同步调度逻辑、不改 retry 自愈策略、不动 retention/事件生产策略（M8 已定）。本里程碑动**展示层 + cancelled 可操作性 + 列表交互形态**，以前端为主，外加**一处后端分页改动**（A5：sync_jobs 列表 cursor→page/offset，见 §7/§9）。
 
-**明确不在本里程碑（边界）**：代码仓 → OpenViking 内容同步（`source_type=repo`）属数据面缺失功能，见 [m11](./m11-repo-openviking-sync.md)；`feature_readme` / `wiki_dir` / `global_index` 三类同步覆盖见 [m12](./m12-sync-coverage-completion.md)。本里程碑的 UX 是**前向兼容**的——m11 落地后 `repo` 类任务无需改前端即自动走本里程碑的人话化/状态/降噪展示。
+**明确不在本里程碑（边界）**：代码仓 → OpenViking 内容同步（`source_type=repo`）属数据面缺失功能，见 [m11](./m11-repo-openviking-sync.md)；`feature_readme` / `wiki_dir` / `global_index` 三类已被「按 feature 目录 import」取代（不再逐类同步），内容覆盖问题并入 [m12 wiki workspace 增量持久化](./m12-wiki-workspace-incremental.md)。本里程碑的 UX 是**前向兼容**的——m11 落地后 `repo` 类任务无需改前端即自动走本里程碑的人话化/状态/降噪展示。
 
 ---
 
