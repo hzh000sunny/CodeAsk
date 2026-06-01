@@ -182,7 +182,7 @@ def test_sdk_client_is_not_reused_across_event_loops() -> None:
 
 
 @pytest.mark.asyncio
-async def test_close_closes_cached_sdk_clients() -> None:
+async def test_close_closes_current_loop_sdk_client() -> None:
     client = OpenVikingClient(
         base_url="http://openviking.local",
         sdk_client_factory=FakeAsyncHTTPClient,
@@ -192,6 +192,31 @@ async def test_close_closes_cached_sdk_clients() -> None:
     await client.close()
 
     assert sdk.closed is True
+
+
+def test_close_does_not_close_sdk_clients_from_other_event_loops() -> None:
+    client = OpenVikingClient(
+        base_url="http://openviking.local",
+        sdk_client_factory=FakeAsyncHTTPClient,
+    )
+
+    async def create_and_close_current_loop_client() -> FakeAsyncHTTPClient:
+        sdk = await client.sdk_client()
+        await client.close()
+        return sdk
+
+    other_loop = asyncio.new_event_loop()
+    try:
+        first = other_loop.run_until_complete(client.sdk_client())
+
+        second = asyncio.run(create_and_close_current_loop_client())
+
+        assert first.closed is False
+        assert second.closed is True
+        assert len(FakeAsyncHTTPClient.instances) == 2
+    finally:
+        other_loop.run_until_complete(client.close())
+        other_loop.close()
 
 
 @pytest.mark.asyncio

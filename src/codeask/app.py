@@ -116,6 +116,19 @@ class _OpenVikingProcessManager(Protocol):
 class _OpenVikingSweepService(Protocol):
     async def sweep_all(self, *, triggered_by: str) -> dict[str, int]: ...
 
+    async def scheduled_add_resource_sweep(
+        self,
+        *,
+        triggered_by: str,
+        min_interval: timedelta = timedelta(hours=1),
+    ) -> dict[str, int]: ...
+
+
+class _OpenVikingPendingSyncService(Protocol):
+    async def run_pending_jobs(self, *, limit: int = 10) -> dict[str, int]: ...
+
+    async def close(self) -> None: ...
+
 
 def _sync_database_url(async_url: str) -> str:
     """Convert sqlite+aiosqlite:// to sqlite:// for Alembic."""
@@ -323,6 +336,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     openviking_sync_service,
                     session_factory=factory,
                     triggered_by="scheduled_refresh",
+                    min_interval=timedelta(hours=settings.openviking_scheduled_refresh_hours),
                 ),
                 "interval",
                 hours=settings.openviking_scheduled_refresh_hours,
@@ -618,9 +632,16 @@ async def _openviking_scheduled_refresh(
     session_factory: async_sessionmaker[AsyncSession],
     triggered_by: str,
     emit_summary: bool = True,
+    min_interval: timedelta | None = None,
 ) -> dict[str, int]:
     try:
-        summary = await service.sweep_all(triggered_by=triggered_by)
+        if triggered_by == "scheduled_refresh":
+            summary = await service.scheduled_add_resource_sweep(
+                triggered_by=triggered_by,
+                min_interval=min_interval or timedelta(hours=1),
+            )
+        else:
+            summary = await service.sweep_all(triggered_by=triggered_by)
     except Exception:
         log.exception("openviking_scheduled_refresh_failed", triggered_by=triggered_by)
         summary = {"scanned": 0, "enqueued": 0, "skipped": 0}
@@ -657,6 +678,7 @@ def _run_openviking_scheduled_refresh(
     *,
     session_factory: async_sessionmaker[AsyncSession],
     triggered_by: str,
+    min_interval: timedelta | None = None,
 ) -> None:
     asyncio.run(
         _openviking_scheduled_refresh(
@@ -664,6 +686,7 @@ def _run_openviking_scheduled_refresh(
             service,
             session_factory=session_factory,
             triggered_by=triggered_by,
+            min_interval=min_interval,
         )
     )
 
@@ -796,12 +819,18 @@ async def _resolve_openviking_mcp_config(
 
 def _run_openviking_pending_sync(
     log: structlog.BoundLogger,
-    service: OpenVikingSyncService,
+    service: _OpenVikingPendingSyncService,
     *,
     limit: int,
 ) -> None:
+    async def run_and_close() -> dict[str, int]:
+        try:
+            return await service.run_pending_jobs(limit=limit)
+        finally:
+            await service.close()
+
     try:
-        result = asyncio.run(service.run_pending_jobs(limit=limit))
+        result = asyncio.run(run_and_close())
     except Exception:
         log.exception("openviking_sync_pending_failed")
         return

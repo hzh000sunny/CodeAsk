@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -34,8 +35,17 @@ async def db_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker]:
 @pytest.mark.asyncio
 async def test_scheduled_refresh_event_payload(db_factory) -> None:
     class FakeSyncService:
-        async def sweep_all(self, *, triggered_by: str):
+        async def sweep_all(self, *, triggered_by: str) -> dict[str, int]:
+            raise AssertionError("scheduled refresh should not call regular sweep")
+
+        async def scheduled_add_resource_sweep(
+            self,
+            *,
+            triggered_by: str,
+            min_interval: timedelta = timedelta(hours=1),
+        ) -> dict[str, int]:
             assert triggered_by == "scheduled_refresh"
+            assert min_interval.total_seconds() == 3600
             return {"scanned": 3, "enqueued": 2, "skipped": 1}
 
     await _openviking_scheduled_refresh(
@@ -50,6 +60,56 @@ async def test_scheduled_refresh_event_payload(db_factory) -> None:
     assert event.event_type == "scheduled_refresh_summary"
     assert event.outcome == "success"
     assert event.payload == {"scanned": 3, "enqueued": 2, "skipped": 1}
+
+
+@pytest.mark.asyncio
+async def test_startup_backfill_uses_regular_sweep(db_factory) -> None:
+    class FakeSyncService:
+        async def sweep_all(self, *, triggered_by: str) -> dict[str, int]:
+            assert triggered_by == "startup_backfill"
+            return {"scanned": 1, "enqueued": 1, "skipped": 0}
+
+        async def scheduled_add_resource_sweep(
+            self,
+            *,
+            triggered_by: str,
+            min_interval: timedelta = timedelta(hours=1),
+        ) -> dict[str, int]:
+            raise AssertionError("startup backfill should not call scheduled sweep")
+
+    result = await _openviking_scheduled_refresh(
+        structlog.get_logger("test"),
+        FakeSyncService(),
+        session_factory=db_factory,
+        triggered_by="startup_backfill",
+        emit_summary=False,
+    )
+
+    async with db_factory() as session:
+        events = (await session.execute(select(OpenVikingDashboardEvent))).scalars().all()
+    assert result == {"scanned": 1, "enqueued": 1, "skipped": 0}
+    assert events == []
+
+
+def test_run_openviking_pending_sync_closes_service_client() -> None:
+    from codeask.app import _run_openviking_pending_sync
+
+    class FakeSyncService:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def run_pending_jobs(self, *, limit: int = 10) -> dict[str, int]:
+            assert limit == 2
+            return {"processed": 1, "indexed": 1, "failed": 0}
+
+        async def close(self) -> None:
+            self.closed = True
+
+    service = FakeSyncService()
+
+    _run_openviking_pending_sync(structlog.get_logger("test"), service, limit=2)
+
+    assert service.closed is True
 
 
 @pytest.mark.asyncio

@@ -275,6 +275,143 @@ async def test_run_pending_jobs_imports_feature_knowledge_base_directory(
 
 
 @pytest.mark.asyncio
+async def test_run_pending_jobs_treats_openviking_queue_status_as_completed(
+    db_factory,
+) -> None:
+    class FakeClient:
+        async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
+            raise AssertionError("add_wiki_feature should not be called")
+
+        async def delete_resource(self, viking_uri: str):
+            raise AssertionError("delete_resource should not be called")
+
+        async def task_status(self, task_id: str):
+            assert task_id == "task_done"
+            return {
+                "queue_status": {
+                    "Semantic": {"processed": 1, "requeue_count": 0, "error_count": 0},
+                    "Embedding": {"processed": 281, "requeue_count": 0, "error_count": 0},
+                }
+            }
+
+    async def queue_idle() -> bool:
+        return True
+
+    service = OpenVikingSyncService(db_factory, client=FakeClient(), queue_idle_probe=queue_idle)
+    await service.enqueue(
+        source_type="wiki_feature",
+        source_id="opencode",
+        feature_slug="opencode",
+        viking_uri="viking://resources/codeask/wiki/opencode",
+    )
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+        job.status = "running"
+        job.task_id = "task_done"
+        await session.commit()
+
+    result = await service.run_pending_jobs(limit=1)
+
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+    assert result == {"processed": 1, "indexed": 1, "failed": 0}
+    assert job.status == "indexed"
+    assert job.last_indexed_at is not None
+    assert job.progress == {"op": "upsert", "openviking_task_status": "completed"}
+
+
+@pytest.mark.asyncio
+async def test_run_pending_jobs_does_not_complete_queue_status_while_queue_is_active(
+    db_factory,
+) -> None:
+    class FakeClient:
+        async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
+            raise AssertionError("add_wiki_feature should not be called")
+
+        async def delete_resource(self, viking_uri: str):
+            raise AssertionError("delete_resource should not be called")
+
+        async def task_status(self, task_id: str):
+            assert task_id == "task_running"
+            return {
+                "queue_status": {
+                    "Semantic": {"processed": 1, "requeue_count": 0, "error_count": 0},
+                    "Embedding": {"processed": 0, "requeue_count": 0, "error_count": 0},
+                }
+            }
+
+    async def queue_idle() -> bool:
+        return False
+
+    service = OpenVikingSyncService(db_factory, client=FakeClient(), queue_idle_probe=queue_idle)
+    await service.enqueue(
+        source_type="wiki_feature",
+        source_id="opencode",
+        feature_slug="opencode",
+        viking_uri="viking://resources/codeask/wiki/opencode",
+    )
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+        job.status = "running"
+        job.task_id = "task_running"
+        await session.commit()
+
+    result = await service.run_pending_jobs(limit=1)
+
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+    assert result == {"processed": 1, "indexed": 0, "failed": 0}
+    assert job.status == "running"
+    assert job.last_indexed_at is None
+    assert job.progress == {"op": "upsert", "openviking_task_status": "unknown"}
+
+
+@pytest.mark.asyncio
+async def test_run_pending_jobs_treats_zero_change_queue_status_as_completed(
+    db_factory,
+) -> None:
+    class FakeClient:
+        async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
+            raise AssertionError("add_wiki_feature should not be called")
+
+        async def delete_resource(self, viking_uri: str):
+            raise AssertionError("delete_resource should not be called")
+
+        async def task_status(self, task_id: str):
+            assert task_id == "task_noop"
+            return {
+                "queue_status": {
+                    "Semantic": {"processed": 0, "requeue_count": 0, "error_count": 0},
+                    "Embedding": {"processed": 0, "requeue_count": 0, "error_count": 0},
+                }
+            }
+
+    async def queue_idle() -> bool:
+        return True
+
+    service = OpenVikingSyncService(db_factory, client=FakeClient(), queue_idle_probe=queue_idle)
+    await service.enqueue(
+        source_type="wiki_feature",
+        source_id="opencode",
+        feature_slug="opencode",
+        viking_uri="viking://resources/codeask/wiki/opencode",
+    )
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+        job.status = "running"
+        job.task_id = "task_noop"
+        await session.commit()
+
+    result = await service.run_pending_jobs(limit=1)
+
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+    assert result == {"processed": 1, "indexed": 1, "failed": 0}
+    assert job.status == "indexed"
+    assert job.progress == {"op": "upsert", "openviking_task_status": "completed"}
+
+
+@pytest.mark.asyncio
 async def test_run_pending_jobs_delete_operation_calls_delete_resource(db_factory) -> None:
     class FakeClient:
         deleted: list[str]
@@ -671,6 +808,151 @@ async def test_sweep_all_is_idempotent_until_feature_hash_changes(
     assert job.status == "pending"
     assert job.source_hash is not None
     assert job.source_hash != first_hash
+
+
+@pytest.mark.asyncio
+async def test_scheduled_add_resource_sweep_skips_when_any_job_is_running(
+    db_factory,
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    (data_dir / "wiki_workspace" / "current" / "anything" / "knowledge-base").mkdir(
+        parents=True
+    )
+    async with db_factory() as session:
+        await _seed_wiki_document(
+            session,
+            feature_slug="anything",
+            node_path="knowledge-base/index",
+            title="Index",
+            body="# Index",
+        )
+        session.add(
+            OpenVikingSyncJob(
+                id="ovjob_running",
+                source_type="wiki_feature",
+                source_id="other",
+                feature_slug="other",
+                status="running",
+                attempts=1,
+                task_id="task-running",
+            )
+        )
+        await session.commit()
+
+    service = OpenVikingSyncService(db_factory, data_dir=data_dir)
+
+    result = await service.scheduled_add_resource_sweep(triggered_by="scheduled_refresh")
+
+    async with db_factory() as session:
+        jobs = (await session.execute(select(OpenVikingSyncJob))).scalars().all()
+
+    assert result == {
+        "scanned": 0,
+        "enqueued": 0,
+        "skipped": 1,
+        "running": 1,
+        "cooldown": 0,
+    }
+    assert len(jobs) == 1
+    assert jobs[0].id == "ovjob_running"
+
+
+@pytest.mark.asyncio
+async def test_scheduled_add_resource_sweep_uses_db_cooldown_to_avoid_restart_reenqueue(
+    db_factory,
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    (data_dir / "wiki_workspace" / "current" / "anything" / "knowledge-base").mkdir(
+        parents=True
+    )
+    async with db_factory() as session:
+        await _seed_wiki_document(
+            session,
+            feature_slug="anything",
+            node_path="knowledge-base/index",
+            title="Index",
+            body="# Index",
+        )
+        session.add(
+            OpenVikingSyncJob(
+                id="ovjob_recent",
+                source_type="wiki_feature",
+                source_id="anything",
+                feature_slug="anything",
+                status="indexed",
+                attempts=1,
+                last_synced_at=datetime.now(UTC) - timedelta(minutes=30),
+            )
+        )
+        await session.commit()
+
+    service = OpenVikingSyncService(db_factory, data_dir=data_dir)
+
+    result = await service.scheduled_add_resource_sweep(
+        triggered_by="scheduled_refresh",
+        min_interval=timedelta(hours=1),
+    )
+
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+
+    assert result == {
+        "scanned": 0,
+        "enqueued": 0,
+        "skipped": 1,
+        "running": 0,
+        "cooldown": 1,
+    }
+    assert job.status == "indexed"
+
+
+@pytest.mark.asyncio
+async def test_scheduled_add_resource_sweep_enqueues_even_when_hash_is_unchanged_after_cooldown(
+    db_factory,
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    (data_dir / "wiki_workspace" / "current" / "anything" / "knowledge-base").mkdir(
+        parents=True
+    )
+    async with db_factory() as session:
+        await _seed_wiki_document(
+            session,
+            feature_slug="anything",
+            node_path="knowledge-base/index",
+            title="Index",
+            body="# Index",
+        )
+        await session.commit()
+
+    service = OpenVikingSyncService(db_factory, data_dir=data_dir)
+    first = await service.sweep_all(triggered_by="startup_backfill")
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+        first_hash = job.source_hash
+        job.status = "indexed"
+        job.last_synced_at = datetime.now(UTC) - timedelta(hours=2)
+        await session.commit()
+
+    second = await service.scheduled_add_resource_sweep(
+        triggered_by="scheduled_refresh",
+        min_interval=timedelta(hours=1),
+    )
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+
+    assert first == {"scanned": 1, "enqueued": 1, "skipped": 0}
+    assert second == {
+        "scanned": 1,
+        "enqueued": 1,
+        "skipped": 0,
+        "running": 0,
+        "cooldown": 0,
+    }
+    assert job.status == "pending"
+    assert job.source_hash == first_hash
 
 
 def _aware(value: datetime) -> datetime:

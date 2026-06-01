@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import sqlite3
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from secrets import token_hex
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -72,10 +75,12 @@ class OpenVikingSyncService:
         *,
         client: OpenVikingResourceClient | None = None,
         data_dir: Path | None = None,
+        queue_idle_probe: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._client = client
         self._data_dir = data_dir
+        self._queue_idle_probe = queue_idle_probe
 
     async def enqueue(
         self,
@@ -148,7 +153,12 @@ class OpenVikingSyncService:
             )
         return job
 
-    async def sweep_all(self, *, triggered_by: str) -> dict[str, int]:
+    async def sweep_all(
+        self,
+        *,
+        triggered_by: str,
+        force_enqueue: bool = False,
+    ) -> dict[str, int]:
         scanned = 0
         enqueued = 0
         skipped = 0
@@ -186,9 +196,16 @@ class OpenVikingSyncService:
                 continue
             previous = existing.get((snapshot.source_type, snapshot.source_id))
             if (
-                previous is not None
+                not force_enqueue
+                and previous is not None
                 and previous.status == "indexed"
                 and previous.source_hash == snapshot.source_hash
+            ):
+                skipped += 1
+                continue
+            if (
+                previous is not None
+                and previous.status == "running"
             ):
                 skipped += 1
                 continue
@@ -203,6 +220,49 @@ class OpenVikingSyncService:
             )
             enqueued += 1
         return {"scanned": scanned, "enqueued": enqueued, "skipped": skipped}
+
+    async def scheduled_add_resource_sweep(
+        self,
+        *,
+        triggered_by: str,
+        min_interval: timedelta = timedelta(hours=1),
+    ) -> dict[str, int]:
+        async with self._session_factory() as session:
+            running = int(
+                (
+                    await session.scalar(
+                        select(func.count())
+                        .select_from(OpenVikingSyncJob)
+                        .where(OpenVikingSyncJob.status == "running")
+                    )
+                )
+                or 0
+            )
+            if running:
+                return {
+                    "scanned": 0,
+                    "enqueued": 0,
+                    "skipped": running,
+                    "running": running,
+                    "cooldown": 0,
+                }
+            last_synced_at = await _latest_wiki_feature_sync_time(session)
+            if last_synced_at is not None:
+                now = datetime.now(UTC)
+                if now - _aware_datetime(last_synced_at) < min_interval:
+                    return {
+                        "scanned": 0,
+                        "enqueued": 0,
+                        "skipped": 1,
+                        "running": 0,
+                        "cooldown": 1,
+                    }
+
+        summary = await self.sweep_all(
+            triggered_by=triggered_by,
+            force_enqueue=True,
+        )
+        return {**summary, "running": 0, "cooldown": 0}
 
     async def run_pending_jobs(self, *, limit: int = 10) -> dict[str, int]:
         if self._client is None:
@@ -333,7 +393,7 @@ class OpenVikingSyncService:
                 failed += 1
                 await self.mark_failed(running_job.id, str(exc))
                 continue
-            task_status = _string_or_none(task.get("status")) or "unknown"
+            task_status = await self._task_status_from_payload(task)
             async with self._session_factory() as session:
                 job = await session.get(OpenVikingSyncJob, running_job.id)
                 if job is None or job.status != "running":
@@ -357,6 +417,32 @@ class OpenVikingSyncService:
                     )
                 await session.commit()
         return processed, indexed, failed
+
+    async def _task_status_from_payload(self, task: dict[str, Any]) -> str:
+        explicit = _string_or_none(task.get("status"))
+        if explicit is not None:
+            return explicit
+        queue_status = task.get("queue_status")
+        if not isinstance(queue_status, dict) or not queue_status:
+            return "unknown"
+        typed_queue_status = cast(dict[object, object], queue_status)
+        if _queue_status_has_errors(typed_queue_status):
+            return "failed"
+        if not await self._openviking_queue_is_idle():
+            return "unknown"
+        return "completed"
+
+    async def _openviking_queue_is_idle(self) -> bool:
+        if self._queue_idle_probe is not None:
+            return await self._queue_idle_probe()
+        return await _openviking_queue_is_idle(self._data_dir)
+
+    async def close(self) -> None:
+        close = getattr(self._client, "close", None)
+        if callable(close):
+            result = close()
+            if isinstance(result, Awaitable):
+                await result
 
     async def list_jobs(
         self,
@@ -469,6 +555,21 @@ async def _wiki_feature_snapshots(session: AsyncSession) -> list[SyncSourceSnaps
             )
         )
     return snapshots
+
+
+async def _latest_wiki_feature_sync_time(session: AsyncSession) -> datetime | None:
+    return await session.scalar(
+        select(func.max(OpenVikingSyncJob.last_synced_at)).where(
+            OpenVikingSyncJob.source_type == "wiki_feature",
+            OpenVikingSyncJob.last_synced_at.is_not(None),
+        )
+    )
+
+
+def _aware_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
 
 
 async def _work_item_from_job(session: AsyncSession, job: OpenVikingSyncJob) -> SyncWorkItem | None:
@@ -585,6 +686,46 @@ def _is_task_success(status: str) -> bool:
 
 def _is_task_failure(status: str) -> bool:
     return status in {"failed", "error", "cancelled"}
+
+
+def _queue_status_has_errors(queue_status: dict[object, object]) -> bool:
+    typed_queue_status = cast(dict[str, object], queue_status)
+    for value in typed_queue_status.values():
+        if not isinstance(value, dict):
+            continue
+        queue_item = cast(dict[str, object], value)
+        error_count = queue_item.get("error_count")
+        if isinstance(error_count, int) and error_count > 0:
+            return True
+        errors = queue_item.get("errors")
+        if isinstance(errors, list) and errors:
+            return True
+    return False
+
+
+async def _openviking_queue_is_idle(data_dir: Path | None) -> bool:
+    if data_dir is None:
+        return False
+    queue_db = data_dir / "openviking" / "workspace" / "_system" / "queue" / "queue.db"
+    if not queue_db.is_file():
+        return False
+
+    def read_queue_count() -> int:
+        with sqlite3.connect(f"file:{queue_db}?mode=ro", uri=True, timeout=1.0) as con:
+            value = con.execute(
+                """
+                select count(*)
+                from queue_messages
+                where status in ('pending', 'processing')
+                """
+            ).fetchone()
+        return int(value[0]) if value is not None else 0
+
+    try:
+        active_count = await asyncio.to_thread(read_queue_count)
+    except sqlite3.Error:
+        return False
+    return active_count == 0
 
 
 def _relative_wiki_path(node_path: str) -> str:

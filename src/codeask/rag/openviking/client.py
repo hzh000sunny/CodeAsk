@@ -157,14 +157,15 @@ class OpenVikingClient:
         return client
 
     async def close(self) -> None:
-        clients = list(self._sdk_clients.values())
-        self._sdk_clients.clear()
-        for client in clients:
-            close = getattr(client, "close", None)
-            if callable(close):
-                result = close()
-                if inspect.isawaitable(result):
-                    await result
+        loop = asyncio.get_running_loop()
+        client = self._sdk_clients.pop(loop, None)
+        if client is None:
+            return
+        close = getattr(client, "close", None)
+        if callable(close):
+            result = close()
+            if inspect.isawaitable(result):
+                await result
 
     async def _record_latency_since(self, started_at: float) -> None:
         if self._metrics_recorder is None:
