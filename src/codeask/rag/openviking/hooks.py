@@ -147,44 +147,59 @@ async def drain_wiki_workspace_events(request: Request, session: AsyncSession) -
                 affected_node_ids = event.affected_node_ids or (
                     (event.node_id,) if event.node_id is not None else ()
                 )
-                if event.old_path and event.new_path and len(affected_node_ids) > 1:
-                    await projector.move_document_subtree(
-                        feature_slug=event.feature_slug,
-                        old_path=event.old_path,
-                        new_path=event.new_path,
-                        affected_node_ids=affected_node_ids,
-                    )
-                elif event.old_path and event.new_path:
-                    await projector.move_document_path(
-                        feature_slug=event.feature_slug,
-                        old_path=event.old_path,
-                        new_path=event.new_path,
-                    )
-                    await projector.project_documents_by_node_ids(node_ids=affected_node_ids)
-                else:
-                    await projector.project_documents_by_node_ids(node_ids=affected_node_ids)
-                enqueue_features.add(event.feature_slug)
+                affected_node_types = await _affected_node_types(session, affected_node_ids)
+                if "document" in affected_node_types:
+                    if event.old_path and event.new_path and len(affected_node_ids) > 1:
+                        await projector.move_document_subtree(
+                            feature_slug=event.feature_slug,
+                            old_path=event.old_path,
+                            new_path=event.new_path,
+                            affected_node_ids=affected_node_ids,
+                        )
+                    elif event.old_path and event.new_path:
+                        await projector.move_document_path(
+                            feature_slug=event.feature_slug,
+                            old_path=event.old_path,
+                            new_path=event.new_path,
+                        )
+                        await projector.project_documents_by_node_ids(node_ids=affected_node_ids)
+                    else:
+                        await projector.project_documents_by_node_ids(node_ids=affected_node_ids)
+                if "report_ref" in affected_node_types:
+                    await projector.project_reports(feature_slug=event.feature_slug)
+                if "document" in affected_node_types:
+                    enqueue_features.add(event.feature_slug)
             elif event.kind == "node_deleted":
                 affected_node_ids = event.affected_node_ids or (
                     (event.node_id,) if event.node_id is not None else ()
                 )
-                if len(affected_node_ids) > 1:
-                    await projector.delete_document_paths_by_node_ids(
-                        feature_slug=event.feature_slug,
-                        node_ids=affected_node_ids,
-                    )
-                elif event.old_path:
-                    await projector.delete_document_path(
-                        feature_slug=event.feature_slug,
-                        node_path=event.old_path,
-                    )
-                enqueue_features.add(event.feature_slug)
+                affected_node_types = await _affected_node_types(session, affected_node_ids)
+                if "document" in affected_node_types:
+                    if len(affected_node_ids) > 1:
+                        await projector.delete_document_paths_by_node_ids(
+                            feature_slug=event.feature_slug,
+                            node_ids=affected_node_ids,
+                        )
+                    elif event.old_path:
+                        await projector.delete_document_path(
+                            feature_slug=event.feature_slug,
+                            node_path=event.old_path,
+                        )
+                if "report_ref" in affected_node_types:
+                    await projector.project_reports(feature_slug=event.feature_slug)
+                if "document" in affected_node_types:
+                    enqueue_features.add(event.feature_slug)
             elif event.kind == "node_restored":
                 affected_node_ids = event.affected_node_ids or (
                     (event.node_id,) if event.node_id is not None else ()
                 )
-                await projector.project_documents_by_node_ids(node_ids=affected_node_ids)
-                enqueue_features.add(event.feature_slug)
+                affected_node_types = await _affected_node_types(session, affected_node_ids)
+                if "document" in affected_node_types:
+                    await projector.project_documents_by_node_ids(node_ids=affected_node_ids)
+                if "report_ref" in affected_node_types:
+                    await projector.project_reports(feature_slug=event.feature_slug)
+                if "document" in affected_node_types:
+                    enqueue_features.add(event.feature_slug)
             elif event.kind == "feature_restored":
                 await projector.rebuild_feature(event.feature_slug)
             elif event.kind == "report_projection_changed":
@@ -236,6 +251,18 @@ async def drain_wiki_workspace_events(request: Request, session: AsyncSession) -
             ),
         )
     return bool(enqueue_features)
+
+
+async def _affected_node_types(
+    session: AsyncSession,
+    node_ids: tuple[int, ...],
+) -> set[str]:
+    if not node_ids:
+        return set()
+    rows = (
+        await session.execute(select(WikiNode.type).where(WikiNode.id.in_(node_ids)))
+    ).scalars()
+    return {str(row) for row in rows}
 
 
 async def enqueue_report_sync(

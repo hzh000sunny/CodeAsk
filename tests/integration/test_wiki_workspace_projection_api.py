@@ -7,7 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from codeask.app import _bootstrap_wiki_workspace_if_needed
-from codeask.db.models import Feature, OpenVikingDashboardEvent, WikiSpace
+from codeask.db.models import Feature, OpenVikingDashboardEvent, WikiReportRef, WikiSpace
 from codeask.rag.openviking.models import OpenVikingSyncJob
 
 FileSnapshot = dict[Path, tuple[str, int]]
@@ -570,6 +570,71 @@ async def test_report_status_change_updates_problem_reports_without_openviking_j
     assert unverified.status_code == 200, unverified.text
     assert draft_path.exists()
     assert not verified_path.exists()
+
+    async with app.state.session_factory() as session:
+        jobs = (await session.execute(select(OpenVikingSyncJob))).scalars().all()
+    assert jobs == []
+
+
+@pytest.mark.asyncio
+async def test_report_ref_tree_changes_update_problem_reports_without_openviking_job(
+    client: AsyncClient,
+    app,
+) -> None:
+    feature_id, _space_id = await _create_feature_space(client, slug="projection-report-tree")
+    created = await client.post(
+        "/api/reports",
+        json={
+            "feature_id": feature_id,
+            "title": "Movable report",
+            "body_markdown": "ERR_REPORT_TREE",
+            "metadata": _good_report_meta(),
+        },
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert created.status_code == 201, created.text
+    report_id = int(created.json()["id"])
+    feature_dir = (
+        Path(app.state.settings.data_dir)
+        / "wiki_workspace"
+        / "current"
+        / "projection-report-tree"
+    )
+    draft_path = feature_dir / "problem-reports" / "drafts" / "movable-report.md"
+    assert draft_path.exists()
+    async with app.state.session_factory() as session:
+        report_ref = (
+            await session.execute(
+                select(WikiReportRef).where(WikiReportRef.report_id == report_id)
+            )
+        ).scalar_one()
+        report_node_id = int(report_ref.node_id)
+
+    renamed = await client.put(
+        f"/api/wiki/nodes/{report_node_id}",
+        json={"name": "Renamed report"},
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    renamed_path = feature_dir / "problem-reports" / "drafts" / "renamed-report.md"
+    assert not draft_path.exists()
+    assert renamed_path.exists()
+    assert "ERR_REPORT_TREE" in renamed_path.read_text(encoding="utf-8")
+
+    deleted = await client.delete(
+        f"/api/wiki/nodes/{report_node_id}",
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert deleted.status_code == 204, deleted.text
+    assert not renamed_path.exists()
+
+    restored = await client.post(
+        f"/api/wiki/nodes/{report_node_id}/restore",
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert restored.status_code == 200, restored.text
+    assert renamed_path.exists()
+    assert "ERR_REPORT_TREE" in renamed_path.read_text(encoding="utf-8")
 
     async with app.state.session_factory() as session:
         jobs = (await session.execute(select(OpenVikingSyncJob))).scalars().all()
