@@ -23,3 +23,4 @@
 - [UI 反馈规则](./ui-feedback.md)
 - [升级兼容与数据目录规则](./upgrade-compatibility.md)
 - [测试特性 Fixture 规则](./test-features.md)
+- [临时目录规则](./temp-directory.md)

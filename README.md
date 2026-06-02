@@ -235,7 +235,7 @@ CodeAsk/
 
 - [INSTALL.md](./INSTALL.md)：安装、配置、启动和测试。
 - [docs/README.md](./docs/README.md)：文档中心和版本入口。
-- [docs/rules/](./docs/rules/)：跨版本产品和交互规则。
+- [docs/rules/](./docs/rules/)：跨版本产品、交互和工程规则，包括 [临时目录规则](./docs/rules/temp-directory.md)。
 - [docs/future/](./docs/future/)：未来能力规划。
 - [docs/v1.0/](./docs/v1.0/)：MVP 基线设计。
 - [docs/v1.0.1/](./docs/v1.0.1/)：LLM Wiki 专项。

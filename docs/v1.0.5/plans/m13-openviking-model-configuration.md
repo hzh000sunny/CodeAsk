@@ -35,6 +35,7 @@
 - Embedding provider 是 OpenViking 0.3.22 源码中写死的白名单，来源是 `EmbeddingModelConfig.validate_config()`。
 - VLM provider 不按 embedding 那套白名单校验。OpenViking 的 VLM registry 有一组常见 provider，但 `VLMBase.from_config()` 对未显式识别的 provider 会 fallback 到 `LiteLLMVLMProvider`。因此 VLM UI 不应做硬白名单下拉，而应做可输入的 provider 组合框，内置常见建议项。
 - VLM 配置可以缺省。OpenViking 可以无 VLM 启动；无 VLM 时，依赖 VLM 的语义摘要、规划或多模态能力不可用或降级，具体表现由 OpenViking 上游实现决定。
+- 本里程碑仍处在版本开发阶段，没有需要兼容的存量生产安装。默认 embedding 从 Ollama `bge-m3` / 1024 维切到 local / 512 维后，测试环境数据直接清理并重建索引；不增加“保留旧默认配置”的 migration 复杂度。
 
 M13 决策：
 
@@ -105,9 +106,9 @@ M13 决策：
 - `src/codeask/db/models/__init__.py`：导出新增模型。
 - `alembic/versions/20260602_0033_openviking_model_configuration.py`：新增 provider 字段和 VLM 表的 migration。
 - `src/codeask/api/openviking_admin.py`：扩展 embedding 配置 API；新增 VLM 配置 API。
-- `src/codeask/rag/openviking/health.py`：新增 provider-aware readiness。
+- `src/codeask/rag/openviking/health.py`：新增 OpenViking doctor 结果封装；不自研 embedding / VLM provider 连通性逻辑。
 - `src/codeask/app.py`：Ollama 周期健康检查只在 active provider 是 `ollama` 时执行。
-- `src/codeask/api/openviking_status.py`：status payload 增加 active embedding / VLM readiness。
+- `src/codeask/api/openviking_status.py`：status payload 增加 active embedding / VLM 配置摘要和 doctor 诊断结果。
 
 前端：
 
@@ -187,6 +188,15 @@ class OpenVikingEmbeddingRuntimeConfig:
 
 
 @dataclass(frozen=True)
+class OpenVikingEmbeddingRuntimeSettings:
+    text_source: str = "content"
+    max_input_tokens: int = 8192
+    max_concurrent: int = 1
+    max_retries: int = 3
+    circuit_breaker: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
 class OpenVikingVLMRuntimeConfig:
     enabled: bool = False
     provider: str | None = None
@@ -205,8 +215,22 @@ class OpenVikingVLMRuntimeConfig:
 embedding: OpenVikingEmbeddingRuntimeConfig = field(
     default_factory=OpenVikingEmbeddingRuntimeConfig
 )
+embedding_settings: OpenVikingEmbeddingRuntimeSettings = field(
+    default_factory=OpenVikingEmbeddingRuntimeSettings
+)
 vlm: OpenVikingVLMRuntimeConfig = field(default_factory=OpenVikingVLMRuntimeConfig)
 ```
+
+- [ ] 重构 `build_ov_conf()` 时必须保留现有 embedding 同级配置和顶层开关，不能只生成 `embedding.dense`：
+  - `embedding.text_source`
+  - `embedding.max_input_tokens`
+  - `embedding.max_concurrent`
+  - `embedding.max_retries`
+  - `embedding.circuit_breaker`
+  - 顶层 `auto_generate_l0`
+  - 顶层 `auto_generate_l1`
+
+- [ ] `EmbeddingApplyRequest.max_concurrent` 必须写入 `embedding.max_concurrent`，不要误写到 `embedding.dense`，也不要在 dataclass 重构中丢失。
 
 - [ ] 生成 `embedding.dense` 时省略空值：
 
@@ -253,6 +277,11 @@ def test_build_ov_conf_defaults_to_local_embedding(tmp_path: Path) -> None:
         "input": "text",
     }
     assert "vlm" not in ov_conf
+
+    assert ov_conf["embedding"]["text_source"] == "content"
+    assert ov_conf["embedding"]["max_concurrent"] == 1
+    assert "auto_generate_l0" in ov_conf
+    assert "auto_generate_l1" in ov_conf
 
 
 def test_build_ov_conf_supports_ollama_embedding(tmp_path: Path) -> None:
@@ -368,10 +397,10 @@ class EmbeddingApplyRequest(BaseModel):
     extra: dict[str, Any] | None = None
 ```
 
-- [ ] embedding provider 白名单使用常量：
+- [ ] embedding provider 下拉列表使用 UI 候选常量；这个常量只用于 response / 前端展示，不作为后端最终校验的单一真相源：
 
 ```python
-SUPPORTED_EMBEDDING_PROVIDERS = {
+EMBEDDING_PROVIDER_OPTIONS = {
     "local",
     "ollama",
     "openai",
@@ -388,21 +417,36 @@ SUPPORTED_EMBEDDING_PROVIDERS = {
 }
 ```
 
-- [ ] `local` 校验：
-  - 只允许 `bge-small-zh-v1.5-f16`，除非 OpenViking 后续公开更多 local model。
-  - 默认 dimension 为 `512`。
-  - 通过 `get_local_model_cache_path()` 计算 `model_cached`。
+- [ ] embedding 后端校验必须跟随 OpenViking，不复制 `EmbeddingModelConfig.validate_config()` 里的 provider-specific `if/elif`。做法：
+  - 从 request 组装候选 `dense` dict。
+  - 构造 OpenViking `EmbeddingModelConfig` 并调用其校验。
+  - 捕获 `ValueError` / `pydantic.ValidationError`，转换为 HTTP 400。
+  - CodeAsk 只保留必要的 UI 体验检查和敏感字段加密，不额外发明 provider 业务规则。
+
+```python
+from pydantic import ValidationError
+from openviking_cli.utils.config.embedding_config import EmbeddingModelConfig
+
+try:
+    EmbeddingModelConfig.model_validate(candidate_dense)
+except (ValueError, ValidationError) as exc:
+    raise HTTPException(status_code=400, detail=str(exc)) from exc
+```
+
+- [ ] 为 UI 候选列表补回归测试：如果 OpenViking 0.3.x 的 embedding provider 白名单变化，测试要提示同步前端下拉候选；但运行时最终校验仍以 OpenViking 为准。
+
+- [ ] `local` 状态检查：
+  - 默认 model 为 `bge-small-zh-v1.5-f16`，默认 dimension 为 `512`。
+  - 如果设置了 `model_path`，检查该路径是否存在。
+  - 否则使用 `cache_dir` override；没有 override 时使用 OpenViking `DEFAULT_LOCAL_MODEL_CACHE_DIR`。
+  - 通过 `get_local_model_spec(model).filename` 拼出缓存文件路径；如果当前 OpenViking 版本提供 `get_local_model_cache_path(model, cache_dir)`，也可以调用它，但不能忽略 `model_path` / `cache_dir` override。
+  - `model_cached` / `will_download_on_start` 是状态展示，不作为 local provider 的阻断性校验。
 
 - [ ] `ollama` 校验：
   - 保留 `/api/tags` 探测。
   - 模型不存在时报 400。
 
-- [ ] 云端 provider 校验：
-  - `openai` 有 `api_key` 或 `api_base` 即可。
-  - `azure` 必须有 `api_key` 和 `api_base`。
-  - `volcengine`、`jina`、`gemini`、`voyage`、`dashscope`、`minimax`、`cohere` 必须有 `api_key`。
-  - `litellm` 必须显式提供 `dimension`。
-  - `vikingdb` 必须有 `ak`、`sk`、`region`；`ak` / `sk` 必须加密存储。
+- [ ] 云端 provider 的必填字段和 dimension 规则交给 OpenViking 校验。`vikingdb` 的 `ak` / `sk` 等敏感字段仍由 CodeAsk 加密存储，但是否必填不在 CodeAsk 里平行维护。
 
 - [ ] 写入新 embedding setting 后，沿用当前切换流程：
   - 重写 `ov.conf`
@@ -436,11 +480,29 @@ POST /api/admin/openviking/vlm/disable
 GET  /api/admin/openviking/vlm/history
 ```
 
-- [ ] VLM provider 不做 embedding 那种硬白名单。后端只做基础字符串校验和必填项校验：
+- [ ] 新增候选配置测试端点：
+
+```text
+POST /api/admin/openviking/embedding/test
+POST /api/admin/openviking/vlm/test
+```
+
+- [ ] 点击“测试”只测试当前表单里的候选配置，不能保存项目配置：
+  - 不写入 `openviking_embedding_settings` / `openviking_vlm_settings`
+  - 不覆盖 CodeAsk-managed 正式 `ov.conf`
+  - 不重启 OpenViking
+  - 不清理 `viking://resources/codeask`
+  - 不重排 sync jobs
+  - 不写 `embedding_model_switched` / `vlm_config_changed`
+
+- [ ] 测试端点必须按候选配置生成临时 `ov.conf`，再通过 OpenViking doctor 诊断。临时文件目录必须遵守 [临时目录规则](/home/hzh/workspace/CodeAsk/docs/rules/temp-directory.md)：放在当前用户可写目录下，例如 `settings.data_dir / "tmp" / "openviking-doctor" / <run_id>/`，不要使用 `/tmp`。
+
+- [ ] 测试完成后清理该 run 的临时目录。清理失败只记录日志，不影响测试结果返回，也不能污染正式配置。
+
+- [ ] VLM provider 不做 embedding 那种硬白名单。后端只做基础字符串校验和最小形态校验：
   - provider 非空
   - model 非空
-  - 如果 provider 不是 `litellm` 且不是 `openai-codex`，首次启用时要求 `api_key`
-  - `openai-codex` 可允许无 api_key，但要把配置交给 OpenViking，由 OpenViking 检查 Codex OAuth
+  - `api_key` 可选；如果管理员依赖环境变量、Codex OAuth 或 LiteLLM 自身认证，CodeAsk 不应误拒
   - 其他未知 provider 不拒绝，作为 LiteLLM-compatible provider 传给 OpenViking
 
 - [ ] VLM apply 行为：
@@ -454,7 +516,7 @@ GET  /api/admin/openviking/vlm/history
 
 - [ ] 所有 response 不回显原始密钥。
 
-### Task 5：Provider-aware 健康检查和启动状态
+### Task 5：OpenViking doctor 诊断和启动状态
 
 **文件：**
 
@@ -463,36 +525,51 @@ GET  /api/admin/openviking/vlm/history
 - 修改：`src/codeask/api/openviking_status.py`
 - 测试：`tests/unit/test_openviking_app_tasks.py`、`tests/integration/test_openviking_admin_api.py`
 
-- [ ] 新增 active embedding readiness helper：
+- [ ] CodeAsk 不封装自己的 embedding / VLM provider 连通性测试。active 配置诊断统一使用 OpenViking 0.3.22 自带 doctor 逻辑：
+  - `openviking_cli.doctor.check_embedding()`
+  - `openviking_cli.doctor.check_vlm()`
+  - `openviking_cli.doctor.check_ollama()`
+  - 或等价的 `openviking-server doctor` 执行结果
 
-```python
-async def active_embedding_readiness(
-    *,
-    session_factory: async_sessionmaker[AsyncSession],
-    settings: Settings,
-    ollama_transport: httpx.AsyncBaseTransport | None = None,
-) -> dict[str, Any]:
-    setting = await read_latest_embedding_setting(session_factory, settings)
-    if setting.provider == "local":
-        return local_embedding_readiness(setting)
-    if setting.provider == "ollama":
-        return await ollama_embedding_readiness(setting, transport=ollama_transport)
-    return remote_embedding_readiness(setting)
+- [ ] 调用 CLI doctor 时必须显式绑定当前 CodeAsk-managed `ov.conf`。推荐环境变量方式：
+
+```bash
+OPENVIKING_CONFIG_FILE=/path/to/user-owned/ov.conf openviking-server doctor
 ```
 
-- [ ] local readiness 返回：
+也可以使用 CLI 参数，但子命令必须放在第一位：
+
+```bash
+openviking-server doctor --config /path/to/user-owned/ov.conf
+```
+
+不要写成 `openviking-server --config /path/to/user-owned/ov.conf doctor`；0.3.22 会把 `doctor` 当成未知参数。
+
+- [ ] active 状态页的 doctor 用于“已保存并已写入正式 `ov.conf` 的 active 配置”。候选配置测试必须写用户目录下的临时 `ov.conf` 并绑定 `OPENVIKING_CONFIG_FILE`，不能为了测试候选配置改写全局或项目正式 `ov.conf`。
+
+- [ ] 在 `health.py` 增加封装，返回结构化 doctor 结果，保留 OpenViking 给出的 detail / fix，不改写 provider-specific 语义：
 
 ```json
 {
-  "provider": "local",
-  "model": "bge-small-zh-v1.5-f16",
-  "healthy": true,
-  "model_available": true,
-  "model_cached": false,
-  "will_download_on_start": true,
-  "error": null
+  "embedding": {
+    "ok": true,
+    "detail": "local/bge-small-zh-v1.5-f16 (will auto-download during startup initialization)",
+    "fix": null
+  },
+  "vlm": {
+    "ok": false,
+    "detail": "No VLM provider configured",
+    "fix": "Add vlm section to ov.conf"
+  },
+  "ollama": {
+    "ok": true,
+    "detail": "not configured",
+    "fix": null
+  }
 }
 ```
+
+- [ ] VLM 默认关闭时，doctor 的 `No VLM provider configured` 不应让 CodeAsk 整体状态 degraded。UI 可以展示为“未配置”，但不算故障。
 
 - [ ] status payload 增加：
 
@@ -507,11 +584,21 @@ async def active_embedding_readiness(
     "enabled": false,
     "provider": null,
     "model": null
+  },
+  "doctor": {
+    "embedding": {
+      "ok": true,
+      "detail": "local/bge-small-zh-v1.5-f16 (will auto-download during startup initialization)"
+    },
+    "vlm": {
+      "ok": false,
+      "detail": "No VLM provider configured"
+    }
   }
 }
 ```
 
-- [ ] `ollama` 字段只在 active provider 为 `ollama` 时作为真实健康状态展示；非 Ollama provider 下不要把 Ollama missing 算作 degraded。
+- [ ] `ollama` 字段只在 active provider 为 `ollama`，或 VLM 使用 `litellm` + `ollama/...` 时作为真实健康状态展示；非 Ollama provider 下不要把 Ollama missing 算作 degraded。
 
 - [ ] 周期 Ollama 健康检查增加短路：
 
@@ -520,7 +607,7 @@ if active_provider != "ollama":
     return
 ```
 
-- [ ] 只有当能可靠检测到本地模型缓存缺失时，才发 `local_embedding_model_download` 或展示 `will_download_on_start`。不要编造下载进度。
+- [ ] 本地模型缓存、`will auto-download`、Codex OAuth、Ollama 可达性等诊断文案以 OpenViking doctor 输出为准。CodeAsk 不编造下载进度，也不自己实现云端 provider 连通性 smoke test。
 
 ### Task 6：前端模型配置 UI
 
@@ -613,6 +700,14 @@ Max retries
 Disable button
 ```
 
+- [ ] Embedding 配置区提供“测试”按钮和“保存”按钮，语义必须分开：
+  - “测试”调用 `POST /api/admin/openviking/embedding/test`，只用临时 `ov.conf` 跑 OpenViking doctor，不保存 DB，不覆盖正式 `ov.conf`，不重启 OpenViking，不清索引，不重排 sync jobs。
+  - “保存”才调用 embedding apply，触发破坏性确认和正式配置持久化。
+
+- [ ] VLM 配置区提供“测试”按钮和“保存”按钮，语义必须分开：
+  - “测试”调用 `POST /api/admin/openviking/vlm/test`，只用临时 `ov.conf` 跑 OpenViking doctor，不保存 DB，不覆盖正式 `ov.conf`，不重启 OpenViking，不清索引，不重排 sync jobs。
+  - “保存”才调用 VLM apply，触发非破坏性确认和正式配置持久化。
+
 - [ ] Embedding apply 使用破坏性确认：
 
 ```text
@@ -651,6 +746,7 @@ OpenViking 可启动；如果本地 GGUF 未缓存，UI 显示首次启动会下
 
 ```text
 选择 provider ollama 后，模型来自 /api/tags。
+点击测试只返回 OpenViking doctor 诊断；正式 ov.conf、DB setting、OpenViking 进程、sync jobs 均不变化。
 保存后重启 OpenViking、清理索引、重排 sync jobs。
 ```
 
@@ -661,6 +757,9 @@ OpenViking 可启动；如果本地 GGUF 未缓存，UI 显示首次启动会下
 ```text
 API key 被接受但不回显。
 status 返回 api_key_configured=true。
+点击测试只返回 OpenViking doctor 诊断；正式 ov.conf、DB setting、OpenViking 进程、sync jobs 均不变化。
+保存并写入 ov.conf 后，UI 展示 OpenViking doctor 的 embedding 诊断结果。
+不要求 CodeAsk 自己发 embedding smoke test；需要外部云端凭据的 live 场景 gate 跳过。
 ```
 
 - [ ] E4：启用自定义 VLM provider。
@@ -669,10 +768,13 @@ status 返回 api_key_configured=true。
 
 ```text
 provider 可以输入建议项以外的值。
+点击测试只返回 OpenViking doctor 诊断；正式 ov.conf、DB setting、OpenViking 进程、sync jobs 均不变化。
 OpenViking 重启。
 sync jobs 不重排。
 向量根目录不删除。
 事件流出现 vlm_config_changed。
+保存并写入 ov.conf 后，UI 展示 OpenViking doctor 的 VLM 诊断结果。
+不要求 CodeAsk 自己发 VLM smoke test；需要外部云端凭据的 live 场景 gate 跳过。
 ```
 
 - [ ] E5：禁用 VLM。
@@ -692,8 +794,12 @@ OpenViking 重启。
 - [ ] Embedding provider 在 UI 中是白名单下拉。
 - [ ] VLM provider 在 UI 中是可输入组合框，支持建议项以外的值。
 - [ ] 管理员可以通过 UI/API 切换 local、Ollama、至少一种 OpenAI-compatible embedding。
+- [ ] 后端 embedding 校验以 OpenViking `EmbeddingModelConfig` 为准；CodeAsk 不复制 provider-specific 必填规则。
+- [ ] Local embedding 缓存状态尊重 `model_path` 和 `cache_dir` override。
+- [ ] UI/API 的“测试”操作只写当前用户目录下的临时 `ov.conf` 并运行 OpenViking doctor；点击“测试”不能持久化配置、不能覆盖正式 `ov.conf`、不能重启 OpenViking、不能清索引、不能重排 sync jobs。
 - [ ] Embedding 切换总是清向量根目录并重排 sync jobs。
 - [ ] VLM apply/disable 只重启 OpenViking，不清向量根目录、不重排 sync jobs。
+- [ ] 管理员页面的 embedding / VLM 诊断来自 OpenViking doctor；CodeAsk 不自研 provider 连通性测试。
 - [ ] API key、AK、SK 不在 API response、dashboard event、audit payload、SQLite 明文中出现。
 - [ ] CodeAsk 生成的 `ov.conf` 在 OpenViking 0.3.22 下通过 local embedding、Ollama embedding、VLM enabled 三类配置验证。
 - [ ] 单元测试、集成测试、ruff、pyright、frontend lint/build、Playwright E2E 通过。
@@ -733,7 +839,8 @@ git diff --check
 ## 6. 风险和注意事项
 
 - `openviking[local-embed]` 可能增加安装摩擦；某些平台上 `llama-cpp-python` 可能从源码编译。如果这在实际安装中频繁失败，后续应改成 `codeask[openviking-local]` 可选 extra，并在 UI 中显示安装缺失状态。
-- 默认 GGUF 下载依赖 HuggingFace 可达。UI 只能在 `get_local_model_cache_path()` 存在时显示 cached；缓存不存在时显示“首次启动会下载”，不能显示“已安装”。
+- 默认 GGUF 下载依赖 HuggingFace 可达。UI 只能在可靠判定缓存文件存在时显示 cached；缓存不存在时显示“首次启动会下载”，不能显示“已安装”。缓存路径判断必须尊重 OpenViking local embedding 的 `model_path` / `cache_dir` override。
 - 从现有 Ollama `bge-m3` 的 1024 维切到 local 512 维会导致向量维度变化，必须全量重建索引。
 - VLM disabled 是合法状态。生成 `ov.conf` 时不要写 `vlm.enabled=false`。
+- VLM `api_key` 缺失不由 CodeAsk 自定义拦截；OpenViking / LiteLLM / 环境变量认证失败时再由上游错误暴露。
 - 历史 spike 文档记录的是 0.3.17 / Ollama 实验事实，不要回写修改；只更新面向未来的安装和管理员配置文档。
