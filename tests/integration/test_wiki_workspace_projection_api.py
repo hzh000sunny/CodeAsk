@@ -10,6 +10,8 @@ from codeask.app import _bootstrap_wiki_workspace_if_needed
 from codeask.db.models import Feature, OpenVikingDashboardEvent, WikiSpace
 from codeask.rag.openviking.models import OpenVikingSyncJob
 
+FileSnapshot = dict[Path, tuple[str, int]]
+
 
 def _good_report_meta() -> dict[str, object]:
     return {
@@ -61,6 +63,36 @@ async def _publish(client: AsyncClient, *, node_id: int, body: str) -> None:
         headers={"X-Subject-Id": "admin"},
     )
     assert response.status_code == 200, response.text
+
+
+async def _create_folder(
+    client: AsyncClient,
+    *,
+    space_id: int,
+    parent_id: int | None = None,
+    name: str,
+) -> int:
+    folder = await client.post(
+        "/api/wiki/nodes",
+        json={"space_id": space_id, "parent_id": parent_id, "type": "folder", "name": name},
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert folder.status_code == 201, folder.text
+    return int(folder.json()["id"])
+
+
+def _snapshot_markdown(root: Path) -> FileSnapshot:
+    return {
+        path.relative_to(root): (path.read_text(encoding="utf-8"), path.stat().st_mtime_ns)
+        for path in sorted(root.rglob("*.md"))
+    }
+
+
+def _assert_unchanged(snapshot: FileSnapshot, root: Path, *relative_paths: str) -> None:
+    current = _snapshot_markdown(root)
+    for relative_path in relative_paths:
+        path = Path(relative_path)
+        assert current[path] == snapshot[path]
 
 
 @pytest.mark.asyncio
@@ -213,6 +245,152 @@ async def test_node_rename_move_delete_and_restore_update_workspace(
     )
     assert restored.status_code == 200, restored.text
     assert "Move me" in (kb / "target" / "renamed.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_structure_changes_only_touch_affected_wiki_files(
+    client: AsyncClient,
+    app,
+) -> None:
+    feature_id, space_id = await _create_feature_space(client, slug="projection-minimal")
+    stable_id = await _create_document(client, space_id=space_id, name="Stable")
+    changing_id = await _create_document(client, space_id=space_id, name="Changing")
+    await _publish(client, node_id=stable_id, body="# Stable\n\nDo not rewrite")
+    await _publish(client, node_id=changing_id, body="# Changing\n\nMove me")
+    kb = (
+        Path(app.state.settings.data_dir)
+        / "wiki_workspace"
+        / "current"
+        / "projection-minimal"
+        / "knowledge-base"
+    )
+    assert (kb / "stable.md").exists()
+    assert (kb / "changing.md").exists()
+
+    snapshot = _snapshot_markdown(kb)
+    await _publish(client, node_id=changing_id, body="# Changing\n\nEdited once")
+    assert "Edited once" in (kb / "changing.md").read_text(encoding="utf-8")
+    _assert_unchanged(snapshot, kb, "stable.md")
+
+    snapshot = _snapshot_markdown(kb)
+    created = await client.post(
+        "/api/wiki/nodes",
+        json={"space_id": space_id, "parent_id": None, "type": "document", "name": "Draftless"},
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert created.status_code == 201, created.text
+    assert not (kb / "draftless.md").exists()
+    _assert_unchanged(snapshot, kb, "stable.md", "changing.md")
+
+    snapshot = _snapshot_markdown(kb)
+    renamed_feature = await client.put(
+        f"/api/features/{feature_id}",
+        json={"description": "renamed metadata only"},
+    )
+    assert renamed_feature.status_code == 200, renamed_feature.text
+    _assert_unchanged(snapshot, kb, "stable.md", "changing.md")
+
+    snapshot = _snapshot_markdown(kb)
+    renamed = await client.put(
+        f"/api/wiki/nodes/{changing_id}",
+        json={"name": "Renamed"},
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert not (kb / "changing.md").exists()
+    renamed_text = (kb / "renamed.md").read_text(encoding="utf-8")
+    assert "Edited once" in renamed_text
+    assert "path: renamed" in renamed_text
+    assert "title: Renamed" in renamed_text
+    _assert_unchanged(snapshot, kb, "stable.md")
+
+    folder_id = await _create_folder(client, space_id=space_id, name="Target")
+    snapshot = _snapshot_markdown(kb)
+    moved = await client.put(
+        f"/api/wiki/nodes/{changing_id}",
+        json={"parent_id": folder_id},
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert moved.status_code == 200, moved.text
+    assert not (kb / "renamed.md").exists()
+    moved_text = (kb / "target" / "renamed.md").read_text(encoding="utf-8")
+    assert "Edited once" in moved_text
+    assert "path: target/renamed" in moved_text
+    assert "title: Renamed" in moved_text
+    _assert_unchanged(snapshot, kb, "stable.md")
+
+    snapshot = _snapshot_markdown(kb)
+    deleted = await client.delete(
+        f"/api/wiki/nodes/{changing_id}",
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert deleted.status_code == 204, deleted.text
+    assert not (kb / "target" / "renamed.md").exists()
+    _assert_unchanged(snapshot, kb, "stable.md")
+
+    snapshot = _snapshot_markdown(kb)
+    restored = await client.post(
+        f"/api/wiki/nodes/{changing_id}/restore",
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert restored.status_code == 200, restored.text
+    assert "Edited once" in (kb / "target" / "renamed.md").read_text(encoding="utf-8")
+    _assert_unchanged(snapshot, kb, "stable.md")
+
+
+@pytest.mark.asyncio
+async def test_subtree_move_and_delete_only_touch_affected_wiki_files(
+    client: AsyncClient,
+    app,
+) -> None:
+    _feature_id, space_id = await _create_feature_space(client, slug="projection-subtree")
+    stable_id = await _create_document(client, space_id=space_id, name="Stable")
+    source_folder_id = await _create_folder(client, space_id=space_id, name="Source")
+    child_a = await _create_document(
+        client, space_id=space_id, parent_id=source_folder_id, name="Child A"
+    )
+    child_b = await _create_document(
+        client, space_id=space_id, parent_id=source_folder_id, name="Child B"
+    )
+    await _publish(client, node_id=stable_id, body="# Stable\n\nDo not rewrite")
+    await _publish(client, node_id=child_a, body="# A\n\nMove subtree")
+    await _publish(client, node_id=child_b, body="# B\n\nMove subtree")
+    kb = (
+        Path(app.state.settings.data_dir)
+        / "wiki_workspace"
+        / "current"
+        / "projection-subtree"
+        / "knowledge-base"
+    )
+    assert (kb / "source" / "child-a.md").exists()
+    assert (kb / "source" / "child-b.md").exists()
+
+    snapshot = _snapshot_markdown(kb)
+    renamed = await client.put(
+        f"/api/wiki/nodes/{source_folder_id}",
+        json={"name": "Renamed Source"},
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert not (kb / "source" / "child-a.md").exists()
+    assert not (kb / "source" / "child-b.md").exists()
+    assert "Move subtree" in (kb / "renamed-source" / "child-a.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Move subtree" in (kb / "renamed-source" / "child-b.md").read_text(
+        encoding="utf-8"
+    )
+    _assert_unchanged(snapshot, kb, "stable.md")
+
+    snapshot = _snapshot_markdown(kb)
+    deleted = await client.delete(
+        f"/api/wiki/nodes/{source_folder_id}",
+        headers={"X-Subject-Id": "admin"},
+    )
+    assert deleted.status_code == 204, deleted.text
+    assert not (kb / "renamed-source" / "child-a.md").exists()
+    assert not (kb / "renamed-source" / "child-b.md").exists()
+    _assert_unchanged(snapshot, kb, "stable.md")
 
 
 @pytest.mark.asyncio

@@ -381,6 +381,31 @@ class WikiWorkspaceProjector:
             self._delete_document_path(feature_slug, node_path)
             await self._refresh_feature_indexes(session, feature_slug=feature_slug)
 
+    async def delete_document_paths_by_node_ids(
+        self,
+        *,
+        feature_slug: str,
+        node_ids: tuple[int, ...],
+    ) -> None:
+        if not node_ids:
+            await self.refresh_feature_indexes(feature_slug)
+            return
+        async with self._lock, self._session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(WikiNode.path)
+                        .where(WikiNode.id.in_(node_ids), WikiNode.type == "document")
+                        .order_by(WikiNode.path.asc(), WikiNode.id.asc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for node_path in rows:
+                self._delete_document_path(feature_slug, str(node_path))
+            await self._refresh_feature_indexes(session, feature_slug=feature_slug)
+
     async def move_document_path(
         self,
         *,
@@ -400,6 +425,107 @@ class WikiWorkspaceProjector:
                 )
             async with self._session_factory() as session:
                 await self._refresh_feature_indexes(session, feature_slug=feature_slug)
+
+    async def move_document_subtree(
+        self,
+        *,
+        feature_slug: str,
+        old_path: str,
+        new_path: str,
+        affected_node_ids: tuple[int, ...],
+    ) -> None:
+        async with self._lock:
+            old_target = self._feature_dir(feature_slug) / _document_relpath(old_path)
+            new_target = self._feature_dir(feature_slug) / _document_relpath(new_path)
+            old_root = old_target.with_suffix("") if old_target.suffix else old_target
+            new_root = new_target.with_suffix("") if new_target.suffix else new_target
+            if old_root.exists():
+                new_root.parent.mkdir(parents=True, exist_ok=True)
+                if new_root.exists():
+                    shutil.rmtree(new_root)
+                os.replace(old_root, new_root)
+                self._cleanup_empty_parents(
+                    old_root.parent,
+                    stop_at=self._knowledge_base_dir(feature_slug),
+                )
+        await self.project_documents_by_node_ids(node_ids=affected_node_ids)
+
+    async def project_documents_by_node_ids(
+        self,
+        *,
+        node_ids: tuple[int, ...],
+    ) -> None:
+        if not node_ids:
+            return
+        async with self._lock, self._session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(Feature, WikiSpace, WikiNode, WikiDocument, WikiDocumentVersion)
+                    .join(WikiSpace, WikiSpace.feature_id == Feature.id)
+                    .join(WikiNode, WikiNode.space_id == WikiSpace.id)
+                    .join(WikiDocument, WikiDocument.node_id == WikiNode.id)
+                    .join(
+                        WikiDocumentVersion,
+                        WikiDocumentVersion.id == WikiDocument.current_version_id,
+                        isouter=True,
+                    )
+                    .where(WikiNode.id.in_(node_ids), WikiNode.type == "document")
+                    .order_by(WikiNode.path.asc(), WikiNode.id.asc())
+                )
+            ).all()
+            touched_features: set[str] = set()
+            for feature, space, node, document, version in rows:
+                if (
+                    feature.status != "active"
+                    or space.scope != "current"
+                    or space.status != "active"
+                ):
+                    self._delete_feature_tree(feature.slug)
+                    touched_features.add(feature.slug)
+                    continue
+                if node.deleted_at is not None or version is None:
+                    self._delete_document_path(feature.slug, node.path)
+                else:
+                    self._write_document_file(
+                        feature_slug=feature.slug,
+                        node=node,
+                        document=document,
+                        version=version,
+                    )
+                touched_features.add(feature.slug)
+            for feature_slug in touched_features:
+                await self._refresh_feature_indexes(session, feature_slug=feature_slug)
+
+    async def project_reports(self, *, feature_slug: str) -> None:
+        async with self._lock, self._session_factory() as session:
+            row = (
+                await session.execute(
+                    select(Feature, WikiSpace)
+                    .join(WikiSpace, WikiSpace.feature_id == Feature.id)
+                    .where(
+                        Feature.slug == feature_slug,
+                        Feature.status == "active",
+                        WikiSpace.scope == "current",
+                        WikiSpace.status == "active",
+                    )
+                )
+            ).one_or_none()
+            if row is None:
+                self._delete_feature_tree(feature_slug)
+                await self._refresh_manifest(session)
+                return
+            _feature, space = row
+            feature_dir = self._feature_dir(feature_slug)
+            reports_dir = feature_dir / "problem-reports"
+            shutil.rmtree(reports_dir, ignore_errors=True)
+            exporter = WikiWorkspaceExporter(
+                session_factory=self._session_factory,
+                workspace_root=self._workspace_root,
+            )
+            await exporter._export_reports(  # pyright: ignore[reportPrivateUsage]
+                session, space.id, feature_dir
+            )
+            await self._refresh_feature_indexes(session, feature_slug=feature_slug)
 
     async def rebuild_feature(self, feature_slug: str) -> None:
         async with self._lock, self._session_factory() as session:
@@ -458,6 +584,10 @@ class WikiWorkspaceProjector:
             self._delete_feature_tree(feature_slug)
             async with self._session_factory() as session:
                 await self._refresh_manifest(session)
+
+    async def refresh_feature_indexes(self, feature_slug: str) -> None:
+        async with self._lock, self._session_factory() as session:
+            await self._refresh_feature_indexes(session, feature_slug=feature_slug)
 
     def _write_document_file(
         self,
