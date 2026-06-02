@@ -39,7 +39,7 @@ async def test_resolve_openviking_mcp_config_returns_trusted_headers_when_health
 ) -> None:
     async def healthy_probe(base_url: str, **_kwargs: object) -> OpenVikingHealthStatus:
         assert base_url == "http://127.0.0.1:1933"
-        return OpenVikingHealthStatus(healthy=True, version="0.3.17", error=None)
+        return OpenVikingHealthStatus(healthy=True, version="0.3.22", error=None)
 
     config = await _resolve_openviking_mcp_config(
         _settings(tmp_path),

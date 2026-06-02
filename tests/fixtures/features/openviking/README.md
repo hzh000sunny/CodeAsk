@@ -9,7 +9,9 @@
 | 上游仓库 | `https://github.com/volcengine/OpenViking` |
 | Git URL | `git@github.com:volcengine/OpenViking.git` |
 | 上游主语言 | Python 3.10+（核心）/ Rust / C++ |
-| 已锁定 PyPI 版本 | `0.3.17`（与 `docs/future/openviking-rag-research-2026-05-20.md` 实测一致） |
+| 当前支持依赖范围 | `>=0.3.22,<0.4` |
+| 当前锁文件版本 | `0.3.22` |
+| wiki 抓取基准版本 | `0.3.17`（与 `docs/future/openviking-rag-research-2026-05-20.md` 实测一致） |
 | wiki 抓取日期 | 2026-05-20 |
 | wiki 抓取来源 | `/home/hzh/wiki/OpenViking-docs` |
 

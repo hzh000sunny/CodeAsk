@@ -40,7 +40,7 @@ class OpenVikingRuntimeConfig:
 
 
 def build_ov_conf(config: OpenVikingRuntimeConfig) -> dict[str, Any]:
-    """Build the OpenViking 0.3.17 server config used by CodeAsk."""
+    """Build the OpenViking server config used by CodeAsk."""
 
     return {
         "storage": {

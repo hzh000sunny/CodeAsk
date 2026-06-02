@@ -499,7 +499,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.23" },
     { name = "litellm", specifier = "==1.83.14" },
     { name = "markdown-it-py", specifier = ">=3.0" },
-    { name = "openviking", specifier = "==0.3.17" },
+    { name = "openviking", specifier = ">=0.3.22,<0.4" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "pypdfium2", specifier = ">=4.30" },
@@ -1881,7 +1881,7 @@ wheels = [
 
 [[package]]
 name = "openviking"
-version = "0.3.17"
+version = "0.3.22"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple/" }
 dependencies = [
     { name = "apscheduler" },
@@ -1937,13 +1937,13 @@ dependencies = [
     { name = "xlrd" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/29/b6/fa660d4ec362490dd09cae85eddca9e194f4fe56ab4c3a66c69a2a2d3e72/openviking-0.3.17.tar.gz", hash = "sha256:34e1ffa906b207d5d67491df966a662617d5e7a2a7082cc6c3105b6faa297e44", size = 17011859, upload-time = "2026-05-15T06:51:36.464Z" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/04/12/ab048a23272a16fe721d62f92e16ea06946b5aacb23e9317be007a6cf472/openviking-0.3.22.tar.gz", hash = "sha256:a456099662e00591050189070eff08250ef284ea064d4477a04ae644e739908e", size = 22486356, upload-time = "2026-05-29T13:31:15.385Z" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/a7/a8/7c0ca6c8f4186b4181a26e5165ba6802025c8600b10dbff8d9550a10e9c4/openviking-0.3.17-cp310-abi3-macosx_14_0_arm64.whl", hash = "sha256:44dda672e0a16f796ff5486fa4d02b8272afba26bcddc85a7e28c051f5c32419", size = 12240181, upload-time = "2026-05-15T06:51:22.56Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/96/71/0e67899310c13a2c6bd14312824598e157d326fc8995ac0b5750469bfa7d/openviking-0.3.17-cp310-abi3-macosx_15_0_x86_64.whl", hash = "sha256:79074a066822a8ab2404a8df29ed076336bb599c89e9a3945f569574148659e9", size = 14371560, upload-time = "2026-05-15T06:51:25.537Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/0d/54/3d4561f903d5fbde3f25b852ffe960102ca3aa6c790f379545d748db430b/openviking-0.3.17-cp310-abi3-manylinux_2_31_aarch64.whl", hash = "sha256:1c94a10770f48ab730a2c3bd784f768ae0bd2b1ff13bd1a7f1360b209caa57e5", size = 13233013, upload-time = "2026-05-15T06:51:28.445Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/22/94/f91e91d128387ca775f88cc8eb4b53d41a2f29b6b860142e21e8d46d1462/openviking-0.3.17-cp310-abi3-manylinux_2_31_x86_64.whl", hash = "sha256:a64e8920b23cc4b728f2e01692778988ad6124a2586da78cca871a5d815dd88a", size = 15523154, upload-time = "2026-05-15T06:51:31.119Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/ef/9c/68b988a3d4d8be796b62a90b9cd168a452e0e8fc898bed2291889087550a/openviking-0.3.17-cp310-abi3-win_amd64.whl", hash = "sha256:41617bc309e7b33eecf0705d7d91ee05ad482719869dbd6297e76a8d602b1966", size = 17635128, upload-time = "2026-05-15T06:51:33.689Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/4d/a0/a6d106069b8cf9ab3d83c229cd013fdff16ba5e889c4d09c7edabf05c57b/openviking-0.3.22-cp310-abi3-macosx_14_0_arm64.whl", hash = "sha256:8f581f05e307d535fcc976b884eda102e57e579e6144bc2e5dfde996b758ea9b", size = 16163671, upload-time = "2026-05-29T13:31:00.69Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/17/07/a97fb30a8dc75f1f9fbf29f5fa03d13b728b22ae0f1b7b19735d4d3d71a6/openviking-0.3.22-cp310-abi3-macosx_15_0_x86_64.whl", hash = "sha256:b275f7927f9d1ec7d95863fc6b667df8e111045f43d11ab12a8f6fa0385530d7", size = 18322655, upload-time = "2026-05-29T13:31:04.099Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/0a/d0/79d802d3b12e2754b212c08c6633186eb801a8f9f6bc23a134a4a0ed072e/openviking-0.3.22-cp310-abi3-manylinux_2_31_aarch64.whl", hash = "sha256:d4c0907bc2c2c2abe0770121b2ddd9559764302fdf2c7980e801e39f67ec3b72", size = 13330500, upload-time = "2026-05-29T13:31:06.989Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/44/59/a72b4472163eae1ae967a489940318eea0d891eb1b765081ecf903bd5024/openviking-0.3.22-cp310-abi3-manylinux_2_31_x86_64.whl", hash = "sha256:4539d6244c9c6d40b972c355a1377ed81fc107e94b0dfaffc9801353eef98d78", size = 15588685, upload-time = "2026-05-29T13:31:09.717Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/f5/15/e7ead72faffd940008a38b7115982f6812ea200025e17cfbcb12898d002e/openviking-0.3.22-cp310-abi3-win_amd64.whl", hash = "sha256:be6dabef051f24862676c0e2136e6225d7e8189dbd14ae7fa2d94414c5ee8f03", size = 21628712, upload-time = "2026-05-29T13:31:12.535Z" },
 ]
 
 [[package]]

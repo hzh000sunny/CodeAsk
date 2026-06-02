@@ -21,7 +21,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "apscheduler>=3.10",
     "litellm==1.83.14",
-    "openviking==0.3.17",
+    "openviking>=0.3.22,<0.4",
     "socksio>=1.0.0",
     "tiktoken>=0.7",
     "jsonschema>=4.23",

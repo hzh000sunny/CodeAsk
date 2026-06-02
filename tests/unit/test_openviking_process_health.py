@@ -43,7 +43,7 @@ def test_process_manager_builds_direct_command_without_unsetting_proxy(
         port=1933,
         openviking_bin="/opt/codeask/bin/openviking-server",
         popen_factory=fake_popen,
-        version_resolver=lambda: "openviking-server 0.3.17",
+        version_resolver=lambda: "openviking-server 0.3.22",
         health_probe=lambda _base_url, _timeout: OpenVikingHealthStatus(
             healthy=False,
             version=None,
@@ -96,7 +96,7 @@ def test_process_manager_adopts_existing_healthy_server_before_spawning(tmp_path
     def fake_health_probe(base_url: str, timeout: float) -> OpenVikingHealthStatus:
         assert base_url == "http://127.0.0.1:1933"
         assert timeout == 2.0
-        return OpenVikingHealthStatus(healthy=True, version="0.3.17", error=None)
+        return OpenVikingHealthStatus(healthy=True, version="0.3.22", error=None)
 
     manager = OpenVikingProcessManager(
         data_dir=tmp_path,
@@ -113,6 +113,8 @@ def test_process_manager_adopts_existing_healthy_server_before_spawning(tmp_path
     assert status["running"] is True
     assert status["available"] is True
     assert status["pid"] is None
+    assert status["verified_version"] == "0.3.22"
+    assert status["supported_version_range"] == ">=0.3.22,<0.4"
     assert status["last_error"] is None
 
 
@@ -264,7 +266,7 @@ def test_process_manager_restart_shutdowns_existing_process_and_starts_new(tmp_p
 async def test_probe_openviking_health_parses_healthy_response() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/health"
-        return httpx.Response(200, json={"healthy": True, "version": "0.3.17"})
+        return httpx.Response(200, json={"healthy": True, "version": "0.3.22"})
 
     transport = httpx.MockTransport(handler)
 
@@ -272,7 +274,7 @@ async def test_probe_openviking_health_parses_healthy_response() -> None:
 
     assert status == OpenVikingHealthStatus(
         healthy=True,
-        version="0.3.17",
+        version="0.3.22",
         error=None,
     )
 

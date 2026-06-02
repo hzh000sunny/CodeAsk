@@ -66,7 +66,8 @@ async def test_openviking_status_surfaces_health_and_ollama_model_readiness(clie
                 "port": 1933,
                 "pid": 1234,
                 "version": None,
-                "verified_version": "0.3.17",
+                "verified_version": "0.3.22",
+                "supported_version_range": ">=0.3.22,<0.4",
                 "last_error": None,
                 "config_file": str(app.state.settings.data_dir / "openviking" / "ov.conf"),
                 "workspace_path": str(app.state.settings.data_dir / "openviking" / "workspace"),
@@ -75,7 +76,7 @@ async def test_openviking_status_surfaces_health_and_ollama_model_readiness(clie
 
     def openviking_transport(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/health"
-        return httpx.Response(200, json={"healthy": True, "version": "0.3.17"})
+        return httpx.Response(200, json={"healthy": True, "version": "0.3.22"})
 
     def ollama_transport(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/tags"
@@ -92,8 +93,10 @@ async def test_openviking_status_surfaces_health_and_ollama_model_readiness(clie
     assert response.status_code == 200
     body = response.json()
     assert body["degraded"] is False
-    assert body["version"] == "0.3.17"
-    assert body["health"] == {"healthy": True, "version": "0.3.17", "error": None}
+    assert body["version"] == "0.3.22"
+    assert body["verified_version"] == "0.3.22"
+    assert body["supported_version_range"] == ">=0.3.22,<0.4"
+    assert body["health"] == {"healthy": True, "version": "0.3.22", "error": None}
     assert body["ollama"]["healthy"] is True
     assert body["ollama"]["model_available"] is True
     assert body["ollama"]["required_model"] == "bge-m3"
