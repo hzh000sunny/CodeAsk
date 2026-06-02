@@ -1,7 +1,6 @@
 """Native wiki node routes."""
 
 from fastapi import APIRouter, Request, status
-from sqlalchemy import or_, select
 
 from codeask.api.wiki.deps import SessionDep, load_node, load_space, wiki_actor_from_request
 from codeask.api.wiki.schemas import (
@@ -12,8 +11,7 @@ from codeask.api.wiki.schemas import (
     WikiNodeRead,
     WikiNodeUpdate,
 )
-from codeask.db.models import WikiDocument, WikiNode
-from codeask.rag.openviking.hooks import enqueue_wiki_document_sync
+from codeask.rag.openviking.hooks import drain_wiki_workspace_events
 from codeask.wiki.tree import WikiTreeService
 from codeask.wiki.tree.ordering import WikiTreeOrderingService
 
@@ -48,6 +46,7 @@ async def create_node(
         name=payload.name,
     )
     await session.commit()
+    await drain_wiki_workspace_events(request, session)
     await session.refresh(node)
     return WikiNodeRead.model_validate(node)
 
@@ -72,6 +71,7 @@ async def update_node(
         sort_order=payload.sort_order,
     )
     await session.commit()
+    await drain_wiki_workspace_events(request, session)
     await session.refresh(updated)
     return WikiNodeRead.model_validate(updated)
 
@@ -97,6 +97,7 @@ async def move_node(
         target_index=payload.target_index,
     )
     await session.commit()
+    await drain_wiki_workspace_events(request, session)
     await session.refresh(moved)
     return WikiNodeRead.model_validate(moved)
 
@@ -104,15 +105,13 @@ async def move_node(
 @router.delete("/nodes/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_node(node_id: int, request: Request, session: SessionDep) -> None:
     node = await load_node(node_id, session)
-    document_ids = await _document_ids_for_node_subtree(session, node=node)
     await WikiTreeService().delete_node(
         session,
         actor=wiki_actor_from_request(request),
         node=node,
     )
     await session.commit()
-    for document_id in document_ids:
-        await enqueue_wiki_document_sync(request, document_id=document_id, operation="delete")
+    await drain_wiki_workspace_events(request, session)
 
 
 @router.post("/nodes/{node_id}/restore", response_model=WikiNodeRead)
@@ -127,26 +126,7 @@ async def restore_node(
         actor=wiki_actor_from_request(request),
         node=node,
     )
-    document_ids = await _document_ids_for_node_subtree(session, node=restored)
     await session.commit()
+    await drain_wiki_workspace_events(request, session)
     await session.refresh(restored)
-    for document_id in document_ids:
-        await enqueue_wiki_document_sync(request, document_id=document_id, operation="upsert")
     return WikiNodeRead.model_validate(restored)
-
-
-async def _document_ids_for_node_subtree(session: SessionDep, *, node: WikiNode) -> list[int]:
-    path_prefix = f"{node.path.rstrip('/')}/%"
-    rows = (
-        await session.execute(
-            select(WikiDocument.id)
-            .join(WikiNode, WikiNode.id == WikiDocument.node_id)
-            .where(
-                WikiNode.space_id == node.space_id,
-                or_(WikiNode.id == node.id, WikiNode.path.like(path_prefix)),
-                WikiNode.type == "document",
-            )
-            .order_by(WikiDocument.id.asc())
-        )
-    ).scalars()
-    return [int(row) for row in rows]

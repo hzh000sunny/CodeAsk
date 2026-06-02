@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from codeask.agent.opencode_compat.wiki_workspace import WikiWorkspaceExporter
+from codeask.agent.opencode_compat.wiki_workspace import (
+    WikiWorkspaceExporter,
+    WikiWorkspaceProjector,
+)
 from codeask.db.models import (
     Feature,
     Report,
@@ -112,7 +115,7 @@ async def test_wiki_workspace_exporter_materializes_current_wiki_and_reports(
             "feature_id": feature.id,
             "name": "小米",
             "slug": "xiaomi",
-            "path": "./wiki/xiaomi",
+            "path": "./xiaomi",
             "document_count": 1,
             "report_count": 1,
         }
@@ -127,3 +130,79 @@ async def test_wiki_workspace_exporter_materializes_current_wiki_and_reports(
     )
     assert "problem_report" in report_text
     assert "病历显示肿瘤发生在右脚脚掌" in report_text
+
+
+@pytest.mark.asyncio
+async def test_projector_rebuild_feature_replaces_files_without_removing_feature_dir(
+    app,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with app.state.session_factory() as session:
+        feature = Feature(
+            name="Atomic Rebuild",
+            slug="atomic-rebuild",
+            owner_subject_id="admin",
+            status="active",
+        )
+        session.add(feature)
+        await session.flush()
+        space = WikiSpace(
+            feature_id=feature.id,
+            scope="current",
+            display_name="Atomic Rebuild",
+            slug="atomic-rebuild",
+            status="active",
+        )
+        session.add(space)
+        await session.flush()
+        node = WikiNode(
+            space_id=space.id,
+            parent_id=None,
+            type="document",
+            name="Fresh",
+            path="knowledge-base/fresh",
+            sort_order=1,
+        )
+        session.add(node)
+        await session.flush()
+        document = WikiDocument(node_id=node.id, title="Fresh")
+        session.add(document)
+        await session.flush()
+        version = WikiDocumentVersion(
+            document_id=document.id,
+            version_no=1,
+            body_markdown="fresh body",
+            created_by_subject_id="admin",
+        )
+        session.add(version)
+        await session.flush()
+        document.current_version_id = version.id
+        await session.commit()
+
+    workspace_root = tmp_path / "wiki_workspace" / "current"
+    feature_dir = workspace_root / "atomic-rebuild"
+    stale = feature_dir / "knowledge-base" / "stale.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("stale body", encoding="utf-8")
+    observed_feature_dir_exists: list[bool] = []
+    original_copy2 = __import__("shutil").copy2
+
+    def copy2_probe(src: Path, dst: Path):
+        observed_feature_dir_exists.append(feature_dir.exists())
+        return original_copy2(src, dst)
+
+    monkeypatch.setattr("codeask.agent.opencode_compat.wiki_workspace.shutil.copy2", copy2_probe)
+    projector = WikiWorkspaceProjector(
+        session_factory=app.state.session_factory,
+        workspace_root=workspace_root,
+    )
+
+    await projector.rebuild_feature("atomic-rebuild")
+
+    assert observed_feature_dir_exists
+    assert all(observed_feature_dir_exists)
+    assert not stale.exists()
+    assert (feature_dir / "knowledge-base" / "fresh.md").read_text(encoding="utf-8").endswith(
+        "fresh body"
+    )

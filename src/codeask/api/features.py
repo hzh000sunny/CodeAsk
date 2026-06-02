@@ -14,8 +14,13 @@ from codeask.api.wiki.deps import SessionDep, load_repo
 from codeask.audit import write_audit
 from codeask.db.models import Feature, FeatureAdmin, FeatureRepo, Repo, WikiSpace
 from codeask.features.permissions import can_manage_feature
+from codeask.rag.openviking.hooks import drain_wiki_workspace_events
 from codeask.wiki.api_support import repo_to_out, unique_feature_slug
 from codeask.wiki.spaces import WikiSpaceBootstrapService
+from codeask.wiki.workspace_events import (
+    WikiWorkspaceEvent,
+    stash_pending_wiki_workspace_event,
+)
 
 router = APIRouter(prefix="/features")
 
@@ -56,6 +61,14 @@ async def create_feature(
             feature_id=feature.id,
             feature_slug=feature.slug,
         )
+        stash_pending_wiki_workspace_event(
+            session,
+            WikiWorkspaceEvent(
+                feature_id=int(feature.id),
+                feature_slug=feature.slug,
+                kind="feature_created",
+            ),
+        )
         await write_audit(
             session,
             entity_type="feature",
@@ -71,6 +84,7 @@ async def create_feature(
             detail=f"slug '{slug}' already exists",
         ) from exc
     await session.refresh(feature)
+    await drain_wiki_workspace_events(request, session)
     return FeatureRead.model_validate(feature)
 
 
@@ -140,6 +154,14 @@ async def update_feature(
         feature.name = payload.name
     if payload.description is not None:
         feature.description = payload.description
+    stash_pending_wiki_workspace_event(
+        session,
+        WikiWorkspaceEvent(
+            feature_id=int(feature.id),
+            feature_slug=feature.slug,
+            kind="feature_metadata_changed",
+        ),
+    )
     await write_audit(
         session,
         entity_type="feature",
@@ -148,6 +170,7 @@ async def update_feature(
         subject_id=request.state.subject_id,
     )
     await session.commit()
+    await drain_wiki_workspace_events(request, session)
     await session.refresh(feature)
     return FeatureRead.model_validate(feature)
 
@@ -186,6 +209,14 @@ async def delete_feature(feature_id: int, request: Request, session: SessionDep)
         current_space.status = "archived"
         current_space.archived_at = feature.archived_at
         current_space.archived_by_subject_id = request.state.subject_id
+    stash_pending_wiki_workspace_event(
+        session,
+        WikiWorkspaceEvent(
+            feature_id=int(feature.id),
+            feature_slug=feature.slug,
+            kind="feature_archived",
+        ),
+    )
     await write_audit(
         session,
         entity_type="feature",
@@ -194,6 +225,7 @@ async def delete_feature(feature_id: int, request: Request, session: SessionDep)
         subject_id=request.state.subject_id,
     )
     await session.commit()
+    await drain_wiki_workspace_events(request, session)
 
 
 async def _load_active_feature(feature_id: int, session: SessionDep) -> Feature:

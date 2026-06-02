@@ -64,12 +64,12 @@ v1.0.5 按交付里程碑 M1–M5 分段验收（M1–M5 跨 Phase 1/Phase 2 两
 - [x] M8 修复（§⑦ 补遗-1）：`sync_job_failed` 收敛为每个失败资源最多 2 条——cancelled 发 error；否则 attempts==1 发 warning；中间重试（attempts>1 且 failed）不发；避免 flaky 资源刷满默认"重点事件"视图
 - [x] M8 修复（§⑦ 补遗-2）：事件行建议按钮（重试该任务 / 立即重新同步 / 重试重建）成功 toast 只弹一次——去掉 onConfirm 乐观提示，仅保留 mutation onSuccess
 - [x] M8 修复（§⑦ 补遗-3）：后端 no-op 调参守卫与前端 `valuesEqual` 对齐——比较前两侧 `.strip()`，带首尾空格的语义相同值不再落库 / 发 `tuning_change`
-- [x] Wiki / 报告变更 hook 全部接入；启动 backfill 与定时 sweep 对 wiki_doc / verified report 行为正确
+- [x] Wiki 变更 hook 全部接入；m11/m12 后 OpenViking 按 `wiki_feature` 的 `knowledge-base/` 目录同步，不再逐 `wiki_doc` / report 入队；report 只维护 `problem-reports/` 文件视图
 - [ ] 仓库变更 → OpenViking **内容同步**（`source_type=repo`）：⚠️ 2026-05-30 复盘修正——此前误判为已完成，实际 `cloner.py` 仅发 `repo_synced` **事件**、未入队/未上传仓库内容；`repo_uri` 为死 helper。真实内容同步与 backfill 纳入 repo 由 [m11](./m11-repo-openviking-sync.md) 跟踪
-- [ ] `feature_readme` / `wiki_dir` / `global_index`：m11 起 wiki 改「按 feature 目录 import」，三类不再作独立 `source_type`（`wiki_dir` 随目录结构自带、`global_index` 默认作废、`feature_readme` 转为目录内容决策）→ 由 [m12 wiki workspace 增量持久化](./m12-wiki-workspace-incremental.md) §5 收口
+- [ ] `feature_readme` / `wiki_dir` / `global_index`：m11 起 wiki 改「按 feature 的 `knowledge-base/` 目录 import」，三类不再作独立 `source_type`（`wiki_dir` 随目录结构自带、`global_index` 默认作废、`feature_readme` 投影为 `<feature>/README.md` 供 opencode / 本地文件视图使用，默认不进入 OpenViking）→ 由 [m12 wiki workspace 增量持久化](./m12-wiki-workspace-incremental.md) §5 收口
 - [x] kill OpenViking server 后重启：admin 仪表盘自动出现 `openviking_restart_detected` 事件，sync_jobs 进度从中断点续传，不重置
 - [x] kill Ollama 后重启：仪表盘出现 `ollama_recovery` 事件，sync_jobs 在 1–2 分钟内追上
-- [x] 编辑 Wiki / 新增 verified 报告 / 单仓库同步完成 → 仪表盘事件流出现对应 `wiki_doc_changed` / `report_status_changed` / `repo_synced` 事件；批量 / hourly repo refresh 只写一条 `repo_refresh_summary`，不刷 per-repo success 洪流
+- [x] 编辑 Wiki → 仪表盘事件流出现 `wiki_feature_changed`；report 变更只更新 workspace `problem-reports/`，不创建 OpenViking 事件 / job；单仓库同步完成 → 事件流出现 `repo_synced`；批量 / hourly repo refresh 只写一条 `repo_refresh_summary`，不刷 per-repo success 洪流
 - [x] 24h scheduled_refresh 触发后产生 `scheduled_refresh_summary` 事件
 - [x] admin 手动触发"单源重同步 / 全量重建 / 失败重试"三个动作走通；事件流出现 `manual_resync` / `manual_retry` 事件
 - [x] events 接口分页可用；每 event_type 保留策略生效（默认 2000 条）
@@ -191,6 +191,59 @@ hook 接入（D3：均在 API 端点 `session.commit()` 之后，enqueue 失败�
 - [x] 导入 resolve / bulk-resolve / retry(item+session) / apply_job → 各自端点 commit 后入队所发布文档（额外覆盖 upload 完成即 materialize 的路径）
 - [x] publish / rollback 端点统一改走 drain（不再各自显式 enqueue，避免双机制/重复）
 - [x] 集成测试覆盖：晋级 + 至少一条导入发布路径产出 pending `wiki_doc` job
+
+### 3.7.1 M12 Wiki workspace 写时增量投影
+
+本节覆盖 [m12 wiki workspace 增量持久化](./m12-wiki-workspace-incremental.md)。验收口径以“磁盘投影先更新，OpenViking 后读取”为准；report 退出 OpenViking，只能保留为 opencode / 本地文件视图。
+
+文档与边界：
+
+- [x] M12 计划明确 `wiki_workspace/current/<feature>/knowledge-base` 是 OpenViking 唯一 import 目录；`problem-reports/` 不进入 OpenViking
+- [x] `feature_readme` 投影为 `<feature>/README.md`，默认不进入 `knowledge-base/`
+- [x] `wiki_dir` 不再是 source_type，目录结构由 `add_resource(preserve_structure=True)` 自带
+- [x] `global_index` 默认关闭；若后续保留，必须说明唯一消费者和更新规则
+
+投影器行为：
+
+- [x] document node create 未 publish 时不生成正文 md，只刷新 feature README / manifest
+- [x] document publish 写入 `knowledge-base/<node.path>.md`，front matter 与正文为当前版本
+- [x] document rollback 后磁盘正文回到目标版本
+- [x] draft save/delete 不写磁盘、不触发 OpenViking
+- [x] document delete / subtree delete 删除对应 md，并清理空目录
+- [x] node rename / move / subtree move 后旧路径不存在、新路径存在、内容不丢
+- [x] node restore 后有 current version 的 document 重新写入 md
+- [x] promotion / import apply 产生的 published document 在 commit 后写入磁盘
+- [x] legacy upload / legacy backfill 创建的 native WikiDocument 在 enqueue 前先写入磁盘
+- [x] report projection 变化只更新 `problem-reports/` 文件视图，不触发 OpenViking job
+- [x] feature name / description 更新刷新 `<feature>/README.md` 和 `_manifest.json`
+- [x] feature archive 删除该 feature 子树，不影响其他 feature
+- [x] feature restore 重建该 feature 子树
+- [x] `_manifest.json.features[].path` 指向实际存在的 `./<feature_slug>`，不再指向不存在的 `./wiki/<feature_slug>`
+
+可靠性与顺序：
+
+- [x] 所有 wiki 写路径在 DB commit 成功后统一 drain projector 事件；失败事务不污染磁盘
+- [x] projector 成功后才 enqueue OpenViking sync job；projector 失败时不基于旧目录 enqueue
+- [x] projector 失败写 `wiki_workspace_projection_failed` 事件 / 日志；业务写仍返回 2xx；repair 路径由启动 bootstrap / 管理员重建承担
+- [x] 单文件写使用临时文件 + `os.replace` 原子替换
+- [x] per-feature rebuild 先生成 temp 镜像、再逐文件原子替换，最后清 stale 文件；不先 `rmtree` 活跃 feature 目录
+- [x] full rebuild / bootstrap 与增量写共用锁，不互相覆盖
+- [x] bootstrap 全量结果与增量投影结果使用同一套渲染规则
+
+消费方：
+
+- [x] opencode 会话启动不再主动全量 `export_current()`；冷启动目录缺失时由 app startup bootstrap / repair
+- [x] OpenViking sync 不触发 export，纯读 `wiki_workspace/current/<feature>/knowledge-base`
+- [x] “发布 wiki 但从未开 opencode”后，OpenViking 定时/手动 sync 能读到新 md
+- [x] “改 wiki 后未开 opencode”后，OpenViking sync 推送的是新内容，不是旧快照
+- [x] report verify / unverify / reject / delete 不创建 OpenViking sync job
+
+E2E：
+
+- [x] 后端 API E2E 覆盖 publish / rollback / rename / move / delete / restore / import / feature archive restore / report projection / projection failure / bootstrap 的磁盘结果
+- [ ] 管理员 OpenViking E2E 覆盖“投影更新后 add_resource 读取 knowledge-base 新内容”
+- [ ] opencode E2E 覆盖会话启动不重建 wiki_workspace，仍能通过 workspace symlink 读取最新 wiki
+- [ ] 前端 smoke / e2e 通过；后端 pytest、ruff、pyright 通过
 
 ### 3.8 FTS5 删除
 

@@ -1,5 +1,7 @@
 """OpenViking write-path sync hook integration tests."""
 
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
@@ -53,6 +55,38 @@ async def _create_feature_space(client: AsyncClient, *, slug: str) -> tuple[int,
     return feature_id, int(body["space"]["id"]), int(knowledge_root["id"])
 
 
+def _feature_workspace(app: FastAPI, slug: str) -> Path:
+    return Path(app.state.settings.data_dir) / "wiki_workspace" / "current" / slug
+
+
+async def _single_feature_job(app: FastAPI) -> OpenVikingSyncJob:
+    async with app.state.session_factory() as session:
+        return (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+
+
+async def _event_types(app: FastAPI) -> list[str]:
+    async with app.state.session_factory() as session:
+        return [
+            row.event_type
+            for row in (
+                await session.execute(
+                    select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.id.asc())
+                )
+            )
+            .scalars()
+            .all()
+        ]
+
+
+def _assert_wiki_feature_job(job: OpenVikingSyncJob, *, slug: str) -> None:
+    assert job.source_type == "wiki_feature"
+    assert job.source_id == slug
+    assert job.feature_slug == slug
+    assert job.status == "pending"
+    assert job.viking_uri == f"viking://resources/codeask/wiki/{slug}"
+    assert (job.progress or {}).get("op") == "upsert"
+
+
 @pytest.mark.asyncio
 async def test_wiki_draft_does_not_enqueue_but_publish_does(
     client: AsyncClient,
@@ -74,23 +108,12 @@ async def test_wiki_draft_does_not_enqueue_but_publish_does(
         headers={"X-Subject-Id": "owner@dev-1"},
     )
     assert published.status_code == 200, published.text
-    document_id = int(published.json()["document_id"])
 
-    async with app.state.session_factory() as session:
-        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
-    assert job.source_type == "wiki_doc"
-    assert job.source_id == str(document_id)
-    assert job.status == "pending"
-    assert job.viking_uri == (
-        "viking://resources/codeask/features/ov-hook-doc/knowledge-base/build-runbook"
-    )
-    assert (job.progress or {}).get("op") == "upsert"
-    async with app.state.session_factory() as session:
-        events = (await session.execute(select(OpenVikingDashboardEvent))).scalars().all()
-    assert [event.event_type for event in events] == ["wiki_doc_changed"]
-    assert events[0].source_type == "wiki_doc"
-    assert events[0].source_id == str(document_id)
-    assert (events[0].payload or {}).get("operation") == "upsert"
+    job = await _single_feature_job(app)
+    _assert_wiki_feature_job(job, slug="ov-hook-doc")
+    doc_path = _feature_workspace(app, "ov-hook-doc") / "knowledge-base" / "build-runbook.md"
+    assert doc_path.exists()
+    assert await _event_types(app) == ["wiki_feature_changed"]
 
 
 @pytest.mark.asyncio
@@ -128,22 +151,16 @@ async def test_session_attachment_promotion_publish_enqueues_wiki_document(
         headers={"X-Subject-Id": "owner@dev-1"},
     )
     assert promoted.status_code == 201, promoted.text
-    document_id = int(promoted.json()["document_id"])
 
-    async with app.state.session_factory() as session:
-        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
-    assert job.source_type == "wiki_doc"
-    assert job.source_id == str(document_id)
-    assert (job.progress or {}).get("op") == "upsert"
-    assert job.viking_uri == (
-        "viking://resources/codeask/features/ov-promotion-hook/knowledge-base/database-node-a-log"
+    job = await _single_feature_job(app)
+    _assert_wiki_feature_job(job, slug="ov-promotion-hook")
+    doc_path = (
+        _feature_workspace(app, "ov-promotion-hook")
+        / "knowledge-base"
+        / "database-node-a-log.md"
     )
-    async with app.state.session_factory() as session:
-        event_types = [
-            row.event_type
-            for row in (await session.execute(select(OpenVikingDashboardEvent))).scalars().all()
-        ]
-    assert event_types == ["wiki_doc_changed"]
+    assert "ERROR payment timeout" in doc_path.read_text(encoding="utf-8")
+    assert await _event_types(app) == ["wiki_feature_changed"]
 
 
 @pytest.mark.asyncio
@@ -171,38 +188,16 @@ async def test_import_job_apply_publish_enqueues_wiki_documents(
     )
     assert apply_response.status_code == 200, apply_response.text
 
-    async with app.state.session_factory() as session:
-        jobs = (
-            (
-                await session.execute(
-                    select(OpenVikingSyncJob).order_by(OpenVikingSyncJob.viking_uri.asc())
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert [job.source_type for job in jobs] == ["wiki_doc", "wiki_doc"]
-    assert [(job.progress or {}).get("op") for job in jobs] == ["upsert", "upsert"]
-    assert [job.viking_uri for job in jobs] == [
-        "viking://resources/codeask/features/ov-import-apply-hook/knowledge-base/guide",
-        "viking://resources/codeask/features/ov-import-apply-hook/knowledge-base/runbook",
-    ]
-    async with app.state.session_factory() as session:
-        event_types = [
-            row.event_type
-            for row in (
-                await session.execute(
-                    select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.source_id)
-                )
-            )
-            .scalars()
-            .all()
-        ]
-    assert event_types == ["wiki_doc_changed", "wiki_doc_changed"]
+    job = await _single_feature_job(app)
+    _assert_wiki_feature_job(job, slug="ov-import-apply-hook")
+    workspace = _feature_workspace(app, "ov-import-apply-hook") / "knowledge-base"
+    assert (workspace / "guide.md").exists()
+    assert (workspace / "runbook.md").exists()
+    assert await _event_types(app) == ["wiki_feature_changed"]
 
 
 @pytest.mark.asyncio
-async def test_report_verify_then_unverify_updates_sync_job_to_tombstone(
+async def test_report_verify_then_unverify_updates_workspace_without_openviking_job(
     client: AsyncClient,
     app: FastAPI,
 ) -> None:
@@ -234,47 +229,21 @@ async def test_report_verify_then_unverify_updates_sync_job_to_tombstone(
         headers={"X-Subject-Id": "owner@dev-1"},
     )
     assert verified.status_code == 200, verified.text
-    async with app.state.session_factory() as session:
-        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
-    assert job.source_type == "report"
-    assert job.source_id == str(report_id)
-    assert job.viking_uri == (
-        f"viking://resources/codeask/features/ov-report-hook/problem-reports/verified/{report_id}.md"
-    )
-    assert (job.progress or {}).get("op") == "upsert"
-    async with app.state.session_factory() as session:
-        verified_event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
-    assert verified_event.event_type == "report_status_changed"
-    assert verified_event.source_type == "report"
-    assert verified_event.source_id == str(report_id)
-    assert (verified_event.payload or {}).get("operation") == "upsert"
+    feature_dir = _feature_workspace(app, "ov-report-hook")
+    verified_path = feature_dir / "problem-reports" / "verified" / "report-hook.md"
+    draft_path = feature_dir / "problem-reports" / "drafts" / "report-hook.md"
+    assert verified_path.exists()
+    assert not draft_path.exists()
+    assert await _job_count(app) == 0
 
     unverified = await client.post(
         f"/api/reports/{report_id}/unverify",
         headers={"X-Subject-Id": "owner@dev-1"},
     )
     assert unverified.status_code == 200, unverified.text
-    async with app.state.session_factory() as session:
-        jobs = (await session.execute(select(OpenVikingSyncJob))).scalars().all()
-    assert len(jobs) == 1
-    assert jobs[0].source_type == "report"
-    assert jobs[0].source_id == str(report_id)
-    assert (jobs[0].progress or {}).get("op") == "delete"
-    async with app.state.session_factory() as session:
-        events = (
-            (
-                await session.execute(
-                    select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.id.asc())
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert [event.event_type for event in events] == [
-        "report_status_changed",
-        "report_status_changed",
-    ]
-    assert (events[-1].payload or {}).get("operation") == "delete"
+    assert draft_path.exists()
+    assert not verified_path.exists()
+    assert await _job_count(app) == 0
 
 
 @pytest.mark.asyncio
@@ -307,16 +276,11 @@ async def test_legacy_upload_enqueues_native_wiki_document_id(
                 select(WikiDocument).where(WikiDocument.legacy_document_id == legacy_document_id)
             )
         ).scalar_one()
-        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
-    assert job.source_type == "wiki_doc"
-    assert job.source_id == str(wiki_document.id)
-    assert job.viking_uri == (
-        "viking://resources/codeask/features/ov-legacy-hook/knowledge-base/legacy"
-    )
-    assert (job.progress or {}).get("op") == "upsert"
-    async with app.state.session_factory() as session:
-        event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
-    assert event.event_type == "wiki_doc_changed"
+    assert wiki_document.id is not None
+    job = await _single_feature_job(app)
+    _assert_wiki_feature_job(job, slug="ov-legacy-hook")
+    assert (_feature_workspace(app, "ov-legacy-hook") / "knowledge-base" / "legacy.md").exists()
+    assert await _event_types(app) == ["wiki_feature_changed"]
 
 
 @pytest.mark.asyncio
@@ -351,16 +315,14 @@ async def test_legacy_backfill_enqueues_created_native_wiki_document(
     tree = await client.get("/api/wiki/tree", params={"feature_id": feature_id})
     assert tree.status_code == 200, tree.text
 
-    async with app.state.session_factory() as session:
-        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
-    assert job.source_type == "wiki_doc"
-    assert job.viking_uri == (
-        "viking://resources/codeask/features/ov-backfill-hook/knowledge-base/legacy-backfill"
-    )
-    assert (job.progress or {}).get("op") == "upsert"
-    async with app.state.session_factory() as session:
-        event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
-    assert event.event_type == "wiki_doc_changed"
+    job = await _single_feature_job(app)
+    _assert_wiki_feature_job(job, slug="ov-backfill-hook")
+    assert (
+        _feature_workspace(app, "ov-backfill-hook")
+        / "knowledge-base"
+        / "legacy-backfill.md"
+    ).exists()
+    assert await _event_types(app) == ["wiki_feature_changed"]
 
 
 @pytest.mark.asyncio
@@ -395,17 +357,14 @@ async def test_global_tree_legacy_backfill_enqueues_created_native_wiki_document
     tree = await client.get("/api/wiki/tree")
     assert tree.status_code == 200, tree.text
 
-    async with app.state.session_factory() as session:
-        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
-    assert job.source_type == "wiki_doc"
-    assert job.viking_uri == (
-        "viking://resources/codeask/features/ov-global-backfill-hook/"
-        "knowledge-base/global-legacy-backfill"
-    )
-    assert (job.progress or {}).get("op") == "upsert"
-    async with app.state.session_factory() as session:
-        event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
-    assert event.event_type == "wiki_doc_changed"
+    job = await _single_feature_job(app)
+    _assert_wiki_feature_job(job, slug="ov-global-backfill-hook")
+    assert (
+        _feature_workspace(app, "ov-global-backfill-hook")
+        / "knowledge-base"
+        / "global-legacy-backfill.md"
+    ).exists()
+    assert await _event_types(app) == ["wiki_feature_changed"]
 
 
 @pytest.mark.asyncio
@@ -426,51 +385,29 @@ async def test_node_delete_and_restore_flip_wiki_doc_operation(
         headers={"X-Subject-Id": "owner@dev-1"},
     )
     assert deleted.status_code == 204, deleted.text
-    async with app.state.session_factory() as session:
-        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
-    assert (job.progress or {}).get("op") == "delete"
-    async with app.state.session_factory() as session:
-        events = (
-            (
-                await session.execute(
-                    select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.id.asc())
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert [event.event_type for event in events] == ["wiki_doc_changed", "wiki_doc_changed"]
-    assert (events[-1].payload or {}).get("operation") == "delete"
+    job = await _single_feature_job(app)
+    _assert_wiki_feature_job(job, slug="ov-node-hook")
+    doc_path = _feature_workspace(app, "ov-node-hook") / "knowledge-base" / "build-runbook.md"
+    assert not doc_path.exists()
+    assert await _event_types(app) == ["wiki_feature_changed", "wiki_feature_changed"]
 
     restored = await client.post(
         f"/api/wiki/nodes/{node_id}/restore",
         headers={"X-Subject-Id": "owner@dev-1"},
     )
     assert restored.status_code == 200, restored.text
-    async with app.state.session_factory() as session:
-        jobs = (await session.execute(select(OpenVikingSyncJob))).scalars().all()
-    assert len(jobs) == 1
-    assert (jobs[0].progress or {}).get("op") == "upsert"
-    async with app.state.session_factory() as session:
-        events = (
-            (
-                await session.execute(
-                    select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.id.asc())
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert [event.event_type for event in events] == [
-        "wiki_doc_changed",
-        "wiki_doc_changed",
-        "wiki_doc_changed",
+    job = await _single_feature_job(app)
+    _assert_wiki_feature_job(job, slug="ov-node-hook")
+    assert doc_path.exists()
+    assert await _event_types(app) == [
+        "wiki_feature_changed",
+        "wiki_feature_changed",
+        "wiki_feature_changed",
     ]
-    assert (events[-1].payload or {}).get("operation") == "upsert"
 
 
 @pytest.mark.asyncio
-async def test_report_delete_updates_existing_job_to_tombstone(
+async def test_report_delete_updates_workspace_without_openviking_job(
     client: AsyncClient,
     app: FastAPI,
 ) -> None:
@@ -507,30 +444,13 @@ async def test_report_delete_updates_existing_job_to_tombstone(
     )
     assert deleted.status_code == 204, deleted.text
 
-    async with app.state.session_factory() as session:
-        jobs = (await session.execute(select(OpenVikingSyncJob))).scalars().all()
-    assert len(jobs) == 1
-    assert jobs[0].source_type == "report"
-    assert jobs[0].source_id == str(report_id)
-    assert (jobs[0].progress or {}).get("op") == "delete"
-    assert jobs[0].viking_uri == (
-        f"viking://resources/codeask/features/ov-report-delete-hook/problem-reports/verified/{report_id}.md"
-    )
-    async with app.state.session_factory() as session:
-        events = (
-            (
-                await session.execute(
-                    select(OpenVikingDashboardEvent).order_by(OpenVikingDashboardEvent.id.asc())
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert [event.event_type for event in events] == [
-        "report_status_changed",
-        "report_status_changed",
-    ]
-    assert (events[-1].payload or {}).get("operation") == "delete"
+    assert await _job_count(app) == 0
+    assert not (
+        _feature_workspace(app, "ov-report-delete-hook")
+        / "problem-reports"
+        / "verified"
+        / "report-delete-hook.md"
+    ).exists()
 
 
 async def _job_count(app: FastAPI) -> int:

@@ -179,6 +179,15 @@ class FakeStore:
         return item
 
 
+class FailingWikiWorkspaceExporter:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def export_current(self):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        raise AssertionError("opencode initialization must not export wiki workspace")
+
+
 async def _dynamic_context(
     session_id: str,
     workspace_dir: Path,
@@ -294,6 +303,38 @@ async def test_initialize_session_injects_openviking_mcp_when_resolver_returns_h
     assert config["permission"]["openviking_remember"] == "deny"
     assert config["permission"]["openviking_add_resource"] == "deny"
     assert config["permission"]["openviking_forget"] == "deny"
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_does_not_export_wiki_workspace(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    exporter = FailingWikiWorkspaceExporter()
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda _server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/opencode",
+        mcp_token_resolver=lambda _session_id: "token",
+        wiki_workspace_exporter=exporter,
+        data_dir=tmp_path / "data",
+        context_builder=_dynamic_context,
+    )
+
+    await compat.initialize_session("sess_no_export", _llm_config())
+
+    assert exporter.calls == 0
 
 
 @pytest.mark.asyncio

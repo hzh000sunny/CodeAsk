@@ -25,6 +25,10 @@ from codeask.wiki.documents.markdown_refs import (
 )
 from codeask.wiki.index import WikiIndexService
 from codeask.wiki.permissions import can_admin_feature, can_write_feature
+from codeask.wiki.workspace_events import (
+    WikiWorkspaceEvent,
+    stash_pending_wiki_workspace_event,
+)
 
 PENDING_OPENVIKING_WIKI_DOC_IDS = "_pending_openviking_wiki_doc_ids"
 
@@ -198,6 +202,18 @@ class WikiDocumentService:
         await session.flush()
         document.current_version_id = version.id
         stash_pending_openviking_wiki_document_id(session, int(document.id))
+        stash_pending_wiki_workspace_event(
+            session,
+            WikiWorkspaceEvent(
+                feature_id=int(feature.id),
+                feature_slug=feature.slug,
+                space_id=int(node.space_id),
+                kind="document_published",
+                node_id=int(node.id),
+                document_id=int(document.id),
+                new_path=node.path,
+            ),
+        )
         if draft is not None:
             await session.delete(draft)
         await WikiIndexService().refresh_document(
@@ -302,6 +318,18 @@ class WikiDocumentService:
         await session.flush()
         document.current_version_id = new_version.id
         stash_pending_openviking_wiki_document_id(session, int(document.id))
+        stash_pending_wiki_workspace_event(
+            session,
+            WikiWorkspaceEvent(
+                feature_id=int(feature.id),
+                feature_slug=feature.slug,
+                space_id=int(node.space_id),
+                kind="document_published",
+                node_id=int(node.id),
+                document_id=int(document.id),
+                new_path=node.path,
+            ),
+        )
         await WikiIndexService().refresh_document(
             session,
             node=node,

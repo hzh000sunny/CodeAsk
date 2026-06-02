@@ -10,6 +10,10 @@ from codeask.db.models import Feature, WikiNode, WikiSpace
 from codeask.wiki.actor import WikiActor
 from codeask.wiki.paths import is_descendant_path, join_node_path
 from codeask.wiki.permissions import can_write_feature
+from codeask.wiki.workspace_events import (
+    WikiWorkspaceEvent,
+    stash_pending_wiki_workspace_event,
+)
 
 
 class WikiTreeOrderingService:
@@ -48,6 +52,7 @@ class WikiTreeOrderingService:
                 parent_id=target_parent_id,
             )
         )
+        old_path = node.path
 
         if target_parent_id != current_parent_id:
             await self._move_subtree(
@@ -71,6 +76,18 @@ class WikiTreeOrderingService:
         )
         self._resequence(old_remaining)
         self._resequence(target_reordered)
+        stash_pending_wiki_workspace_event(
+            session,
+            WikiWorkspaceEvent(
+                feature_id=int(feature.id),
+                feature_slug=feature.slug,
+                space_id=int(node.space_id),
+                kind="node_moved",
+                node_id=int(node.id),
+                old_path=old_path,
+                new_path=node.path,
+            ),
+        )
         return node
 
     async def _validate_target_parent(

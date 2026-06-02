@@ -145,8 +145,6 @@ class OpenCodeCompat:
         provider_config_pool: tuple[LLMConfigWithSecret, ...] = (),
         force_new_external_session: bool = False,
     ):
-        if self._wiki_workspace_exporter is not None:
-            await self._wiki_workspace_exporter.export_current()
         workspace = self._workspace_manager.prepare_workspace(session_id)
         mcp_url = f"{self._mcp_base_url}/{session_id}"
         server = self._process_manager.ensure_server()

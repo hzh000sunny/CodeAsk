@@ -21,7 +21,6 @@ from codeask.agent.opencode_compat.backend import (
     OpenCodeCompat,
     ProcessManagerLike,
     SessionStoreLike,
-    WikiWorkspaceExporterLike,
     WorkspaceManagerLike,
 )
 from codeask.agent.opencode_compat.cleanup import IdleSessionStoreLike, cleanup_idle_sessions
@@ -37,7 +36,7 @@ from codeask.agent.opencode_compat.mcp.tools import (
 )
 from codeask.agent.opencode_compat.process import OpenCodeProcessManager
 from codeask.agent.opencode_compat.sessions import ExternalAgentSessionStore
-from codeask.agent.opencode_compat.wiki_workspace import WikiWorkspaceExporter
+from codeask.agent.opencode_compat.wiki_workspace import WikiWorkspaceProjector
 from codeask.agent.opencode_compat.workspace import OpenCodeWorkspaceManager
 from codeask.agent.opencode_compat.worktrees import OpenCodeWorktreeManager
 from codeask.agent.trace import AgentTraceLogger
@@ -174,7 +173,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             data_dir=Path(settings.data_dir),
             wiki_workspace_root=Path(settings.data_dir) / "wiki_workspace" / "current",
         )
-        opencode_wiki_workspace_exporter = WikiWorkspaceExporter(
+        wiki_workspace_projector = WikiWorkspaceProjector(
             session_factory=factory,
             workspace_root=Path(settings.data_dir) / "wiki_workspace" / "current",
         )
@@ -232,10 +231,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 settings.data_key,
                 session_id,
             ),
-            wiki_workspace_exporter=cast(
-                WikiWorkspaceExporterLike,
-                opencode_wiki_workspace_exporter,
-            ),
+            wiki_workspace_exporter=None,
             data_dir=Path(settings.data_dir),
             context_builder=build_opencode_context,
             openviking_mcp_resolver=resolve_openviking_mcp,
@@ -277,8 +273,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         app.state.session_factory = factory
         app.state.settings = settings
+        app.state.wiki_workspace_projector = wiki_workspace_projector
         await ensure_default_embedding_setting(cast(Request, _StateRequest(app)))
         await ensure_default_tuning_settings(cast(Request, _StateRequest(app)))
+        await _bootstrap_wiki_workspace_if_needed(
+            wiki_workspace_projector,
+            workspace_root=Path(settings.data_dir) / "wiki_workspace" / "current",
+            log=log,
+        )
         if settings.openviking_enabled:
             openviking_handle_state: dict[str, object | None] = {
                 "pid": None,
@@ -624,6 +626,32 @@ def _ensure_openviking_server(
         )
     if handle_state is not None:
         handle_state["healthy_pid"] = handle.pid
+
+
+async def _bootstrap_wiki_workspace_if_needed(
+    projector: WikiWorkspaceProjector,
+    *,
+    workspace_root: Path,
+    log: structlog.BoundLogger | None,
+) -> bool:
+    manifest_path = workspace_root / "_manifest.json"
+    if manifest_path.is_file():
+        return False
+    try:
+        result = await projector.bootstrap()
+    except Exception:
+        if log is not None:
+            log.exception("wiki_workspace_bootstrap_failed", path=str(workspace_root))
+        return False
+    if log is not None:
+        log.info(
+            "wiki_workspace_bootstrap_completed",
+            path=str(result.root),
+            feature_count=result.feature_count,
+            document_count=result.document_count,
+            report_count=result.report_count,
+        )
+    return True
 
 
 async def _openviking_scheduled_refresh(

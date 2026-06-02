@@ -15,6 +15,10 @@ from codeask.wiki.paths import is_descendant_path, join_node_path
 from codeask.wiki.permissions import can_admin_feature, can_write_feature
 from codeask.wiki.spaces import WikiSpaceBootstrapService
 from codeask.wiki.sync import LegacyWikiSyncService
+from codeask.wiki.workspace_events import (
+    WikiWorkspaceEvent,
+    stash_pending_wiki_workspace_event,
+)
 
 
 class WikiTreeService:
@@ -233,6 +237,15 @@ class WikiTreeService:
         space.archived_at = None
         space.archived_by_subject_id = None
         await session.flush()
+        stash_pending_wiki_workspace_event(
+            session,
+            WikiWorkspaceEvent(
+                feature_id=int(feature.id),
+                feature_slug=feature.slug,
+                space_id=int(space.id),
+                kind="feature_restored",
+            ),
+        )
         return space
 
     async def list_root_nodes(
@@ -350,6 +363,17 @@ class WikiTreeService:
                 )
             )
             await session.flush()
+        stash_pending_wiki_workspace_event(
+            session,
+            WikiWorkspaceEvent(
+                feature_id=int(feature.id),
+                feature_slug=feature.slug,
+                space_id=int(space.id),
+                kind="node_created",
+                node_id=int(node.id),
+                new_path=node.path,
+            ),
+        )
         return node
 
     async def update_node(
@@ -445,6 +469,19 @@ class WikiTreeService:
                 continue
             suffix = row.path[len(old_path) + 1 :]
             row.path = f"{new_path}/{suffix}"
+        stash_pending_wiki_workspace_event(
+            session,
+            WikiWorkspaceEvent(
+                feature_id=int(feature.id),
+                feature_slug=feature.slug,
+                space_id=int(node.space_id),
+                kind="node_moved",
+                node_id=int(node.id),
+                old_path=old_path,
+                new_path=new_path,
+                affected_node_ids=tuple(int(row.id) for row in subtree),
+            ),
+        )
         return node
 
     async def delete_node(
@@ -475,6 +512,22 @@ class WikiTreeService:
             if row.id == node.id or is_descendant_path(row.path, node.path):
                 row.deleted_at = now
                 row.deleted_by_subject_id = actor.subject_id
+        stash_pending_wiki_workspace_event(
+            session,
+            WikiWorkspaceEvent(
+                feature_id=int(feature.id),
+                feature_slug=feature.slug,
+                space_id=int(node.space_id),
+                kind="node_deleted",
+                node_id=int(node.id),
+                old_path=node.path,
+                affected_node_ids=tuple(
+                    int(row.id)
+                    for row in descendants
+                    if row.id == node.id or is_descendant_path(row.path, node.path)
+                ),
+            ),
+        )
 
     async def restore_node(
         self,
@@ -527,6 +580,18 @@ class WikiTreeService:
         for row in subtree:
             row.deleted_at = None
             row.deleted_by_subject_id = None
+        stash_pending_wiki_workspace_event(
+            session,
+            WikiWorkspaceEvent(
+                feature_id=int(feature.id),
+                feature_slug=feature.slug,
+                space_id=int(node.space_id),
+                kind="node_restored",
+                node_id=int(node.id),
+                new_path=node.path,
+                affected_node_ids=tuple(int(row.id) for row in subtree),
+            ),
+        )
         return node
 
     async def _load_feature_for_space(self, session: AsyncSession, *, space_id: int) -> Feature:

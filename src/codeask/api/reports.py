@@ -7,15 +7,12 @@ from sqlalchemy import select
 
 from codeask.api.schemas.wiki import ReportCreate, ReportRead, ReportUpdate
 from codeask.api.wiki.deps import SessionDep
-from codeask.db.models import FeatureAdmin, Report
+from codeask.db.models import Feature, FeatureAdmin, Report
 from codeask.features.permissions import can_manage_feature
-from codeask.rag.openviking.hooks import (
-    build_report_delete_job,
-    enqueue_prebuilt_sync_job,
-    enqueue_report_sync,
-)
+from codeask.rag.openviking.hooks import drain_wiki_workspace_events
 from codeask.wiki.reports import ReportService, ReportVerificationError
 from codeask.wiki.sync import LegacyWikiSyncService
+from codeask.wiki.workspace_events import WikiWorkspaceEvent, stash_pending_wiki_workspace_event
 
 router = APIRouter(prefix="/reports")
 
@@ -51,7 +48,10 @@ async def create_report(
         feature_id=payload.feature_id,
         title=payload.title,
     )
+    if payload.feature_id is not None:
+        await _stash_report_projection_event(session, report_id=report_id)
     await session.commit()
+    await drain_wiki_workspace_events(request, session)
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
 
@@ -93,7 +93,9 @@ async def update_report(
         feature_id=report.feature_id,
         title=report.title,
     )
+    await _stash_report_projection_event(session, report_id=report_id)
     await session.commit()
+    await drain_wiki_workspace_events(request, session)
     return ReportRead.model_validate(report)
 
 
@@ -114,8 +116,9 @@ async def verify_report(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
+    await _stash_report_projection_event(session, report_id=report_id)
     await session.commit()
-    await enqueue_report_sync(request, report_id=report_id, operation="upsert")
+    await drain_wiki_workspace_events(request, session)
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
 
@@ -131,8 +134,9 @@ async def unverify_report(
     await ReportService().unverify(
         session, report_id=report_id, subject_id=request.state.subject_id
     )
+    await _stash_report_projection_event(session, report_id=report_id)
     await session.commit()
-    await enqueue_report_sync(request, report_id=report_id, operation="delete")
+    await drain_wiki_workspace_events(request, session)
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
 
@@ -146,8 +150,9 @@ async def reject_report(
     report = await _load_report(report_id, session)
     await _require_feature_report_manager(request, session, report.feature_id)
     await ReportService().reject(session, report_id=report_id, subject_id=request.state.subject_id)
+    await _stash_report_projection_event(session, report_id=report_id)
     await session.commit()
-    await enqueue_report_sync(request, report_id=report_id, operation="delete")
+    await drain_wiki_workspace_events(request, session)
     report = (await session.execute(select(Report).where(Report.id == report_id))).scalar_one()
     return ReportRead.model_validate(report)
 
@@ -156,7 +161,6 @@ async def reject_report(
 async def delete_report(report_id: int, request: Request, session: SessionDep) -> None:
     report = await _load_report(report_id, session)
     await _require_feature_report_manager(request, session, report.feature_id)
-    openviking_job = await build_report_delete_job(session, report_id=report_id)
     from_status = report.status
     from codeask.metrics.audit import record_audit_log
 
@@ -169,11 +173,11 @@ async def delete_report(report_id: int, request: Request, session: SessionDep) -
         to_status="deleted",
         subject_id=request.state.subject_id,
     )
+    await _stash_report_projection_event(session, report_id=report_id)
     await LegacyWikiSyncService().delete_report_ref(session, report_id=report_id)
     await session.delete(report)
     await session.commit()
-    if openviking_job is not None:
-        await enqueue_prebuilt_sync_job(request, openviking_job)
+    await drain_wiki_workspace_events(request, session)
 
 
 async def _load_report(report_id: int, session: SessionDep) -> Report:
@@ -183,6 +187,28 @@ async def _load_report(report_id: int, session: SessionDep) -> Report:
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="report not found")
     return report
+
+
+async def _stash_report_projection_event(session: SessionDep, *, report_id: int) -> None:
+    report = (
+        await session.execute(
+            select(Report).where(Report.id == report_id, Report.feature_id.is_not(None))
+        )
+    ).scalar_one_or_none()
+    if report is None or report.feature_id is None:
+        return
+    feature = await session.get(Feature, report.feature_id)
+    if feature is None:
+        return
+    stash_pending_wiki_workspace_event(
+        session,
+        WikiWorkspaceEvent(
+            feature_id=int(feature.id),
+            feature_slug=feature.slug,
+            report_id=report_id,
+            kind="report_projection_changed",
+        ),
+    )
 
 
 async def _require_feature_report_manager(

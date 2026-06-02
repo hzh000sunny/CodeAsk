@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request
 from codeask.api.wiki.deps import SessionDep, load_feature, load_space
 from codeask.api.wiki.schemas import WikiSpaceRead
 from codeask.identity import require_admin
+from codeask.rag.openviking.hooks import drain_wiki_workspace_events
 from codeask.wiki.tree import WikiTreeService
 
 router = APIRouter()
@@ -24,5 +25,6 @@ async def restore_space(space_id: int, request: Request, session: SessionDep) ->
     space = await load_space(space_id, session)
     restored = await WikiTreeService().restore_archived_space(session, space=space)
     await session.commit()
+    await drain_wiki_workspace_events(request, session)
     await session.refresh(restored)
     return WikiSpaceRead.model_validate(restored)
