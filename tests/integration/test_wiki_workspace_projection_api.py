@@ -250,6 +250,35 @@ async def test_feature_archive_and_restore_prune_workspace(client: AsyncClient, 
 
 
 @pytest.mark.asyncio
+async def test_feature_archive_enqueues_openviking_delete_for_existing_feature_job(
+    client: AsyncClient,
+    app,
+) -> None:
+    feature_id, space_id = await _create_feature_space(client, slug="projection-delete-ov")
+    node_id = await _create_document(client, space_id=space_id, name="Runbook")
+    await _publish(client, node_id=node_id, body="# Delete\n\nBefore delete")
+    feature_dir = (
+        Path(app.state.settings.data_dir)
+        / "wiki_workspace"
+        / "current"
+        / "projection-delete-ov"
+    )
+    assert feature_dir.exists()
+
+    deleted = await client.delete(f"/api/features/{feature_id}")
+
+    assert deleted.status_code == 204, deleted.text
+    assert not feature_dir.exists()
+    async with app.state.session_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+    assert job.source_type == "wiki_feature"
+    assert job.source_id == "projection-delete-ov"
+    assert job.viking_uri == "viking://resources/codeask/wiki/projection-delete-ov"
+    assert job.status == "pending"
+    assert (job.progress or {}).get("op") == "delete"
+
+
+@pytest.mark.asyncio
 async def test_report_status_changes_do_not_create_openviking_jobs(
     client: AsyncClient,
     app,

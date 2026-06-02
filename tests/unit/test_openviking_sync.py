@@ -112,6 +112,47 @@ async def test_enqueue_preserves_running_job_task_id(db_factory) -> None:
 
 
 @pytest.mark.asyncio
+async def test_enqueue_delete_marks_running_upsert_for_deferred_delete(db_factory) -> None:
+    service = OpenVikingSyncService(db_factory)
+
+    first = await service.enqueue(
+        source_type="wiki_feature",
+        source_id="deleted-feature",
+        feature_slug="deleted-feature",
+        source_hash="v1",
+        viking_uri="viking://resources/codeask/wiki/deleted-feature",
+    )
+    async with db_factory() as session:
+        job = await session.get(OpenVikingSyncJob, first.id)
+        assert job is not None
+        job.status = "running"
+        job.task_id = "task-running"
+        job.progress = {"op": "upsert", "openviking_task_status": "running"}
+        await session.commit()
+
+    second = await service.enqueue(
+        source_type="wiki_feature",
+        source_id="deleted-feature",
+        feature_slug="deleted-feature",
+        viking_uri="viking://resources/codeask/wiki/deleted-feature",
+        operation="delete",
+    )
+
+    async with db_factory() as session:
+        row = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+
+    assert second.id == first.id
+    assert row.status == "running"
+    assert row.task_id == "task-running"
+    assert row.progress == {
+        "op": "delete",
+        "openviking_task_status": "running",
+        "delete_deferred_until_task_done": True,
+    }
+    assert row.source_hash is None
+
+
+@pytest.mark.asyncio
 async def test_enqueue_reactivates_existing_terminal_job_for_same_source(db_factory) -> None:
     service = OpenVikingSyncService(db_factory)
 
@@ -445,6 +486,60 @@ async def test_run_pending_jobs_delete_operation_calls_delete_resource(db_factor
         job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
     assert result == {"processed": 1, "indexed": 1, "failed": 0}
     assert client.deleted == ["viking://resources/codeask/wiki/anything-llm"]
+    assert job.status == "indexed"
+
+
+@pytest.mark.asyncio
+async def test_running_upsert_completion_defers_to_pending_delete(db_factory) -> None:
+    class FakeClient:
+        deleted: list[str]
+
+        def __init__(self) -> None:
+            self.deleted = []
+
+        async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
+            raise AssertionError("add_wiki_feature should not be called")
+
+        async def delete_resource(self, viking_uri: str):
+            self.deleted.append(viking_uri)
+            return {"uri": viking_uri, "deleted": True}
+
+        async def task_status(self, task_id: str):
+            return {"status": "completed"}
+
+    client = FakeClient()
+    service = OpenVikingSyncService(db_factory, client=client)
+    await service.enqueue(
+        source_type="wiki_feature",
+        source_id="deleted-feature",
+        feature_slug="deleted-feature",
+        viking_uri="viking://resources/codeask/wiki/deleted-feature",
+    )
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+        job.status = "running"
+        job.task_id = "task-running"
+        job.progress = {
+            "op": "delete",
+            "openviking_task_status": "running",
+            "delete_deferred_until_task_done": True,
+        }
+        await session.commit()
+
+    first = await service.run_pending_jobs(limit=1)
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+    assert first == {"processed": 1, "indexed": 0, "failed": 0}
+    assert client.deleted == []
+    assert job.status == "pending"
+    assert job.task_id is None
+    assert job.progress == {"op": "delete"}
+
+    second = await service.run_pending_jobs(limit=1)
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+    assert second == {"processed": 1, "indexed": 1, "failed": 0}
+    assert client.deleted == ["viking://resources/codeask/wiki/deleted-feature"]
     assert job.status == "indexed"
 
 

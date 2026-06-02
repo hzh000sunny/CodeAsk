@@ -148,6 +148,7 @@ kind:
 - **A5**：m11 去桥接（若有）。
 - **A6**：内容决策落地（§5：feature_readme 投影与否、关掉 global_index）。
 - **A7（review 补齐）**：启动 bootstrap 接线；投影失败吞掉并发事件、不继续 enqueue；report projection 事件接入 report API；feature create 使用 `feature_created`；per-feature rebuild 去掉先删目录空窗；legacy 兼容入口先投影再 enqueue。
+- **A8（feature 删除竞态）**：真实 OpenViking 验证显示：`add_resource` task 仍在 `running` 时对同 root URI 调 `delete_resource` 会抛 `ConflictError: Resource is being processed`。因此 feature archive/delete 不直接硬删 processing 中资源；CodeAsk 将同一个 `wiki_feature` running job 覆盖为 `op=delete + delete_deferred_until_task_done`，等待旧 task 完成/队列 drain 后转为 pending delete，再调用 `delete_resource`。这样避免 embedding 处理中异常，同时保证已删除 feature 最终从 OpenViking 清理。
 
 ---
 
@@ -162,6 +163,7 @@ kind:
 - [ ] OpenViking sync 不触发 export，纯读 `wiki_workspace/current/<feature>/knowledge-base`；**"发布 wiki 但从未开 opencode" 也能正确同步到 OV**（针对 §0 失效模式的集成测试）
 - [ ] "改 wiki 后未开 opencode，sync 推上去的是新内容、非旧快照"集成测试通过
 - [ ] OpenViking import 路径只允许 `knowledge-base/`；`problem-reports/` 不进入 OpenViking，report 变化不触发 OpenViking job
+- [ ] feature archive/delete 时，若 OpenViking upsert task 正在 embedding，sync job 记录 deferred delete，不立即调用 `delete_resource`；旧 task 完成后执行 delete，避免 OpenViking `ConflictError: Resource is being processed`
 - [ ] feature update 刷新 README / manifest；feature 归档/删除只清该 feature 子树，不误删他者；restore 后重建该 feature 子树
 - [ ] 投影失败有 `wiki_workspace_projection_failed` 事件 / 日志和可 repair 路径；失败时不继续基于旧目录 enqueue OpenViking
 - [ ] 内容决策（§5）有结论：feature_readme 投影到 `<feature>/README.md`；global_index 关闭或显式保留并更新设计 §4

@@ -109,7 +109,12 @@ class OpenVikingSyncService:
                 existing.feature_slug = feature_slug
                 existing.source_hash = source_hash
                 existing.viking_uri = viking_uri or existing.viking_uri
-                if not was_running:
+                if was_running and operation == "delete":
+                    existing.progress = _deferred_delete_progress(existing.progress)
+                    existing.source_hash = None
+                    existing.error = None
+                    existing.next_retry_at = None
+                elif not was_running:
                     existing.progress = _progress_payload(operation=operation, payload=payload)
                     existing.task_id = None
                     existing.error = None
@@ -402,9 +407,14 @@ class OpenVikingSyncService:
                     openviking_task_status=task_status,
                 )
                 if _is_task_success(task_status):
-                    indexed += 1
-                    job.status = "indexed"
-                    job.last_indexed_at = datetime.now(UTC)
+                    if _deferred_delete_requested(job):
+                        job.status = "pending"
+                        job.task_id = None
+                        job.progress = _progress_payload(operation="delete", payload=None)
+                    else:
+                        indexed += 1
+                        job.status = "indexed"
+                        job.last_indexed_at = datetime.now(UTC)
                     job.next_retry_at = None
                     job.error = None
                 elif _is_task_failure(task_status):
@@ -667,6 +677,23 @@ def _progress_payload(
     if payload:
         progress["manual"] = payload
     return progress
+
+
+def _deferred_delete_progress(progress: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(progress or {})
+    payload["op"] = "delete"
+    payload["delete_deferred_until_task_done"] = True
+    return payload
+
+
+def _deferred_delete_requested(job: OpenVikingSyncJob) -> bool:
+    progress = job.progress
+    if not isinstance(progress, dict):
+        return False
+    return (
+        progress.get("op") == "delete"
+        and progress.get("delete_deferred_until_task_done") is True
+    )
 
 
 def _merge_progress(

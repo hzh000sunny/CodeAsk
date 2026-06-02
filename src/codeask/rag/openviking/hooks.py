@@ -173,6 +173,16 @@ async def drain_wiki_workspace_events(request: Request, session: AsyncSession) -
                 await projector.rebuild_feature(event.feature_slug)
             elif event.kind == "feature_archived":
                 await projector.prune_feature(event.feature_slug)
+                await enqueue_prebuilt_sync_job(
+                    request,
+                    OpenVikingHookJob(
+                        source_type="wiki_feature",
+                        source_id=event.feature_slug,
+                        operation="delete",
+                        feature_slug=event.feature_slug,
+                        viking_uri=wiki_feature_uri(event.feature_slug),
+                    ),
+                )
         except Exception as exc:
             await emit_event(
                 request.app.state.session_factory,
