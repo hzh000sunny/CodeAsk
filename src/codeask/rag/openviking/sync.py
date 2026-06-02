@@ -234,6 +234,7 @@ class OpenVikingSyncService:
         triggered_by: str,
         min_interval: timedelta = timedelta(hours=1),
     ) -> dict[str, int]:
+        await self._prune_completed_delete_jobs()
         remote_reconcile = await self.reconcile_stale_remote_wiki_features(
             triggered_by=triggered_by
         )
@@ -351,6 +352,29 @@ class OpenVikingSyncService:
             )
         return {job.source_id for job in jobs if _operation_from_job(job) == "delete"}
 
+    async def _prune_completed_delete_jobs(self) -> int:
+        async with self._session_factory() as session:
+            jobs = (
+                (
+                    await session.execute(
+                        select(OpenVikingSyncJob).where(
+                            OpenVikingSyncJob.status.in_(TERMINAL_STATUSES)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            deleted = 0
+            for job in jobs:
+                if _operation_from_job(job) != "delete":
+                    continue
+                await session.delete(job)
+                deleted += 1
+            if deleted:
+                await session.commit()
+            return deleted
+
     async def run_pending_jobs(self, *, limit: int = 10) -> dict[str, int]:
         if self._client is None:
             return {"processed": 0, "indexed": 0, "failed": 0}
@@ -440,6 +464,9 @@ class OpenVikingSyncService:
                         job.progress,
                         openviking_task_status=_string_or_none(result.get("status")) or "running",
                     )
+                elif work_item.operation == "delete":
+                    indexed += 1
+                    await session.delete(job)
                 else:
                     indexed += 1
                     job.status = "indexed"
