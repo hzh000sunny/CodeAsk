@@ -149,6 +149,7 @@ kind:
 - **A6**：内容决策落地（§5：feature_readme 投影与否、关掉 global_index）。
 - **A7（review 补齐）**：启动 bootstrap 接线；投影失败吞掉并发事件、不继续 enqueue；report projection 事件接入 report API；feature create 使用 `feature_created`；per-feature rebuild 去掉先删目录空窗；legacy 兼容入口先投影再 enqueue。
 - **A8（feature 删除竞态）**：真实 OpenViking 验证显示：`add_resource` task 仍在 `running` 时对同 root URI 调 `delete_resource` 会抛 `ConflictError: Resource is being processed`。因此 feature archive/delete 不直接硬删 processing 中资源；CodeAsk 将同一个 `wiki_feature` running job 覆盖为 `op=delete + delete_deferred_until_task_done`，等待旧 task 完成/队列 drain 后转为 pending delete，再调用 `delete_resource`。这样避免 embedding 处理中异常，同时保证已删除 feature 最终从 OpenViking 清理。
+- **A9（定时远端对账兜底）**：2026-06-02 已用官方 HTTP SDK 验证 `AsyncHTTPClient.ls("viking://resources/codeask/wiki", simple=True)` 能列出 OpenViking 中现存 feature root URI；官方 filesystem/API 文档也把 `ls viking://resources/` 作为资源枚举入口。每小时 `scheduled_add_resource_sweep` 应先执行一次远端对账：读取 DB 中 active/current feature slug 集合，与 OpenViking 远端 wiki root 下的 slug 集合比较；对 `remote_slugs - active_slugs` enqueue `wiki_feature op=delete`。若对应 job 正在 running upsert，则复用 A8 deferred delete；若已有 delete pending/running/failed，不重复创建。`ls` 失败只写 warning summary，不阻断正常 add_resource sweep。官方资源文档确认 `add_resource(to=...)` 在目标已存在时走 incremental update，`watch_interval > 0` 可创建 watch task；但本阶段先落 CodeAsk 每小时 sweep + add_resource / remote delete 对账，OpenViking watch 作为后续计划，不在本次实现。
 
 ---
 
@@ -164,6 +165,7 @@ kind:
 - [ ] "改 wiki 后未开 opencode，sync 推上去的是新内容、非旧快照"集成测试通过
 - [ ] OpenViking import 路径只允许 `knowledge-base/`；`problem-reports/` 不进入 OpenViking，report 变化不触发 OpenViking job
 - [ ] feature archive/delete 时，若 OpenViking upsert task 正在 embedding，sync job 记录 deferred delete，不立即调用 `delete_resource`；旧 task 完成后执行 delete，避免 OpenViking `ConflictError: Resource is being processed`
+- [ ] 每小时 scheduled refresh 对账 OpenViking `viking://resources/codeask/wiki` 下的远端 feature roots；远端存在但 DB active/current 不存在的 feature 自动 enqueue delete，并复用 deferred delete / retry 语义
 - [ ] feature update 刷新 README / manifest；feature 归档/删除只清该 feature 子树，不误删他者；restore 后重建该 feature 子树
 - [ ] 投影失败有 `wiki_workspace_projection_failed` 事件 / 日志和可 repair 路径；失败时不继续基于旧目录 enqueue OpenViking
 - [ ] 内容决策（§5）有结论：feature_readme 投影到 `<feature>/README.md`；global_index 关闭或显式保留并更新设计 §4

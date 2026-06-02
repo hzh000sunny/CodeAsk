@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from codeask.rag.openviking.dashboard import emit_event
 from codeask.rag.openviking.metrics import OpenVikingMetricsRecorder
-from codeask.rag.openviking.uri import wiki_feature_uri
+from codeask.rag.openviking.uri import wiki_feature_uri, wiki_root_uri
 
 log = structlog.get_logger("codeask.rag.openviking.client")
 
@@ -108,6 +108,22 @@ class OpenVikingClient:
             return {"uri": viking_uri, "deleted": True}
         except NotFoundError:
             return {"uri": viking_uri, "not_found": True}
+        except OpenVikingError as exc:
+            await self._handle_sdk_error(exc)
+            raise
+        finally:
+            await self._record_latency_since(started_at)
+
+    async def list_wiki_features(self) -> list[str]:
+        started_at = time.perf_counter()
+        try:
+            client = await self.sdk_client()
+            result = await client.ls(wiki_root_uri(), simple=True)
+            if not isinstance(result, list):
+                raise OpenVikingClientError("OpenViking ls response was not a list")
+            return [item for item in cast(list[object], result) if isinstance(item, str)]
+        except NotFoundError:
+            return []
         except OpenVikingError as exc:
             await self._handle_sdk_error(exc)
             raise

@@ -20,6 +20,11 @@ from codeask.rag.openviking.models import OpenVikingDashboardEvent, OpenVikingSy
 from codeask.rag.openviking.sync import OpenVikingSyncService
 
 
+class FakeOpenVikingClientBase:
+    async def list_wiki_features(self) -> list[str]:
+        return []
+
+
 @pytest.fixture()
 async def db_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker]:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
@@ -272,7 +277,7 @@ async def test_run_pending_jobs_imports_feature_knowledge_base_directory(
     knowledge_base.mkdir(parents=True)
     (knowledge_base / "index.md").write_text("# AnythingLLM", encoding="utf-8")
 
-    class FakeClient:
+    class FakeClient(FakeOpenVikingClientBase):
         calls: list[tuple[str, Path]]
 
         def __init__(self) -> None:
@@ -319,7 +324,7 @@ async def test_run_pending_jobs_imports_feature_knowledge_base_directory(
 async def test_run_pending_jobs_treats_openviking_queue_status_as_completed(
     db_factory,
 ) -> None:
-    class FakeClient:
+    class FakeClient(FakeOpenVikingClientBase):
         async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
             raise AssertionError("add_wiki_feature should not be called")
 
@@ -365,7 +370,7 @@ async def test_run_pending_jobs_treats_openviking_queue_status_as_completed(
 async def test_run_pending_jobs_does_not_complete_queue_status_while_queue_is_active(
     db_factory,
 ) -> None:
-    class FakeClient:
+    class FakeClient(FakeOpenVikingClientBase):
         async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
             raise AssertionError("add_wiki_feature should not be called")
 
@@ -411,7 +416,7 @@ async def test_run_pending_jobs_does_not_complete_queue_status_while_queue_is_ac
 async def test_run_pending_jobs_treats_zero_change_queue_status_as_completed(
     db_factory,
 ) -> None:
-    class FakeClient:
+    class FakeClient(FakeOpenVikingClientBase):
         async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
             raise AssertionError("add_wiki_feature should not be called")
 
@@ -454,7 +459,7 @@ async def test_run_pending_jobs_treats_zero_change_queue_status_as_completed(
 
 @pytest.mark.asyncio
 async def test_run_pending_jobs_delete_operation_calls_delete_resource(db_factory) -> None:
-    class FakeClient:
+    class FakeClient(FakeOpenVikingClientBase):
         deleted: list[str]
 
         def __init__(self) -> None:
@@ -491,7 +496,7 @@ async def test_run_pending_jobs_delete_operation_calls_delete_resource(db_factor
 
 @pytest.mark.asyncio
 async def test_running_upsert_completion_defers_to_pending_delete(db_factory) -> None:
-    class FakeClient:
+    class FakeClient(FakeOpenVikingClientBase):
         deleted: list[str]
 
         def __init__(self) -> None:
@@ -553,7 +558,7 @@ async def test_run_pending_jobs_schedules_retry_after_first_client_failure(
         parents=True
     )
 
-    class FailingClient:
+    class FailingClient(FakeOpenVikingClientBase):
         async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
             raise RuntimeError("embedding backend busy")
 
@@ -647,7 +652,7 @@ async def test_run_pending_jobs_retries_failed_job_after_next_retry_at(
         parents=True
     )
 
-    class FlakyClient:
+    class FlakyClient(FakeOpenVikingClientBase):
         def __init__(self) -> None:
             self.calls = 0
 
@@ -706,7 +711,7 @@ async def test_run_pending_jobs_cancels_after_five_consecutive_failures(
         parents=True
     )
 
-    class FailingClient:
+    class FailingClient(FakeOpenVikingClientBase):
         async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
             raise RuntimeError("permanent failure")
 
@@ -948,9 +953,190 @@ async def test_scheduled_add_resource_sweep_skips_when_any_job_is_running(
         "skipped": 1,
         "running": 1,
         "cooldown": 0,
+        "remote_count": 0,
+        "remote_stale": 0,
+        "remote_delete_enqueued": 0,
     }
     assert len(jobs) == 1
     assert jobs[0].id == "ovjob_running"
+
+
+@pytest.mark.asyncio
+async def test_scheduled_add_resource_sweep_enqueues_delete_for_stale_remote_feature(
+    db_factory,
+    tmp_path: Path,
+) -> None:
+    class FakeClient(FakeOpenVikingClientBase):
+        async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
+            raise AssertionError("add_wiki_feature should not be called")
+
+        async def delete_resource(self, viking_uri: str):
+            raise AssertionError("delete_resource should not be called during sweep")
+
+        async def task_status(self, task_id: str):
+            raise AssertionError("task_status should not be called")
+
+        async def list_wiki_features(self) -> list[str]:
+            return [
+                "viking://resources/codeask/wiki/active-feature",
+                "viking://resources/codeask/wiki/stale-feature",
+                "relative-stale-feature",
+            ]
+
+    data_dir = tmp_path / "data"
+    (data_dir / "wiki_workspace" / "current" / "active-feature" / "knowledge-base").mkdir(
+        parents=True
+    )
+    async with db_factory() as session:
+        await _seed_wiki_document(
+            session,
+            feature_slug="active-feature",
+            node_path="knowledge-base/index",
+            title="Index",
+            body="# Index",
+        )
+        await _seed_wiki_document(
+            session,
+            feature_slug="archived-feature",
+            node_path="knowledge-base/archived",
+            title="Archived",
+            body="# Archived",
+            feature_status="archived",
+        )
+        await session.commit()
+
+    service = OpenVikingSyncService(db_factory, client=FakeClient(), data_dir=data_dir)
+
+    result = await service.scheduled_add_resource_sweep(
+        triggered_by="scheduled_refresh",
+        min_interval=timedelta(seconds=0),
+    )
+
+    async with db_factory() as session:
+        jobs = (
+            (
+                await session.execute(
+                    select(OpenVikingSyncJob).order_by(OpenVikingSyncJob.source_id.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert result["remote_stale"] == 2
+    assert result["remote_delete_enqueued"] == 2
+    stale_job = next(job for job in jobs if job.source_id == "stale-feature")
+    assert (stale_job.progress or {}).get("op") == "delete"
+    assert stale_job.viking_uri == "viking://resources/codeask/wiki/stale-feature"
+    relative_job = next(job for job in jobs if job.source_id == "relative-stale-feature")
+    assert (relative_job.progress or {}).get("op") == "delete"
+    assert relative_job.viking_uri == "viking://resources/codeask/wiki/relative-stale-feature"
+
+
+@pytest.mark.asyncio
+async def test_scheduled_add_resource_sweep_defers_stale_remote_delete_for_running_upsert(
+    db_factory,
+    tmp_path: Path,
+) -> None:
+    class FakeClient(FakeOpenVikingClientBase):
+        async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
+            raise AssertionError("add_wiki_feature should not be called")
+
+        async def delete_resource(self, viking_uri: str):
+            raise AssertionError("delete_resource should not be called during sweep")
+
+        async def task_status(self, task_id: str):
+            raise AssertionError("task_status should not be called")
+
+        async def list_wiki_features(self) -> list[str]:
+            return ["viking://resources/codeask/wiki/stale-feature"]
+
+    async with db_factory() as session:
+        session.add(
+            OpenVikingSyncJob(
+                id="ovjob_stale_running",
+                source_type="wiki_feature",
+                source_id="stale-feature",
+                feature_slug="stale-feature",
+                viking_uri="viking://resources/codeask/wiki/stale-feature",
+                status="running",
+                attempts=1,
+                task_id="task-running",
+                progress={"op": "upsert", "openviking_task_status": "running"},
+            )
+        )
+        await session.commit()
+
+    service = OpenVikingSyncService(db_factory, client=FakeClient(), data_dir=tmp_path / "data")
+
+    result = await service.scheduled_add_resource_sweep(
+        triggered_by="scheduled_refresh",
+        min_interval=timedelta(seconds=0),
+    )
+
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+
+    assert result["remote_stale"] == 1
+    assert result["remote_delete_enqueued"] == 1
+    assert job.status == "running"
+    assert job.task_id == "task-running"
+    assert job.progress == {
+        "op": "delete",
+        "openviking_task_status": "running",
+        "delete_deferred_until_task_done": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_scheduled_add_resource_sweep_keeps_running_stale_delete_job(
+    db_factory,
+    tmp_path: Path,
+) -> None:
+    class FakeClient(FakeOpenVikingClientBase):
+        async def add_wiki_feature(self, *, feature_slug: str, knowledge_base_path: Path):
+            raise AssertionError("add_wiki_feature should not be called")
+
+        async def delete_resource(self, viking_uri: str):
+            raise AssertionError("delete_resource should not be called during sweep")
+
+        async def task_status(self, task_id: str):
+            raise AssertionError("task_status should not be called")
+
+        async def list_wiki_features(self) -> list[str]:
+            return ["viking://resources/codeask/wiki/stale-feature"]
+
+    async with db_factory() as session:
+        session.add(
+            OpenVikingSyncJob(
+                id="ovjob_stale_delete_running",
+                source_type="wiki_feature",
+                source_id="stale-feature",
+                feature_slug="stale-feature",
+                viking_uri="viking://resources/codeask/wiki/stale-feature",
+                status="running",
+                attempts=1,
+                task_id="task-delete-running",
+                progress={"op": "delete", "openviking_task_status": "running"},
+            )
+        )
+        await session.commit()
+
+    service = OpenVikingSyncService(db_factory, client=FakeClient(), data_dir=tmp_path / "data")
+
+    result = await service.scheduled_add_resource_sweep(
+        triggered_by="scheduled_refresh",
+        min_interval=timedelta(seconds=0),
+    )
+
+    async with db_factory() as session:
+        job = (await session.execute(select(OpenVikingSyncJob))).scalar_one()
+
+    assert result["remote_stale"] == 1
+    assert result["remote_delete_enqueued"] == 0
+    assert job.status == "running"
+    assert job.task_id == "task-delete-running"
+    assert job.progress == {"op": "delete", "openviking_task_status": "running"}
 
 
 @pytest.mark.asyncio
@@ -999,6 +1185,9 @@ async def test_scheduled_add_resource_sweep_uses_db_cooldown_to_avoid_restart_re
         "skipped": 1,
         "running": 0,
         "cooldown": 1,
+        "remote_count": 0,
+        "remote_stale": 0,
+        "remote_delete_enqueued": 0,
     }
     assert job.status == "indexed"
 
@@ -1045,6 +1234,9 @@ async def test_scheduled_add_resource_sweep_skips_when_hash_is_unchanged_after_c
         "skipped": 1,
         "running": 0,
         "cooldown": 0,
+        "remote_count": 0,
+        "remote_stale": 0,
+        "remote_delete_enqueued": 0,
     }
     assert job.status == "indexed"
     assert job.source_hash == first_hash

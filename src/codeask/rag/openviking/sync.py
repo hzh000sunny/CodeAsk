@@ -24,7 +24,7 @@ from codeask.db.models import (
 )
 from codeask.rag.openviking.dashboard import emit_event
 from codeask.rag.openviking.models import OpenVikingSyncJob
-from codeask.rag.openviking.uri import wiki_feature_uri
+from codeask.rag.openviking.uri import wiki_feature_uri, wiki_root_uri
 
 TERMINAL_STATUSES = {"indexed", "cancelled"}
 _RETRY_DELAYS = [30, 120, 600, 3600, 21600]
@@ -66,6 +66,8 @@ class OpenVikingResourceClient(Protocol):
     async def delete_resource(self, viking_uri: str) -> dict[str, Any]: ...
 
     async def task_status(self, task_id: str) -> dict[str, Any]: ...
+
+    async def list_wiki_features(self) -> list[str]: ...
 
 
 class OpenVikingSyncService:
@@ -232,6 +234,9 @@ class OpenVikingSyncService:
         triggered_by: str,
         min_interval: timedelta = timedelta(hours=1),
     ) -> dict[str, int]:
+        remote_reconcile = await self.reconcile_stale_remote_wiki_features(
+            triggered_by=triggered_by
+        )
         async with self._session_factory() as session:
             running = int(
                 (
@@ -250,6 +255,7 @@ class OpenVikingSyncService:
                     "skipped": running,
                     "running": running,
                     "cooldown": 0,
+                    **remote_reconcile,
                 }
             last_synced_at = await _latest_wiki_feature_sync_time(session)
             if last_synced_at is not None:
@@ -261,12 +267,89 @@ class OpenVikingSyncService:
                         "skipped": 1,
                         "running": 0,
                         "cooldown": 1,
+                        **remote_reconcile,
                     }
 
         summary = await self.sweep_all(
             triggered_by=triggered_by,
         )
-        return {**summary, "running": 0, "cooldown": 0}
+        return {**summary, "running": 0, "cooldown": 0, **remote_reconcile}
+
+    async def reconcile_stale_remote_wiki_features(
+        self,
+        *,
+        triggered_by: str,
+    ) -> dict[str, int]:
+        if self._client is None:
+            return _empty_remote_reconcile_summary()
+        try:
+            remote_uris = await self._client.list_wiki_features()
+        except Exception as exc:
+            await emit_event(
+                self._session_factory,
+                event_type="wiki_feature_reconcile_summary",
+                triggered_by=triggered_by,
+                payload={"error": str(exc), **_empty_remote_reconcile_summary()},
+                outcome="warning",
+            )
+            return _empty_remote_reconcile_summary()
+
+        remote_slugs = {
+            slug
+            for uri in remote_uris
+            if (slug := _wiki_feature_slug_from_uri(uri)) is not None
+        }
+        async with self._session_factory() as session:
+            active_slugs = set(await _active_wiki_feature_slugs(session))
+        stale_slugs = sorted(remote_slugs - active_slugs)
+        existing_delete_slugs = await self._existing_stale_delete_slugs(stale_slugs)
+        enqueued = 0
+        for feature_slug in stale_slugs:
+            if feature_slug in existing_delete_slugs:
+                continue
+            await self.enqueue(
+                source_type="wiki_feature",
+                source_id=feature_slug,
+                feature_slug=feature_slug,
+                viking_uri=wiki_feature_uri(feature_slug),
+                triggered_by=triggered_by,
+                operation="delete",
+                emit_enqueue_event=False,
+            )
+            enqueued += 1
+        summary = {
+            "remote_count": len(remote_slugs),
+            "remote_stale": len(stale_slugs),
+            "remote_delete_enqueued": enqueued,
+        }
+        if stale_slugs:
+            await emit_event(
+                self._session_factory,
+                event_type="wiki_feature_reconcile_summary",
+                triggered_by=triggered_by,
+                payload={**summary, "stale_features": stale_slugs[:50]},
+                outcome="warning",
+            )
+        return summary
+
+    async def _existing_stale_delete_slugs(self, feature_slugs: list[str]) -> set[str]:
+        if not feature_slugs:
+            return set()
+        async with self._session_factory() as session:
+            jobs = (
+                (
+                    await session.execute(
+                        select(OpenVikingSyncJob).where(
+                            OpenVikingSyncJob.source_type == "wiki_feature",
+                            OpenVikingSyncJob.source_id.in_(feature_slugs),
+                            OpenVikingSyncJob.status.in_(("pending", "running", "failed")),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        return {job.source_id for job in jobs if _operation_from_job(job) == "delete"}
 
     async def run_pending_jobs(self, *, limit: int = 10) -> dict[str, int]:
         if self._client is None:
@@ -575,6 +658,21 @@ async def _latest_wiki_feature_sync_time(session: AsyncSession) -> datetime | No
     )
 
 
+async def _active_wiki_feature_slugs(session: AsyncSession) -> list[str]:
+    rows = (
+        await session.execute(
+            select(Feature.slug)
+            .join(WikiSpace, WikiSpace.feature_id == Feature.id)
+            .where(
+                Feature.status == "active",
+                WikiSpace.scope == "current",
+                WikiSpace.status == "active",
+            )
+        )
+    ).scalars()
+    return [str(slug) for slug in rows.all()]
+
+
 def _aware_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
@@ -763,6 +861,19 @@ def _relative_wiki_path(node_path: str) -> str:
 
 def _sha256_text(value: str) -> str:
     return sha256(value.encode("utf-8")).hexdigest()
+
+
+def _empty_remote_reconcile_summary() -> dict[str, int]:
+    return {"remote_count": 0, "remote_stale": 0, "remote_delete_enqueued": 0}
+
+
+def _wiki_feature_slug_from_uri(uri: str) -> str | None:
+    prefix = f"{wiki_root_uri().rstrip('/')}/"
+    suffix = uri[len(prefix) :] if uri.startswith(prefix) else uri
+    suffix = suffix.strip("/")
+    if not suffix or "/" in suffix:
+        return None
+    return suffix
 
 
 def _job_changed_during_run(job: OpenVikingSyncJob, work_item: SyncWorkItem) -> bool:
