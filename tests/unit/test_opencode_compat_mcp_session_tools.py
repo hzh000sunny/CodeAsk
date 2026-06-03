@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from codeask.agent.opencode_compat.mcp.server import MCPRequestContext
+from codeask.agent.opencode_compat.mcp.server import MCPRequestContext, MCPTool
 from codeask.agent.opencode_compat.mcp.tools.sessions import (
     bind_session_features_tool,
     list_session_attachments_tool,
@@ -17,6 +18,12 @@ from codeask.db.base import Base
 from codeask.db.models import Feature, Session, SessionAttachment, SessionFeature
 
 _CTX = MCPRequestContext(session_id="sess_tools")
+
+
+async def _call_tool_dict(tool: MCPTool, arguments: dict[str, object]) -> dict[str, Any]:
+    result = await tool.handler(arguments, _CTX)
+    assert isinstance(result, dict)
+    return result
 
 
 @pytest.fixture()
@@ -73,7 +80,10 @@ async def db_factory(tmp_path: Path):  # type: ignore[no-untyped-def]
 
 @pytest.mark.asyncio
 async def test_bind_session_features_tool_binds_active_features(db_factory) -> None:  # type: ignore[no-untyped-def]
-    result = await bind_session_features_tool(db_factory).handler({"feature_ids": [1, 2]}, _CTX)
+    result = await _call_tool_dict(
+        bind_session_features_tool(db_factory),
+        {"feature_ids": [1, 2]},
+    )
 
     assert result["summary"] == "已绑定 1 个特性到当前会话"
     assert result["bound_feature_ids"] == [1]
@@ -89,7 +99,10 @@ async def test_bind_session_features_tool_binds_active_features(db_factory) -> N
 
 @pytest.mark.asyncio
 async def test_bind_session_features_tool_returns_recoverable_argument_error(db_factory) -> None:  # type: ignore[no-untyped-def]
-    result = await bind_session_features_tool(db_factory).handler({"feature_ids": ["1"]}, _CTX)
+    result = await _call_tool_dict(
+        bind_session_features_tool(db_factory),
+        {"feature_ids": ["1"]},
+    )
 
     assert result["error"] == "invalid_arguments"
     assert "feature_ids" in result["recovery_hint"]
@@ -97,10 +110,10 @@ async def test_bind_session_features_tool_returns_recoverable_argument_error(db_
 
 @pytest.mark.asyncio
 async def test_list_and_read_session_attachment_tools(db_factory) -> None:  # type: ignore[no-untyped-def]
-    listed = await list_session_attachments_tool(db_factory).handler({}, _CTX)
-    read = await read_session_attachment_tool(db_factory).handler(
+    listed = await _call_tool_dict(list_session_attachments_tool(db_factory), {})
+    read = await _call_tool_dict(
+        read_session_attachment_tool(db_factory),
         {"attachment_id": "att_1", "max_chars": 20},
-        _CTX,
     )
 
     assert listed["attachments"][0]["attachment_id"] == "att_1"
@@ -116,7 +129,7 @@ async def test_list_and_read_session_attachment_tools(db_factory) -> None:  # ty
 
 @pytest.mark.asyncio
 async def test_read_session_attachment_tool_returns_recoverable_argument_error(db_factory) -> None:  # type: ignore[no-untyped-def]
-    result = await read_session_attachment_tool(db_factory).handler({}, _CTX)
+    result = await _call_tool_dict(read_session_attachment_tool(db_factory), {})
 
     assert result["error"] == "invalid_arguments"
     assert "attachment_id" in result["recovery_hint"]

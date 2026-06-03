@@ -227,6 +227,7 @@ export interface OpenVikingStatusResponse {
   port?: number | null;
   pid?: number | null;
   version?: string | null;
+  installed_version?: string | null;
   verified_version?: string | null;
   last_error?: string | null;
   last_error_code?: string | null;
@@ -278,12 +279,42 @@ export interface OpenVikingStatusResponse {
     error: string | null;
   };
   ollama?: {
+    configured?: boolean;
     healthy: boolean;
     model_available: boolean;
-    required_model: string;
+    required_model: string | null;
     models: string[];
     error: string | null;
   };
+  embedding?: {
+    provider: string;
+    model: string;
+    dimension?: number | null;
+    healthy?: boolean;
+    max_concurrent?: number | null;
+  };
+  vlm?: {
+    enabled: boolean;
+    provider: string | null;
+    model: string | null;
+  };
+  doctor?: OpenVikingDoctorReport;
+}
+
+export interface OpenVikingDoctorCheck {
+  ok: boolean;
+  detail: string | null;
+  fix: string | null;
+}
+
+export interface OpenVikingDoctorReport {
+  embedding?: OpenVikingDoctorCheck;
+  vlm?: OpenVikingDoctorCheck;
+  ollama?: OpenVikingDoctorCheck;
+}
+
+export interface OpenVikingConfigTestResponse {
+  doctor: OpenVikingDoctorReport;
 }
 
 export interface OpenVikingSyncJob {
@@ -337,13 +368,38 @@ export interface OpenVikingEventsResponse {
   total_pages: number;
 }
 
+export type OpenVikingEmbeddingProvider =
+  | "local"
+  | "ollama"
+  | "openai"
+  | "azure"
+  | "volcengine"
+  | "vikingdb"
+  | "jina"
+  | "gemini"
+  | "voyage"
+  | "dashscope"
+  | "minimax"
+  | "cohere"
+  | "litellm";
+
+export interface OpenVikingLocalCacheStatus {
+  model_cached: boolean;
+  will_download_on_start: boolean;
+  cache_path: string | null;
+}
+
 export interface OpenVikingEmbeddingResponse {
   id: number;
   provider: string;
-  base_url: string;
+  base_url: string | null;
   model: string;
   dimension: number | null;
+  input: string;
   max_concurrent: number;
+  api_key_configured: boolean;
+  api_key_masked: string | null;
+  local_cache: OpenVikingLocalCacheStatus | null;
   rebuild_status: string;
   rebuild_progress: unknown | null;
 }
@@ -357,19 +413,52 @@ export interface OpenVikingEmbeddingCandidate {
 
 export interface OpenVikingEmbeddingCandidatesResponse {
   items: OpenVikingEmbeddingCandidate[];
+  providers?: string[];
   ollama: {
+    base_url?: string;
     healthy: boolean;
     model_available: boolean;
     error: string | null;
   };
 }
 
-export interface OpenVikingEmbeddingSwitchRequest {
+export interface OpenVikingEmbeddingApplyRequest {
   provider: string;
-  base_url: string;
+  base_url?: string | null;
   model: string;
-  dimension: number | null;
-  max_concurrent: number;
+  dimension?: number | null;
+  max_concurrent?: number;
+  input?: string;
+  api_key?: string | null;
+  extra?: Record<string, unknown> | null;
+}
+
+export interface OpenVikingVLMResponse {
+  id: number | null;
+  enabled: boolean;
+  provider: string | null;
+  model: string | null;
+  base_url: string | null;
+  temperature: number;
+  timeout: number;
+  max_retries: number;
+  api_key_configured: boolean;
+  api_key_masked: string | null;
+  extra: Record<string, unknown> | null;
+  activated_at: string | null;
+  activated_by: string | null;
+}
+
+export interface OpenVikingVLMApplyRequest {
+  enabled?: boolean;
+  provider: string;
+  base_url?: string | null;
+  model: string;
+  api_key?: string | null;
+  temperature?: number;
+  timeout?: number;
+  max_retries?: number;
+  extra?: Record<string, unknown> | null;
 }
 
 export interface OpenVikingTuningItem {

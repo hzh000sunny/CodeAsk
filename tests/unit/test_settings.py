@@ -1,6 +1,7 @@
 """Tests for Settings env loading."""
 
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from cryptography.fernet import Fernet
@@ -9,11 +10,15 @@ from pydantic import ValidationError
 from codeask.settings import Settings
 
 
+def _settings_without_env_file() -> Settings:
+    return cast(Any, Settings)(_env_file=None)
+
+
 def test_missing_data_key_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("CODEASK_DATA_KEY", raising=False)
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
     with pytest.raises(ValidationError):
-        Settings(_env_file=None)  # type: ignore[call-arg]
+        _settings_without_env_file()
 
 
 def test_data_key_is_cached_on_first_settings_load(
@@ -24,7 +29,7 @@ def test_data_key_is_cached_on_first_settings_load(
     monkeypatch.setenv("CODEASK_DATA_KEY", key)
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
 
-    settings = Settings(_env_file=None)
+    settings = _settings_without_env_file()
 
     key_file = tmp_path / "secrets" / "data.key"
     assert settings.data_key == key
@@ -44,7 +49,7 @@ def test_data_key_loads_from_cache_without_env(
     monkeypatch.delenv("CODEASK_DATA_KEY", raising=False)
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
 
-    settings = Settings(_env_file=None)
+    settings = _settings_without_env_file()
 
     assert settings.data_key == key
 
@@ -62,7 +67,7 @@ def test_data_key_env_conflict_with_cache_raises(
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
 
     with pytest.raises(ValidationError, match="conflicts with cached data key"):
-        Settings(_env_file=None)  # type: ignore[call-arg]
+        _settings_without_env_file()
 
 
 def test_defaults_applied(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -72,7 +77,7 @@ def test_defaults_applied(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.delenv("CODEASK_PORT", raising=False)
     monkeypatch.delenv("CODEASK_LOG_LEVEL", raising=False)
 
-    settings = Settings(_env_file=None)
+    settings = _settings_without_env_file()
     assert settings.host == "127.0.0.1"
     assert settings.port == 8000
     assert settings.log_level == "INFO"
@@ -88,5 +93,5 @@ def test_database_url_explicit_override(monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CODEASK_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
-    settings = Settings(_env_file=None)
+    settings = _settings_without_env_file()
     assert settings.database_url == "sqlite+aiosqlite:///:memory:"

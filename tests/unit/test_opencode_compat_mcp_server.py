@@ -58,6 +58,9 @@ async def test_mcp_server_handles_initialize_tools_list_and_call() -> None:
         },
     )
 
+    assert initialized is not None
+    assert tools is not None
+    assert called is not None
     assert initialized["result"]["serverInfo"] == {"name": "CodeAsk", "version": "v1.0.4"}
     assert tools["result"]["tools"][0]["name"] == "echo_tool"
     assert called == {
@@ -108,6 +111,7 @@ async def test_mcp_server_returns_structured_tool_output_as_json_text() -> None:
         },
     )
 
+    assert called is not None
     assert called["result"]["content"][0]["text"] == (
         '{"summary":"ok","session_id":"sess_1","data":{"value":"hello"}}'
     )

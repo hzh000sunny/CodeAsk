@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 import pytest
 
 import codeask.agent.opencode_compat.backend as opencode_backend
@@ -9,7 +11,17 @@ class _TimeoutClient:
     def __init__(self, status: dict[str, object] | None = None) -> None:
         self._status = status or {}
 
-    async def stream_global_events(self, *, directory: str):  # type: ignore[no-untyped-def]
+    async def health(self) -> dict[str, object]:
+        return {}
+
+    async def create_session(self, *, directory: str) -> str:
+        return "ses_open"
+
+    async def stream_global_events(
+        self,
+        *,
+        directory: str,
+    ) -> AsyncIterator[dict[str, object]]:
         if False:
             yield {}
 
@@ -18,6 +30,21 @@ class _TimeoutClient:
 
     async def list_messages(self, *, session_id: str, directory: str) -> list[dict[str, object]]:
         return []
+
+    async def prompt_async(
+        self,
+        *,
+        session_id: str,
+        directory: str,
+        provider_id: str,
+        model_id: str,
+        text: str,
+        system: str | None = None,
+    ) -> None:
+        return None
+
+    async def abort_session(self, *, session_id: str, directory: str) -> None:
+        return None
 
 
 @pytest.mark.asyncio

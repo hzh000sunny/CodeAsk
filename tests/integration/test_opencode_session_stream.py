@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
@@ -129,7 +130,7 @@ async def test_message_stream_emits_received_event_without_starting_opencode_bef
     payload = MessageCreate(content="hello opencode", client_turn_id="turn_preflight")
 
     stream = sessions_api._stream_post_message_response(  # type: ignore[attr-defined]
-        request,
+        cast(Any, request),
         "sess_preflight",
         "turn_preflight",
         payload,
@@ -1056,8 +1057,8 @@ async def test_bulk_delete_sessions_calls_opencode_cleanup_for_owned_sessions(
     assert cleanup_ids == session_ids
 
 
-def _parse_sse_events(source: str) -> list[dict[str, object]]:
-    events: list[dict[str, object]] = []
+def _parse_sse_events(source: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
     for frame in source.strip().split("\n\n"):
         event_type = ""
         data_lines: list[str] = []

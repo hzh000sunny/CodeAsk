@@ -1,3 +1,6 @@
+import os
+import socket
+import subprocess
 from pathlib import Path
 
 import httpx
@@ -9,7 +12,7 @@ from codeask.rag.openviking.health import (
     check_ollama_models,
     probe_openviking_health,
 )
-from codeask.rag.openviking.process import OpenVikingProcessManager
+from codeask.rag.openviking.process import OpenVikingProcessManager, _default_pid_resolver
 
 
 def test_process_manager_builds_direct_command_without_unsetting_proxy(
@@ -103,6 +106,8 @@ def test_process_manager_adopts_existing_healthy_server_before_spawning(tmp_path
         port=1933,
         popen_factory=fake_popen,
         health_probe=fake_health_probe,
+        pid_resolver=lambda _host, _port: 4321,
+        version_resolver=lambda: "0.3.99",
     )
 
     handle = manager.ensure_server()
@@ -110,12 +115,27 @@ def test_process_manager_adopts_existing_healthy_server_before_spawning(tmp_path
 
     assert spawned == []
     assert handle.base_url == "http://127.0.0.1:1933"
+    assert handle.pid == 4321
     assert status["running"] is True
     assert status["available"] is True
-    assert status["pid"] is None
-    assert status["verified_version"] == "0.3.22"
+    assert status["pid"] == 4321
+    assert status["version"] == "0.3.22"
+    assert status["installed_version"] == "0.3.99"
+    assert status["verified_version"] == "0.3.99"
     assert status["supported_version_range"] == ">=0.3.22,<0.4"
     assert status["last_error"] is None
+
+
+def test_default_pid_resolver_finds_current_process_listener() -> None:
+    if not Path("/proc/net/tcp").exists():
+        pytest.skip("/proc TCP tables are not available on this platform")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+
+        assert _default_pid_resolver("127.0.0.1", port) == os.getpid()
 
 
 def test_process_manager_does_not_mark_wrapper_available_until_health_passes(
@@ -260,6 +280,60 @@ def test_process_manager_restart_shutdowns_existing_process_and_starts_new(tmp_p
     assert first.pid != second.pid
     assert terminated == [first.pid]
     assert len(started) == 2
+
+
+def test_process_manager_kills_existing_process_when_graceful_stop_times_out(
+    tmp_path: Path,
+) -> None:
+    started: list[int] = []
+    terminated: list[int] = []
+    killed: list[int] = []
+
+    class FakeProcess:
+        _next_pid = 3000
+
+        def __init__(self) -> None:
+            self.pid = FakeProcess._next_pid
+            FakeProcess._next_pid += 1
+            self._running = True
+            self._wait_calls = 0
+            started.append(self.pid)
+
+        def poll(self) -> int | None:
+            return None if self._running else 0
+
+        def terminate(self) -> None:
+            terminated.append(self.pid)
+
+        def kill(self) -> None:
+            killed.append(self.pid)
+            self._running = False
+
+        def wait(self, timeout: float | None = None) -> int:
+            self._wait_calls += 1
+            if self._wait_calls == 1:
+                assert timeout is not None
+                raise subprocess.TimeoutExpired(cmd="openviking-server", timeout=timeout)
+            return 0
+
+    manager = OpenVikingProcessManager(
+        data_dir=tmp_path,
+        port=1933,
+        popen_factory=lambda _cmd, _env: FakeProcess(),
+        health_probe=lambda _base_url, _timeout: OpenVikingHealthStatus(
+            healthy=False,
+            version=None,
+            error="connection refused",
+        ),
+    )
+
+    first = manager.ensure_server()
+    second = manager.restart_openviking()
+
+    assert first.pid != second.pid
+    assert terminated == [first.pid]
+    assert killed == [first.pid]
+    assert started == [first.pid, second.pid]
 
 
 @pytest.mark.asyncio

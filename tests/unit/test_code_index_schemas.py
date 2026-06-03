@@ -1,5 +1,7 @@
 """Tests for code-index API schemas."""
 
+from typing import cast
+
 import pytest
 from pydantic import ValidationError
 
@@ -52,7 +54,12 @@ def test_read_request_line_range_shape() -> None:
     assert payload.line_range == (1, 20)
 
     with pytest.raises(ValidationError):
-        CodeReadIn(repo_id="r1", session_id="s1", path="src/main.py", line_range=(1,))
+        CodeReadIn(
+            repo_id="r1",
+            session_id="s1",
+            path="src/main.py",
+            line_range=cast(tuple[int, int], (1,)),
+        )
 
 
 def test_api_error_defaults() -> None:

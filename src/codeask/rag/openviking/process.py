@@ -9,6 +9,8 @@ import time
 from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 from threading import RLock
 from typing import Any, BinaryIO, Protocol, cast
@@ -29,6 +31,7 @@ class ProcessLike(Protocol):
 
 PopenFactory = Callable[[Sequence[str], dict[str, str]], ProcessLike]
 VersionResolver = Callable[[], str | None]
+PidResolver = Callable[[str, int], int | None]
 HealthProbe = Callable[[str, float], OpenVikingHealthStatus]
 Clock = Callable[[], float]
 
@@ -58,6 +61,7 @@ class OpenVikingProcessManager:
         openviking_bin: str = "openviking-server",
         popen_factory: PopenFactory | None = None,
         version_resolver: VersionResolver | None = None,
+        pid_resolver: PidResolver | None = None,
         health_probe: HealthProbe | None = None,
         startup_grace_seconds: float = 30.0,
         health_timeout_seconds: float = 2.0,
@@ -69,6 +73,7 @@ class OpenVikingProcessManager:
         self._openviking_bin = openviking_bin
         self._popen_factory = popen_factory
         self._version_resolver = version_resolver
+        self._pid_resolver = pid_resolver or _default_pid_resolver
         self._health_probe = health_probe or _default_health_probe
         self._startup_grace_seconds = startup_grace_seconds
         self._health_timeout_seconds = health_timeout_seconds
@@ -80,6 +85,8 @@ class OpenVikingProcessManager:
         self._last_error: str | None = None
         self._last_error_code: str | None = None
         self._version: str | None = None
+        self._installed_version: str | None = None
+        self._installed_version_resolved = False
         self._available = False
         self._started_at: float | None = None
 
@@ -113,7 +120,7 @@ class OpenVikingProcessManager:
                 external_handle = OpenVikingServerHandle(
                     base_url=base_url,
                     port=self._port,
-                    pid=None,
+                    pid=self._resolve_listening_pid(),
                 )
                 self._refresh_health(external_handle)
                 if self._available:
@@ -127,7 +134,7 @@ class OpenVikingProcessManager:
                 str(self._runtime_config.config_path),
             ]
             env = dict(os.environ)
-            self._version = self._version_resolver() if self._version_resolver else None
+            self._version = self._resolve_installed_version()
             try:
                 if self._popen_factory:
                     proc = self._popen_factory(cmd, env)
@@ -188,15 +195,27 @@ class OpenVikingProcessManager:
             running = (self._process is not None and returncode is None) or (
                 self._process is None and self._handle is not None and self._available
             )
+            handle_pid = self._handle.pid if self._handle else None
+            if handle_pid is None and self._handle is not None and self._available:
+                resolved_pid = self._resolve_listening_pid()
+                if resolved_pid is not None:
+                    self._handle = OpenVikingServerHandle(
+                        base_url=self._handle.base_url,
+                        port=self._handle.port,
+                        pid=resolved_pid,
+                    )
+                    handle_pid = resolved_pid
+            installed_version = self._resolve_installed_version()
             return {
                 "running": running,
                 "available": running and self._available,
                 "base_url": self._handle.base_url if self._handle else None,
                 "port": self._port,
-                "pid": self._handle.pid if self._handle else None,
+                "pid": handle_pid,
                 "returncode": returncode,
                 "version": self._version,
-                "verified_version": "0.3.22",
+                "installed_version": installed_version,
+                "verified_version": installed_version,
                 "supported_version_range": ">=0.3.22,<0.4",
                 "configured_bin": self._openviking_bin,
                 "resolved_bin": shutil.which(self._openviking_bin),
@@ -232,12 +251,36 @@ class OpenVikingProcessManager:
             return False
         return (self._clock() - self._started_at) < self._startup_grace_seconds
 
+    def _resolve_installed_version(self) -> str | None:
+        if self._installed_version_resolved:
+            return self._installed_version
+        self._installed_version = (
+            self._version_resolver() if self._version_resolver else _default_version_resolver()
+        )
+        self._installed_version_resolved = True
+        return self._installed_version
+
+    def _resolve_listening_pid(self) -> int | None:
+        try:
+            return self._pid_resolver(self._host, self._port)
+        except Exception:
+            return None
+
     def _terminate_current(self) -> None:
         if self._process is None or self._process.poll() is not None:
             return
         self._process.terminate()
-        with suppress(Exception):
+        try:
             self._process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            kill = getattr(self._process, "kill", None)
+            if callable(kill):
+                with suppress(Exception):
+                    kill()
+            with suppress(Exception):
+                self._process.wait(timeout=5)
+        except Exception:
+            return
 
     def _replace_log_file(self, log_file: BinaryIO) -> None:
         self._close_log_file()
@@ -279,6 +322,73 @@ def _classify_start_error(exc: Exception, *, resolved_bin: str | None) -> OpenVi
         )
     message = str(exc).strip() or exc.__class__.__name__
     return OpenVikingProcessError("openviking_start_failed", message)
+
+
+def _default_version_resolver() -> str | None:
+    try:
+        return package_version("openviking")
+    except (PackageNotFoundError, Exception):
+        return None
+
+
+def _default_pid_resolver(_host: str, port: int) -> int | None:
+    inodes = _listening_socket_inodes(port)
+    if not inodes:
+        return None
+    return _pid_for_socket_inodes(inodes)
+
+
+def _listening_socket_inodes(port: int) -> set[str]:
+    inodes: set[str] = set()
+    for proc_net_path in (Path("/proc/net/tcp"), Path("/proc/net/tcp6")):
+        try:
+            lines = proc_net_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines[1:]:
+            parts = line.split()
+            if len(parts) < 10:
+                continue
+            local_address = parts[1]
+            state = parts[3]
+            inode = parts[9]
+            if state != "0A" or ":" not in local_address:
+                continue
+            _address_hex, port_hex = local_address.rsplit(":", 1)
+            try:
+                local_port = int(port_hex, 16)
+            except ValueError:
+                continue
+            if local_port == port:
+                inodes.add(inode)
+    return inodes
+
+
+def _pid_for_socket_inodes(inodes: set[str]) -> int | None:
+    proc_root = Path("/proc")
+    try:
+        pid_dirs = [
+            entry for entry in proc_root.iterdir() if entry.name.isdigit() and entry.is_dir()
+        ]
+    except OSError:
+        return None
+    for pid_dir in sorted(pid_dirs, key=lambda entry: int(entry.name)):
+        fd_dir = pid_dir / "fd"
+        try:
+            fd_entries = list(fd_dir.iterdir())
+        except OSError:
+            continue
+        for fd_entry in fd_entries:
+            try:
+                target = os.readlink(fd_entry)
+            except OSError:
+                continue
+            if not target.startswith("socket:[") or not target.endswith("]"):
+                continue
+            inode = target.removeprefix("socket:[").removesuffix("]")
+            if inode in inodes:
+                return int(pid_dir.name)
+    return None
 
 
 def _default_health_probe(base_url: str, timeout: float) -> OpenVikingHealthStatus:

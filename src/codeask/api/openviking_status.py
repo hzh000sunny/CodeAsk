@@ -22,8 +22,14 @@ from codeask.rag.openviking.health import (
     OpenVikingHealthStatus,
     check_ollama_models,
     probe_openviking_health,
+    run_openviking_doctor,
 )
-from codeask.rag.openviking.models import OpenVikingDashboardEvent, OpenVikingSyncJob
+from codeask.rag.openviking.models import (
+    OpenVikingDashboardEvent,
+    OpenVikingEmbeddingSetting,
+    OpenVikingSyncJob,
+    OpenVikingVLMSetting,
+)
 from codeask.rag.openviking.sync import OpenVikingSyncService
 
 router = APIRouter()
@@ -68,10 +74,17 @@ async def get_openviking_status(request: Request) -> dict[str, Any]:
     require_admin(request)
     process_manager = getattr(request.app.state, "openviking_process_manager", None)
     status_payload = _describe_process(process_manager)
+    from codeask.api.openviking_admin import ensure_default_embedding_setting, latest_vlm_setting
+
+    embedding = await ensure_default_embedding_setting(request)
+    vlm = await latest_vlm_setting(request)
     health = await _probe_status_health(request, status_payload)
-    ollama = await _probe_ollama_status(request)
+    ollama = await _probe_ollama_status(request, embedding=embedding, vlm=vlm)
     status_payload["health"] = _health_to_dict(health)
-    status_payload["ollama"] = _ollama_to_dict(ollama, request)
+    status_payload["embedding"] = _embedding_status_to_dict(embedding)
+    status_payload["vlm"] = _vlm_status_to_dict(vlm)
+    status_payload["ollama"] = _ollama_to_dict(ollama, request, embedding=embedding, vlm=vlm)
+    status_payload["doctor"] = _doctor_status(request, status_payload)
     if health.version:
         status_payload["version"] = health.version
     queue = await _queue_counts(request)
@@ -81,8 +94,7 @@ async def get_openviking_status(request: Request) -> dict[str, Any]:
     status_payload["degraded"] = (
         not bool(status_payload.get("running"))
         or not health.healthy
-        or not ollama.healthy
-        or not ollama.model_available
+        or _ollama_is_degraded(ollama, embedding=embedding, vlm=vlm)
     )
     return status_payload
 
@@ -707,11 +719,32 @@ async def _probe_status_health(
     )
 
 
-async def _probe_ollama_status(request: Request) -> OllamaModelStatus:
+async def _probe_ollama_status(
+    request: Request,
+    *,
+    embedding: OpenVikingEmbeddingSetting,
+    vlm: OpenVikingVLMSetting | None,
+) -> OllamaModelStatus:
     settings = request.app.state.settings
+    required_model: str | None = None
+    base_url = settings.openviking_ollama_base_url
+    if embedding.provider == "ollama":
+        required_model = embedding.model
+        base_url = embedding.base_url or base_url
+    elif (
+        vlm is not None
+        and vlm.enabled
+        and vlm.provider == "litellm"
+        and vlm.model
+        and vlm.model.startswith("ollama/")
+    ):
+        required_model = vlm.model.removeprefix("ollama/")
+        base_url = vlm.base_url or base_url
+    if required_model is None:
+        return OllamaModelStatus(healthy=True, model_available=True, models=[], error=None)
     return await check_ollama_models(
-        settings.openviking_ollama_base_url,
-        required_model=settings.openviking_embedding_model,
+        base_url,
+        required_model=required_model,
         transport=getattr(request.app.state, "ollama_health_transport", None),
     )
 
@@ -724,15 +757,83 @@ def _health_to_dict(health: OpenVikingHealthStatus) -> dict[str, Any]:
     }
 
 
-def _ollama_to_dict(status: OllamaModelStatus, request: Request) -> dict[str, Any]:
-    settings = request.app.state.settings
+def _embedding_status_to_dict(setting: OpenVikingEmbeddingSetting) -> dict[str, Any]:
     return {
+        "provider": setting.provider,
+        "model": setting.model,
+        "dimension": setting.dimension,
+        "max_concurrent": setting.max_concurrent,
+    }
+
+
+def _vlm_status_to_dict(setting: OpenVikingVLMSetting | None) -> dict[str, Any]:
+    return {
+        "enabled": bool(setting.enabled) if setting is not None else False,
+        "provider": setting.provider if setting is not None else None,
+        "model": setting.model if setting is not None else None,
+    }
+
+
+def _ollama_to_dict(
+    status: OllamaModelStatus,
+    request: Request,
+    *,
+    embedding: OpenVikingEmbeddingSetting,
+    vlm: OpenVikingVLMSetting | None,
+) -> dict[str, Any]:
+    settings = request.app.state.settings
+    configured = embedding.provider == "ollama" or (
+        vlm is not None
+        and vlm.enabled
+        and vlm.provider == "litellm"
+        and bool(vlm.model and vlm.model.startswith("ollama/"))
+    )
+    required_model = settings.openviking_embedding_model
+    if embedding.provider == "ollama":
+        required_model = embedding.model
+    elif configured and vlm is not None and vlm.model:
+        required_model = vlm.model.removeprefix("ollama/")
+    return {
+        "configured": configured,
         "healthy": status.healthy,
         "model_available": status.model_available,
-        "required_model": settings.openviking_embedding_model,
+        "required_model": required_model if configured else None,
         "models": status.models,
         "error": status.error,
     }
+
+
+def _ollama_is_degraded(
+    status: OllamaModelStatus,
+    *,
+    embedding: OpenVikingEmbeddingSetting,
+    vlm: OpenVikingVLMSetting | None,
+) -> bool:
+    configured = embedding.provider == "ollama" or (
+        vlm is not None
+        and vlm.enabled
+        and vlm.provider == "litellm"
+        and bool(vlm.model and vlm.model.startswith("ollama/"))
+    )
+    return configured and (not status.healthy or not status.model_available)
+
+
+def _doctor_status(request: Request, status_payload: dict[str, Any]) -> dict[str, Any] | None:
+    config_file = status_payload.get("config_file")
+    if not isinstance(config_file, str) or not config_file:
+        return None
+    config_path = Path(config_file)
+    runner = getattr(request.app.state, "openviking_doctor_runner", None)
+    try:
+        if callable(runner):
+            return cast(dict[str, Any], runner(config_path))
+        return run_openviking_doctor(config_path)
+    except Exception as exc:
+        return {
+            "embedding": {"ok": False, "detail": f"doctor failed: {exc}", "fix": None},
+            "vlm": {"ok": False, "detail": f"doctor failed: {exc}", "fix": None},
+            "ollama": {"ok": False, "detail": f"doctor failed: {exc}", "fix": None},
+        }
 
 
 async def _resolve_display_names(

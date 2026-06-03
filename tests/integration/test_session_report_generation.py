@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import date
+from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
@@ -321,14 +322,14 @@ async def _wait_prepare_status(
     request_id: str,
     *,
     subject_id: str = "alice@dev-1",
-) -> dict[str, object]:
+) -> dict[str, Any]:
     for _ in range(20):
         response = await client.get(
             f"/api/sessions/{session_id}/reports/prepare/{request_id}",
             headers={"X-Subject-Id": subject_id},
         )
         assert response.status_code == 200, response.text
-        payload = response.json()
+        payload = cast(dict[str, Any], response.json())
         if payload["status"] != "running":
             return payload
         await asyncio.sleep(0.05)

@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     DateTime,
     Index,
@@ -62,11 +63,32 @@ class OpenVikingEmbeddingSetting(Base, TimestampMixin):
     model: Mapped[str] = mapped_column(String(128), nullable=False)
     dimension: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_concurrent: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    input: Mapped[str] = mapped_column(String(32), nullable=False, default="text")
+    api_key_encrypted: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    extra: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     activated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     activated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     previous_setting_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rebuild_status: Mapped[str] = mapped_column(String(16), nullable=False, default="idle")
     rebuild_progress: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+
+class OpenVikingVLMSetting(Base, TimestampMixin):
+    __tablename__ = "openviking_vlm_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    base_url: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    api_key_encrypted: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    temperature: Mapped[str] = mapped_column(String(32), nullable=False, default="0.0")
+    max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    timeout: Mapped[str] = mapped_column(String(32), nullable=False, default="60.0")
+    extra: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    activated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    activated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    previous_setting_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class OpenVikingTuningSetting(Base, TimestampMixin):

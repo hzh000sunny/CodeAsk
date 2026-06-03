@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import inspect, update
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from codeask.agent.opencode_compat.sessions import (
@@ -142,13 +142,13 @@ async def test_external_agent_session_store_lists_idle_and_marks_cleaned(app) ->
         for row in rows:
             if row["session_id"] == "sess_idle":
                 await session.execute(
-                    ExternalAgentSession.__table__.update()
+                    update(ExternalAgentSession)
                     .where(ExternalAgentSession.session_id == "sess_idle")
                     .values(updated_at=cutoff - timedelta(minutes=1))
                 )
             elif row["session_id"] == "sess_error":
                 await session.execute(
-                    ExternalAgentSession.__table__.update()
+                    update(ExternalAgentSession)
                     .where(ExternalAgentSession.session_id == "sess_error")
                     .values(updated_at=cutoff - timedelta(minutes=1))
                 )

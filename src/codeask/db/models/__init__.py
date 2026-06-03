@@ -41,6 +41,7 @@ from codeask.rag.openviking.models import (
     OpenVikingEmbeddingSetting,
     OpenVikingSyncJob,
     OpenVikingTuningSetting,
+    OpenVikingVLMSetting,
 )
 
 __all__ = [
@@ -59,6 +60,7 @@ __all__ = [
     "OpenVikingEmbeddingSetting",
     "OpenVikingSyncJob",
     "OpenVikingTuningSetting",
+    "OpenVikingVLMSetting",
     "Repo",
     "Report",
     "WikiAsset",

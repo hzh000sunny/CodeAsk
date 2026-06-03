@@ -1,18 +1,22 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFeedbackProvider } from "../src/components/feedback/AppFeedback";
 import { OpenVikingDashboard } from "../src/components/settings/OpenVikingDashboard";
 import * as api from "../src/lib/api";
 
 vi.mock("../src/lib/api", () => ({
+  applyEmbeddingConfig: vi.fn(),
   applyOpenVikingTuning: vi.fn(),
   applyOpenVikingTuningPreset: vi.fn(),
+  applyVLMConfig: vi.fn(),
+  disableVLMConfig: vi.fn(),
   getOllamaSnippet: vi.fn(),
   getOpenVikingEmbedding: vi.fn(),
   getOpenVikingStatus: vi.fn(),
   getOpenVikingTuning: vi.fn(),
+  getOpenVikingVLM: vi.fn(),
   getTuningPreset: vi.fn(),
   getOpenVikingSyncJobsSummary: vi.fn(),
   listEmbeddingCandidates: vi.fn(),
@@ -23,11 +27,16 @@ vi.mock("../src/lib/api", () => ({
   resyncOpenViking: vi.fn(),
   retryFailedSyncJobs: vi.fn(),
   retrySyncJob: vi.fn(),
-  switchEmbeddingModel: vi.fn(),
+  testEmbeddingConfig: vi.fn(),
+  testVLMConfig: vi.fn(),
   verifyOllamaSettings: vi.fn(),
 }));
 
 describe("OpenVikingDashboard", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     Object.defineProperty(navigator, "clipboard", {
@@ -43,6 +52,7 @@ describe("OpenVikingDashboard", () => {
       port: 1933,
       pid: 101,
       version: "0.3.17",
+      installed_version: "0.3.22",
       verified_version: "0.3.17",
       last_error: null,
       config_file: "/home/hzh/.codeask/openviking/ov.conf",
@@ -60,6 +70,7 @@ describe("OpenVikingDashboard", () => {
       },
       health: { healthy: true, version: "0.3.17", error: null },
       ollama: {
+        configured: true,
         healthy: true,
         model_available: true,
         required_model: "bge-m3",
@@ -73,9 +84,28 @@ describe("OpenVikingDashboard", () => {
       base_url: "http://127.0.0.1:11434",
       model: "bge-m3",
       dimension: 1024,
+      input: "text",
       max_concurrent: 1,
+      api_key_configured: false,
+      api_key_masked: null,
+      local_cache: null,
       rebuild_status: "idle",
       rebuild_progress: null,
+    });
+    vi.mocked(api.getOpenVikingVLM).mockResolvedValue({
+      id: null,
+      enabled: false,
+      provider: null,
+      model: null,
+      base_url: null,
+      temperature: 0,
+      timeout: 60,
+      max_retries: 3,
+      api_key_configured: false,
+      api_key_masked: null,
+      extra: null,
+      activated_at: null,
+      activated_by: null,
     });
     vi.mocked(api.listEmbeddingCandidates).mockResolvedValue({
       items: [
@@ -246,10 +276,19 @@ describe("OpenVikingDashboard", () => {
     expect(screen.getByRole("heading", { name: "同步任务" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "事件流" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Embedding 模型" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "VLM 模型" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "调优参数" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "运行指标" })).toBeInTheDocument();
     expect(container.querySelector(".settings-openviking-grid")).toBeInTheDocument();
-    expect(container.querySelectorAll(".settings-openviking-card-header")).toHaveLength(6);
+    const overviewPanel = container.querySelector(".openviking-overview-panel");
+    expect(overviewPanel).toBeInTheDocument();
+    const overviewCards = Array.from(overviewPanel?.children ?? []);
+    expect(overviewCards[0]).toHaveClass("openviking-card-health");
+    expect(overviewCards[1]).toHaveClass("openviking-overview-side");
+    const overviewSide = overviewCards[1] as HTMLElement;
+    expect(overviewSide.children[0]).toHaveClass("openviking-card-indexing");
+    expect(overviewSide.children[1]).toHaveClass("openviking-card-metrics");
+    expect(container.querySelectorAll(".settings-openviking-card-header")).toHaveLength(8);
     expect(container.querySelectorAll(".section-title-row")).toHaveLength(0);
     expect(container.querySelector(".openviking-status-strip")).not.toBeInTheDocument();
     expect(container.querySelector(".openviking-dashboard")).not.toHaveStyle({
@@ -407,6 +446,92 @@ describe("OpenVikingDashboard", () => {
     );
   });
 
+  it("copies runtime paths with a textarea fallback when Clipboard API is unavailable", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+    renderDashboard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "复制 配置文件" }));
+
+    await waitFor(() => expect(execCommand).toHaveBeenCalledWith("copy"));
+    expect(await screen.findByRole("status")).toHaveTextContent("配置文件已复制");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("uses a generic model backend status when Ollama is not configured", async () => {
+    vi.mocked(api.getOpenVikingStatus).mockResolvedValueOnce({
+      running: true,
+      degraded: false,
+      port: 1933,
+      pid: null,
+      version: "0.3.22",
+      installed_version: "0.3.99",
+      verified_version: "0.3.22",
+      last_error: null,
+      config_file: "/home/hzh/.codeask/openviking/ov.conf",
+      workspace_path: "/home/hzh/.codeask/openviking/workspace",
+      log_file: "/home/hzh/.codeask/openviking/logs/openviking-server.log",
+      queue: { pending: 0, running: 0, failed: 0, indexed: 0, cancelled: 0 },
+      health: { healthy: true, version: "0.3.22", error: null },
+      doctor: {
+        embedding: {
+          ok: true,
+          detail: "local/bge-small-zh-v1.5-f16",
+          fix: null,
+        },
+        vlm: {
+          ok: true,
+          detail: "No VLM provider configured",
+          fix: null,
+        },
+        ollama: {
+          ok: true,
+          detail: "not configured",
+          fix: null,
+        },
+      },
+      embedding: {
+        provider: "local",
+        model: "bge-small-zh-v1.5-f16",
+        dimension: 512,
+        max_concurrent: 1,
+      },
+      ollama: {
+        configured: false,
+        healthy: true,
+        model_available: true,
+        required_model: null,
+        models: [],
+        error: null,
+      },
+    } as never);
+
+    renderDashboard();
+
+    const healthCard = await screen.findByLabelText("OpenViking 健康状态");
+    await within(healthCard).findByText("local / bge-small-zh-v1.5-f16");
+    const diagnosticGrid = healthCard.querySelector(".settings-diagnostic-grid");
+    expect(diagnosticGrid).toBeTruthy();
+    expect(within(healthCard).getByText("运行版本")).toBeInTheDocument();
+    expect(within(healthCard).getByText("0.3.22")).toBeInTheDocument();
+    expect(within(healthCard).queryByText("安装版本")).not.toBeInTheDocument();
+    expect(within(healthCard).queryByText("0.3.99")).not.toBeInTheDocument();
+    expect(within(healthCard).getByText("模型后端")).toBeInTheDocument();
+    expect(within(diagnosticGrid as HTMLElement).queryByText("Embedding")).not.toBeInTheDocument();
+    expect(within(healthCard).queryByText("Ollama / 模型")).not.toBeInTheDocument();
+    expect(within(healthCard).queryByText("外部依赖")).not.toBeInTheDocument();
+    expect(within(healthCard).queryByText("ready")).not.toBeInTheDocument();
+    expect(within(healthCard).queryByText("Ollama")).not.toBeInTheDocument();
+    expect(within(healthCard).queryByText("not configured")).not.toBeInTheDocument();
+  });
+
   it("shows a visible inline error when a management mutation fails", async () => {
     vi.mocked(api.applyOpenVikingTuning).mockRejectedValueOnce(
       new Error("value must be between 1 and 16"),
@@ -424,6 +549,107 @@ describe("OpenVikingDashboard", () => {
 
     expect(await within(tuningCard).findByText(/value must be between 1 and 16/)).toBeInTheDocument();
     expect(await screen.findByRole("alertdialog")).toHaveTextContent("保存调优参数失败");
+  });
+
+  it("shows transient toasts for Embedding and VLM test results", async () => {
+    vi.mocked(api.testEmbeddingConfig).mockResolvedValueOnce({
+      doctor: {
+        embedding: { ok: true, detail: "local ok", fix: null },
+      },
+    });
+    vi.mocked(api.getOpenVikingVLM).mockResolvedValue({
+      id: 2,
+      enabled: true,
+      provider: "litellm",
+      model: "ollama/qwen3.5:2b",
+      base_url: "http://127.0.0.1:11434",
+      temperature: 0,
+      timeout: 60,
+      max_retries: 3,
+      api_key_configured: false,
+      api_key_masked: null,
+      extra: null,
+      activated_at: "2026-06-02T10:00:00Z",
+      activated_by: "admin",
+    });
+    vi.mocked(api.testVLMConfig).mockRejectedValueOnce(new Error("Method Not Allowed"));
+
+    renderDashboard();
+
+    const embeddingCard = await screen.findByLabelText("OpenViking Embedding");
+    fireEvent.click(await within(embeddingCard).findByRole("button", { name: "测试" }));
+    expect(await screen.findByRole("status")).toHaveClass("app-feedback-toast");
+    expect(screen.getByRole("status")).toHaveAttribute("data-tone", "success");
+    expect(screen.getByRole("status")).toHaveTextContent("Embedding 测试通过");
+    expect(within(embeddingCard).queryByText("测试结果")).not.toBeInTheDocument();
+
+    const vlmCard = await screen.findByLabelText("OpenViking VLM");
+    fireEvent.click(await within(vlmCard).findByRole("button", { name: "测试" }));
+    expect(await screen.findByRole("alert")).toHaveClass("app-feedback-toast");
+    expect(screen.getByRole("alert")).toHaveAttribute("data-tone", "error");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "测试 VLM 配置失败：Method Not Allowed",
+    );
+    expect(within(vlmCard).queryByText("测试结果")).not.toBeInTheDocument();
+  });
+
+  it("probes Ollama models live from the embedding form base URL", async () => {
+    vi.mocked(api.listEmbeddingCandidates).mockImplementation((baseUrl?: string) => {
+      if (baseUrl) {
+        return Promise.resolve({
+          items: [
+            { provider: "local", base_url: "", model: "bge-small-zh-v1.5-f16", source: "local" },
+            { provider: "ollama", base_url: baseUrl, model: "nomic-embed-text", source: "ollama" },
+            { provider: "ollama", base_url: baseUrl, model: "mxbai-embed-large", source: "ollama" },
+          ],
+          providers: [],
+          ollama: { base_url: baseUrl, healthy: true, model_available: false, error: null },
+        });
+      }
+      return Promise.resolve({
+        items: [
+          { provider: "ollama", base_url: "http://127.0.0.1:11434", model: "bge-m3", source: "ollama" },
+        ],
+        ollama: { healthy: true, model_available: true, error: null },
+      });
+    });
+
+    renderDashboard();
+
+    const embeddingCard = await screen.findByLabelText("OpenViking Embedding");
+    fireEvent.click(await within(embeddingCard).findByRole("button", { name: "探测模型" }));
+
+    expect(await within(embeddingCard).findByText("发现 2 个模型")).toBeInTheDocument();
+    expect(api.listEmbeddingCandidates).toHaveBeenCalledWith("http://127.0.0.1:11434");
+  });
+
+  it("surfaces an unreachable Ollama host when probing models", async () => {
+    vi.mocked(api.listEmbeddingCandidates).mockImplementation((baseUrl?: string) => {
+      if (baseUrl) {
+        return Promise.resolve({
+          items: [
+            { provider: "local", base_url: "", model: "bge-small-zh-v1.5-f16", source: "local" },
+          ],
+          providers: [],
+          ollama: { base_url: baseUrl, healthy: false, model_available: false, error: "Connection refused" },
+        });
+      }
+      return Promise.resolve({
+        items: [
+          { provider: "ollama", base_url: "http://127.0.0.1:11434", model: "bge-m3", source: "ollama" },
+        ],
+        ollama: { healthy: true, model_available: true, error: null },
+      });
+    });
+
+    renderDashboard();
+
+    const embeddingCard = await screen.findByLabelText("OpenViking Embedding");
+    fireEvent.click(await within(embeddingCard).findByRole("button", { name: "探测模型" }));
+
+    expect(
+      await within(embeddingCard).findByText("探测失败：Connection refused"),
+    ).toBeInTheDocument();
   });
 
   it("requires centered confirmation dialogs before OpenViking dashboard mutations", async () => {

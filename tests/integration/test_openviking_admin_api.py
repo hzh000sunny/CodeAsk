@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
@@ -11,6 +12,7 @@ from codeask.rag.openviking.models import (
     OpenVikingEmbeddingSetting,
     OpenVikingSyncJob,
     OpenVikingTuningSetting,
+    OpenVikingVLMSetting,
 )
 
 
@@ -29,6 +31,20 @@ class FakeFailingOpenVikingClient:
 
     async def delete_resource(self, viking_uri: str) -> dict[str, object]:
         raise RuntimeError(self.error)
+
+
+class FakeProcessManager:
+    def __init__(self) -> None:
+        self.regenerated: list[object] = []
+        self.restarts = 0
+
+    def regenerate_ov_conf(self, config=None):  # type: ignore[no-untyped-def]
+        self.regenerated.append(config)
+        return Path("/unused/ov.conf")
+
+    def restart_openviking(self):  # type: ignore[no-untyped-def]
+        self.restarts += 1
+        return {"pid": 4321, "port": 1933}
 
 
 @pytest.mark.asyncio
@@ -56,7 +72,7 @@ async def test_openviking_status_returns_absolute_admin_paths(client, app) -> No
 
 
 @pytest.mark.asyncio
-async def test_openviking_status_surfaces_health_and_ollama_model_readiness(client, app) -> None:
+async def test_openviking_status_skips_ollama_readiness_for_local_embedding(client, app) -> None:
     class FakeProcessManager:
         def describe(self):  # type: ignore[no-untyped-def]
             return {
@@ -66,7 +82,8 @@ async def test_openviking_status_surfaces_health_and_ollama_model_readiness(clie
                 "port": 1933,
                 "pid": 1234,
                 "version": None,
-                "verified_version": "0.3.22",
+                "installed_version": "0.3.99",
+                "verified_version": "0.3.99",
                 "supported_version_range": ">=0.3.22,<0.4",
                 "last_error": None,
                 "config_file": str(app.state.settings.data_dir / "openviking" / "ov.conf"),
@@ -94,13 +111,17 @@ async def test_openviking_status_surfaces_health_and_ollama_model_readiness(clie
     body = response.json()
     assert body["degraded"] is False
     assert body["version"] == "0.3.22"
-    assert body["verified_version"] == "0.3.22"
+    assert body["installed_version"] == "0.3.99"
+    assert body["verified_version"] == "0.3.99"
     assert body["supported_version_range"] == ">=0.3.22,<0.4"
     assert body["health"] == {"healthy": True, "version": "0.3.22", "error": None}
+    assert body["embedding"]["provider"] == "local"
+    assert body["embedding"]["model"] == "bge-small-zh-v1.5-f16"
+    assert body["ollama"]["configured"] is False
     assert body["ollama"]["healthy"] is True
     assert body["ollama"]["model_available"] is True
-    assert body["ollama"]["required_model"] == "bge-m3"
-    assert body["ollama"]["models"] == ["bge-m3:latest"]
+    assert body["ollama"]["required_model"] is None
+    assert body["ollama"]["models"] == []
     assert body["metrics_5min"]["collected"] is False
     assert body["metrics_5min"]["message"] == "warming up"
     assert body["metrics_5min"]["throughput_per_min"] == 0
@@ -312,8 +333,9 @@ async def test_openviking_status_reports_degraded_when_health_probe_fails(client
     assert body["degraded"] is True
     assert body["health"]["healthy"] is False
     assert body["health"]["error"]
+    assert body["ollama"]["configured"] is False
     assert body["ollama"]["healthy"] is True
-    assert body["ollama"]["model_available"] is False
+    assert body["ollama"]["model_available"] is True
 
 
 @pytest.mark.asyncio
@@ -370,6 +392,19 @@ async def test_openviking_status_preserves_absolute_paths_in_probe_errors(client
     app.state.openviking_process_manager = FakeProcessManager()
     app.state.openviking_health_transport = httpx.MockTransport(openviking_transport)
     app.state.ollama_health_transport = httpx.MockTransport(ollama_transport)
+    async with app.state.session_factory() as session:
+        session.add(
+            OpenVikingEmbeddingSetting(
+                provider="ollama",
+                base_url="http://127.0.0.1:11434",
+                model="bge-m3",
+                dimension=1024,
+                max_concurrent=1,
+                activated_at=_now(),
+                rebuild_status="completed",
+            )
+        )
+        await session.commit()
     login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
     assert login.status_code == 200
 
@@ -1083,6 +1118,131 @@ async def test_openviking_embedding_candidates_include_ollama_and_history(client
 
 
 @pytest.mark.asyncio
+async def test_openviking_embedding_test_uses_temp_config_without_persisting(client, app) -> None:
+    calls: list[Path] = []
+
+    def fake_doctor(config_path: Path) -> dict[str, object]:
+        calls.append(config_path)
+        assert config_path.exists()
+        assert app.state.settings.data_dir in config_path.parents
+        assert not str(config_path).startswith("/tmp/")
+        text = config_path.read_text(encoding="utf-8")
+        assert '"provider": "local"' in text
+        assert '"model": "bge-small-zh-v1.5-f16"' in text
+        return {
+            "embedding": {"ok": True, "detail": "local ok", "fix": None},
+            "vlm": {"ok": False, "detail": "No VLM provider configured", "fix": None},
+            "ollama": {"ok": True, "detail": "not configured", "fix": None},
+        }
+
+    app.state.openviking_doctor_runner = fake_doctor
+    process_manager = FakeProcessManager()
+    app.state.openviking_process_manager = process_manager
+    app.state.openviking_client = FakeOpenVikingClient()
+    config_path = app.state.settings.data_dir / "openviking" / "ov.conf"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text('{"formal": true}', encoding="utf-8")
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    async with app.state.session_factory() as session:
+        before_embedding_count = await session.scalar(
+            select(func.count()).select_from(OpenVikingEmbeddingSetting)
+        )
+
+    response = await client.post(
+        "/api/admin/openviking/embedding/test",
+        json={
+            "provider": "local",
+            "model": "bge-small-zh-v1.5-f16",
+            "dimension": 512,
+            "max_concurrent": 2,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["doctor"]["embedding"]["ok"] is True
+    assert len(calls) == 1
+    assert not calls[0].exists()
+    assert config_path.read_text(encoding="utf-8") == '{"formal": true}'
+    assert process_manager.restarts == 0
+    assert process_manager.regenerated == []
+    assert app.state.openviking_client.deleted == []
+    async with app.state.session_factory() as session:
+        embedding_count = await session.scalar(
+            select(func.count()).select_from(OpenVikingEmbeddingSetting)
+        )
+        event_count = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingDashboardEvent)
+            .where(OpenVikingDashboardEvent.event_type == "embedding_model_switched")
+        )
+    assert embedding_count == before_embedding_count
+    assert event_count == 0
+
+
+@pytest.mark.asyncio
+async def test_openviking_vlm_test_uses_temp_config_without_persisting(client, app) -> None:
+    calls: list[Path] = []
+
+    def fake_doctor(config_path: Path) -> dict[str, object]:
+        calls.append(config_path)
+        assert config_path.exists()
+        assert app.state.settings.data_dir in config_path.parents
+        assert not str(config_path).startswith("/tmp/")
+        text = config_path.read_text(encoding="utf-8")
+        assert '"vlm"' in text
+        assert '"provider": "litellm"' in text
+        assert '"model": "ollama/qwen3.5:2b"' in text
+        return {
+            "embedding": {"ok": True, "detail": "local ok", "fix": None},
+            "vlm": {"ok": True, "detail": "vlm ok", "fix": None},
+            "ollama": {"ok": True, "detail": "ollama ok", "fix": None},
+        }
+
+    app.state.openviking_doctor_runner = fake_doctor
+    process_manager = FakeProcessManager()
+    app.state.openviking_process_manager = process_manager
+    config_path = app.state.settings.data_dir / "openviking" / "ov.conf"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text('{"formal": true}', encoding="utf-8")
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    async with app.state.session_factory() as session:
+        before_vlm_count = await session.scalar(
+            select(func.count()).select_from(OpenVikingVLMSetting)
+        )
+
+    response = await client.post(
+        "/api/admin/openviking/vlm/test",
+        json={
+            "enabled": True,
+            "provider": "litellm",
+            "model": "ollama/qwen3.5:2b",
+            "base_url": "http://127.0.0.1:11434",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["doctor"]["vlm"]["ok"] is True
+    assert len(calls) == 1
+    assert not calls[0].exists()
+    assert config_path.read_text(encoding="utf-8") == '{"formal": true}'
+    assert process_manager.restarts == 0
+    assert process_manager.regenerated == []
+    async with app.state.session_factory() as session:
+        vlm_count = await session.scalar(select(func.count()).select_from(OpenVikingVLMSetting))
+        event_count = await session.scalar(
+            select(func.count())
+            .select_from(OpenVikingDashboardEvent)
+            .where(OpenVikingDashboardEvent.event_type == "vlm_config_changed")
+        )
+    assert vlm_count == before_vlm_count
+    assert event_count == 0
+
+
+@pytest.mark.asyncio
 async def test_openviking_embedding_switch_marks_jobs_pending_and_audits(client, app) -> None:
     class FakeProcessManager:
         def __init__(self) -> None:
@@ -1158,6 +1318,51 @@ async def test_openviking_embedding_switch_marks_jobs_pending_and_audits(client,
 
 
 @pytest.mark.asyncio
+async def test_openviking_embedding_switch_encrypts_secrets(client, app) -> None:
+    process_manager = FakeProcessManager()
+    app.state.openviking_process_manager = process_manager
+    app.state.openviking_client = FakeOpenVikingClient()
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+
+    response = await client.post(
+        "/api/admin/openviking/embedding",
+        json={
+            "provider": "vikingdb",
+            "model": "viking-embedding",
+            "dimension": 1024,
+            "api_key": "api-secret-value",
+            "extra": {
+                "ak": "ak-secret-value",
+                "sk": "sk-secret-value",
+                "region": "cn-beijing",
+            },
+        },
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["api_key_configured"] is True
+    assert body["extra"] == {"ak": "***", "sk": "***", "region": "cn-beijing"}
+    async with app.state.session_factory() as session:
+        setting = (
+            await session.execute(
+                select(OpenVikingEmbeddingSetting)
+                .order_by(OpenVikingEmbeddingSetting.id.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+    assert setting.api_key_encrypted
+    assert "api-secret-value" not in setting.api_key_encrypted
+    assert setting.extra is not None
+    assert setting.extra["ak"] != "ak-secret-value"
+    assert setting.extra["sk"] != "sk-secret-value"
+    assert str(setting.extra).find("ak-secret-value") == -1
+    assert str(setting.extra).find("sk-secret-value") == -1
+    assert setting.extra["region"] == "cn-beijing"
+
+
+@pytest.mark.asyncio
 async def test_openviking_embedding_rebuild_marks_existing_jobs_pending(client, app) -> None:
     login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
     assert login.status_code == 200
@@ -1194,6 +1399,67 @@ async def test_openviking_embedding_rebuild_marks_existing_jobs_pending(client, 
             )
         ).scalar_one()
     assert audit.subject_id == "admin"
+
+
+@pytest.mark.asyncio
+async def test_openviking_vlm_apply_restarts_without_rebuilding_index(client, app) -> None:
+    process_manager = FakeProcessManager()
+    app.state.openviking_process_manager = process_manager
+    app.state.openviking_client = FakeOpenVikingClient()
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    async with app.state.session_factory() as session:
+        session.add(
+            OpenVikingSyncJob(
+                id="ovjob_vlm_apply",
+                source_type="wiki_feature",
+                source_id="feature-a",
+                status="indexed",
+                attempts=2,
+                task_id="old-task",
+            )
+        )
+        await session.commit()
+
+    response = await client.post(
+        "/api/admin/openviking/vlm",
+        json={
+            "enabled": True,
+            "provider": "litellm",
+            "model": "ollama/qwen3.5:2b",
+            "base_url": "http://127.0.0.1:11434",
+        },
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["provider"] == "litellm"
+    assert body["model"] == "ollama/qwen3.5:2b"
+    assert body["api_key_configured"] is False
+    assert process_manager.restarts == 1
+    assert len(process_manager.regenerated) == 1
+    assert app.state.openviking_client.deleted == []
+    async with app.state.session_factory() as session:
+        job = await session.get(OpenVikingSyncJob, "ovjob_vlm_apply")
+        assert job is not None
+        assert job.status == "indexed"
+        assert job.attempts == 2
+        assert job.task_id == "old-task"
+        setting = (
+            await session.execute(
+                select(OpenVikingVLMSetting).order_by(OpenVikingVLMSetting.id.desc())
+            )
+        ).scalar_one()
+        event = (
+            await session.execute(
+                select(OpenVikingDashboardEvent).where(
+                    OpenVikingDashboardEvent.event_type == "vlm_config_changed"
+                )
+            )
+        ).scalar_one()
+    assert setting.enabled is True
+    assert event.triggered_by == "admin"
 
 
 @pytest.mark.asyncio
@@ -1278,6 +1544,60 @@ async def test_openviking_rebuild_index_preserves_admin_clear_error_paths(client
     assert data_dir in error
     assert "/home/hzh/private/root" in error
     assert "[absolute-path-redacted]" not in error
+
+
+@pytest.mark.asyncio
+async def test_openviking_embedding_candidates_probe_uses_query_base_url(client, app) -> None:
+    seen_hosts: list[str] = []
+
+    def ollama_transport(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/tags"
+        seen_hosts.append(request.url.host)
+        return httpx.Response(
+            200,
+            json={"models": [{"name": "nomic-embed-text:latest"}, {"name": "mxbai-embed-large"}]},
+        )
+
+    app.state.ollama_health_transport = httpx.MockTransport(ollama_transport)
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+
+    response = await client.get(
+        "/api/admin/openviking/embedding/candidates",
+        params={"base_url": "http://ollama.remote:11434"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "ollama.remote" in seen_hosts
+    assert body["ollama"]["base_url"] == "http://ollama.remote:11434"
+    assert body["ollama"]["healthy"] is True
+    ollama_models = {item["model"] for item in body["items"] if item["provider"] == "ollama"}
+    assert ollama_models == {"nomic-embed-text", "mxbai-embed-large"}
+    # A targeted probe stays scoped to the queried host and must not fold in history rows.
+    assert all(item["source"] != "history" for item in body["items"])
+
+
+@pytest.mark.asyncio
+async def test_openviking_candidates_probe_reports_unreachable_ollama(client, app) -> None:
+    def ollama_transport(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    app.state.ollama_health_transport = httpx.MockTransport(ollama_transport)
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+
+    response = await client.get(
+        "/api/admin/openviking/embedding/candidates",
+        params={"base_url": "http://unreachable.host:11434"},
+    )
+
+    # Unreachable host is a 200 with a diagnostic payload, not a hard error.
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["ollama"]["healthy"] is False
+    assert body["ollama"]["error"]
+    assert all(item["provider"] != "ollama" for item in body["items"])
 
 
 def _now():

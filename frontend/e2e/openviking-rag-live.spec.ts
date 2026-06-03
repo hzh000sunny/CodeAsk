@@ -44,19 +44,19 @@ test("session can use OpenViking semantic recall for synced wiki knowledge", asy
   page,
 }) => {
   const marker = `rag-wiki-smoke-${Date.now()}`;
-  const uri =
-    `viking://resources/codeask/features/openviking-rag-live/knowledge-base/${marker}.md`;
-  await enqueueAndIndexManualResource(page, {
-    content:
+  const feature = await createFeature(page, {
+    description: `OpenViking RAG wiki recall fixture ${marker}.`,
+    name: `OpenViking RAG Wiki ${Date.now()}`,
+  });
+  await uploadLegacyMarkdownDocument(page, {
+    body:
       `# ${marker}\n\n` +
       `RAG smoke marker ${marker} means CodeAsk can retrieve published wiki ` +
       "knowledge through OpenViking semantic search and cite the viking URI.",
-    featureSlug: "openviking-rag-live",
+    featureId: feature.id,
     filename: `${marker}.md`,
-    sourceId: marker,
-    sourceType: "wiki_doc",
-    vikingUri: uri,
   });
+  await waitForWikiFeatureIndexed(page, feature.slug);
 
   await logout(page);
   const sessionId = await createSession(page, `OpenViking RAG wiki ${marker}`);
@@ -90,20 +90,21 @@ test("source-code question can bridge from OpenViking recall to prepared worktre
     name: `OpenViking claude-code ${Date.now()}`,
   });
   await waitForRepoReady(page, repo.id);
-  const uri = `viking://resources/codeask/features/openviking-rag-live/knowledge-base/${marker}.md`;
-  await enqueueAndIndexManualResource(page, {
-    content:
+  const feature = await createFeature(page, {
+    description: `OpenViking RAG source bridge fixture ${marker}.`,
+    name: `OpenViking RAG Code ${Date.now()}`,
+  });
+  await uploadLegacyMarkdownDocument(page, {
+    body:
       `# ${marker}\n\n` +
       `This verified OpenViking-only clue maps marker ${marker} to CodeAsk ` +
       `repository "${repo.name}" with repo_id "${repo.id}". ` +
       "For Claude Code PermissionMode questions, prepare that repository worktree " +
       "and read the real source files for evidence.",
-    featureSlug: "openviking-rag-live",
+    featureId: feature.id,
     filename: `${marker}.md`,
-    sourceId: marker,
-    sourceType: "wiki_doc",
-    vikingUri: uri,
   });
+  await waitForWikiFeatureIndexed(page, feature.slug);
 
   await logout(page);
   const sessionId = await createSession(page, `OpenViking RAG code ${marker}`);
@@ -203,40 +204,11 @@ async function ensureEnabledLlmConfig(page: import("@playwright/test").Page) {
   );
 }
 
-async function enqueueAndIndexManualResource(
-  page: import("@playwright/test").Page,
-  input: {
-    content: string;
-    featureSlug: string;
-    filename: string;
-    sourceId: string;
-    sourceType: string;
-    vikingUri: string;
-  },
-) {
-  const job = await page.evaluate(async (payload) => {
-    const response = await fetch("/api/admin/openviking/sync_jobs/enqueue", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        content: payload.content,
-        feature_slug: payload.featureSlug,
-        filename: payload.filename,
-        source_id: payload.sourceId,
-        source_type: payload.sourceType,
-        viking_uri: payload.vikingUri,
-      }),
-    });
-    if (!response.ok) {
-      throw new Error(`enqueue failed: ${response.status} ${await response.text()}`);
-    }
-    return (await response.json()) as { id: string };
-  }, input);
-
+async function waitForWikiFeatureIndexed(page: import("@playwright/test").Page, featureSlug: string) {
   await expect
     .poll(
       async () =>
-        page.evaluate(async (jobId) => {
+        page.evaluate(async (slug) => {
           const runResponse = await fetch("/api/admin/openviking/sync_jobs/run_pending", {
             method: "POST",
           });
@@ -252,10 +224,14 @@ async function enqueueAndIndexManualResource(
             );
           }
           const jobs = (await listResponse.json()) as {
-            items: Array<{ id: string; status: string }>;
+            items: Array<{ source_id: string; source_type: string; status: string }>;
           };
-          return jobs.items.find((item) => item.id === jobId)?.status ?? "missing";
-        }, job.id),
+          return (
+            jobs.items.find(
+              (item) => item.source_type === "wiki_feature" && item.source_id === slug,
+            )?.status ?? "missing"
+          );
+        }, featureSlug),
       { timeout: 240_000 },
     )
     .toBe("indexed");

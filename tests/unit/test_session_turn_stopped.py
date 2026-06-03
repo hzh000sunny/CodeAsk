@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
@@ -38,7 +39,7 @@ async def test_persist_stopped_agent_turn_keeps_partial_content(app: FastAPI) ->
     request = SimpleNamespace(app=SimpleNamespace(state=app.state))
 
     await persist_stopped_agent_turn(
-        request,
+        cast(Any, request),
         "sess_stop_partial",
         "hello wor",
         parent_turn_id="turn_user",
@@ -82,7 +83,7 @@ async def test_persist_stopped_agent_turn_keeps_existing_traces_when_content_is_
     request = SimpleNamespace(app=SimpleNamespace(state=app.state))
 
     await persist_stopped_agent_turn(
-        request,
+        cast(Any, request),
         "sess_stop_tools",
         "",
         parent_turn_id="turn_user",
@@ -118,7 +119,7 @@ async def test_persist_stopped_agent_turn_writes_placeholder_without_trace(app: 
     request = SimpleNamespace(app=SimpleNamespace(state=app.state))
 
     await persist_stopped_agent_turn(
-        request,
+        cast(Any, request),
         "sess_stop_empty",
         "",
         parent_turn_id="turn_user",

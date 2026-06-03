@@ -2,6 +2,7 @@
 
 import re
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from cryptography.fernet import Fernet
@@ -28,7 +29,11 @@ def metrics_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FastAPI:
 
 
 def test_no_endpoint_path_resembles_reverse_kpi(metrics_app: FastAPI) -> None:
-    paths = [route.path for route in metrics_app.routes if hasattr(route, "path")]
+    paths = [
+        str(cast(Any, route).path)
+        for route in metrics_app.routes
+        if hasattr(route, "path")
+    ]
     for path in paths:
         for pattern in REVERSE_KPI_PATTERNS:
             assert not pattern.search(path), (

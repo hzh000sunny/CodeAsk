@@ -21,7 +21,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "apscheduler>=3.10",
     "litellm==1.83.14",
-    "openviking>=0.3.22,<0.4",
+    "openviking[local-embed]>=0.3.22,<0.4",
     "socksio>=1.0.0",
     "tiktoken>=0.7",
     "jsonschema>=4.23",
@@ -50,6 +50,7 @@ dev = [
     "ruff>=0.7",
     "pyright>=1.1.385",
     "pre-commit>=4.0",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.pytest.ini_options]
@@ -70,10 +71,12 @@ include = ["src", "tests"]
 strict = ["src/codeask"]
 # native_backend 是 v1.0.4 自研 Agent 的冻结参考代码（M3 隔离搬入），不在请求链路、
 # 不随主链路演进维护，靠 tests/unit/test_native_backend_importable.py 运行时冒烟防 bitrot。
-# 其历史 strict 类型债不应 gate CI；从 pyright 分析中排除（复活时再清，RAG 接 OpenViking）。
+# 其历史 strict 类型债不应 gate CI；源码与专属测试均从 pyright 分析中排除
+# （复活时再清，RAG 接 OpenViking）。
 exclude = [
     "**/node_modules",
     "**/__pycache__",
     "**/.*",
     "src/codeask/agent/native_backend",
+    "tests/native_backend",
 ]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -19,6 +20,10 @@ from codeask.agent.opencode_compat.profiles import (
 from codeask.agent.opencode_compat.prompts import build_codeask_system_prompt
 from codeask.agent.opencode_compat.workspace import OpenCodeWorkspaceManager
 from codeask.llm.repo import LLMConfigWithSecret
+
+
+def _typed_config(config: dict[str, object]) -> dict[str, Any]:
+    return cast(dict[str, Any], config)
 
 
 def _llm_config(
@@ -119,12 +124,14 @@ def test_select_provider_profile_rejects_unknown_protocol() -> None:
 
 
 def test_build_opencode_config_contains_provider_mcp_and_readonly_permissions() -> None:
-    cfg = build_opencode_config(
-        OpenCodeConfigInput(
-            llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
-            mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
-            mcp_token="token-1",
-            session_id="sess_1",
+    cfg = _typed_config(
+        build_opencode_config(
+            OpenCodeConfigInput(
+                llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
+                mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
+                mcp_token="token-1",
+                session_id="sess_1",
+            )
         )
     )
 
@@ -162,13 +169,15 @@ def test_build_opencode_config_can_keep_global_pool_providers_stable() -> None:
         api_key="sk-b",
     )
 
-    cfg = build_opencode_config(
-        OpenCodeConfigInput(
-            llm_config=primary,
-            additional_provider_configs=(primary, fallback),
-            mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
-            mcp_token="token-1",
-            session_id="sess_1",
+    cfg = _typed_config(
+        build_opencode_config(
+            OpenCodeConfigInput(
+                llm_config=primary,
+                additional_provider_configs=(primary, fallback),
+                mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
+                mcp_token="token-1",
+                session_id="sess_1",
+            )
         )
     )
 
@@ -182,19 +191,21 @@ def test_build_opencode_config_can_keep_global_pool_providers_stable() -> None:
 
 
 def test_build_opencode_config_injects_openviking_mcp_with_readonly_write_tool_denies() -> None:
-    cfg = build_opencode_config(
-        OpenCodeConfigInput(
-            llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
-            mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
-            mcp_token="token-1",
-            session_id="sess_1",
-            openviking_enabled=True,
-            openviking_mcp_url="http://127.0.0.1:1933/mcp",
-            openviking_mcp_headers={
-                "X-OpenViking-Account": "codeask",
-                "X-OpenViking-User": "admin",
-                "X-OpenViking-Agent": "sess_1",
-            },
+    cfg = _typed_config(
+        build_opencode_config(
+            OpenCodeConfigInput(
+                llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
+                mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
+                mcp_token="token-1",
+                session_id="sess_1",
+                openviking_enabled=True,
+                openviking_mcp_url="http://127.0.0.1:1933/mcp",
+                openviking_mcp_headers={
+                    "X-OpenViking-Account": "codeask",
+                    "X-OpenViking-User": "admin",
+                    "X-OpenViking-Agent": "sess_1",
+                },
+            )
         )
     )
 
@@ -221,15 +232,17 @@ def test_build_opencode_config_injects_openviking_mcp_with_readonly_write_tool_d
 
 
 def test_build_opencode_config_omits_openviking_when_degraded_or_disabled() -> None:
-    cfg = build_opencode_config(
-        OpenCodeConfigInput(
-            llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
-            mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
-            mcp_token="token-1",
-            session_id="sess_1",
-            openviking_enabled=False,
-            openviking_mcp_url="http://127.0.0.1:1933/mcp",
-            openviking_mcp_headers={"X-OpenViking-Account": "codeask"},
+    cfg = _typed_config(
+        build_opencode_config(
+            OpenCodeConfigInput(
+                llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
+                mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
+                mcp_token="token-1",
+                session_id="sess_1",
+                openviking_enabled=False,
+                openviking_mcp_url="http://127.0.0.1:1933/mcp",
+                openviking_mcp_headers={"X-OpenViking-Account": "codeask"},
+            )
         )
     )
 
@@ -243,20 +256,24 @@ def test_provider_entry_builder_is_shared_by_session_and_probe_configs() -> None
     cfg = _llm_config(protocol="anthropic")
     profile = select_provider_profile(cfg, profile_id="anthropic-compatible-v1-bearer")
 
-    session_entry = build_opencode_config(
-        OpenCodeConfigInput(
-            llm_config=cfg,
-            mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
-            mcp_token="token",
-            session_id="sess_1",
-            provider_profile=profile,
+    session_entry = _typed_config(
+        build_opencode_config(
+            OpenCodeConfigInput(
+                llm_config=cfg,
+                mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
+                mcp_token="token",
+                session_id="sess_1",
+                provider_profile=profile,
+            )
         )
     )["provider"][profile.provider_id(cfg.id)]
-    probe_entry = build_opencode_provider_entry(
-        cfg,
-        profile=profile,
-        name_prefix="CodeAsk Provider Test",
-        tool_call=False,
+    probe_entry = _typed_config(
+        build_opencode_provider_entry(
+            cfg,
+            profile=profile,
+            name_prefix="CodeAsk Provider Test",
+            tool_call=False,
+        )
     )
 
     assert probe_entry["npm"] == session_entry["npm"]
@@ -270,13 +287,15 @@ def test_build_config_allows_codeask_external_symlink_targets(tmp_path: Path) ->
         data_dir=tmp_path / "data",
         session_id="sess_1",
     )
-    cfg = build_opencode_config(
-        OpenCodeConfigInput(
-            llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
-            mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
-            mcp_token="token-1",
-            session_id="sess_1",
-            external_directory_allowlist=allowlist,
+    cfg = _typed_config(
+        build_opencode_config(
+            OpenCodeConfigInput(
+                llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
+                mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
+                mcp_token="token-1",
+                session_id="sess_1",
+                external_directory_allowlist=allowlist,
+            )
         )
     )
 

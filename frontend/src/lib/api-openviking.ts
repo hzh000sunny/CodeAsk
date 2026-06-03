@@ -1,7 +1,8 @@
 import type {
+  OpenVikingConfigTestResponse,
+  OpenVikingEmbeddingApplyRequest,
   OpenVikingEmbeddingCandidatesResponse,
   OpenVikingEmbeddingResponse,
-  OpenVikingEmbeddingSwitchRequest,
   OpenVikingEventsResponse,
   OpenVikingMutationCountResponse,
   OpenVikingOllamaSnippetResponse,
@@ -14,6 +15,8 @@ import type {
   OpenVikingTuningApplyResponse,
   OpenVikingTuningPresetResponse,
   OpenVikingTuningResponse,
+  OpenVikingVLMApplyRequest,
+  OpenVikingVLMResponse,
 } from "../types/api";
 import { apiRequest } from "./api-client";
 
@@ -148,17 +151,55 @@ export function verifyOllamaSettings() {
   );
 }
 
-export function listEmbeddingCandidates() {
+export function listEmbeddingCandidates(baseUrl?: string) {
+  const query = baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : "";
   return apiRequest<OpenVikingEmbeddingCandidatesResponse>(
-    "/api/admin/openviking/embedding/candidates",
+    `/api/admin/openviking/embedding/candidates${query}`,
   );
 }
 
-export function switchEmbeddingModel(payload: OpenVikingEmbeddingSwitchRequest) {
+export function applyEmbeddingConfig(payload: OpenVikingEmbeddingApplyRequest) {
   return apiRequest<OpenVikingEmbeddingResponse>("/api/admin/openviking/embedding", {
     method: "POST",
     body: payload,
   });
+}
+
+export function testEmbeddingConfig(payload: OpenVikingEmbeddingApplyRequest) {
+  return apiRequest<OpenVikingConfigTestResponse>("/api/admin/openviking/embedding/test", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function getOpenVikingVLM() {
+  return apiRequest<OpenVikingVLMResponse>("/api/admin/openviking/vlm");
+}
+
+export function applyVLMConfig(payload: OpenVikingVLMApplyRequest) {
+  return apiRequest<OpenVikingVLMResponse>("/api/admin/openviking/vlm", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function disableVLMConfig() {
+  return apiRequest<OpenVikingVLMResponse>("/api/admin/openviking/vlm/disable", {
+    method: "POST",
+  });
+}
+
+export function testVLMConfig(payload: OpenVikingVLMApplyRequest) {
+  return apiRequest<OpenVikingConfigTestResponse>("/api/admin/openviking/vlm/test", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function getVLMHistory() {
+  return apiRequest<{ items: OpenVikingVLMResponse[] }>(
+    "/api/admin/openviking/vlm/history",
+  );
 }
 
 export function rebuildEmbedding() {

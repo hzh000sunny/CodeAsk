@@ -200,7 +200,10 @@ async def test_dynamic_context_includes_openviking_knowledge_when_available(
     assert (
         "Do not claim a semantic hit exists when OpenViking returns no relevant result" in context
     )
-    assert "verified problem reports" in context
+    assert "Feature wiki roots use viking://resources/codeask/wiki/<feature_slug>" in context
+    assert "published wiki knowledge" in context
+    assert "Use ./wiki/ with glob/grep/read for knowledge and problem reports" in context
+    assert "problem-reports/verified/" in context
 
 
 @pytest.mark.asyncio

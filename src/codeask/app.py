@@ -14,6 +14,7 @@ import structlog
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -79,6 +80,7 @@ from codeask.rag.openviking.health import (
     probe_openviking_health,
 )
 from codeask.rag.openviking.metrics import OpenVikingMetricsRecorder
+from codeask.rag.openviking.models import OpenVikingEmbeddingSetting
 from codeask.rag.openviking.process import OpenVikingProcessManager
 from codeask.rag.openviking.sync import OpenVikingSyncService
 from codeask.settings import Settings
@@ -728,10 +730,14 @@ async def _record_ollama_health_transition(
     state: dict[str, bool | None],
     health_probe: Callable[..., Awaitable[OllamaModelStatus]] = check_ollama_models,
 ) -> OllamaModelStatus:
+    embedding = await _latest_openviking_embedding_setting(session_factory)
+    if embedding is None or embedding.provider != "ollama":
+        state["healthy"] = None
+        return OllamaModelStatus(healthy=True, model_available=True, models=[], error=None)
     try:
         status = await health_probe(
-            settings.openviking_ollama_base_url,
-            required_model=settings.openviking_embedding_model,
+            embedding.base_url or settings.openviking_ollama_base_url,
+            required_model=embedding.model,
         )
     except Exception as exc:
         log.warning("openviking_ollama_health_check_failed", error=str(exc))
@@ -752,6 +758,22 @@ async def _record_ollama_health_transition(
             outcome="success",
         )
     return status
+
+
+async def _latest_openviking_embedding_setting(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> OpenVikingEmbeddingSetting | None:
+    async with session_factory() as session:
+        return (
+            await session.execute(
+                select(OpenVikingEmbeddingSetting)
+                .order_by(
+                    OpenVikingEmbeddingSetting.activated_at.desc(),
+                    OpenVikingEmbeddingSetting.id.desc(),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
 
 
 def _run_openviking_ollama_health_check(

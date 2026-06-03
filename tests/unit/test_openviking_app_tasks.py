@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -17,7 +17,11 @@ from codeask.app import (
 )
 from codeask.db import Base, session_factory
 from codeask.rag.openviking.health import OllamaModelStatus
-from codeask.rag.openviking.models import OpenVikingDashboardEvent, OpenVikingSyncJob
+from codeask.rag.openviking.models import (
+    OpenVikingDashboardEvent,
+    OpenVikingEmbeddingSetting,
+    OpenVikingSyncJob,
+)
 from codeask.settings import Settings
 
 
@@ -324,6 +328,20 @@ async def test_ollama_recovery_event_is_emitted_on_unhealthy_to_healthy_transiti
     monkeypatch.setenv("CODEASK_DATA_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("CODEASK_DATA_DIR", str(tmp_path))
     settings = Settings()  # type: ignore[call-arg]
+    async with db_factory() as session:
+        session.add(
+            OpenVikingEmbeddingSetting(
+                provider="ollama",
+                base_url=settings.openviking_ollama_base_url,
+                model="bge-m3",
+                dimension=1024,
+                max_concurrent=1,
+                input="text",
+                activated_at=datetime.now(UTC),
+                rebuild_status="idle",
+            )
+        )
+        await session.commit()
     results = [
         OllamaModelStatus(healthy=False, model_available=False, models=[], error="offline"),
         OllamaModelStatus(healthy=True, model_available=True, models=["bge-m3:latest"]),
@@ -331,7 +349,7 @@ async def test_ollama_recovery_event_is_emitted_on_unhealthy_to_healthy_transiti
 
     async def fake_probe(base_url: str, *, required_model: str):
         assert base_url == settings.openviking_ollama_base_url
-        assert required_model == settings.openviking_embedding_model
+        assert required_model == "bge-m3"
         return results.pop(0)
 
     state: dict[str, bool | None] = {"healthy": None}

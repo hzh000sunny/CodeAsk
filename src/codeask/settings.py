@@ -119,8 +119,8 @@ class Settings(BaseSettings):
     openviking_event_retention_sweep_interval_hours: int = Field(default=24, ge=1)
     openviking_sync_workers: int = Field(default=2, ge=1, le=16)
     openviking_ollama_base_url: str = "http://127.0.0.1:11434"
-    openviking_embedding_model: str = "bge-m3"
-    openviking_embedding_dimension: int = Field(default=1024, ge=1)
+    openviking_embedding_model: str = "bge-small-zh-v1.5-f16"
+    openviking_embedding_dimension: int = Field(default=512, ge=1)
     openviking_embedding_max_concurrent: int = Field(default=1, ge=1, le=128)
     agent_backend: Literal["opencode"] = Field(
         default="opencode",

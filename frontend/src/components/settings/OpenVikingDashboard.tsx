@@ -6,22 +6,28 @@ import {
   ChevronDown,
   Copy,
   Database,
+  Eye,
   Gauge,
   LoaderCircle,
   ListChecks,
   SlidersHorizontal,
+  Stethoscope,
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  applyEmbeddingConfig,
   applyOpenVikingTuning,
   applyOpenVikingTuningPreset,
+  applyVLMConfig,
+  disableVLMConfig,
   getOllamaSnippet,
   getOpenVikingEmbedding,
   getOpenVikingStatus,
   getOpenVikingSyncJobsSummary,
   getOpenVikingTuning,
+  getOpenVikingVLM,
   getTuningPreset,
   listEmbeddingCandidates,
   listOpenVikingEvents,
@@ -31,11 +37,15 @@ import {
   resyncOpenViking,
   retryFailedSyncJobs,
   retrySyncJob,
-  switchEmbeddingModel,
+  testEmbeddingConfig,
+  testVLMConfig,
   verifyOllamaSettings,
 } from "../../lib/api";
 import type {
   OpenVikingDashboardEvent,
+  OpenVikingDoctorCheck,
+  OpenVikingDoctorReport,
+  OpenVikingEmbeddingApplyRequest,
   OpenVikingEmbeddingCandidate,
   OpenVikingEmbeddingResponse,
   OpenVikingStatusResponse,
@@ -43,8 +53,12 @@ import type {
   OpenVikingTuningApplyResponse,
   OpenVikingTuningItem,
   OpenVikingTuningResponse,
+  OpenVikingVLMApplyRequest,
+  OpenVikingVLMResponse,
 } from "../../types/api";
-import { useAppFeedback } from "../feedback/AppFeedback";
+import { useAppFeedback, type AppFeedbackToastTone } from "../feedback/AppFeedback";
+import { copyTextToClipboard } from "../session/session-clipboard";
+import { SwitchControl } from "./SwitchControl";
 import { messageFromApiError } from "./settings-utils";
 
 type TuningRow = OpenVikingTuningItem & { scope: string };
@@ -58,6 +72,7 @@ type DashboardConfirmRequest = {
 type DashboardFeedback = {
   showError: (message: string, options?: { title?: string }) => void;
   showSuccess: (message: string) => void;
+  showToast: (message: string, options?: { tone?: AppFeedbackToastTone }) => void;
 };
 type DashboardConfirm = (request: DashboardConfirmRequest) => void;
 
@@ -133,7 +148,52 @@ const EVENT_LABELS: Record<string, string> = {
   sync_job_enqueued: "同步任务已入队",
   sync_job_failed: "同步任务失败",
   tuning_change: "调优参数变更",
+  vlm_config_changed: "VLM 配置变更",
 };
+
+const EMBEDDING_PROVIDER_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "local", label: "Local（内置 GGUF）" },
+  { value: "ollama", label: "Ollama" },
+  { value: "openai", label: "OpenAI" },
+  { value: "azure", label: "Azure" },
+  { value: "volcengine", label: "VolcEngine" },
+  { value: "vikingdb", label: "VikingDB" },
+  { value: "jina", label: "Jina" },
+  { value: "gemini", label: "Gemini" },
+  { value: "voyage", label: "Voyage" },
+  { value: "dashscope", label: "DashScope" },
+  { value: "minimax", label: "MiniMax" },
+  { value: "cohere", label: "Cohere" },
+  { value: "litellm", label: "LiteLLM" },
+];
+
+const VLM_PROVIDER_SUGGESTIONS: ReadonlyArray<string> = [
+  "volcengine",
+  "openai",
+  "azure",
+  "kimi",
+  "glm",
+  "litellm",
+  "openai-codex",
+];
+
+const EMBEDDING_PROVIDER_DEFAULTS: Record<string, { model: string; dimension: number | null }> = {
+  local: { model: "bge-small-zh-v1.5-f16", dimension: 512 },
+  ollama: { model: "bge-m3", dimension: 1024 },
+};
+
+const CLOUD_EMBEDDING_PROVIDERS = new Set([
+  "openai",
+  "azure",
+  "volcengine",
+  "jina",
+  "gemini",
+  "voyage",
+  "dashscope",
+  "minimax",
+  "cohere",
+  "litellm",
+]);
 
 const OUTCOME_LABELS: Record<OpenVikingDashboardEvent["outcome"], string> = {
   error: "错误",
@@ -204,7 +264,11 @@ export function OpenVikingDashboard() {
   });
   const candidatesQuery = useQuery({
     queryKey: ["admin-openviking-embedding-candidates"],
-    queryFn: listEmbeddingCandidates,
+    queryFn: () => listEmbeddingCandidates(),
+  });
+  const vlmQuery = useQuery({
+    queryKey: ["admin-openviking-vlm"],
+    queryFn: getOpenVikingVLM,
   });
   const tuningQuery = useQuery({
     queryKey: ["admin-openviking-tuning"],
@@ -272,17 +336,30 @@ export function OpenVikingDashboard() {
   return (
     <div className="openviking-dashboard">
       <div className="settings-openviking-grid">
-        <OpenVikingHealthCard
-          status={statusQuery.data}
-          feedback={feedback}
-          loading={statusQuery.isLoading}
-          error={statusQuery.isError ? "读取 OpenViking 状态失败" : null}
-        />
+        <div className="openviking-overview-panel">
+          <OpenVikingHealthCard
+            status={statusQuery.data}
+            feedback={feedback}
+            loading={statusQuery.isLoading}
+            error={statusQuery.isError ? "读取 OpenViking 状态失败" : null}
+          />
+          <div className="openviking-overview-side">
+            <OpenVikingIndexingCard status={statusQuery.data} />
+            <OpenVikingMetricsCard status={statusQuery.data} />
+          </div>
+        </div>
         <OpenVikingEmbeddingCard
           embedding={embeddingQuery.data}
           candidates={candidatesQuery.data?.items ?? []}
           feedback={feedback}
           loading={embeddingQuery.isLoading}
+          onRefresh={refresh}
+          requestConfirm={setConfirmRequest}
+        />
+        <OpenVikingVLMCard
+          vlm={vlmQuery.data}
+          feedback={feedback}
+          loading={vlmQuery.isLoading}
           onRefresh={refresh}
           requestConfirm={setConfirmRequest}
         />
@@ -316,8 +393,6 @@ export function OpenVikingDashboard() {
           total={eventTotal}
           totalPages={eventTotalPages}
         />
-        <OpenVikingIndexingCard status={statusQuery.data} />
-        <OpenVikingMetricsCard status={statusQuery.data} />
         <OpenVikingTuningCard
           feedback={feedback}
           tuning={tuningQuery.data}
@@ -455,7 +530,7 @@ function OpenVikingHealthCard({
   return (
     <section className="surface openviking-card openviking-card-health" aria-label="OpenViking 健康状态">
       <OpenVikingCardHeader
-        description="服务进程、健康探针、Ollama 可用性与运行路径。"
+        description="服务进程、健康探针、模型后端与运行路径。"
         icon={<Database aria-hidden="true" size={16} />}
         title="健康状态"
       />
@@ -482,10 +557,20 @@ function OpenVikingHealthCard({
           <div className="settings-diagnostic-grid settings-diagnostic-grid-fixed">
             <Metric label="端口" value={status.port} />
             <Metric label="PID" value={status.pid} />
-            <Metric label="版本" value={status.version ?? status.verified_version} />
+            <Metric label="运行版本" value={status.version} />
             <Metric label="OpenViking /health" value={status.health?.healthy ? "healthy" : "degraded"} />
-            <Metric label="Ollama / 模型" value={status.ollama?.model_available ? "ready" : "missing"} />
+            <Metric label="模型后端" value={modelBackendValue(status)} />
+            {hasConfiguredOllamaDependency(status) ? (
+              <Metric label="外部依赖" value={`Ollama ${status.ollama.model_available ? "ready" : "missing"}`} />
+            ) : null}
           </div>
+          {status.doctor ? (
+            <OpenVikingDoctorPanel
+              doctor={status.doctor}
+              ollamaConfigured={hasConfiguredOllamaDependency(status)}
+              vlmEnabled={status.vlm?.enabled ?? false}
+            />
+          ) : null}
           <div className="settings-runtime-paths">
             <PathBlock feedback={feedback} label="配置文件" value={status.config_file} />
             <PathBlock feedback={feedback} label="工作目录" value={status.workspace_path} />
@@ -498,6 +583,101 @@ function OpenVikingHealthCard({
       ) : null}
     </section>
   );
+}
+
+interface EmbeddingFormState {
+  provider: string;
+  base_url: string;
+  model: string;
+  dimension: string;
+  max_concurrent: string;
+  input: string;
+  api_key: string;
+  ak: string;
+  sk: string;
+  region: string;
+  host: string;
+}
+
+const EMPTY_EMBEDDING_FORM: EmbeddingFormState = {
+  provider: "local",
+  base_url: "",
+  model: "bge-small-zh-v1.5-f16",
+  dimension: "512",
+  max_concurrent: "1",
+  input: "text",
+  api_key: "",
+  ak: "",
+  sk: "",
+  region: "",
+  host: "",
+};
+
+function embeddingFormFromResponse(embedding: OpenVikingEmbeddingResponse): EmbeddingFormState {
+  return {
+    provider: embedding.provider,
+    base_url: embedding.base_url ?? "",
+    model: embedding.model,
+    dimension: embedding.dimension != null ? String(embedding.dimension) : "",
+    max_concurrent: String(embedding.max_concurrent),
+    input: embedding.input ?? "text",
+    api_key: "",
+    ak: "",
+    sk: "",
+    region: "",
+    host: "",
+  };
+}
+
+function buildEmbeddingApply(form: EmbeddingFormState): OpenVikingEmbeddingApplyRequest {
+  const provider = form.provider;
+  const payload: OpenVikingEmbeddingApplyRequest = {
+    provider,
+    model: form.model.trim(),
+    max_concurrent: toPositiveInt(form.max_concurrent, 1),
+    input: form.input.trim() || "text",
+  };
+  const dimension = toIntOrNull(form.dimension);
+  if (dimension !== null) {
+    payload.dimension = dimension;
+  }
+  if ((provider === "ollama" || CLOUD_EMBEDDING_PROVIDERS.has(provider)) && form.base_url.trim()) {
+    payload.base_url = form.base_url.trim();
+  }
+  if (CLOUD_EMBEDDING_PROVIDERS.has(provider) && form.api_key.trim()) {
+    payload.api_key = form.api_key.trim();
+  }
+  if (provider === "vikingdb") {
+    const extra: Record<string, unknown> = {};
+    if (form.ak.trim()) {
+      extra.ak = form.ak.trim();
+    }
+    if (form.sk.trim()) {
+      extra.sk = form.sk.trim();
+    }
+    if (form.region.trim()) {
+      extra.region = form.region.trim();
+    }
+    if (form.host.trim()) {
+      extra.host = form.host.trim();
+    }
+    if (Object.keys(extra).length > 0) {
+      payload.extra = extra;
+    }
+  }
+  return payload;
+}
+
+function doctorTestToast(
+  label: string,
+  check: OpenVikingDoctorCheck,
+): { message: string; tone: AppFeedbackToastTone } {
+  const status = check.ok ? "测试通过" : "测试未通过";
+  const detail = check.detail?.trim() || check.fix?.trim() || "";
+  return {
+    message: `${label} ${status}${detail ? `：${detail}` : ""}`,
+    tone: check.ok ? "success" : "error",
+  };
 }
 
 function OpenVikingEmbeddingCard({
@@ -515,60 +695,144 @@ function OpenVikingEmbeddingCard({
   onRefresh: () => void;
   requestConfirm: DashboardConfirm;
 }) {
-  const [selectedModel, setSelectedModel] = useState("");
-  const switchMutation = useMutation({
-    mutationFn: switchEmbeddingModel,
-    onError: (error) =>
-      feedback.showError(`切换 Embedding 模型失败：${messageFromApiError(error)}`),
+  const [form, setForm] = useState<EmbeddingFormState>(EMPTY_EMBEDDING_FORM);
+  const [initializedFor, setInitializedFor] = useState<number | null>(null);
+  const [probedModels, setProbedModels] = useState<OpenVikingEmbeddingCandidate[] | null>(null);
+  const [probeStatus, setProbeStatus] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const applyMutation = useMutation({
+    mutationFn: applyEmbeddingConfig,
+    onError: (error) => feedback.showError(`保存 Embedding 配置失败：${messageFromApiError(error)}`),
     onSuccess: () => {
       onRefresh();
-      feedback.showSuccess("Embedding 模型切换已提交");
+      feedback.showSuccess("Embedding 配置已保存");
+    },
+  });
+  const testMutation = useMutation({
+    mutationFn: testEmbeddingConfig,
+    onError: (error) => {
+      feedback.showToast(`测试 Embedding 配置失败：${messageFromApiError(error)}`, { tone: "error" });
+    },
+    onSuccess: (data) => {
+      const toast = doctorTestToast(
+        "Embedding",
+        data.doctor.embedding ?? { ok: false, detail: "无诊断结果", fix: null },
+      );
+      feedback.showToast(toast.message, { tone: toast.tone });
     },
   });
   const rebuildMutation = useMutation({
     mutationFn: rebuildEmbedding,
-    onError: (error) =>
-      feedback.showError(`重建向量索引失败：${messageFromApiError(error)}`),
+    onError: (error) => feedback.showError(`重建向量索引失败：${messageFromApiError(error)}`),
     onSuccess: () => {
       onRefresh();
       feedback.showSuccess("向量索引重建已提交");
     },
   });
+  const probeMutation = useMutation({
+    mutationFn: (baseUrl: string) => listEmbeddingCandidates(baseUrl),
+    onError: (error) => {
+      setProbedModels(null);
+      setProbeStatus({ ok: false, text: `探测失败：${messageFromApiError(error)}` });
+    },
+    onSuccess: (data) => {
+      const models = data.items.filter((candidate) => candidate.provider === "ollama");
+      if (data.ollama && data.ollama.healthy === false) {
+        setProbedModels([]);
+        setProbeStatus({ ok: false, text: `探测失败：${data.ollama.error ?? "Ollama 不可达"}` });
+        return;
+      }
+      setProbedModels(models);
+      setProbeStatus({ ok: true, text: `发现 ${models.length} 个模型` });
+    },
+  });
   const mutationError =
-    mutationErrorMessage(switchMutation.error) ?? mutationErrorMessage(rebuildMutation.error);
-  const selectedCandidate =
-    candidates.find((candidate) => candidate.model === selectedModel) ?? candidates[0];
+    mutationErrorMessage(applyMutation.error) ?? mutationErrorMessage(rebuildMutation.error);
   const rebuildProgress = syncProgressView(embedding?.rebuild_progress);
 
   useEffect(() => {
-    if (!selectedModel && embedding?.model) {
-      setSelectedModel(embedding.model);
+    if (embedding && initializedFor !== embedding.id) {
+      setForm(embeddingFormFromResponse(embedding));
+      setInitializedFor(embedding.id);
+      setProbedModels(null);
+      setProbeStatus(null);
     }
-  }, [embedding?.model, selectedModel]);
+  }, [embedding, initializedFor]);
 
-  function handleSwitchEmbedding() {
-    if (!embedding || !selectedCandidate) {
+  const provider = form.provider;
+  const isLocal = provider === "local";
+  const isOllama = provider === "ollama";
+  const isVikingDb = provider === "vikingdb";
+  const isCloud = CLOUD_EMBEDDING_PROVIDERS.has(provider);
+  const providerUnchanged = embedding?.provider === provider;
+  const ollamaModelOptions = candidates.filter((candidate) => candidate.provider === "ollama");
+  const ollamaSuggestions = probedModels ?? ollamaModelOptions;
+  const apiKeyPlaceholder =
+    providerUnchanged && embedding?.api_key_configured
+      ? `${embedding.api_key_masked ?? "已配置"} · 留空保持不变`
+      : "sk-…";
+
+  function updateForm(patch: Partial<EmbeddingFormState>) {
+    setForm((current) => ({ ...current, ...patch }));
+  }
+
+  function clearProbe() {
+    setProbedModels(null);
+    setProbeStatus(null);
+  }
+
+  function handleBaseUrlChange(value: string) {
+    updateForm({ base_url: value });
+    // probed models are scoped to the host that was queried; drop them once the URL edits.
+    clearProbe();
+  }
+
+  function handleProbe() {
+    const baseUrl = form.base_url.trim();
+    if (!baseUrl) {
+      return;
+    }
+    probeMutation.mutate(baseUrl);
+  }
+
+  function handleProviderChange(next: string) {
+    const defaults = EMBEDDING_PROVIDER_DEFAULTS[next];
+    setForm((current) => ({
+      ...current,
+      provider: next,
+      model:
+        defaults?.model ?? (next === embedding?.provider ? embedding?.model ?? "" : ""),
+      dimension:
+        defaults?.dimension != null
+          ? String(defaults.dimension)
+          : next === embedding?.provider && embedding?.dimension != null
+            ? String(embedding.dimension)
+            : "",
+    }));
+    clearProbe();
+  }
+
+  function handleTest() {
+    testMutation.mutate(buildEmbeddingApply(form));
+  }
+
+  function handleSave() {
+    if (!embedding || !form.model.trim()) {
       return;
     }
     requestConfirm({
-      confirmLabel: "确认切换",
-      message: `确认将 Embedding 模型从 ${embedding.model} 切换为 ${selectedCandidate.model}？这会清理索引并触发全量重建。`,
+      confirmLabel: "确认保存",
+      message: "确认切换 Embedding 配置？这会清理 OpenViking 索引并重新排队同步任务。",
       onConfirm: () => {
-        feedback.showSuccess("Embedding 模型切换已提交");
-        switchMutation.mutate({
-          provider: selectedCandidate.provider,
-          base_url: selectedCandidate.base_url,
-          model: selectedCandidate.model,
-          dimension: embedding.dimension,
-          max_concurrent: embedding.max_concurrent,
-        });
+        feedback.showSuccess("Embedding 配置保存已提交");
+        applyMutation.mutate(buildEmbeddingApply(form));
       },
-      title: "确认切换 Embedding 模型",
+      title: "确认切换 Embedding 配置",
       tone: "danger",
     });
   }
 
-  function handleRebuildEmbedding() {
+  function handleRebuild() {
     requestConfirm({
       confirmLabel: "确认重建",
       message: "确认重新构建 OpenViking 语义索引？过程中检索可能降级。",
@@ -584,7 +848,7 @@ function OpenVikingEmbeddingCard({
   return (
     <section className="surface openviking-card openviking-card-embedding" aria-label="OpenViking Embedding">
       <OpenVikingCardHeader
-        description="语义索引使用的向量模型、候选切换与向量重建入口。"
+        description="语义索引使用的向量模型；切换会清空索引并触发全量重建。"
         icon={<Database aria-hidden="true" size={16} />}
         title="Embedding 模型"
       />
@@ -593,12 +857,22 @@ function OpenVikingEmbeddingCard({
         <>
           <div className="settings-diagnostic-grid settings-diagnostic-grid-compact">
             <Metric label="Provider" value={embedding.provider} />
-            <Metric label="Base URL" value={embedding.base_url} />
             <Metric label="当前模型" value={embedding.model} />
             <Metric label="维度" value={embedding.dimension} />
             <Metric label="最大并发" value={embedding.max_concurrent} />
+            <Metric
+              label="API Key"
+              value={embedding.api_key_configured ? (embedding.api_key_masked ?? "已配置") : "未配置"}
+            />
             <Metric label="重建状态" value={embedding.rebuild_status} />
           </div>
+          {embedding.local_cache ? (
+            <p className="settings-openviking-muted">
+              本地模型缓存：
+              {embedding.local_cache.model_cached ? "已缓存" : "未缓存，首次启动会自动下载"}
+              {embedding.local_cache.cache_path ? ` · ${embedding.local_cache.cache_path}` : ""}
+            </p>
+          ) : null}
           {rebuildProgress.value !== null ? (
             <div className="settings-openviking-progress settings-openviking-progress-block">
               <progress aria-label="Embedding 重建进度" max={100} value={rebuildProgress.value} />
@@ -607,38 +881,616 @@ function OpenVikingEmbeddingCard({
               </small>
             </div>
           ) : null}
-          <div className="settings-openviking-controls settings-openviking-embedding-controls">
+
+          <div className="settings-openviking-model-form">
             <label className="settings-openviking-field">
-              <span>候选模型</span>
-              <select value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)}>
-                {candidates.length === 0 ? <option value={embedding.model}>{embedding.model}</option> : null}
-                {candidates.map((candidate) => (
-                  <option value={candidate.model} key={`${candidate.source}:${candidate.model}`}>
-                    {candidate.model}
+              <span>Provider</span>
+              <select value={provider} onChange={(event) => handleProviderChange(event.target.value)}>
+                {EMBEDDING_PROVIDER_OPTIONS.map((option) => (
+                  <option value={option.value} key={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
             </label>
-            <button
-              className="button button-secondary"
-              type="button"
-              onClick={handleSwitchEmbedding}
-              disabled={!selectedCandidate || selectedCandidate.model === embedding.model}
-            >
-              切换
-            </button>
-            <button className="button button-danger" type="button" onClick={handleRebuildEmbedding}>
-              重建向量索引
-            </button>
+
+            <div className="settings-openviking-field-grid">
+              {isLocal ? (
+                <>
+                  <ReadonlyField label="模型" value={form.model} />
+                  <ReadonlyField label="维度" value={form.dimension} />
+                  <p className="settings-openviking-muted settings-openviking-field-note">
+                    内置 GGUF 模型，无需 Ollama；缓存缺失时首次启动会自动下载。
+                  </p>
+                </>
+              ) : null}
+
+              {isOllama ? (
+                <>
+                  <TextField
+                    label="Base URL"
+                    value={form.base_url}
+                    placeholder="http://127.0.0.1:11434"
+                    onChange={handleBaseUrlChange}
+                  />
+                  <label className="settings-openviking-field">
+                    <span>模型</span>
+                    <input
+                      list="ov-ollama-model-suggestions"
+                      value={form.model}
+                      placeholder="bge-m3"
+                      onChange={(event) => updateForm({ model: event.target.value })}
+                    />
+                    <datalist id="ov-ollama-model-suggestions">
+                      {ollamaSuggestions.map((candidate) => (
+                        <option value={candidate.model} key={`${candidate.source}:${candidate.model}`} />
+                      ))}
+                    </datalist>
+                  </label>
+                  <TextField
+                    label="维度"
+                    value={form.dimension}
+                    placeholder="1024"
+                    inputMode="numeric"
+                    onChange={(value) => updateForm({ dimension: value })}
+                  />
+                  <TextField
+                    label="最大并发"
+                    value={form.max_concurrent}
+                    placeholder="1"
+                    inputMode="numeric"
+                    onChange={(value) => updateForm({ max_concurrent: value })}
+                  />
+                </>
+              ) : null}
+
+              {isCloud ? (
+                <>
+                  <TextField
+                    label="API Base"
+                    value={form.base_url}
+                    placeholder="https://api.openai.com/v1"
+                    onChange={(value) => updateForm({ base_url: value })}
+                  />
+                  <TextField
+                    label="模型"
+                    value={form.model}
+                    placeholder="text-embedding-3-small"
+                    onChange={(value) => updateForm({ model: value })}
+                  />
+                  <TextField
+                    label="维度"
+                    value={form.dimension}
+                    placeholder="可选"
+                    inputMode="numeric"
+                    onChange={(value) => updateForm({ dimension: value })}
+                  />
+                  <SecretField
+                    label="API Key"
+                    value={form.api_key}
+                    placeholder={apiKeyPlaceholder}
+                    onChange={(value) => updateForm({ api_key: value })}
+                  />
+                  <TextField
+                    label="最大并发"
+                    value={form.max_concurrent}
+                    placeholder="1"
+                    inputMode="numeric"
+                    onChange={(value) => updateForm({ max_concurrent: value })}
+                  />
+                </>
+              ) : null}
+
+              {isVikingDb ? (
+                <>
+                  <SecretField
+                    label="AK"
+                    value={form.ak}
+                    placeholder={
+                      providerUnchanged && embedding.api_key_configured ? "已配置 · 留空保持不变" : "Access Key"
+                    }
+                    onChange={(value) => updateForm({ ak: value })}
+                  />
+                  <SecretField
+                    label="SK"
+                    value={form.sk}
+                    placeholder="Secret Key"
+                    onChange={(value) => updateForm({ sk: value })}
+                  />
+                  <TextField
+                    label="Region"
+                    value={form.region}
+                    placeholder="cn-beijing"
+                    onChange={(value) => updateForm({ region: value })}
+                  />
+                  <TextField
+                    label="Host"
+                    value={form.host}
+                    placeholder="可选"
+                    onChange={(value) => updateForm({ host: value })}
+                  />
+                  <TextField
+                    label="模型"
+                    value={form.model}
+                    placeholder="向量模型名"
+                    onChange={(value) => updateForm({ model: value })}
+                  />
+                  <TextField
+                    label="维度"
+                    value={form.dimension}
+                    placeholder="可选"
+                    inputMode="numeric"
+                    onChange={(value) => updateForm({ dimension: value })}
+                  />
+                </>
+              ) : null}
+            </div>
+
+            {isOllama ? (
+              <div className="settings-openviking-probe-row">
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={handleProbe}
+                  disabled={probeMutation.isPending || !form.base_url.trim()}
+                >
+                  {probeMutation.isPending ? "探测中…" : "探测模型"}
+                </button>
+                {probeStatus ? (
+                  <span
+                    className="settings-openviking-probe-status"
+                    data-ok={probeStatus.ok ? "true" : "false"}
+                  >
+                    {probeStatus.text}
+                  </span>
+                ) : (
+                  <span className="settings-openviking-probe-status settings-openviking-probe-hint">
+                    按当前 Base URL 实时探测该 Ollama 可用模型
+                  </span>
+                )}
+              </div>
+            ) : null}
+
+            <div className="settings-openviking-form-actions">
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleTest}
+                disabled={testMutation.isPending || !form.model.trim()}
+              >
+                {testMutation.isPending ? "测试中…" : "测试"}
+              </button>
+              <button
+                className="button button-danger"
+                type="button"
+                onClick={handleSave}
+                disabled={applyMutation.isPending || !form.model.trim()}
+              >
+                保存并切换
+              </button>
+              <button className="button button-secondary" type="button" onClick={handleRebuild}>
+                重建向量索引
+              </button>
+            </div>
           </div>
+
           <p className="settings-openviking-muted">
-            切换模型会清空索引并重新排队同步任务；重建向量索引只重新生成当前语义索引。
+            「测试」仅用临时配置运行 OpenViking doctor，不保存、不重启、不清索引；「保存并切换」才会清空索引并重排同步任务。
           </p>
           {mutationError ? <StatusError text={mutationError} /> : null}
         </>
       ) : null}
     </section>
   );
+}
+
+interface VLMFormState {
+  enabled: boolean;
+  provider: string;
+  base_url: string;
+  model: string;
+  api_key: string;
+  temperature: string;
+  timeout: string;
+  max_retries: string;
+}
+
+function vlmFormFromResponse(vlm?: OpenVikingVLMResponse): VLMFormState {
+  return {
+    enabled: vlm?.enabled ?? false,
+    provider: vlm?.provider ?? "",
+    base_url: vlm?.base_url ?? "",
+    model: vlm?.model ?? "",
+    api_key: "",
+    temperature: vlm?.temperature != null ? String(vlm.temperature) : "0.0",
+    timeout: vlm?.timeout != null ? String(vlm.timeout) : "60.0",
+    max_retries: vlm?.max_retries != null ? String(vlm.max_retries) : "3",
+  };
+}
+
+function buildVLMApply(form: VLMFormState): OpenVikingVLMApplyRequest {
+  const payload: OpenVikingVLMApplyRequest = {
+    enabled: true,
+    provider: form.provider.trim(),
+    model: form.model.trim(),
+  };
+  if (form.base_url.trim()) {
+    payload.base_url = form.base_url.trim();
+  }
+  if (form.api_key.trim()) {
+    payload.api_key = form.api_key.trim();
+  }
+  const temperature = toFloatOrNull(form.temperature);
+  if (temperature !== null) {
+    payload.temperature = temperature;
+  }
+  const timeout = toFloatOrNull(form.timeout);
+  if (timeout !== null) {
+    payload.timeout = timeout;
+  }
+  const maxRetries = toIntOrNull(form.max_retries);
+  if (maxRetries !== null) {
+    payload.max_retries = maxRetries;
+  }
+  return payload;
+}
+
+function OpenVikingVLMCard({
+  vlm,
+  feedback,
+  loading,
+  onRefresh,
+  requestConfirm,
+}: {
+  vlm?: OpenVikingVLMResponse;
+  feedback: DashboardFeedback;
+  loading: boolean;
+  onRefresh: () => void;
+  requestConfirm: DashboardConfirm;
+}) {
+  const [form, setForm] = useState<VLMFormState>(() => vlmFormFromResponse());
+  const [initialized, setInitialized] = useState(false);
+
+  const applyMutation = useMutation({
+    mutationFn: applyVLMConfig,
+    onError: (error) => feedback.showError(`保存 VLM 配置失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("VLM 配置已保存");
+    },
+  });
+  const disableMutation = useMutation({
+    mutationFn: disableVLMConfig,
+    onError: (error) => feedback.showError(`禁用 VLM 失败：${messageFromApiError(error)}`),
+    onSuccess: () => {
+      onRefresh();
+      feedback.showSuccess("VLM 已禁用");
+    },
+  });
+  const testMutation = useMutation({
+    mutationFn: testVLMConfig,
+    onError: (error) => {
+      feedback.showToast(`测试 VLM 配置失败：${messageFromApiError(error)}`, { tone: "error" });
+    },
+    onSuccess: (data) => {
+      const toast = doctorTestToast(
+        "VLM",
+        data.doctor.vlm ?? { ok: false, detail: "无诊断结果", fix: null },
+      );
+      feedback.showToast(toast.message, { tone: toast.tone });
+    },
+  });
+  const mutationError =
+    mutationErrorMessage(applyMutation.error) ?? mutationErrorMessage(disableMutation.error);
+
+  useEffect(() => {
+    if (vlm && !initialized) {
+      setForm(vlmFormFromResponse(vlm));
+      setInitialized(true);
+    }
+  }, [vlm, initialized]);
+
+  const apiKeyPlaceholder =
+    vlm?.enabled && vlm.provider === form.provider.trim() && vlm.api_key_configured
+      ? `${vlm.api_key_masked ?? "已配置"} · 留空保持不变`
+      : "可选";
+
+  function updateForm(patch: Partial<VLMFormState>) {
+    setForm((current) => ({ ...current, ...patch }));
+  }
+
+  function handleTest() {
+    testMutation.mutate(buildVLMApply(form));
+  }
+
+  function handleSave() {
+    if (!form.provider.trim() || !form.model.trim()) {
+      feedback.showError("请填写 VLM provider 和模型");
+      return;
+    }
+    requestConfirm({
+      confirmLabel: "确认保存",
+      message: "确认更新 VLM 配置？这会重启 OpenViking，但不会清理向量索引。",
+      onConfirm: () => {
+        feedback.showSuccess("VLM 配置保存已提交");
+        applyMutation.mutate(buildVLMApply(form));
+      },
+      title: "确认更新 VLM 配置",
+      tone: "warning",
+    });
+  }
+
+  function handleDisable() {
+    requestConfirm({
+      confirmLabel: "确认禁用",
+      message: "确认禁用 VLM？这会重启 OpenViking 并移除 ov.conf 中的 vlm 段。",
+      onConfirm: () => {
+        feedback.showSuccess("VLM 禁用已提交");
+        setForm((current) => ({ ...current, enabled: false }));
+        disableMutation.mutate();
+      },
+      title: "确认禁用 VLM",
+      tone: "warning",
+    });
+  }
+
+  const currentEnabled = vlm?.enabled ?? false;
+
+  return (
+    <section className="surface openviking-card openviking-card-vlm" aria-label="OpenViking VLM">
+      <OpenVikingCardHeader
+        description="可选的视觉语言模型；变更只重启 OpenViking，不清向量索引。"
+        icon={<Eye aria-hidden="true" size={16} />}
+        title="VLM 模型"
+      />
+      {loading ? <p className="empty-note">正在读取 VLM 配置</p> : null}
+      {!loading ? (
+        <>
+          <div className="settings-diagnostic-grid settings-diagnostic-grid-compact">
+            <Metric label="状态" value={currentEnabled ? "已启用" : "未配置"} />
+            <Metric label="Provider" value={vlm?.provider ?? EMPTY_VALUE} />
+            <Metric label="模型" value={vlm?.model ?? EMPTY_VALUE} />
+            <Metric
+              label="API Key"
+              value={vlm?.api_key_configured ? (vlm.api_key_masked ?? "已配置") : "未配置"}
+            />
+          </div>
+
+          <div className="settings-openviking-model-form">
+            <SwitchControl
+              checked={form.enabled}
+              label="启用 VLM"
+              text={form.enabled ? "已启用 VLM" : "未启用 VLM"}
+              onChange={(checked) => updateForm({ enabled: checked })}
+            />
+            <div className="settings-openviking-field-grid" data-disabled={form.enabled ? undefined : "true"}>
+              <label className="settings-openviking-field">
+                <span>Provider</span>
+                <input
+                  list="ov-vlm-provider-suggestions"
+                  value={form.provider}
+                  placeholder="volcengine / litellm / …"
+                  onChange={(event) => updateForm({ provider: event.target.value })}
+                />
+                <datalist id="ov-vlm-provider-suggestions">
+                  {VLM_PROVIDER_SUGGESTIONS.map((suggestion) => (
+                    <option value={suggestion} key={suggestion} />
+                  ))}
+                </datalist>
+              </label>
+              <TextField
+                label="Base URL"
+                value={form.base_url}
+                placeholder="可选"
+                onChange={(value) => updateForm({ base_url: value })}
+              />
+              <TextField
+                label="模型"
+                value={form.model}
+                placeholder="模型名"
+                onChange={(value) => updateForm({ model: value })}
+              />
+              <SecretField
+                label="API Key"
+                value={form.api_key}
+                placeholder={apiKeyPlaceholder}
+                onChange={(value) => updateForm({ api_key: value })}
+              />
+              <TextField
+                label="Temperature"
+                value={form.temperature}
+                placeholder="0.0"
+                inputMode="decimal"
+                onChange={(value) => updateForm({ temperature: value })}
+              />
+              <TextField
+                label="Timeout"
+                value={form.timeout}
+                placeholder="60.0"
+                inputMode="decimal"
+                onChange={(value) => updateForm({ timeout: value })}
+              />
+              <TextField
+                label="Max retries"
+                value={form.max_retries}
+                placeholder="3"
+                inputMode="numeric"
+                onChange={(value) => updateForm({ max_retries: value })}
+              />
+            </div>
+
+            <div className="settings-openviking-form-actions">
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleTest}
+                disabled={testMutation.isPending || !form.provider.trim() || !form.model.trim()}
+              >
+                {testMutation.isPending ? "测试中…" : "测试"}
+              </button>
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={handleSave}
+                disabled={applyMutation.isPending}
+              >
+                保存
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleDisable}
+                disabled={disableMutation.isPending || !currentEnabled}
+              >
+                禁用
+              </button>
+            </div>
+          </div>
+
+          <p className="settings-openviking-muted">
+            VLM 默认关闭，未配置不算故障；「保存」与「禁用」都会重启 OpenViking，但不触发索引重建。
+          </p>
+          {mutationError ? <StatusError text={mutationError} /> : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function ReadonlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <label className="settings-openviking-field">
+      <span>{label}</span>
+      <input value={value} readOnly tabIndex={-1} aria-readonly="true" />
+    </label>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  inputMode,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  inputMode?: "numeric" | "decimal" | "text";
+}) {
+  return (
+    <label className="settings-openviking-field">
+      <span>{label}</span>
+      <input
+        value={value}
+        placeholder={placeholder}
+        inputMode={inputMode}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function SecretField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="settings-openviking-field">
+      <span>{label}</span>
+      <input
+        type="password"
+        autoComplete="new-password"
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function DoctorResultLine({ label, check }: { label: string; check: OpenVikingDoctorCheck }) {
+  return (
+    <div className="settings-openviking-doctor-line" data-ok={check.ok ? "true" : "false"}>
+      <span className="settings-openviking-doctor-icon" aria-hidden="true">
+        {check.ok ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+      </span>
+      <div>
+        <strong>{label}</strong>
+        <p>{check.detail ?? (check.ok ? "正常" : "未通过")}</p>
+        {check.fix ? <small>修复建议：{check.fix}</small> : null}
+      </div>
+    </div>
+  );
+}
+
+function OpenVikingDoctorPanel({
+  doctor,
+  ollamaConfigured,
+  vlmEnabled,
+}: {
+  doctor: OpenVikingDoctorReport;
+  ollamaConfigured: boolean;
+  vlmEnabled: boolean;
+}) {
+  const lines: Array<{ label: string; check: OpenVikingDoctorCheck }> = [];
+  if (doctor.embedding) {
+    lines.push({ label: "Embedding", check: doctor.embedding });
+  }
+  if (doctor.vlm) {
+    const check = vlmEnabled
+      ? doctor.vlm
+      : { ok: true, detail: doctor.vlm.detail ?? "未配置（可选）", fix: null };
+    lines.push({ label: "VLM", check });
+  }
+  if (doctor.ollama && ollamaConfigured) {
+    lines.push({ label: "Ollama", check: doctor.ollama });
+  }
+  if (lines.length === 0) {
+    return null;
+  }
+  return (
+    <div className="settings-openviking-doctor">
+      <div className="settings-openviking-doctor-head">
+        <Stethoscope aria-hidden="true" size={14} />
+        <span>OpenViking doctor</span>
+      </div>
+      {lines.map((line) => (
+        <DoctorResultLine key={line.label} label={line.label} check={line.check} />
+      ))}
+    </div>
+  );
+}
+
+function toIntOrNull(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+
+function toFloatOrNull(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toPositiveInt(value: string, fallback: number): number {
+  const parsed = toIntOrNull(value);
+  return parsed && parsed > 0 ? parsed : fallback;
 }
 
 function OpenVikingSyncJobsCard({
@@ -2210,6 +3062,21 @@ function mutationErrorMessage(error: unknown) {
   return messageFromApiError(error);
 }
 
+function modelBackendValue(status: OpenVikingStatusResponse) {
+  if (!status.embedding) {
+    return EMPTY_VALUE;
+  }
+  return `${status.embedding.provider} / ${status.embedding.model}`;
+}
+
+function hasConfiguredOllamaDependency(
+  status: OpenVikingStatusResponse,
+): status is OpenVikingStatusResponse & {
+  ollama: NonNullable<OpenVikingStatusResponse["ollama"]> & { configured: true };
+} {
+  return status.ollama?.configured === true;
+}
+
 function rejectedFromMutation(data?: OpenVikingTuningApplyResponse) {
   return data?.rejected ?? [];
 }
@@ -2233,12 +3100,7 @@ function Metric({ label, value }: { label: string; value: number | string | null
 }
 
 function copyToClipboard(value: string, label: string, feedback: DashboardFeedback) {
-  if (!navigator.clipboard) {
-    feedback.showError("当前浏览器不支持剪贴板复制", { title: "复制失败" });
-    return;
-  }
-  void navigator.clipboard
-    .writeText(value)
+  void copyTextToClipboard(value)
     .then(() => feedback.showSuccess(`${label}已复制`))
     .catch((error: unknown) =>
       feedback.showError(`复制${label}失败：${messageFromApiError(error)}`, { title: "复制失败" }),

@@ -383,34 +383,11 @@ async def _restart_openviking(
 
 async def _runtime_config_from_settings(
     request: Request,
-    latest: dict[tuple[str, str], OpenVikingTuningSetting],
+    _latest: dict[tuple[str, str], OpenVikingTuningSetting],
 ) -> OpenVikingRuntimeConfig:
-    from codeask.api.openviking_admin import ensure_default_embedding_setting
+    from codeask.api.openviking_admin import runtime_config_from_active_settings
 
-    embedding = await ensure_default_embedding_setting(request)
-    settings = request.app.state.settings
-    return OpenVikingRuntimeConfig(
-        data_dir=settings.data_dir,
-        host=settings.openviking_host,
-        port=settings.openviking_port,
-        ollama_base_url=embedding.base_url,
-        embedding_model=embedding.model,
-        embedding_dimension=embedding.dimension or settings.openviking_embedding_dimension,
-        embedding_max_concurrent=int_tuning_value(
-            latest,
-            ("openviking", "embedding.max_concurrent"),
-        ),
-        max_input_tokens=int_tuning_value(latest, ("openviking", "embedding.max_input_tokens")),
-        max_retries=int_tuning_value(latest, ("openviking", "embedding.max_retries")),
-        circuit_breaker_failure_threshold=int_tuning_value(
-            latest,
-            ("openviking", "circuit_breaker.failure_threshold"),
-        ),
-        circuit_breaker_reset_timeout=int_tuning_value(
-            latest,
-            ("openviking", "circuit_breaker.reset_timeout"),
-        ),
-    )
+    return await runtime_config_from_active_settings(request)
 
 
 def _reload_codeask_tuning(

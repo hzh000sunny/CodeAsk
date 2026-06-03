@@ -5,6 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
@@ -561,7 +562,7 @@ async def test_stopped_agent_turn_preserves_interrupted_user_turn_and_traces(
 
     request = SimpleNamespace(app=SimpleNamespace(state=app.state))
     await persist_stopped_agent_turn(
-        request,
+        cast(Any, request),
         session_id,
         "",
         parent_turn_id="turn_interrupted",
@@ -787,13 +788,13 @@ async def test_interrupted_turn_cannot_persist_late_agent_response(
 
     request = SimpleNamespace(app=SimpleNamespace(state=app.state))
     await persist_stopped_agent_turn(
-        request,
+        cast(Any, request),
         session_id,
         "",
         parent_turn_id="turn_late_abort",
     )
     await persist_agent_turn(
-        request,
+        cast(Any, request),
         session_id,
         "这是已经被中断的一轮迟到回答，不应进入历史上下文。",
         parent_turn_id="turn_late_abort",
@@ -859,13 +860,13 @@ async def test_interrupted_turn_cannot_persist_late_tool_results(
 
     request = SimpleNamespace(app=SimpleNamespace(state=app.state))
     await persist_stopped_agent_turn(
-        request,
+        cast(Any, request),
         session_id,
         "",
         parent_turn_id="turn_late_tool_abort",
     )
     await persist_runtime_event_trace(
-        request,
+        cast(Any, request),
         session_id,
         "turn_late_tool_abort",
         "tool_result",
@@ -877,7 +878,7 @@ async def test_interrupted_turn_cannot_persist_late_tool_results(
         },
     )
     await persist_runtime_audit_payload(
-        request,
+        cast(Any, request),
         session_id,
         "turn_late_tool_abort",
         "tool_result",

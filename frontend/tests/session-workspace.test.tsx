@@ -2988,7 +2988,8 @@ describe("SessionWorkspace streaming interaction", () => {
           screen.queryByText("已重命名为 node-a.log"),
         ).not.toBeInTheDocument(),
       {
-        timeout: 3600,
+        // Toast auto-dismiss is 4000ms (AppFeedback TOAST_DISMISS_MS); wait past it.
+        timeout: 4500,
       },
     );
     fireEvent.click(

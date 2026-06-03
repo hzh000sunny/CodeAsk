@@ -9,6 +9,7 @@ const liveAgentE2eEnabled = [
   process.env.CODEASK_RUN_LIVE_AGENT_LONG_CONTEXT_E2E,
   process.env.CODEASK_RUN_LIVE_REASONING_PROTOCOL_E2E,
   process.env.CODEASK_RUN_LIVE_OPENCODE_E2E,
+  process.env.CODEASK_RUN_LIVE_OPENVIKING_E2E,
 ].some((value) => value === "1");
 
 export default defineConfig({
@@ -26,7 +27,7 @@ export default defineConfig({
   webServer: [
     {
       command:
-        "bash -lc 'cd .. && rm -rf .tmp/playwright-e2e && mkdir -p .tmp/playwright-e2e && export CODEASK_DATA_DIR=$(pwd)/.tmp/playwright-e2e && export CODEASK_DATA_KEY=4lASQEQav_WrwbwO18ei221xkWwz-hHss5f58daoZoQ= && export CODEASK_HOST=0.0.0.0 && export CODEASK_PORT=8010 && export LITELLM_LOCAL_MODEL_COST_MAP=True && uv run codeask'",
+        "bash -lc 'cd .. && rm -rf .tmp/playwright-e2e && mkdir -p .tmp/playwright-e2e && export CODEASK_DATA_DIR=$(pwd)/.tmp/playwright-e2e && export CODEASK_DATA_KEY=4lASQEQav_WrwbwO18ei221xkWwz-hHss5f58daoZoQ= && export CODEASK_HOST=0.0.0.0 && export CODEASK_PORT=8010 && export CODEASK_OPENVIKING_PORT=19331 && export LITELLM_LOCAL_MODEL_COST_MAP=True && uv run codeask'",
       url: "http://127.0.0.1:8010/api/healthz",
       reuseExistingServer: false,
       timeout: 120_000,

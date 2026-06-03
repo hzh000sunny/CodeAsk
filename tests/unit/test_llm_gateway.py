@@ -1,13 +1,15 @@
 """LLMGateway: factory dispatch + retry-before-first-token only."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
-from codeask.llm.gateway import ClientFactory, LLMGateway
-from codeask.llm.types import LLMEvent, LLMMessage, LLMRequest, TextBlock
+from codeask.llm.client import LLMClient
+from codeask.llm.gateway import ClientBuilder, ClientFactory, LLMGateway
+from codeask.llm.repo import LLMConfigRepo
+from codeask.llm.types import LLMEvent, LLMMessage, LLMRequest, TextBlock, ToolDef
 
 
 class _ScriptedClient:
@@ -15,7 +17,15 @@ class _ScriptedClient:
         self._scripts = scripts
         self._idx = 0
 
-    async def stream(self, **_: object) -> AsyncIterator[LLMEvent]:
+    async def stream(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDef],
+        max_tokens: int,
+        temperature: float,
+        metadata: dict[str, Any] | None = None,
+    ) -> AsyncIterator[LLMEvent]:
+        _ = (messages, tools, max_tokens, temperature, metadata)
         script = self._scripts[self._idx]
         self._idx += 1
         for event in script:
@@ -35,9 +45,28 @@ class _CapturingFactoryClient(_ScriptedClient):
         self.kwargs: dict[str, object] = {}
         self.stream_kwargs: dict[str, object] = {}
 
-    async def stream(self, **kwargs: object) -> AsyncIterator[LLMEvent]:
-        self.stream_kwargs = kwargs
-        async for event in super().stream(**kwargs):
+    async def stream(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDef],
+        max_tokens: int,
+        temperature: float,
+        metadata: dict[str, Any] | None = None,
+    ) -> AsyncIterator[LLMEvent]:
+        self.stream_kwargs = {
+            "messages": messages,
+            "tools": tools,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "metadata": metadata,
+        }
+        async for event in super().stream(
+            messages=messages,
+            tools=tools,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            metadata=metadata,
+        ):
             yield event
 
 
@@ -82,6 +111,59 @@ class _FakeRepo:
         return self.global_configs
 
 
+def _repo(repo: _FakeRepo) -> LLMConfigRepo:
+    return cast(LLMConfigRepo, repo)
+
+
+def _client_builder(callback: ClientBuilder) -> ClientBuilder:
+    return callback
+
+
+def _kwargs_client_builder(callback: Callable[..., LLMClient]) -> ClientBuilder:
+    def build_client(
+        *,
+        api_key: str,
+        model_name: str,
+        base_url: str | None = None,
+        timeout_seconds: int = 600,
+        reasoning_request_profile: str | None = None,
+        reasoning_request_profile_json: str | None = None,
+    ) -> LLMClient:
+        return callback(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            reasoning_request_profile=reasoning_request_profile,
+            reasoning_request_profile_json=reasoning_request_profile_json,
+        )
+
+    return build_client
+
+
+def _scripted_client_builder(client: LLMClient) -> ClientBuilder:
+    def build_client(
+        *,
+        api_key: str,
+        model_name: str,
+        base_url: str | None = None,
+        timeout_seconds: int = 600,
+        reasoning_request_profile: str | None = None,
+        reasoning_request_profile_json: str | None = None,
+    ) -> LLMClient:
+        _ = (
+            api_key,
+            model_name,
+            base_url,
+            timeout_seconds,
+            reasoning_request_profile,
+            reasoning_request_profile_json,
+        )
+        return client
+
+    return build_client
+
+
 def _request(
     *,
     subject_id: str | None = None,
@@ -115,8 +197,8 @@ async def test_retry_when_error_before_first_token() -> None:
     ]
     client = _ScriptedClient([[bad], good])
 
-    factory = ClientFactory(provider_clients={"openai": lambda **_: client})
-    gateway = LLMGateway(_FakeRepo(), factory, base_delay=0.0)  # type: ignore[arg-type]
+    factory = ClientFactory(provider_clients={"openai": _scripted_client_builder(client)})
+    gateway = LLMGateway(_repo(_FakeRepo()), factory, base_delay=0.0)
     out = [event async for event in gateway.stream(_request())]
     assert out[-1].data["stop_reason"] == "end_turn"
 
@@ -130,8 +212,8 @@ async def test_no_retry_after_first_token() -> None:
     ]
     client = _ScriptedClient([partial])
 
-    factory = ClientFactory(provider_clients={"openai": lambda **_: client})
-    gateway = LLMGateway(_FakeRepo(), factory, base_delay=0.0)  # type: ignore[arg-type]
+    factory = ClientFactory(provider_clients={"openai": _scripted_client_builder(client)})
+    gateway = LLMGateway(_repo(_FakeRepo()), factory, base_delay=0.0)
     out = [event async for event in gateway.stream(_request())]
     assert out[-1].type == "error"
 
@@ -144,8 +226,8 @@ async def test_gateway_passes_timeout_to_client_factory() -> None:
         client.kwargs = kwargs
         return client
 
-    factory = ClientFactory(provider_clients={"openai": build_client})
-    gateway = LLMGateway(_FakeRepo(), factory, timeout_seconds=600, base_delay=0.0)  # type: ignore[arg-type]
+    factory = ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)})
+    gateway = LLMGateway(_repo(_FakeRepo()), factory, timeout_seconds=600, base_delay=0.0)
     _ = [event async for event in gateway.stream(_request())]
     assert client.kwargs["timeout_seconds"] == 600
 
@@ -165,7 +247,10 @@ async def test_gateway_passes_reasoning_profile_to_client_factory() -> None:
             reasoning_profile_json='{"extra_body":{"include_reasoning":true}}',
         )
     )
-    gateway = LLMGateway(repo, ClientFactory(provider_clients={"openai": build_client}))  # type: ignore[arg-type]
+    gateway = LLMGateway(
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
+    )
 
     _ = [event async for event in gateway.stream(_request(config_id="cfg_reasoning"))]
 
@@ -184,10 +269,10 @@ async def test_gateway_passes_request_metadata_to_client_stream() -> None:
         return client
 
     gateway = LLMGateway(
-        _FakeRepo(),
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(_FakeRepo()),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     request = _request(subject_id="alice", session_id="sess_meta")
     request.metadata["reasoning_history"] = {
@@ -213,10 +298,10 @@ async def test_gateway_uses_runtime_llm_config_without_persisted_repo_lookup() -
         global_configs=[_Config(id="global_cfg", model_name="global-model")],
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"anthropic": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"anthropic": _kwargs_client_builder(build_client)}),
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     out = [
         event
@@ -261,7 +346,10 @@ async def test_gateway_prefers_enabled_user_config_over_global_pool() -> None:
         user_configs=[_Config(id="user_cfg", model_name="user-model", scope="user")],
         global_configs=[_Config(id="global_cfg", model_name="global-model")],
     )
-    gateway = LLMGateway(repo, ClientFactory(provider_clients={"openai": build_client}))  # type: ignore[arg-type]
+    gateway = LLMGateway(
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
+    )
 
     _ = [
         event
@@ -288,10 +376,10 @@ async def test_gateway_does_not_fallback_when_user_config_fails() -> None:
         global_configs=[_Config(id="global_cfg", model_name="global-model")],
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     out = [
         event
@@ -321,10 +409,10 @@ async def test_gateway_does_not_fallback_when_explicit_config_fails() -> None:
         global_configs=[_Config(id="global_cfg", model_name="global-model")],
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     out = [
         event
@@ -352,10 +440,10 @@ async def test_gateway_does_not_limit_global_config_parallel_sessions() -> None:
 
     repo = _FakeRepo(global_configs=[_Config(id="global_cfg", model_name="global-model")])
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     for session_id in ["sess_1", "sess_2", "sess_3", "sess_4"]:
         out = [
@@ -379,10 +467,10 @@ async def test_gateway_counts_same_session_once_per_window() -> None:
 
     repo = _FakeRepo(global_configs=[_Config(id="global_cfg", model_name="global-model")])
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     for session_id in ["sess_1", "sess_1", "sess_1", "sess_2", "sess_3"]:
         out = [
@@ -417,10 +505,10 @@ async def test_gateway_keeps_session_sticky_on_previous_global_config() -> None:
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         random_choice=lambda configs: configs[0],
-    )  # type: ignore[arg-type]
+    )
 
     _ = [
         event
@@ -461,11 +549,11 @@ async def test_gateway_drops_sticky_global_config_after_five_minutes() -> None:
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         monotonic=monotonic,
         random_choice=lambda configs: configs[0],
-    )  # type: ignore[arg-type]
+    )
 
     _ = [
         event
@@ -502,10 +590,10 @@ async def test_gateway_switches_when_sticky_config_disappears_from_pool() -> Non
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         random_choice=lambda configs: configs[0],
-    )  # type: ignore[arg-type]
+    )
 
     _ = [
         event
@@ -547,15 +635,15 @@ async def test_gateway_temporarily_removes_repeatedly_failing_global_config() ->
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         monotonic=monotonic,
         random_choice=lambda configs: configs[0],
         unhealthy_failure_threshold=3,
         unhealthy_window_seconds=300,
         unhealthy_cooldown_seconds=600,
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     for session_id in ["sess_fail_1", "sess_fail_2", "sess_fail_3"]:
         _ = [
@@ -618,11 +706,11 @@ async def test_gateway_switches_to_next_global_config_after_initial_failure() ->
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         random_choice=lambda configs: configs[0],
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     out = [
         event
@@ -660,12 +748,12 @@ async def test_gateway_does_not_cool_down_config_for_context_length_errors() -> 
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         random_choice=lambda configs: configs[0],
         unhealthy_failure_threshold=3,
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     for _ in range(3):
         out = [
@@ -715,12 +803,12 @@ async def test_gateway_does_not_cool_down_config_for_nested_context_length_error
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         random_choice=lambda configs: configs[0],
         unhealthy_failure_threshold=3,
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     for _ in range(3):
         out = [
@@ -763,11 +851,11 @@ async def test_gateway_returns_last_error_when_all_global_candidates_fail() -> N
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         random_choice=lambda configs: configs[0],
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     out = [
         event
@@ -825,11 +913,11 @@ async def test_gateway_rotates_global_config_for_nested_opencode_api_error() -> 
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": build_client}),
+        _repo(repo),
+        ClientFactory(provider_clients={"openai": _kwargs_client_builder(build_client)}),
         random_choice=lambda configs: configs[0],
         base_delay=0.0,
-    )  # type: ignore[arg-type]
+    )
 
     out = [
         event
@@ -856,10 +944,12 @@ async def test_gateway_select_runtime_config_uses_random_choice_among_least_busy
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+        _repo(repo),
+        ClientFactory(
+            provider_clients={"openai": _scripted_client_builder(_CapturingFactoryClient())}
+        ),
         random_choice=lambda configs: configs[1],
-    )  # type: ignore[arg-type]
+    )
 
     selection = await gateway.select_runtime_config(
         config_id=None,
@@ -888,10 +978,12 @@ async def test_gateway_select_runtime_config_uses_least_busy_global_config() -> 
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+        _repo(repo),
+        ClientFactory(
+            provider_clients={"openai": _scripted_client_builder(_CapturingFactoryClient())}
+        ),
         random_choice=lambda configs: configs[0],
-    )  # type: ignore[arg-type]
+    )
 
     gateway._global_usage.record_session("cfg_a", "sess_a1")  # pyright: ignore[reportPrivateUsage]
     gateway._global_usage.record_session("cfg_a", "sess_a2")  # pyright: ignore[reportPrivateUsage]
@@ -914,9 +1006,11 @@ async def test_gateway_select_runtime_config_uses_least_busy_global_config() -> 
 async def test_gateway_select_runtime_config_keeps_selecting_when_pool_has_no_limit() -> None:
     repo = _FakeRepo(global_configs=[_Config(id="cfg_a", model_name="model-a")])
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
-    )  # type: ignore[arg-type]
+        _repo(repo),
+        ClientFactory(
+            provider_clients={"openai": _scripted_client_builder(_CapturingFactoryClient())}
+        ),
+    )
 
     for session_id in ["sess_1", "sess_2", "sess_3"]:
         selection = await gateway.select_runtime_config(
@@ -941,10 +1035,12 @@ async def test_gateway_select_runtime_config_keeps_selecting_when_pool_has_no_li
 async def test_gateway_select_runtime_config_uses_single_unhealthy_global_config() -> None:
     repo = _FakeRepo(global_configs=[_Config(id="cfg_a", model_name="model-a")])
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+        _repo(repo),
+        ClientFactory(
+            provider_clients={"openai": _scripted_client_builder(_CapturingFactoryClient())}
+        ),
         unhealthy_failure_threshold=1,
-    )  # type: ignore[arg-type]
+    )
     gateway._global_usage.record_failure("cfg_a")  # pyright: ignore[reportPrivateUsage]
 
     selection = await gateway.select_runtime_config(
@@ -967,10 +1063,12 @@ async def test_gateway_select_runtime_config_prefers_healthy_over_unhealthy_conf
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+        _repo(repo),
+        ClientFactory(
+            provider_clients={"openai": _scripted_client_builder(_CapturingFactoryClient())}
+        ),
         unhealthy_failure_threshold=1,
-    )  # type: ignore[arg-type]
+    )
     gateway._global_usage.record_failure("cfg_a")  # pyright: ignore[reportPrivateUsage]
 
     selection = await gateway.select_runtime_config(
@@ -993,11 +1091,13 @@ async def test_gateway_select_runtime_config_uses_least_busy_when_all_configs_un
         ]
     )
     gateway = LLMGateway(
-        repo,
-        ClientFactory(provider_clients={"openai": lambda **_: _CapturingFactoryClient()}),
+        _repo(repo),
+        ClientFactory(
+            provider_clients={"openai": _scripted_client_builder(_CapturingFactoryClient())}
+        ),
         unhealthy_failure_threshold=1,
         random_choice=lambda configs: configs[0],
-    )  # type: ignore[arg-type]
+    )
     gateway._global_usage.record_failure("cfg_a")  # pyright: ignore[reportPrivateUsage]
     gateway._global_usage.record_failure("cfg_b")  # pyright: ignore[reportPrivateUsage]
     gateway._global_usage.record_session("cfg_a", "sess_a1")  # pyright: ignore[reportPrivateUsage]

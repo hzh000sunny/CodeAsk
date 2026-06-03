@@ -137,6 +137,7 @@ const openvikingStatus = {
   queue: { pending: 1, running: 0, failed: 0, cancelled: 0, indexed: 2 },
   health: { healthy: true, version: "0.3.17", error: null },
   ollama: {
+    configured: true,
     healthy: true,
     model_available: true,
     required_model: "bge-m3",
@@ -364,6 +365,23 @@ describe("SettingsPage LLM configuration", () => {
       if (path === "/api/admin/openviking/embedding") {
         return jsonResponse(openvikingEmbedding);
       }
+      if (path === "/api/admin/openviking/vlm") {
+        return jsonResponse({
+          id: null,
+          enabled: false,
+          provider: null,
+          model: null,
+          base_url: null,
+          temperature: 0,
+          timeout: 60,
+          max_retries: 3,
+          api_key_configured: false,
+          api_key_masked: null,
+          extra: null,
+          activated_at: null,
+          activated_by: null,
+        });
+      }
       if (path === "/api/admin/openviking/tuning") {
         return jsonResponse(openvikingTuning);
       }
@@ -388,9 +406,11 @@ describe("SettingsPage LLM configuration", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "健康状态" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Embedding 模型" })).toBeInTheDocument();
-    expect((await screen.findAllByText("bge-m3")).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("Ollama / 模型")).toBeInTheDocument();
-    expect(screen.getAllByText("ready").length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText("bge-m3")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByDisplayValue("bge-m3")).toBeInTheDocument();
+    expect(screen.getByText("模型后端")).toBeInTheDocument();
+    expect(screen.getByText("外部依赖")).toBeInTheDocument();
+    expect(screen.getByText("Ollama ready")).toBeInTheDocument();
     expect((await screen.findAllByText("同步任务已入队")).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("/home/hzh")).not.toBeInTheDocument();
 

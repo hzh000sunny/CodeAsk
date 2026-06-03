@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from codeask.agent.opencode_compat.mcp.server import MCPRequestContext
+from codeask.agent.opencode_compat.mcp.server import MCPRequestContext, MCPTool
 from codeask.agent.opencode_compat.mcp.tools.worktrees import prepare_worktree_tool
 from codeask.agent.opencode_compat.worktrees import OpenCodeWorktreeManager
 from codeask.db import session_factory
@@ -13,6 +14,12 @@ from codeask.db.base import Base
 from codeask.db.models import ExternalAgentSession, Repo, Session
 
 _CTX = MCPRequestContext(session_id="sess_worktree")
+
+
+async def _call_tool_dict(tool: MCPTool, arguments: dict[str, object]) -> dict[str, Any]:
+    result = await tool.handler(arguments, _CTX)
+    assert isinstance(result, dict)
+    return result
 
 
 class FakeWorktreeManager:
@@ -108,9 +115,9 @@ async def test_prepare_worktree_tool_exposes_repo_path(db_factory, tmp_path: Pat
     fake = FakeWorktreeManager(tmp_path / "real-worktree")
     opencode_worktrees = OpenCodeWorktreeManager(worktree_manager=fake)
 
-    result = await prepare_worktree_tool(db_factory, opencode_worktrees).handler(
+    result = await _call_tool_dict(
+        prepare_worktree_tool(db_factory, opencode_worktrees),
         {"repo_id": "repo_1", "ref": "HEAD"},
-        _CTX,
     )
 
     assert fake.calls == [("repo_1", "sess_worktree", "HEAD")]
@@ -124,9 +131,9 @@ async def test_prepare_worktree_tool_accepts_unique_repo_name(db_factory, tmp_pa
     fake = FakeWorktreeManager(tmp_path / "real-worktree")
     opencode_worktrees = OpenCodeWorktreeManager(worktree_manager=fake)
 
-    result = await prepare_worktree_tool(db_factory, opencode_worktrees).handler(
+    result = await _call_tool_dict(
+        prepare_worktree_tool(db_factory, opencode_worktrees),
         {"repo_name": "anything-llm-fork", "reason": "用户要求查看源码实现"},
-        _CTX,
     )
 
     assert fake.calls == [("repo_2", "sess_worktree", None)]
@@ -142,9 +149,9 @@ async def test_prepare_worktree_tool_returns_candidates_for_ambiguous_name(
     fake = FakeWorktreeManager(tmp_path / "real-worktree")
     opencode_worktrees = OpenCodeWorktreeManager(worktree_manager=fake)
 
-    result = await prepare_worktree_tool(db_factory, opencode_worktrees).handler(
+    result = await _call_tool_dict(
+        prepare_worktree_tool(db_factory, opencode_worktrees),
         {"repo_name": "anything"},
-        _CTX,
     )
 
     assert result["error"] == "ambiguous_repo"
@@ -157,9 +164,9 @@ async def test_prepare_worktree_tool_rejects_unavailable_repo(db_factory, tmp_pa
     fake = FakeWorktreeManager(tmp_path / "real-worktree")
     opencode_worktrees = OpenCodeWorktreeManager(worktree_manager=fake)
 
-    result = await prepare_worktree_tool(db_factory, opencode_worktrees).handler(
+    result = await _call_tool_dict(
+        prepare_worktree_tool(db_factory, opencode_worktrees),
         {"repo_id": "missing"},
-        _CTX,
     )
 
     assert result["error"] == "repo_not_ready"
@@ -175,16 +182,16 @@ async def test_prepare_worktree_tool_maps_worktree_errors(db_factory, tmp_path: 
     fake.error = InvalidRefError("ref 'bad' does not resolve")
     opencode_worktrees = OpenCodeWorktreeManager(worktree_manager=fake)
 
-    invalid = await prepare_worktree_tool(db_factory, opencode_worktrees).handler(
+    invalid = await _call_tool_dict(
+        prepare_worktree_tool(db_factory, opencode_worktrees),
         {"repo_id": "repo_1", "ref": "bad"},
-        _CTX,
     )
     assert invalid["error"] == "invalid_ref"
 
     fake.error = WorktreeError("bare repo missing: /tmp/bare/anything")
-    missing_bare = await prepare_worktree_tool(db_factory, opencode_worktrees).handler(
+    missing_bare = await _call_tool_dict(
+        prepare_worktree_tool(db_factory, opencode_worktrees),
         {"repo_id": "repo_1"},
-        _CTX,
     )
     assert missing_bare["error"] == "bare_repo_missing"
 

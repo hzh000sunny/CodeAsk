@@ -1,8 +1,24 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
 const ENABLED = process.env.CODEASK_RUN_LIVE_OPENVIKING_E2E === "1";
 const ADMIN_USERNAME = process.env.CODEASK_E2E_ADMIN_USERNAME ?? "admin";
 const ADMIN_PASSWORD = process.env.CODEASK_E2E_ADMIN_PASSWORD ?? "admin";
+const DEFAULT_EMBEDDING_PROVIDER = "local";
+const DEFAULT_EMBEDDING_MODEL = "bge-small-zh-v1.5-f16";
+const DEFAULT_EMBEDDING_DIMENSION = 512;
+const OLLAMA_EMBEDDING_BASE_URL =
+  process.env.CODEASK_E2E_OLLAMA_EMBEDDING_BASE_URL ?? "http://127.0.0.1:11434";
+const OLLAMA_EMBEDDING_MODEL = process.env.CODEASK_E2E_OLLAMA_EMBEDDING_MODEL ?? "bge-m3";
+const OLLAMA_EMBEDDING_DIMENSION = Number(
+  process.env.CODEASK_E2E_OLLAMA_EMBEDDING_DIMENSION ?? "1024",
+);
+const DEEPSEEK_VLM_PROVIDER = process.env.CODEASK_E2E_DEEPSEEK_VLM_PROVIDER ?? "litellm";
+const DEEPSEEK_VLM_BASE_URL =
+  process.env.CODEASK_E2E_DEEPSEEK_VLM_BASE_URL ?? "https://api.deepseek.com";
+const DEEPSEEK_VLM_MODEL =
+  process.env.CODEASK_E2E_DEEPSEEK_VLM_MODEL ?? "deepseek/deepseek-chat";
+const DEEPSEEK_VLM_API_KEY =
+  process.env.CODEASK_E2E_DEEPSEEK_VLM_API_KEY ?? "sk-codeask-e2e-deepseek-placeholder";
 
 type ApiResult<T> = {
   body: T;
@@ -37,9 +53,41 @@ type TuningPresetResponse = {
   }>;
 };
 
+type EmbeddingResponse = {
+  base_url: string | null;
+  dimension: number | null;
+  model: string;
+  provider: string;
+};
+
+type LLMConfigResponse = {
+  api_key_masked: string;
+  base_url: string | null;
+  enabled: boolean;
+  id: string;
+  model_name: string;
+  name: string;
+  protocol: string;
+};
+
+type SyncJobDetail = {
+  attempts: number;
+  id: string;
+  source_id: string;
+  status: string;
+  task_id: string | null;
+};
+
+type VLMResponse = {
+  base_url: string | null;
+  enabled: boolean;
+  model: string | null;
+  provider: string | null;
+};
+
 // 这些 live 用例共用同一个后端 + 同一个 OpenViking 进程，且多数有状态（造失败任务 / 调参重启）。
 // 并行执行会互相干扰（E5 的同步负载撞 E9 的调参重启），故串行跑。
-test.describe.configure({ mode: "serial", timeout: 180_000 });
+test.describe.configure({ mode: "serial", timeout: 300_000 });
 test.skip(
   !ENABLED,
   "Set CODEASK_RUN_LIVE_OPENVIKING_E2E=1 to run live OpenViking dashboard management E2E.",
@@ -66,11 +114,140 @@ test.afterEach(async ({ page }) => {
   }
 });
 
-test("E2 embedding model switch is destructive and reserved for isolated data dirs", async () => {
-  test.skip(
-    true,
-    "切 Embedding 模型会清理索引并触发全量重建；保留占位，需隔离数据目录执行。",
+test("E2 embedding model switch covers default local and Ollama in the isolated data dir", async ({
+  page,
+}) => {
+  await loginAdmin(page);
+  const initialEmbedding = await expectOk<EmbeddingResponse>(
+    api(page, "/api/admin/openviking/embedding"),
   );
+  expect(initialEmbedding.body.provider).toBe(DEFAULT_EMBEDDING_PROVIDER);
+  expect(initialEmbedding.body.model).toBe(DEFAULT_EMBEDDING_MODEL);
+  expect(initialEmbedding.body.dimension).toBe(DEFAULT_EMBEDDING_DIMENSION);
+
+  await openDashboard(page);
+  const embeddingCard = page.getByLabel("OpenViking Embedding");
+  await expect(embeddingCard.getByText(DEFAULT_EMBEDDING_MODEL).first()).toBeVisible();
+  await embeddingCard.getByRole("button", { name: "测试" }).click();
+  await expectSuccessfulDoctorTest(embeddingCard, 120_000);
+  const afterDefaultTest = await expectOk<EmbeddingResponse>(
+    api(page, "/api/admin/openviking/embedding"),
+  );
+  expect(afterDefaultTest.body.provider).toBe(DEFAULT_EMBEDDING_PROVIDER);
+  expect(afterDefaultTest.body.model).toBe(DEFAULT_EMBEDDING_MODEL);
+
+  await selectEmbeddingProvider(page, "ollama");
+  await embeddingCard.getByLabel("Base URL").fill(OLLAMA_EMBEDDING_BASE_URL);
+  await setLabeledControl(embeddingCard, "模型", OLLAMA_EMBEDDING_MODEL);
+  await embeddingCard.getByLabel("维度").fill(String(OLLAMA_EMBEDDING_DIMENSION));
+  await embeddingCard.getByRole("button", { name: "测试" }).click();
+  await expectSuccessfulDoctorTest(embeddingCard, 120_000);
+
+  await embeddingCard.getByRole("button", { name: "保存并切换" }).click();
+  await confirmDashboardDialog(
+    page,
+    "确认切换 Embedding 配置",
+    "确认保存",
+    "清理 OpenViking 索引",
+  );
+  await expect
+    .poll(async () => (await expectOk<EmbeddingResponse>(
+      api(page, "/api/admin/openviking/embedding"),
+    )).body.provider, { timeout: 90_000 })
+    .toBe("ollama");
+  const ollamaEmbedding = await expectOk<EmbeddingResponse>(
+    api(page, "/api/admin/openviking/embedding"),
+  );
+  expect(ollamaEmbedding.body.base_url).toBe(OLLAMA_EMBEDDING_BASE_URL);
+  expect(ollamaEmbedding.body.model).toBe(OLLAMA_EMBEDDING_MODEL);
+  expect(ollamaEmbedding.body.dimension).toBe(OLLAMA_EMBEDDING_DIMENSION);
+  await waitForOpenVikingHealthy(page);
+});
+
+test("E2b model config test is side-effect free and VLM save does not rebuild index", async ({
+  page,
+}) => {
+  await loginAdmin(page);
+  const deepSeekConfig = await ensureDeepSeekLlmConfig(page);
+  const beforeEmbedding = await expectOk<EmbeddingResponse>(
+    api(page, "/api/admin/openviking/embedding"),
+  );
+  const beforeVlm = await expectOk<VLMResponse>(api(page, "/api/admin/openviking/vlm"));
+  const sourceId = `m13-vlm-${Date.now()}`;
+  const enqueued = await api<{ id: string }>(page, "/api/admin/openviking/sync_jobs/enqueue", {
+    body: {
+      source_id: sourceId,
+      source_type: "e2e_unknown",
+    },
+    method: "POST",
+  });
+  expect(enqueued.status).toBe(201);
+  createdSyncJobIds.push(enqueued.body.id);
+  await expect
+    .poll(
+      async () => {
+        await expectOk(
+          api(page, "/api/admin/openviking/sync_jobs/run_pending", { method: "POST" }),
+        );
+        return findJobStatus(page, sourceId);
+      },
+      { timeout: 90_000 },
+    )
+    .toBe("failed");
+  const beforeJob = await getSyncJobBySourceId(page, sourceId);
+
+  await openDashboard(page);
+  const embeddingCard = page.getByLabel("OpenViking Embedding");
+  await expect(embeddingCard.getByText(beforeEmbedding.body.model).first()).toBeVisible();
+  await embeddingCard.getByRole("button", { name: "测试" }).click();
+  await expectSuccessfulDoctorTest(embeddingCard, 60_000);
+  const afterEmbeddingTest = await expectOk<EmbeddingResponse>(
+    api(page, "/api/admin/openviking/embedding"),
+  );
+  expect(afterEmbeddingTest.body.provider).toBe(beforeEmbedding.body.provider);
+  expect(afterEmbeddingTest.body.model).toBe(beforeEmbedding.body.model);
+
+  const vlmCard = page.getByLabel("OpenViking VLM");
+  await vlmCard.getByRole("switch", { name: "启用 VLM" }).click();
+  await vlmCard.getByLabel("Provider").fill(DEEPSEEK_VLM_PROVIDER);
+  await vlmCard.getByLabel("模型").fill(deepSeekConfig.model_name);
+  await vlmCard.getByLabel("Base URL").fill(deepSeekConfig.base_url ?? "");
+  await vlmCard.getByLabel("API Key").fill(DEEPSEEK_VLM_API_KEY);
+  await vlmCard.getByRole("button", { name: "测试" }).click();
+  await expectSuccessfulDoctorTest(vlmCard, 60_000);
+  const afterVlmTest = await expectOk<VLMResponse>(api(page, "/api/admin/openviking/vlm"));
+  expect(afterVlmTest.body.enabled).toBe(beforeVlm.body.enabled);
+  expect(afterVlmTest.body.provider).toBe(beforeVlm.body.provider);
+  expect(afterVlmTest.body.model).toBe(beforeVlm.body.model);
+
+  await vlmCard.getByRole("button", { name: "保存", exact: true }).click();
+  await confirmDashboardDialog(page, "确认更新 VLM 配置", "确认保存", "不会清理向量索引");
+  await expect
+    .poll(
+      async () => (await expectOk<VLMResponse>(api(page, "/api/admin/openviking/vlm"))).body.enabled,
+      { timeout: 60_000 },
+    )
+    .toBe(true);
+  const afterVlmSave = await expectOk<VLMResponse>(api(page, "/api/admin/openviking/vlm"));
+  expect(afterVlmSave.body.provider).toBe(DEEPSEEK_VLM_PROVIDER);
+  expect(afterVlmSave.body.model).toBe(deepSeekConfig.model_name);
+  expect(afterVlmSave.body.base_url).toBe(deepSeekConfig.base_url);
+  const afterJob = await getSyncJobBySourceId(page, sourceId);
+  expect(afterJob.status).toBe(beforeJob.status);
+  expect(afterJob.attempts).toBe(beforeJob.attempts);
+  expect(afterJob.task_id).toBe(beforeJob.task_id);
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await openDashboard(page);
+  const savedVlmCard = page.getByLabel("OpenViking VLM");
+  await savedVlmCard.getByRole("button", { name: "禁用", exact: true }).click();
+  await confirmDashboardDialog(page, "确认禁用 VLM", "确认禁用", "移除 ov.conf 中的 vlm 段");
+  await expect
+    .poll(
+      async () => (await expectOk<VLMResponse>(api(page, "/api/admin/openviking/vlm"))).body.enabled,
+      { timeout: 60_000 },
+    )
+    .toBe(false);
 });
 
 test("E3 sync job shows real progress and can be retried from the UI", async ({
@@ -154,20 +331,21 @@ test("E5 event stream filters by outcome and paginates", async ({ page }) => {
 
   // 事件标题已人话化（§⑥），按机器枚举 data-event-type 选行，避免依赖展示文案。
   const rows = page.locator('.settings-openviking-row[data-event-type="sync_job_failed"]');
+  const eventPagination = page.getByLabel("事件分页");
   await expect(rows.first()).toBeVisible();
   await expect(page.getByLabel("事件每页条数")).toHaveValue("5");
-  await expect(page.getByText(/共 \d+ 条 · 第 1 \/ \d+ 页/)).toBeVisible();
+  await expect(eventPagination.getByText(/共 \d+ 条 · 第 1 \/ \d+ 页/)).toBeVisible();
   await page.getByLabel("事件页码").fill("2");
   await page.getByRole("button", { name: "跳转事件页" }).click();
-  await expect(page.getByText(/共 \d+ 条 · 第 2 \/ \d+ 页/)).toBeVisible();
+  await expect(eventPagination.getByText(/共 \d+ 条 · 第 2 \/ \d+ 页/)).toBeVisible();
   await expect(page.getByText("正在查看历史事件页，实时刷新暂停")).toBeVisible();
   await page.getByLabel("事件每页条数").selectOption("10");
   await expect(page.getByLabel("事件每页条数")).toHaveValue("10");
-  await expect(page.getByText(/共 \d+ 条 · 第 1 \/ \d+ 页/)).toBeVisible();
+  await expect(eventPagination.getByText(/共 \d+ 条 · 第 1 \/ \d+ 页/)).toBeVisible();
   await page.getByRole("button", { name: "下一页事件" }).click();
-  await expect(page.getByText(/共 \d+ 条 · 第 2 \/ \d+ 页/)).toBeVisible();
+  await expect(eventPagination.getByText(/共 \d+ 条 · 第 2 \/ \d+ 页/)).toBeVisible();
   await page.getByRole("button", { name: "上一页事件" }).click();
-  await expect(page.getByText(/共 \d+ 条 · 第 1 \/ \d+ 页/)).toBeVisible();
+  await expect(eventPagination.getByText(/共 \d+ 条 · 第 1 \/ \d+ 页/)).toBeVisible();
 });
 
 test("E6 and E8 tuning rejects invalid values, applies valid values, then restores original value", async ({
@@ -230,20 +408,25 @@ test("E9 preset action applies recommended values without touching Ollama recomm
     await expect(tuningCard.getByText(`当前推荐预设：${preset.body.preset}`)).toBeVisible();
     await tuningCard.getByRole("button", { name: "套用预设" }).click();
     await confirmDashboardDialog(page, "确认套用预设", "确认套用", "套用");
-    await expect.poll(async () => getTuningValue(page, "codeask", "sync_workers")).toBe(
-      codeaskTarget,
-    );
-    await expect.poll(async () => getTuningValue(page, "openviking", "embedding.max_concurrent")).toBe(
-      openVikingTarget,
-    );
-    await expect.poll(async () => getTuningValue(page, "ollama_recommend", "num_parallel")).toBe(
-      beforeOllama,
-    );
+    await expect
+      .poll(async () => getTuningValue(page, "codeask", "sync_workers"), { timeout: 60_000 })
+      .toBe(codeaskTarget);
+    await expect
+      .poll(
+        async () => getTuningValue(page, "openviking", "embedding.max_concurrent"),
+        { timeout: 60_000 },
+      )
+      .toBe(openVikingTarget);
+    await expect
+      .poll(async () => getTuningValue(page, "ollama_recommend", "num_parallel"), { timeout: 60_000 })
+      .toBe(beforeOllama);
+    await waitForOpenVikingHealthy(page);
   } finally {
     await restoreTuningValues(page, [
       { key: "sync_workers", scope: "codeask", value: beforeCodeask },
       { key: "embedding.max_concurrent", scope: "openviking", value: beforeOpenViking },
     ]);
+    await waitForOpenVikingHealthy(page);
   }
 });
 
@@ -291,11 +474,96 @@ async function openDashboard(page: Page) {
   await expect(page.getByRole("heading", { name: "健康状态" })).toBeVisible();
 }
 
+async function selectEmbeddingProvider(page: Page, provider: string) {
+  const embeddingCard = page.getByLabel("OpenViking Embedding");
+  await embeddingCard.getByLabel("Provider").selectOption(provider);
+}
+
+async function setLabeledControl(
+  scope: ReturnType<Page["getByLabel"]>,
+  label: string,
+  value: string,
+) {
+  const control = scope.getByLabel(label);
+  const tagName = await control.evaluate((element) => element.tagName.toLowerCase());
+  if (tagName === "select") {
+    await control.selectOption(value);
+    return;
+  }
+  await control.fill(value);
+}
+
+async function expectSuccessfulDoctorTest(scope: Locator, timeout: number) {
+  const result = scope.locator('.settings-openviking-doctor-line[data-ok="true"]').filter({
+    hasText: "测试结果",
+  });
+  await expect(result).toBeVisible({ timeout });
+}
+
+async function ensureDeepSeekLlmConfig(page: Page): Promise<LLMConfigResponse> {
+  const configs = await expectOk<LLMConfigResponse[]>(api(page, "/api/admin/llm-configs"));
+  const existing = configs.body.find(
+    (config) =>
+      config.protocol === "openai" &&
+      config.base_url === DEEPSEEK_VLM_BASE_URL &&
+      config.model_name === DEEPSEEK_VLM_MODEL,
+  );
+  if (existing) {
+    return existing;
+  }
+
+  const created = await expectOk<LLMConfigResponse>(
+    api(page, "/api/admin/llm-configs", {
+      body: {
+        name: `DeepSeek VLM E2E ${Date.now()}`,
+        protocol: "openai",
+        base_url: DEEPSEEK_VLM_BASE_URL,
+        api_key: DEEPSEEK_VLM_API_KEY,
+        model_name: DEEPSEEK_VLM_MODEL,
+        max_tokens: 512,
+        enabled: false,
+      },
+      method: "POST",
+    }),
+  );
+  expect(created.body.api_key_masked).not.toEqual("");
+  return created.body;
+}
+
 async function findJobStatus(page: Page, sourceId: string) {
   const result = await expectOk<{ items: SyncJob[] }>(
     api(page, "/api/admin/openviking/sync_jobs?source_type=e2e_unknown&limit=100"),
   );
   return result.body.items.find((item) => item.source_id === sourceId)?.status ?? "missing";
+}
+
+async function getSyncJobBySourceId(page: Page, sourceId: string) {
+  const result = await expectOk<{ items: SyncJobDetail[] }>(
+    api(page, "/api/admin/openviking/sync_jobs?source_type=e2e_unknown&limit=100"),
+  );
+  const job = result.body.items.find((item) => item.source_id === sourceId);
+  if (!job) {
+    throw new Error(`missing sync job ${sourceId}`);
+  }
+  return job;
+}
+
+async function waitForOpenVikingHealthy(page: Page) {
+  await expect
+    .poll(
+      async () => {
+        const response = await api<{
+          health?: { healthy?: boolean };
+          running?: boolean;
+        }>(page, "/api/admin/openviking/status");
+        if (response.status !== 200) {
+          return false;
+        }
+        return response.body.running === true && response.body.health?.healthy === true;
+      },
+      { timeout: 120_000 },
+    )
+    .toBe(true);
 }
 
 async function getTuningValue(page: Page, scope: string, key: string) {
