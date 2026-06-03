@@ -106,7 +106,10 @@ class OpenCodeMCPServer:
             if isinstance(output, dict)
             else output
         )
-        return _result(request_id, {"content": [{"type": "text", "text": str(text)}]})
+        result: dict[str, Any] = {"content": [{"type": "text", "text": str(text)}]}
+        if _is_tool_error_output(output):
+            result["isError"] = True
+        return _result(request_id, result)
 
     def _verify_token(self, session_id: str, authorization: str | None) -> None:
         expected = self._token_resolver(session_id)
@@ -118,6 +121,14 @@ class OpenCodeMCPServer:
 
 def _result(request_id: object, result: dict[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def _is_tool_error_output(output: object) -> bool:
+    if not isinstance(output, dict):
+        return False
+    output_data = cast(dict[str, Any], output)
+    error = output_data.get("error")
+    return isinstance(error, str) and bool(error)
 
 
 def _error(request_id: object, code: int, message: str) -> dict[str, Any]:

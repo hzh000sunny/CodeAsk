@@ -2226,6 +2226,279 @@ async def test_initialize_session_recreates_stale_external_session(
 
 
 @pytest.mark.asyncio
+async def test_run_turn_summary_logs_tool_call_once_for_repeated_running_updates(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    workspace = workspace_manager.prepare_workspace("sess_1")
+    store.items.append(
+        ExternalAgentSessionCreate(
+            session_id="sess_1",
+            external_session_key="ses_open",
+            session_dir=str(workspace.session_dir),
+            workspace_dir=str(workspace.workspace_dir),
+            server_url="http://127.0.0.1:4100",
+            port=4100,
+            pid=123,
+            config_hash="hash",
+            config_json={},
+        )
+    )
+    tool_part = {
+        "id": "prt_tool",
+        "messageID": "msg_assistant",
+        "sessionID": "ses_open",
+        "type": "tool",
+        "tool": "bash",
+        "callID": "call_1",
+    }
+    http_client.events = [
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        **tool_part,
+                        "state": {"status": "running", "input": {"command": "git log"}},
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        **tool_part,
+                        "state": {
+                            "status": "running",
+                            "input": {"command": "git log"},
+                            "metadata": {"output": ""},
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        **tool_part,
+                        "state": {
+                            "status": "running",
+                            "input": {"command": "git log"},
+                            "metadata": {"output": "No git repo in workspace\n"},
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        **tool_part,
+                        "state": {
+                            "status": "completed",
+                            "input": {"command": "git log"},
+                            "output": "No git repo in workspace\n",
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.delta",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "messageID": "msg_assistant",
+                    "partID": "prt_text",
+                    "delta": "done",
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "session.status",
+                "properties": {"sessionID": "ses_open", "status": {"type": "idle"}},
+            },
+        },
+    ]
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    events = [
+        event
+        async for event in compat.run_turn(
+            session_id="sess_1",
+            user_message="hi",
+            llm_config=_llm_config(),
+        )
+    ]
+
+    assert any(event.type == "done" for event in events)
+    summary_log = workspace.logs_dir / "opencode-events.summary.jsonl"
+    summary_lines = [
+        json.loads(line) for line in summary_log.read_text(encoding="utf-8").splitlines()
+    ]
+    tool_summaries = [
+        line
+        for line in summary_lines
+        if line.get("tool_call_id") == "prt_tool"
+    ]
+    assert [line["type"] for line in tool_summaries] == ["tool_call", "tool_result"]
+
+
+@pytest.mark.asyncio
+async def test_run_turn_summary_logs_tool_result_once_for_repeated_terminal_updates(
+    tmp_path: Path,
+) -> None:
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    workspace = workspace_manager.prepare_workspace("sess_1")
+    store.items.append(
+        ExternalAgentSessionCreate(
+            session_id="sess_1",
+            external_session_key="ses_open",
+            session_dir=str(workspace.session_dir),
+            workspace_dir=str(workspace.workspace_dir),
+            server_url="http://127.0.0.1:4100",
+            port=4100,
+            pid=123,
+            config_hash="hash",
+            config_json={},
+        )
+    )
+    tool_part = {
+        "id": "prt_tool",
+        "messageID": "msg_assistant",
+        "sessionID": "ses_open",
+        "type": "tool",
+        "tool": "codeask_prepare_worktree",
+        "callID": "call_1",
+    }
+    completed_state = {
+        "status": "completed",
+        "input": {"repo_id": "repo_1"},
+        "output": '{"summary":"repo is not ready","error":"repo_not_ready"}',
+    }
+    http_client.events = [
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        **tool_part,
+                        "state": {"status": "running", "input": {"repo_id": "repo_1"}},
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {**tool_part, "state": completed_state},
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_open",
+                    "part": {
+                        **tool_part,
+                        "state": {**completed_state, "metadata": {"truncated": False}},
+                    },
+                },
+            },
+        },
+        {
+            "directory": str(workspace.workspace_dir),
+            "payload": {
+                "type": "session.status",
+                "properties": {"sessionID": "ses_open", "status": {"type": "idle"}},
+            },
+        },
+    ]
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    events = [
+        event
+        async for event in compat.run_turn(
+            session_id="sess_1",
+            user_message="hi",
+            llm_config=_llm_config(),
+        )
+    ]
+
+    assert any(event.type == "done" for event in events)
+    summary_log = workspace.logs_dir / "opencode-events.summary.jsonl"
+    summary_lines = [
+        json.loads(line) for line in summary_log.read_text(encoding="utf-8").splitlines()
+    ]
+    tool_summaries = [
+        line
+        for line in summary_lines
+        if line.get("tool_call_id") == "prt_tool"
+    ]
+    assert [line["type"] for line in tool_summaries] == ["tool_call", "tool_result"]
+    assert tool_summaries[1]["ok"] is False
+    assert tool_summaries[1]["error"] == "repo_not_ready"
+
+
+@pytest.mark.asyncio
 async def test_run_turn_uses_initialized_binding_after_llm_config_switch(
     tmp_path: Path,
 ) -> None:

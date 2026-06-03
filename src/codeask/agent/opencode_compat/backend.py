@@ -33,6 +33,12 @@ from codeask.agent.opencode_compat.profiles import (
 )
 from codeask.agent.opencode_compat.prompts import build_codeask_system_prompt
 from codeask.agent.opencode_compat.sessions import ExternalAgentSessionCreate
+from codeask.agent.opencode_compat.tool_output import (
+    output_error as tool_output_error,
+)
+from codeask.agent.opencode_compat.tool_output import (
+    output_summary,
+)
 from codeask.agent.opencode_compat.wiki_workspace import WikiWorkspaceExportResult
 from codeask.agent.opencode_compat.workspace import OpenCodeWorkspace
 from codeask.db.models import ExternalAgentSession
@@ -320,6 +326,8 @@ class OpenCodeCompat:
         think_filters: dict[str, ThinkTagContentFilter] = {}
         text_part_ids: set[str] = set()
         message_roles: dict[str, str] = {}
+        summary_tool_call_part_ids: set[str] = set()
+        summary_tool_result_part_ids: set[str] = set()
         last_usage_total: int | None = None
 
         openviking_available = _binding_has_openviking_mcp(binding)
@@ -439,6 +447,8 @@ class OpenCodeCompat:
                 raw_event,
                 directory=workspace_dir,
                 session_id=str(binding.external_session_key),
+                seen_tool_call_part_ids=summary_tool_call_part_ids,
+                seen_tool_result_part_ids=summary_tool_result_part_ids,
             )
             message_role = _opencode_message_role(
                 raw_event,
@@ -1372,6 +1382,8 @@ def _append_summary_from_raw_event(
     *,
     directory: str,
     session_id: str,
+    seen_tool_call_part_ids: set[str] | None = None,
+    seen_tool_result_part_ids: set[str] | None = None,
 ) -> None:
     event_directory = event.get("directory")
     if event_directory != directory:
@@ -1444,26 +1456,44 @@ def _append_summary_from_raw_event(
         return
     state = _object_dict(part.get("state"))
     status = state.get("status")
+    part_id = str(part.get("id") or "")
     if status == "running":
+        if seen_tool_call_part_ids is not None:
+            if part_id in seen_tool_call_part_ids:
+                return
+            seen_tool_call_part_ids.add(part_id)
         _append_summary_event(
             session_dir,
             {
                 "type": "tool_call",
                 "tool_name": str(part.get("tool") or "unknown"),
-                "tool_call_id": str(part.get("id") or ""),
+                "tool_call_id": part_id,
                 "arguments": _object_dict(state.get("input")),
             },
         )
     elif status in {"completed", "error"}:
+        if seen_tool_result_part_ids is not None:
+            if part_id in seen_tool_result_part_ids:
+                return
+            seen_tool_result_part_ids.add(part_id)
+        output = state.get("output")
+        tool_name = str(part.get("tool") or "unknown")
+        output_error = tool_output_error(output, tool_name=tool_name)
         _append_summary_event(
             session_dir,
             {
                 "type": "tool_result",
-                "tool_name": str(part.get("tool") or "unknown"),
-                "tool_call_id": str(part.get("id") or ""),
-                "ok": status == "completed",
-                "summary": str(state.get("title") or state.get("output") or status),
-                "error": str(state.get("error")) if state.get("error") else None,
+                "tool_name": tool_name,
+                "tool_call_id": part_id,
+                "ok": status == "completed" and output_error is None,
+                "summary": str(
+                    state.get("title")
+                    or output_summary(output)
+                    or output
+                    or status
+                ),
+                "error": output_error
+                or (str(state["error"]) if state.get("error") else None),
             },
         )
 

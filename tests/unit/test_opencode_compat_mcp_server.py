@@ -19,6 +19,13 @@ async def _structured(arguments: dict[str, object], ctx: MCPRequestContext) -> d
     return {"summary": "ok", "session_id": ctx.session_id, "data": {"value": arguments["value"]}}
 
 
+async def _recoverable_error(
+    _arguments: dict[str, object],
+    _ctx: MCPRequestContext,
+) -> dict[str, object]:
+    return {"summary": "repo is not ready", "error": "repo_not_ready"}
+
+
 @pytest.mark.asyncio
 async def test_mcp_server_handles_initialize_tools_list_and_call() -> None:
     server = OpenCodeMCPServer(
@@ -115,3 +122,37 @@ async def test_mcp_server_returns_structured_tool_output_as_json_text() -> None:
     assert called["result"]["content"][0]["text"] == (
         '{"summary":"ok","session_id":"sess_1","data":{"value":"hello"}}'
     )
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_marks_structured_tool_error_as_is_error() -> None:
+    server = OpenCodeMCPServer(
+        token_resolver=lambda session_id: "token-1",
+        tools=[
+            MCPTool(
+                name="recoverable_tool",
+                description="Return recoverable failure",
+                input_schema={"type": "object", "properties": {}},
+                handler=_recoverable_error,
+            )
+        ],
+    )
+
+    called = await server.handle_json_rpc(
+        session_id="sess_1",
+        authorization="Bearer token-1",
+        payload={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "recoverable_tool", "arguments": {}},
+        },
+    )
+
+    assert called is not None
+    assert called["result"] == {
+        "content": [
+            {"type": "text", "text": '{"summary":"repo is not ready","error":"repo_not_ready"}'}
+        ],
+        "isError": True,
+    }

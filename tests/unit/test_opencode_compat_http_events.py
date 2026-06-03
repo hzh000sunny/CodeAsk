@@ -304,3 +304,72 @@ def test_map_global_event_openviking_tool_result_preserves_structured_output() -
         },
         "duration_ms": 12.5,
     }
+
+
+def test_map_global_event_completed_tool_with_structured_error_is_failed() -> None:
+    workspace = "/home/hzh/.codeask/tmp/workspace"
+    tool_result = map_global_event(
+        {
+            "directory": workspace,
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_1",
+                    "part": {
+                        "id": "prt_prepare",
+                        "type": "tool",
+                        "tool": "codeask_prepare_worktree",
+                        "state": {
+                            "status": "completed",
+                            "output": (
+                                '{"summary":"repo is not ready: AnythingLLM",'
+                                '"error":"repo_not_ready",'
+                                '"recovery_hint":"Wait until the repository becomes ready."}'
+                            ),
+                        },
+                    },
+                },
+            },
+        },
+        directory=workspace,
+        session_id="ses_1",
+    )
+
+    assert tool_result is not None
+    assert tool_result.type == "tool_result"
+    assert tool_result.data["ok"] is False
+    assert tool_result.data["summary"] == "repo is not ready: AnythingLLM"
+    assert tool_result.data["message"] == "repo_not_ready"
+
+
+def test_map_global_event_builtin_tool_with_json_error_output_is_still_success() -> None:
+    workspace = "/home/hzh/.codeask/tmp/workspace"
+    tool_result = map_global_event(
+        {
+            "directory": workspace,
+            "payload": {
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_1",
+                    "part": {
+                        "id": "prt_bash",
+                        "type": "tool",
+                        "tool": "bash",
+                        "state": {
+                            "status": "completed",
+                            "title": "grep output",
+                            "output": '{"error":"string found in source file"}',
+                        },
+                    },
+                },
+            },
+        },
+        directory=workspace,
+        session_id="ses_1",
+    )
+
+    assert tool_result is not None
+    assert tool_result.type == "tool_result"
+    assert tool_result.data["ok"] is True
+    assert tool_result.data["summary"] == "grep output"
+    assert tool_result.data["message"] is None

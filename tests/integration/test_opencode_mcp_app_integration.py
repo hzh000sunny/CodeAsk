@@ -203,3 +203,65 @@ async def test_opencode_mcp_prepare_worktree_supports_plain_local_dir_repo(
     assert payload["workspace_relative_path"] == "repos/Plain_Local_Repo"
     linked_file = workspace.workspace_dir / payload["workspace_relative_path"] / "server" / "app.py"
     assert linked_file.read_text(encoding="utf-8") == "print('local-dir')\n"
+
+
+@pytest.mark.asyncio
+async def test_opencode_mcp_prepare_worktree_marks_unready_repo_as_tool_error(
+    app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=Path(app.state.settings.data_dir),
+        wiki_workspace_root=Path(app.state.settings.data_dir) / "wiki_workspace" / "current",
+    )
+    workspace = workspace_manager.prepare_workspace("sess_unready_repo")
+    async with app.state.session_factory() as session:
+        session.add(Session(id="sess_unready_repo", title="unready", created_by_subject_id="admin"))
+        session.add(
+            Repo(
+                id="repo_unready",
+                name="Unready Repo",
+                source=Repo.SOURCE_GIT,
+                url="https://example.invalid/unready.git",
+                bare_path=str(
+                    Path(app.state.settings.data_dir) / "repos" / "repo_unready" / "bare"
+                ),
+                status=Repo.STATUS_CLONING,
+            )
+        )
+        await session.commit()
+    await app.state.opencode_session_store.upsert(
+        ExternalAgentSessionCreate(
+            session_id="sess_unready_repo",
+            external_session_key="ses_unready",
+            session_dir=str(workspace.session_dir),
+            workspace_dir=str(workspace.workspace_dir),
+            server_url="http://127.0.0.1:4100",
+            port=4100,
+            pid=123,
+            config_hash="hash",
+            config_json={},
+        )
+    )
+
+    token = make_session_mcp_token(app.state.settings.data_key, "sess_unready_repo")
+    response = await client.post(
+        "/api/agent-mcp/sess_unready_repo",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "prepare_worktree",
+                "arguments": {"repo_id": "repo_unready", "reason": "verify failure"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["isError"] is True
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["error"] == "repo_not_ready"
+    assert payload["repository"]["status"] == Repo.STATUS_CLONING

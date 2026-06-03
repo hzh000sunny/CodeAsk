@@ -5,6 +5,12 @@ from __future__ import annotations
 from typing import Any, cast
 
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
+from codeask.agent.opencode_compat.tool_output import (
+    output_error as tool_output_error,
+)
+from codeask.agent.opencode_compat.tool_output import (
+    output_summary,
+)
 
 
 def _object_dict(value: object) -> dict[str, object]:
@@ -117,14 +123,17 @@ def _map_part_updated(part: dict[str, object]) -> ChatRuntimeEvent | None:
             )
         if status in {"completed", "error"}:
             output = state.get("output")
+            output_error = tool_output_error(output, tool_name=tool_name)
+            ok = status == "completed" and output_error is None
             return ChatRuntimeEvent(
                 type="tool_result",
                 data={
                     "tool_call_id": part_id,
                     "tool_name": tool_name,
-                    "ok": status == "completed",
-                    "summary": str(state.get("title") or _output_summary(output) or status),
-                    "message": str(state.get("error")) if state.get("error") else None,
+                    "ok": ok,
+                    "summary": str(state.get("title") or output_summary(output) or status),
+                    "message": output_error
+                    or (str(state["error"]) if state.get("error") else None),
                     **(
                         {"result": output}
                         if isinstance(output, (dict, list))
@@ -149,14 +158,4 @@ def _map_part_updated(part: dict[str, object]) -> ChatRuntimeEvent | None:
             },
         )
 
-    return None
-
-
-def _output_summary(output: object) -> str | None:
-    if isinstance(output, str):
-        return output
-    output_data = _object_dict(output)
-    summary = output_data.get("summary") or output_data.get("message")
-    if isinstance(summary, str) and summary:
-        return summary
     return None
