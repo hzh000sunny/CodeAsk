@@ -35,6 +35,7 @@ from codeask.agent.opencode_compat.mcp.tools import (
     build_session_tools,
     build_worktree_tools,
 )
+from codeask.agent.opencode_compat.permissions import OpencodeToolPermissions
 from codeask.agent.opencode_compat.process import OpenCodeProcessManager
 from codeask.agent.opencode_compat.sessions import ExternalAgentSessionStore
 from codeask.agent.opencode_compat.wiki_workspace import WikiWorkspaceProjector
@@ -47,6 +48,8 @@ from codeask.api.feature_admins import router as feature_admins_router
 from codeask.api.healthz import router as healthz_router
 from codeask.api.llm_configs import router as llm_configs_router
 from codeask.api.metrics import router as metrics_router
+from codeask.api.opencode_admin import load_opencode_tool_permissions
+from codeask.api.opencode_admin import router as opencode_admin_router
 from codeask.api.opencode_mcp import router as opencode_mcp_router
 from codeask.api.opencode_status import router as opencode_status_router
 from codeask.api.openviking_admin import ensure_default_embedding_setting
@@ -206,6 +209,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 session_id=session_id,
             )
 
+        async def resolve_tool_permissions() -> OpencodeToolPermissions:
+            return await load_opencode_tool_permissions(factory)
+
         async def build_opencode_context(
             session_id: str,
             workspace_dir: Path,
@@ -237,6 +243,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             data_dir=Path(settings.data_dir),
             context_builder=build_opencode_context,
             openviking_mcp_resolver=resolve_openviking_mcp,
+            tool_permissions_resolver=resolve_tool_permissions,
         )
         opencode_mcp_server = OpenCodeMCPServer(
             token_resolver=lambda session_id: make_session_mcp_token(settings.data_key, session_id),
@@ -476,6 +483,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sessions_router, prefix="/api")
     app.include_router(opencode_mcp_router, prefix="/api")
     app.include_router(opencode_status_router, prefix="/api")
+    app.include_router(opencode_admin_router, prefix="/api")
     app.include_router(openviking_status_router, prefix="/api")
     app.include_router(openviking_admin_router, prefix="/api")
     app.include_router(openviking_tuning_router, prefix="/api")

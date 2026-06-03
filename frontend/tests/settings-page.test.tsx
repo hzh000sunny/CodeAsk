@@ -120,6 +120,48 @@ const opencodeStatus = {
   active_session_count: 2,
 };
 
+const opencodePermissions = {
+  tools: {
+    read: "allow",
+    grep: "allow",
+    glob: "allow",
+    webfetch: "deny",
+    edit: "deny",
+    write: "deny",
+    openviking_remember: "deny",
+    openviking_add_resource: "deny",
+    openviking_forget: "deny",
+  },
+  bash: { mode: "deny", patterns: [] },
+  openviking_enabled: false,
+  catalog: {
+    tools: [
+      { key: "read", label: "读取文件", purpose: "读取文件", group: "read", openviking: false },
+      { key: "grep", label: "内容检索", purpose: "搜索", group: "search", openviking: false },
+      { key: "glob", label: "文件查找", purpose: "匹配", group: "search", openviking: false },
+      { key: "webfetch", label: "网络抓取", purpose: "出网", group: "network", openviking: false },
+      { key: "edit", label: "编辑文件", purpose: "修改", group: "write", openviking: false },
+      { key: "write", label: "写入文件", purpose: "创建", group: "write", openviking: false },
+    ],
+    bash_suggestions: ["git status", "ls *", "rg *"],
+  },
+  defaults: {
+    version: 1,
+    tools: {
+      read: "allow",
+      grep: "allow",
+      glob: "allow",
+      webfetch: "deny",
+      edit: "deny",
+      write: "deny",
+      openviking_remember: "deny",
+      openviking_add_resource: "deny",
+      openviking_forget: "deny",
+    },
+    bash: { mode: "deny", patterns: [] },
+  },
+};
+
 const openvikingStatus = {
   running: true,
   available: true,
@@ -251,6 +293,9 @@ describe("SettingsPage LLM configuration", () => {
       if (path === "/api/admin/opencode/status") {
         return jsonResponse(opencodeStatus);
       }
+      if (path === "/api/admin/opencode/permissions") {
+        return jsonResponse(opencodePermissions);
+      }
       if (path === "/api/repos") {
         return jsonResponse({ repos: [repo] });
       }
@@ -273,7 +318,7 @@ describe("SettingsPage LLM configuration", () => {
       await screen.findByRole("heading", { level: 1, name: "仓库管理" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("heading", { level: 1, name: "运行状态" }),
+      screen.queryByRole("heading", { level: 1, name: "OpenCode" }),
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "LLM 配置" }));
@@ -584,6 +629,9 @@ describe("SettingsPage LLM configuration", () => {
         }
         if (path === "/api/admin/opencode/status") {
           return jsonResponse(opencodeStatus);
+        }
+        if (path === "/api/admin/opencode/permissions") {
+          return jsonResponse(opencodePermissions);
         }
         if (path === "/api/repos") {
           return jsonResponse({ repos: [] });
@@ -1041,6 +1089,9 @@ describe("SettingsPage LLM configuration", () => {
         if (path === "/api/admin/opencode/status") {
           return jsonResponse(opencodeStatus);
         }
+        if (path === "/api/admin/opencode/permissions") {
+          return jsonResponse(opencodePermissions);
+        }
         if (path === "/api/llm-runtime-profiles?backend=opencode") {
           return jsonResponse(runtimeProfiles);
         }
@@ -1129,11 +1180,19 @@ describe("SettingsPage LLM configuration", () => {
     expect(
       screen.queryByRole("heading", { name: "个人 LLM 配置" }),
     ).not.toBeInTheDocument();
+    const opencodeNav = await screen.findByRole("button", { name: "OpenCode" });
+    expect(opencodeNav).toBeInTheDocument();
+    // OpenCode nav item sits directly above OpenViking.
+    const openvikingNav = screen.getByRole("button", { name: "OpenViking" });
     expect(
-      await screen.findByRole("button", { name: "运行状态" }),
-    ).toBeInTheDocument();
+      opencodeNav.compareDocumentPosition(openvikingNav) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(
       await screen.findByRole("region", { name: "opencode 后端状态" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("region", { name: "opencode 工具权限" }),
     ).toBeInTheDocument();
     expect(screen.getByText("1.14.48")).toBeInTheDocument();
     expect(screen.getByText("活动会话")).toBeInTheDocument();
@@ -1333,6 +1392,9 @@ describe("SettingsPage LLM configuration", () => {
       if (path === "/api/admin/opencode/status") {
         return jsonResponse(opencodeStatus);
       }
+      if (path === "/api/admin/opencode/permissions") {
+        return jsonResponse(opencodePermissions);
+      }
       if (path === "/api/llm-runtime-profiles?backend=opencode") {
         return jsonResponse(runtimeProfiles);
       }
@@ -1394,6 +1456,9 @@ describe("SettingsPage LLM configuration", () => {
         if (path === "/api/admin/opencode/status") {
           return jsonResponse(opencodeStatus);
         }
+        if (path === "/api/admin/opencode/permissions") {
+          return jsonResponse(opencodePermissions);
+        }
         if (path === "/api/repos" && !init?.method) {
           return jsonResponse({ repos: [repo] });
         }
@@ -1440,7 +1505,7 @@ describe("SettingsPage LLM configuration", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
     expect(
-      await screen.findByRole("button", { name: "运行状态" }),
+      await screen.findByRole("button", { name: "OpenCode" }),
     ).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([path]) => path === "/api/me/llm-configs")).toBe(
       false,

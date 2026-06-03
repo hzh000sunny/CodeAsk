@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from codeask.agent.opencode_compat.permissions import OpencodeToolPermissions
 from codeask.agent.opencode_compat.profiles import (
     LLMConfigLike,
     OpenCodeProviderProfile,
@@ -52,6 +53,7 @@ class OpenCodeConfigInput:
     openviking_mcp_url: str | None = None
     openviking_mcp_token: str | None = None
     openviking_mcp_headers: dict[str, str] = field(default_factory=_empty_string_dict)
+    tool_permissions: OpencodeToolPermissions | None = None
 
     @classmethod
     def with_openviking(
@@ -73,6 +75,7 @@ class OpenCodeConfigInput:
             openviking_mcp_url=openviking.url if openviking is not None else None,
             openviking_mcp_token=openviking.token if openviking is not None else None,
             openviking_mcp_headers=dict(openviking.headers) if openviking is not None else {},
+            tool_permissions=base.tool_permissions,
         )
 
 
@@ -141,6 +144,7 @@ def build_opencode_config(input_data: OpenCodeConfigInput) -> dict[str, object]:
             input_data.external_directory_allowlist,
             openviking_enabled=input_data.openviking_enabled
             and bool(input_data.openviking_mcp_url),
+            tool_permissions=input_data.tool_permissions,
         ),
     }
 
@@ -184,10 +188,14 @@ def _build_permission(
     external_directory_allowlist: tuple[str, ...],
     *,
     openviking_enabled: bool = False,
+    tool_permissions: OpencodeToolPermissions | None = None,
 ) -> dict[str, object]:
-    permission: dict[str, object] = dict(READONLY_PERMISSION)
-    if openviking_enabled:
-        permission.update(OPENVIKING_WRITE_TOOL_DENIES)
+    if tool_permissions is None:
+        permission: dict[str, object] = dict(READONLY_PERMISSION)
+        if openviking_enabled:
+            permission.update(OPENVIKING_WRITE_TOOL_DENIES)
+    else:
+        permission = tool_permissions.to_permission_block(openviking_enabled=openviking_enabled)
     if external_directory_allowlist:
         permission["external_directory"] = {
             "*": "deny",

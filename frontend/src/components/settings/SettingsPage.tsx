@@ -10,6 +10,7 @@ import {
   Radar,
   ScrollText,
   Settings2,
+  Terminal,
   UserRound,
   UsersRound,
 } from "lucide-react";
@@ -37,12 +38,6 @@ interface SettingsNavItem {
 }
 
 const adminSettingsPages: SettingsNavItem[] = [
-  {
-    id: "runtime",
-    label: "运行状态",
-    description: "opencode 后端、端口和会话数",
-    icon: Activity,
-  },
   {
     id: "attachments",
     label: "会话附件",
@@ -74,6 +69,12 @@ const adminSettingsPages: SettingsNavItem[] = [
     icon: ScrollText,
   },
   {
+    id: "runtime",
+    label: "OpenCode",
+    description: "opencode 后端状态与工具权限",
+    icon: Terminal,
+  },
+  {
     id: "openviking",
     label: "OpenViking",
     description: "RAG 后端、同步队列和调优",
@@ -82,7 +83,7 @@ const adminSettingsPages: SettingsNavItem[] = [
 ];
 
 const pageDescriptions: Record<AdminSettingsPageId, string> = {
-  runtime: "查看 opencode 兼容后端的实时健康状态，不会触发进程启动或配置变更。",
+  runtime: "查看 opencode 后端实时健康状态，并配置新建会话的 Agent 工具权限。",
   attachments: "管理会话附件上传入口的全局可用性。",
   users: "面向管理员的用户检索和密码记录清理能力。",
   llm: "维护全局 LLM 配置、Agent 适配方式和连接测试状态。",

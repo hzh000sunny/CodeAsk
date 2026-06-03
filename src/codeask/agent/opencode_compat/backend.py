@@ -25,6 +25,7 @@ from codeask.agent.opencode_compat.config import (
     build_session_external_directory_allowlist,
 )
 from codeask.agent.opencode_compat.events import map_global_event
+from codeask.agent.opencode_compat.permissions import OpencodeToolPermissions
 from codeask.agent.opencode_compat.process import OpenCodeProcessError, OpenCodeServerHandle
 from codeask.agent.opencode_compat.profiles import (
     OpenCodeProviderProfile,
@@ -90,6 +91,9 @@ ContextBuilder = Callable[[str, Path, bool], str | Awaitable[str]]
 OpenVikingMCPResolver = Callable[
     [str], OpenVikingMCPConfig | None | Awaitable[OpenVikingMCPConfig | None]
 ]
+ToolPermissionsResolver = Callable[
+    [], OpencodeToolPermissions | Awaitable[OpencodeToolPermissions]
+]
 SUPPORTED_OPENCODE_VERSIONS = {"1.14.48"}
 log = structlog.get_logger("codeask.agent.opencode_compat.backend")
 _EVENT_POLL_SECONDS = 0.5
@@ -125,6 +129,7 @@ class OpenCodeCompat:
         data_dir: Path | None = None,
         context_builder: ContextBuilder | None = None,
         openviking_mcp_resolver: OpenVikingMCPResolver | None = None,
+        tool_permissions_resolver: ToolPermissionsResolver | None = None,
     ) -> None:
         self._workspace_manager = workspace_manager
         self._process_manager = process_manager
@@ -136,6 +141,7 @@ class OpenCodeCompat:
         self._data_dir = data_dir
         self._context_builder = context_builder
         self._openviking_mcp_resolver = openviking_mcp_resolver
+        self._tool_permissions_resolver = tool_permissions_resolver
 
     async def initialize_session(
         self,
@@ -153,6 +159,7 @@ class OpenCodeCompat:
         _record_process_health_ok(self._process_manager)
         existing = await self._session_store.get_by_session_id_or_none(session_id)
         openviking_mcp = await self._resolve_openviking_mcp(session_id)
+        tool_permissions = await self._resolve_tool_permissions()
         config_input = _config_input(
             llm_config=llm_config,
             mcp_url=mcp_url,
@@ -161,6 +168,7 @@ class OpenCodeCompat:
             data_dir=self._data_dir,
             openviking_mcp=openviking_mcp,
             provider_config_pool=provider_config_pool,
+            tool_permissions=tool_permissions,
         )
         selected_profile = select_provider_profile(llm_config)
         config = build_opencode_config(
@@ -634,6 +642,18 @@ class OpenCodeCompat:
             result = await result
         return result
 
+    async def _resolve_tool_permissions(self) -> OpencodeToolPermissions:
+        if self._tool_permissions_resolver is None:
+            return OpencodeToolPermissions.default()
+        try:
+            result = self._tool_permissions_resolver()
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+        except Exception:  # noqa: BLE001 - permission lookup must never block sessions
+            log.warning("opencode_tool_permissions_resolve_failed", exc_info=True)
+            return OpencodeToolPermissions.default()
+
 
 def _write_workspace_files(workspace_dir: Path, config: dict[str, object]) -> None:
     (workspace_dir / "opencode.json").write_text(
@@ -750,6 +770,7 @@ def _config_input(
     data_dir: Path | None,
     openviking_mcp: OpenVikingMCPConfig | None = None,
     provider_config_pool: tuple[LLMConfigWithSecret, ...] = (),
+    tool_permissions: OpencodeToolPermissions | None = None,
 ) -> OpenCodeConfigInput:
     base = OpenCodeConfigInput(
         llm_config=llm_config,
@@ -765,6 +786,7 @@ def _config_input(
             if data_dir is not None
             else ()
         ),
+        tool_permissions=tool_permissions,
     )
     return OpenCodeConfigInput.with_openviking(base=base, openviking=openviking_mcp)
 
@@ -786,6 +808,7 @@ def _with_profile(
         openviking_mcp_url=config_input.openviking_mcp_url,
         openviking_mcp_token=config_input.openviking_mcp_token,
         openviking_mcp_headers=dict(config_input.openviking_mcp_headers),
+        tool_permissions=config_input.tool_permissions,
     )
 
 

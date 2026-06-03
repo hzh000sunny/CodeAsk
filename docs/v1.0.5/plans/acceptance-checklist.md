@@ -358,6 +358,24 @@ E2E：
 
 ---
 
+## 10. M14 OpenCode 工具权限可配置化
+
+> 计划：[m14-opencode-tool-permissions.md](./m14-opencode-tool-permissions.md)；实现分支 `m14-opencode-tool-permissions`。
+
+- [x] 管理员导航 `运行状态` 重命名为 `OpenCode`，并排到 `OpenViking` 正上方（`settings-page.test.tsx` 断言 `compareDocumentPosition`）
+- [x] OpenCode 页整页重设计（Agent Control Console）：状态 hero（运行脉冲）+ 诊断 chips + 路径 + 工具权限矩阵 + bash 终端白名单
+- [x] 每个工具可勾选 allow / deny（read/grep/glob/webfetch/edit/write，OV 启用时含 openviking 写工具）
+- [x] bash 三态 allow / deny / whitelist；白名单落 opencode 对象式权限 `{"*":"deny", "<pat>":"allow"}`
+- [x] 默认（DB 无配置）解析与历史 `READONLY_PERMISSION` 行为等价，不改变全新安装安全姿态（`test_opencode_permissions` + `test_opencode_compat_foundation`）
+- [x] DB 脏数据不阻断会话创建：`from_stored` + resolver 双重回落默认（单测覆盖）
+- [x] PUT 校验：非法 mode / 越权 tool key / 超量 patterns → 400；非管理员 → 403（`test_opencode_admin_api.py`）
+- [x] 保存经二次确认，提示「对新建会话生效，不影响进行中的会话」；写审计 `opencode_permissions.update`
+- [x] 生效语义：仅对下一次会话初始化生效（`config_hash` 变更驱动），不追溯进行中会话
+- [x] E2E：管理员设 bash 白名单 + 自定义 pattern，保存成功并刷新后保持（`opencode-tool-permissions.spec.ts`，非 live，绿）
+- [x] 后端 `ruff` / `pyright` clean；前端 `lint` / `tsc` / `build` clean；前端 vitest 264 全绿
+
+---
+
 ## 9. 风险声明（收口前确认）
 
 - [ ] OpenViking 版本未来变更的升级路径有方案（升级后能重建索引）

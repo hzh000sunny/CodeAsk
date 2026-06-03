@@ -6,6 +6,7 @@ import { useAppFeedback } from "../feedback/AppFeedback";
 import { AnalysisPolicyManager } from "../policies/AnalysisPolicyManager";
 import { LlmConfigManager } from "./llm/LlmConfigManager";
 import { OpencodeStatusPanel } from "./OpencodeStatusPanel";
+import { OpencodeToolPermissionsPanel } from "./OpencodeToolPermissionsPanel";
 import { RepoManager } from "./repos/RepoManager";
 import { messageFromApiError } from "./settings-utils";
 import { UserManager } from "./users/UserManager";
@@ -90,5 +91,10 @@ export function AdminPolicySettings() {
 }
 
 export function AdminRuntimeSettings() {
-  return <OpencodeStatusPanel />;
+  return (
+    <div className="opencode-console">
+      <OpencodeStatusPanel />
+      <OpencodeToolPermissionsPanel />
+    </div>
+  );
 }
