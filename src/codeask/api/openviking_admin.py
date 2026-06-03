@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from importlib import import_module
+from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
@@ -124,8 +125,9 @@ async def switch_openviking_embedding(
         )
         await session.commit()
         await session.refresh(setting)
-    await _restart_openviking_after_embedding_change(request)
     clear_result = await _clear_openviking_root(request)
+    reset_result = _reset_openviking_rebuild_state(request)
+    await _restart_openviking_after_embedding_change(request)
     await emit_event(
         request.app.state.session_factory,
         event_type="embedding_model_switched",
@@ -135,8 +137,9 @@ async def switch_openviking_embedding(
             "model": payload.model,
             "queued_jobs": queued_jobs,
             "clear_result": clear_result,
+            "reset_result": reset_result,
         },
-        outcome="warning" if clear_result.get("ok") else "error",
+        outcome="warning" if clear_result.get("ok") and reset_result.get("ok") else "error",
     )
     return _embedding_to_dict(setting)
 
@@ -767,10 +770,18 @@ async def _restart_openviking_for_model_config(request: Request) -> None:
     process_manager = getattr(request.app.state, "openviking_process_manager", None)
     if process_manager is None:
         return
+    restart = getattr(process_manager, "restart_openviking", None)
+    if callable(restart):
+        try:
+            restart(runtime_config)
+            return
+        except TypeError:
+            # Older fakes in tests expose restart_openviking() without a runtime
+            # config argument; keep that path working via explicit regeneration.
+            pass
     regenerate = getattr(process_manager, "regenerate_ov_conf", None)
     if callable(regenerate):
         regenerate(runtime_config)
-    restart = getattr(process_manager, "restart_openviking", None)
     if callable(restart):
         restart()
 
@@ -779,8 +790,6 @@ async def _mark_all_jobs_pending(session: AsyncSession) -> int:
     jobs = (await session.execute(select(OpenVikingSyncJob))).scalars().all()
     queued = 0
     for job in jobs:
-        if job.status == "running":
-            continue
         job.status = "pending"
         job.attempts = 0
         job.next_retry_at = None
@@ -792,6 +801,39 @@ async def _mark_all_jobs_pending(session: AsyncSession) -> int:
 
 async def _restart_openviking_after_embedding_change(request: Request) -> None:
     await _restart_openviking_for_model_config(request)
+
+
+def _reset_openviking_rebuild_state(request: Request) -> dict[str, Any]:
+    process_manager = getattr(request.app.state, "openviking_process_manager", None)
+    errors: list[str] = []
+    shutdown = getattr(process_manager, "shutdown", None)
+    if callable(shutdown):
+        try:
+            shutdown()
+        except Exception as exc:
+            errors.append(f"shutdown: {exc}")
+
+    workspace = request.app.state.settings.data_dir / "openviking" / "workspace"
+    deleted: list[str] = []
+    for path in _openviking_rebuild_reset_paths(workspace):
+        if not path.exists():
+            continue
+        try:
+            shutil.rmtree(path)
+        except Exception as exc:
+            errors.append(f"{path}: {exc}")
+        else:
+            deleted.append(str(path))
+    return {"ok": not errors, "deleted": deleted, "errors": errors}
+
+
+def _openviking_rebuild_reset_paths(workspace: Path) -> tuple[Path, ...]:
+    return (
+        workspace / "vectordb" / "context",
+        workspace / "_system" / "queue",
+        workspace / "viking" / "codeask" / "resources" / "codeask",
+        workspace / "viking" / "codeask" / "temp" / "codeask",
+    )
 
 
 async def _clear_openviking_root(request: Request) -> dict[str, Any]:

@@ -17,10 +17,13 @@ from codeask.rag.openviking.models import (
 
 
 class FakeOpenVikingClient:
-    def __init__(self) -> None:
+    def __init__(self, calls: list[str] | None = None) -> None:
         self.deleted: list[str] = []
+        self._calls = calls
 
     async def delete_resource(self, viking_uri: str) -> dict[str, object]:
+        if self._calls is not None:
+            self._calls.append(f"delete:{viking_uri}")
         self.deleted.append(viking_uri)
         return {"uri": viking_uri, "deleted": True}
 
@@ -1244,24 +1247,44 @@ async def test_openviking_vlm_test_uses_temp_config_without_persisting(client, a
 
 @pytest.mark.asyncio
 async def test_openviking_embedding_switch_marks_jobs_pending_and_audits(client, app) -> None:
+    calls: list[str] = []
+
     class FakeProcessManager:
         def __init__(self) -> None:
             self.restarts = 0
 
         def regenerate_ov_conf(self, config=None):  # type: ignore[no-untyped-def]
+            calls.append("regenerate")
             return app.state.settings.data_dir / "openviking" / "ov.conf"
 
-        def restart_openviking(self):  # type: ignore[no-untyped-def]
+        def restart_openviking(self, config=None):  # type: ignore[no-untyped-def]
+            calls.append("restart")
             self.restarts += 1
             return {"pid": 4321, "port": 1933}
+
+        def shutdown(self):  # type: ignore[no-untyped-def]
+            calls.append("shutdown")
 
     def ollama_transport(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/tags"
         return httpx.Response(200, json={"models": [{"name": "bge-m3:latest"}]})
 
     app.state.openviking_process_manager = FakeProcessManager()
-    app.state.openviking_client = FakeOpenVikingClient()
+    app.state.openviking_client = FakeOpenVikingClient(calls)
     app.state.ollama_health_transport = httpx.MockTransport(ollama_transport)
+    workspace = app.state.settings.data_dir / "openviking" / "workspace"
+    reset_paths = [
+        workspace / "vectordb" / "context",
+        workspace / "_system" / "queue",
+        workspace / "viking" / "codeask" / "resources" / "codeask",
+        workspace / "viking" / "codeask" / "temp" / "codeask",
+    ]
+    for path in reset_paths:
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "marker.txt").write_text("old model data", encoding="utf-8")
+    preserved_path = workspace / "viking" / "codeask" / "resources" / ".overview.md"
+    preserved_path.parent.mkdir(parents=True, exist_ok=True)
+    preserved_path.write_text("preserve account root", encoding="utf-8")
     login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
     assert login.status_code == 200
     async with app.state.session_factory() as session:
@@ -1295,6 +1318,10 @@ async def test_openviking_embedding_switch_marks_jobs_pending_and_audits(client,
     assert body["rebuild_progress"]["queued_jobs"] == 1
     assert app.state.openviking_process_manager.restarts == 1
     assert app.state.openviking_client.deleted == ["viking://resources/codeask"]
+    assert calls == ["delete:viking://resources/codeask", "shutdown", "restart"]
+    for path in reset_paths:
+        assert not path.exists()
+    assert preserved_path.exists()
     async with app.state.session_factory() as session:
         job = await session.get(OpenVikingSyncJob, "ovjob_embedding_switch")
         assert job is not None
@@ -1314,6 +1341,9 @@ async def test_openviking_embedding_switch_marks_jobs_pending_and_audits(client,
             )
         ).scalar_one()
     assert event.triggered_by == "admin"
+    assert event.payload is not None
+    assert event.payload["clear_result"]["ok"] is True
+    assert event.payload["reset_result"]["ok"] is True
     assert audit.action == "switch"
 
 
