@@ -27,6 +27,7 @@
 - [CodeAsk × OpenCode 对接方案](./opencode-integration.md)（设计前史；当前 v1.0.4 落地契约见 `../v1.0.4/`）
 - [OpenCode Bash 命令白名单规划](./opencode-bash-command-whitelist.md)
 - [结构化思考链处理与上下文隔离](./structured-reasoning-handling.md)（设计前史；当前 v1.0.2 落地计划见 `../v1.0.2/plans/structured-reasoning.md`）
+- [前端 UI 重构路线：设计 token 重铸 + 关键页面重组](./frontend-ui-restyle.md)（拟作为下一版本 UI 主线；对话流为第一块重组对象）
 
 ## 使用规则
 
