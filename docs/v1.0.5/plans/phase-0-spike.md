@@ -4,6 +4,8 @@
 > 状态：Completed（实验记录已落）
 > 关联：[PRD](../prd/rag-knowledge.md) · [设计](../design/openviking-integration.md) · [收口验收](./acceptance-checklist.md)
 
+> **release 复核说明（2026-06-03）**：本文是 Phase 0 spike 档案。文中的 OpenViking 0.3.17、Ollama `bge-m3`、代码仓导入和逐类样本目标均为早期验证背景；当前 v1.0.5 release 口径以 [acceptance-checklist §0.1](./acceptance-checklist.md#01-release-readiness2026-06-03) 为准：默认 embedding 为 OpenViking local，OpenViking 只同步 Wiki feature 的 `knowledge-base/` 目录，Report/Repo 不进入 OpenViking。
+
 ---
 
 ## 0. 目标与边界

@@ -1,12 +1,12 @@
 # M4 阶段二 — pyright strict 清债到 0
 
 > 版本：v1.0.5
-> 状态：待开发
+> 状态：Completed（2026-06-03 release 复核：`uv run pyright src/codeask evals` 已为 0 errors；仍保留本文作为分批清债历史计划）
 > 关联：[Phase 1 计划](./phase-1-sync-adapter.md) · [验收 checklist §3.10](./acceptance-checklist.md) · [设计](../design/openviking-integration.md)
 
-M4 分两阶段交付。**阶段一**（删 FTS5 + Wiki UI 搜索 OpenViking-first/ILIKE 兜底）已完成并验收（commit `ec1414e`）。本文是**阶段二**：把 `src/codeask` 的历史 pyright strict 类型债清零，让 CI 的 pyright gate 重新成为有意义的硬约束。
+M4 分两阶段交付。**阶段一**（删 FTS5；UI 搜索曾短暂 OpenViking-first/ILIKE 兜底，M11 后收敛回 SQL ILIKE）已完成并验收（commit `ec1414e`）。本文是**阶段二**：把 `src/codeask` 的历史 pyright strict 类型债清零，让 CI 的 pyright gate 重新成为有意义的硬约束。
 
-阶段二独立于阶段一交付，按目录分批、每批独立 commit。
+阶段二已完成。2026-06-03 文档复核时，聚焦 v1.0.5 相关模块的 pyright 子集为 `0 errors, 0 warnings, 0 informations`，acceptance §3.10 也已按完成状态勾选。下方批次计划保留为执行过程记录。
 
 ---
 

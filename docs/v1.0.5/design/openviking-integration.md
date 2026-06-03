@@ -1,7 +1,7 @@
 # OpenViking Integration 系统设计
 
 > 版本：v1.0.5
-> 状态：Completed
+> 状态：Release candidate（2026-06-03 文档复核）
 > 关联：[产品契约](../prd/rag-knowledge.md) | [Phase 0 spike](../plans/phase-0-spike.md)
 
 ---
@@ -17,7 +17,7 @@ src/codeask/rag/
     ├── config.py           # ov.conf 生成；从 CodeAsk settings + DB 派生
     ├── process.py          # OpenViking server 生命周期（参考 opencode_compat/process.py）
     ├── client.py           # OpenViking HTTP / MCP 客户端封装
-    ├── sync.py             # 同步引擎；wiki / report / repo 增量同步 + progress sweep + ETA
+    ├── sync.py             # 同步引擎；wiki_feature 目录同步 + progress sweep + ETA
     ├── uri.py              # CodeAsk 主数据 ↔ viking:// URI 映射
     ├── models.py           # OpenVikingSyncJob / OpenVikingEmbeddingSetting /
     │                       # OpenVikingTuningSetting / OpenVikingDashboardEvent
@@ -45,7 +45,7 @@ alembic/versions/
 
 ### 1.2 修改模块
 
-M1 只实施 OpenViking 独立适配层、admin API、仪表盘和手动同步闭环。下表中涉及 opencode 主链路、Wiki 搜索替换、写路径 hook、native 隔离和 FTS5 删除的项属于后续里程碑，保留在系统设计中用于版本内衔接，不在 M1 提前改动。
+M1 只实施 OpenViking 独立适配层、admin API、仪表盘和手动同步闭环。下表已按 2026-06-03 release candidate 口径修订：UI Wiki 搜索保持 SQL ILIKE；OpenViking 只导入 Wiki `knowledge-base/` 目录；Report / Repo 内容同步不在 v1.0.5 release 范围内。
 
 | 现有文件 | 变更 |
 |---|---|
@@ -53,13 +53,13 @@ M1 只实施 OpenViking 独立适配层、admin API、仪表盘和手动同步�
 | `src/codeask/agent/opencode_compat/config.py` | 在 `opencode.json` 的 `mcp` 中加入 OpenViking remote MCP endpoint 与 token；OpenViking 不健康时 `mcp` 段不注入（让 opencode 退回 native read/grep/glob） |
 | `src/codeask/agent/opencode_compat/context.py` | `build_dynamic_codeask_context` 加入 OpenViking 资源布局与使用原则段落；OpenViking 不健康时该段落不注入 |
 | `src/codeask/agent/opencode_compat/prompts.py` | `AGENTS.md` 与 system prompt 增加 RAG 使用原则 |
-| `src/codeask/api/wiki/search.py` | `GET /api/wiki/search` 改写为 **OpenViking 优先 → `NativeWikiSearchService` (SQL ILIKE) 兜底**（PRD §3.2）；URI → feature_id 反查后复用现有分组逻辑。M4 spike 已确认查询走 REST `POST /api/v1/search/find`，trusted headers 与现有 client 一致，响应 envelope 为 `{status, result:{resources:[...]}}`；OpenViking 返回 0 命中 / 异常 / 未启动时无缝回退 SQL ILIKE，不改前端 `api.ts` |
+| `src/codeask/api/wiki/search.py` | `GET /api/wiki/search` 保持 `NativeWikiSearchService` SQL ILIKE；2026-06-01 后不再调用 OpenViking。OpenViking 只服务 opencode / LLM RAG 召回。 |
 | `src/codeask/api/documents_compat.py` | `POST /documents` 上传：**M4** 仅移除 chunk + FTS5 索引写入（`DocumentChunker.chunk_file` + `WikiIndexer.index_chunk`），保留 `Document` 写入与 `LegacyWikiSyncService` 桥接；OpenViking 入队**不在 M4**，改在 M5 hook `wiki/sync/service.py:sync_legacy_markdown_document`（覆盖 upload + backfill，详见 Phase-1 步骤 20）。`GET /documents/search` 端点**删除**（M4）；`delete_document` 移除 `unindex_chunks_for_document`（M4） |
-| `src/codeask/wiki/documents/service.py` | `publish_document` / `rollback_to_version` 完成后 hook OpenViking 同步入队（PRD §3.3，M5）；草稿路径 `save_draft` / `delete_draft` 不入队 |
-| `src/codeask/wiki/reports.py` 及 `src/codeask/api/reports.py` | **M4 先删 FTS5 写入**：`ReportService` 的 verify / unverify / reject 移除 `WikiIndexer.index_report/unindex_report` 调用（仅这三处有，`create_draft`/`update_draft` 无 indexer 调用）+ 构造里的 `_indexer`；`api/reports.py` 删 `GET /reports/search` 端点（无产品消费者，前端仅 action-trace 标签引用同名 native 工具）+ `delete_report` 的 `unindex_report`。**M5 再接 OpenViking**：Report `verified=false → true` 入队同步；`true → false` 入队 tombstone；unverified 状态下任何编辑都不入队 |
+| `src/codeask/wiki/documents/service.py` | `publish_document` / `rollback_to_version` 完成后写时增量投影到 `wiki_workspace/current/{feature_slug}/knowledge-base`，再入队 `wiki_feature` 目录同步；草稿路径 `save_draft` / `delete_draft` 不投影正文、不入 OpenViking |
+| `src/codeask/wiki/reports.py` 及 `src/codeask/api/reports.py` | **M4 先删 FTS5 写入**：`ReportService` 的 verify / unverify / reject 移除 `WikiIndexer.index_report/unindex_report` 调用；`api/reports.py` 删 `GET /reports/search`。**M11/M12 后 report 退出 OpenViking**：Report 变化只维护 `problem-reports/` 文件视图，不创建 OpenViking sync job |
 | `src/codeask/sessions/messages.py` | `stream_agent_response` 删除 `agent_backend != "opencode"` 分支，单条路径走 opencode |
 | `src/codeask/api/sessions.py` | 删除所有 `agent_backend == "opencode"` 条件分支判断；abort_turn 等直接调用 opencode_compat |
-| `src/codeask/code_index/cloner.py` & `worktree.py` | 代码仓 ready / 更新后写入同步队列 |
+| `src/codeask/code_index/cloner.py` & `worktree.py` | 代码仓 ready / 更新只维护 CodeAsk repo/worktree 状态；内容进入 OpenViking 已延后。事件流可有 `repo_synced` / `repo_refresh_summary`，但不代表代码内容已导入 OpenViking |
 | `src/codeask/settings.py` | 新增 OpenViking / Ollama 配置项；`agent_backend` 字段收敛为 `Literal["opencode"]`（或直接删除字段，所有路径走 opencode） |
 | `frontend/src/components/settings/...` | admin 设置页新增 OpenViking 仪表盘组件（详见 §13.4） |
 | `frontend/src/components/session/action-trace/...` | 新增 OpenViking 工具事件展示 |
@@ -67,7 +67,7 @@ M1 只实施 OpenViking 独立适配层、admin API、仪表盘和手动同步�
 ### 1.3 不动模块
 
 - `src/codeask/agent/opencode_compat/` 内部不反向依赖 `src/codeask/rag/openviking/`；OpenViking 模块通过 app.state 暴露 client/sync，让 opencode_compat 间接拿到
-- `src/codeask/wiki/native_search.py` 保留：`NativeWikiSearchService` 作为 Wiki UI 搜索框的 SQL ILIKE 兜底（OpenViking 不可用或 0 命中时回退到它）
+- `src/codeask/wiki/native_search.py` 保留：`NativeWikiSearchService` 是 Wiki UI 搜索框的主路径，不再只是 OpenViking 兜底
 - `src/codeask/wiki/chunker.py` 保留但**瘦身**：删除对 `tokenizer.py` 的 import，删除 `ParsedChunk.tokenized_text` / `ngram_text` 字段（仅服务 FTS5）；只保留 markdown / pdf / docx → heading + chunk 解析能力，供 `NativeWikiSearchService._best_heading_path` 使用
 - `src/codeask/agent/chat_runtime/events.py` + `chat_runtime/context.py` 保留：是 opencode_compat / api/sessions / sessions/messages 共享的类型层（`ChatRuntimeEvent` / `SessionMessage`），不属于 native runtime 逻辑
 
@@ -103,7 +103,7 @@ def downgrade():
 
 > `document_chunks` 物理表暂留（含 legacy 上传文档的 chunk 历史，不再读写），后续版本可在确认无历史依赖后再清。`documents` 表保留（仍由 `LegacyWikiSyncService` 用作上传桥接）。
 
-测试清理：`tests/integration/test_wiki_search.py`（直接测 FTS5）删除；新增 `/api/wiki/search` OpenViking-first + ILIKE 兜底集成测试、Wiki publish / Report verify hook 入队单测。
+测试清理：`tests/integration/test_wiki_search.py`（直接测 FTS5）删除；`/api/wiki/search` 当前保持 SQL ILIKE 集成测试；Wiki publish / Report verify 的旧逐篇 OpenViking hook 测试已被 M11/M12 的 `wiki_feature` 目录同步和 report projection 测试取代。
 
 ### 1.6 隔离模块（自研 Agent，保留不删，移入隔离命名空间）
 
@@ -162,24 +162,27 @@ v1.0.4 自研的 Agent（`agent_backend=native` 路径）**不删除**，整体�
 ### 2.1 写入侧（CodeAsk → OpenViking）
 
 ```text
-Wiki / 报告 / 仓库变更
+Wiki 变更
   ↓
-CodeAsk 写入 openviking_sync_jobs（status=pending）
+CodeAsk 先把对应 feature 的 Markdown 增量投影到
+wiki_workspace/current/<feature_slug>/knowledge-base
   ↓
-APScheduler 定时任务 / 即时触发
+CodeAsk 写入 openviking_sync_jobs(source_type=wiki_feature, status=pending)
   ↓
-sync.py 取出任务
+APScheduler 定时任务 / 手动同步 / 启动 bootstrap 取出任务
   ↓
-  ├─ Wiki: 从 wiki_workspace/current/<feature_slug>/... 准备本地路径
-  ├─ 报告: 从 wiki_workspace verified / drafts 派生
-  └─ 仓库: 从 $CODEASK_DATA_DIR/repos/<repo_id>/... 派生
+sync.py 从 wiki_workspace/current/<feature_slug>/knowledge-base
+准备本地目录
   ↓
-client.py 调 OpenViking add_resource (SDK / REST)
+client.py 用官方 AsyncHTTPClient 调 OpenViking add_resource
+to=viking://resources/codeask/wiki/<feature_slug>
   ↓
 等待 OpenViking 索引任务完成或登记 task_id 异步追踪
   ↓
 回写 openviking_sync_jobs（status=indexed / failed + viking_uri + error）
 ```
+
+Report 变化只更新 `problem-reports/` 文件视图，不创建 OpenViking sync job。代码仓内容同步已延后；`repo_synced` / `repo_refresh_summary` 只是 CodeAsk repo 状态事件，不表示仓库内容进入 OpenViking。
 
 ### 2.2 读取侧（opencode 会话内）
 
@@ -211,8 +214,8 @@ class OpenVikingSyncJob(Base, TimestampMixin):
     __tablename__ = "openviking_sync_jobs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid4)
-    source_type: Mapped[str] = mapped_column(String(32))   # wiki_doc / wiki_dir / report / repo / feature_readme / global_index
-    source_id: Mapped[str] = mapped_column(String(128))    # CodeAsk 主数据 ID
+    source_type: Mapped[str] = mapped_column(String(32))   # 当前 release 主路径为 wiki_feature
+    source_id: Mapped[str] = mapped_column(String(128))    # wiki_feature 时为 feature_slug
     feature_slug: Mapped[str | None] = mapped_column(String(128), nullable=True)
     viking_uri: Mapped[str | None] = mapped_column(String(512), nullable=True)
     source_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -264,7 +267,7 @@ class OpenVikingEmbeddingSetting(Base, TimestampMixin):
     __tablename__ = "openviking_embedding_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    provider: Mapped[str] = mapped_column(String(32))         # 当前固定 "ollama"
+    provider: Mapped[str] = mapped_column(String(32))         # local / ollama / openai / ...
     base_url: Mapped[str] = mapped_column(String(256))
     model: Mapped[str] = mapped_column(String(128))
     dimension: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -335,36 +338,33 @@ class OpenVikingTuningSetting(Base, TimestampMixin):
 
 | CodeAsk 主数据 | OpenViking URI |
 |---|---|
-| Feature `<feature_slug>` | `viking://resources/codeask/features/<feature_slug>/README.md` |
-| Wiki 节点（feature_slug + 相对路径 `<rel>`） | `viking://resources/codeask/features/<feature_slug>/knowledge-base/<rel>` |
-| Verified 报告 `<report_id>` | `viking://resources/codeask/features/<feature_slug>/problem-reports/verified/<filename>.md` |
-| Draft 报告 `<report_id>` | `viking://resources/codeask/features/<feature_slug>/problem-reports/drafts/<filename>.md` |
-| 仓库 `<repo_slug>` | `viking://resources/codeask/repos/<repo_slug>/` |
-| 全局特性目录 | `viking://resources/codeask/global/feature-index.md` |
-| 全局仓库目录 | `viking://resources/codeask/global/repo-index.md` |
-| 全局报告索引 | `viking://resources/codeask/global/report-index.md` |
+| Wiki 根目录 | `viking://resources/codeask/wiki` |
+| Wiki feature `<feature_slug>` | `viking://resources/codeask/wiki/<feature_slug>` |
+| 代码仓根目录（预留） | `viking://resources/codeask/code` |
+| 仓库 `<repo_slug>`（预留） | `viking://resources/codeask/code/<repo_slug>/` |
 
 规则：
 
-- `<feature_slug>` 取 `features.slug`；slug 缺失退化为 `feature_<id>`
-- 文件名按 CodeAsk Wiki 节点的展示名做安全转义；保留 `.assets/` 相对引用
-- 报告文件名前缀使用强制日期：`YYYY-MM-DD-<slugified-title>.md`，符合 `docs/rules/problem-report.md`
-- slug 重命名触发：旧 URI 写入 `tombstone` 同步任务 → 调用 OpenViking 删除 → 新 URI 写入 `pending` 同步任务
+- `<feature_slug>` 取 `features.slug`；OpenViking 内部目录结构来自 `knowledge-base/` 下真实 Markdown 文件。
+- `<feature>/README.md` 和 `problem-reports/` 保留在 `wiki_workspace/current/<feature_slug>/` 文件视图中，供 opencode 本地 `read/grep/glob`，默认不导入 OpenViking。
+- Report / global index 的旧 URI 规划已作废；repo URI 只预留层级，内容同步后续版本再实现。
+- feature 删除 / 归档触发 `wiki_feature` delete；旧 upsert 正在 processing 时先 deferred delete，避免 OpenViking processing conflict。
 
-### 4.1 实现状态（2026-05-30 终验复盘补注）
+### 4.1 实现状态（2026-06-03 release 复核补注）
 
 本表是**设计目标全集**；实际落地分里程碑，避免文档与实现矛盾：
 
 | 资源 / source_type | 状态 | 里程碑 |
 |---|---|---|
-| Wiki 节点 `wiki_doc` | ✅ 已实现 | M5 |
-| 报告 `report`（verified） | ✅ 已实现（draft 有意不同步） | M5 |
-| 仓库 `repo` | ❌ 未实现——`repo_uri` 为零调用方死 helper，cloner 仅发 `repo_synced` 事件、不入队/不上传内容 | → [m11](../plans/m11-repo-openviking-sync.md) |
-| Feature README `feature_readme` | ⚠️ m11 起 wiki 改「按 feature 目录 import」，不再作独立 source_type；README 是否投影进 feature 目录由 m12 内容决策定 | → [m12](../plans/m12-wiki-workspace-incremental.md) §5 |
-| `wiki_dir` | ✅ 随 feature 目录 import（`preserve_structure`）自带，**作废为独立 source_type** | → [m12](../plans/m12-wiki-workspace-incremental.md) §5 |
-| 全局目录 `global_index`（feature-index / repo-index / report-index） | ⚠️ report-index 随 report 退出 OV 作废；repo-index 属延后代码仓；默认不再单造全局索引 | → [m12](../plans/m12-wiki-workspace-incremental.md) §5 |
+| Wiki feature 目录 `wiki_feature` | ✅ 已实现。`wiki_workspace/current/{feature_slug}/knowledge-base` → `viking://resources/codeask/wiki/{feature_slug}` | M11 + M12 |
+| Wiki 节点 `wiki_doc` | ♻️ 已被 `wiki_feature` 目录导入取代，不再作为 OpenViking source_type | M11 |
+| 报告 `report`（verified/draft） | ♻️ 已退出 OpenViking；仅维护 `problem-reports/` 文件视图供 opencode 本地读 | M11 + M12 |
+| 仓库 `repo` | ❌ 未实现内容同步。cloner 只维护 CodeAsk repo/worktree 状态与事件，不入队/不上传内容 | → 后续版本，底稿见 [m11-repo-openviking-sync](../plans/m11-repo-openviking-sync.md) |
+| Feature README `feature_readme` | ✅ 投影为 `<feature>/README.md` 供 opencode / 本地文件视图使用；默认不进入 OpenViking `knowledge-base/` | M12 |
+| `wiki_dir` | ♻️ 随 `knowledge-base/` 目录 import（`preserve_structure=True`）自带，作废为独立 source_type | M12 |
+| 全局目录 `global_index`（feature-index / repo-index / report-index） | ♻️ 默认不再单造全局索引。report-index 随 report 退出 OV 作废；repo-index 属延后代码仓 | M12 |
 
-注：上方"slug 重命名 → tombstone"规则当前仅对 `wiki_doc` / `report` 经 id 反查生效；`repo` 的 tombstone/重命名随 m11 补齐。
+注：feature 删除 / 归档通过 `wiki_feature` delete job 清理远端；如果旧 upsert task 仍在 OpenViking processing，CodeAsk 使用 deferred delete，等待旧 task 完成后再删，避免 OpenViking `ConflictError: Resource is being processed`。
 
 ---
 
@@ -431,15 +431,15 @@ CodeAsk 进程退出时调用 `process.shutdown()`；优雅终止超时使用 `o
   },
   "embedding": {
     "dense": {
-      "provider": "ollama",
-      "api_base": "<current OpenVikingEmbeddingSetting.base_url>/v1",
+      "provider": "<current OpenVikingEmbeddingSetting.provider, default local>",
+      "api_base": "<current OpenVikingEmbeddingSetting.base_url, provider-specific>",
       "model": "<current OpenVikingEmbeddingSetting.model>",
       "dimension": "<current OpenVikingEmbeddingSetting.dimension>",
       "input": "text"
     },
     "text_source": "content_only",
     "max_input_tokens": "<tuning: embedding.max_input_tokens, default 4096>",
-    "max_concurrent": "<tuning: embedding.max_concurrent, default 1 for ollama>",
+    "max_concurrent": "<tuning: embedding.max_concurrent, default 1>",
     "max_retries": "<tuning: embedding.max_retries, default 3>",
     "circuit_breaker": {
       "failure_threshold": "<tuning: embedding.circuit_breaker.failure_threshold, default 5>",
@@ -447,10 +447,11 @@ CodeAsk 进程退出时调用 `process.shutdown()`；优雅终止超时使用 `o
     }
   },
   "auto_generate_l0": false,
-  "auto_generate_l1": false,
-  "vlm": {"enabled": false}
+  "auto_generate_l1": false
 }
 ```
+
+当 VLM 被管理员启用且 provider/model 非空时才生成 `vlm` 段；VLM disabled 时不写 `vlm.enabled=false` 这类 OpenViking 不识别字段。
 
 可调字段（用 `<tuning: ...>` 标记）由 `OpenVikingTuningSetting` 表当前生效行决定（详见 §3.4 + §13.6）。其它字段固定。
 
@@ -467,15 +468,15 @@ ov.conf 重写时机：
 
 `sync.py` 暴露：
 
-- `enqueue(source_type, source_id, **meta)` —— 写 `openviking_sync_jobs(status=pending)`，由 hook / 后台 sweep 调用
+- `enqueue(source_type, source_id, **meta)` —— 写 `openviking_sync_jobs(status=pending)`，当前 release 主 source_type 为 `wiki_feature`
 - `run_pending_jobs(limit=N)` —— APScheduler 调用，按 `status=pending` + `next_retry_at <= now` 取任务
-- `force_resync(source_type, source_id)` —— admin 手动触发
+- `sweep_all(triggered_by=..., force_enqueue=False)` —— 启动、手动或定时对账 feature wiki 目录
 
 执行顺序（每个 job）：
 
 1. 标 `running`、`attempts += 1`
-2. 从 CodeAsk 主数据派生本地路径或文本
-3. 调 `client.add_resource(path, parent=..., reason=..., instruction=...)`，**走 OpenViking HTTP REST**（`POST /api/v1/resources`），不调 `ov` CLI
+2. 从 `wiki_workspace/current/<feature_slug>/knowledge-base` 派生本地目录
+3. 调 `OpenVikingClient.add_wiki_feature(...)`，内部用官方 `AsyncHTTPClient.add_resource(path=..., to=viking://resources/codeask/wiki/<feature_slug>, preserve_structure=True, wait=False)`，不调 `ov` CLI
 4. 若 OpenViking 返回异步 `task_id`，记录到 `sync_jobs.task_id`，由后台 sweep（§6.1）跟踪
 5. 等待索引完成 → 写 `viking_uri`、`source_hash`、`last_indexed_at`，标 `indexed`
 6. 失败 → 标 `failed`、记录 `error`、按指数退避更新 `next_retry_at`；超过 `maxRepeatFailures` 标 `cancelled`
@@ -538,32 +539,29 @@ OpenViking 在 parse 阶段切完所有文件后才知道精确 chunk 数。这�
 
 | 触发事件 | 触发位置 | 写入 | 在事件流中显示为 | 同步过滤 |
 |---|---|---|---|---|
-| 上传文档（legacy）| `POST /api/documents` 上传成功 + `LegacyWikiSyncService` 同步到 `wiki_documents` 之后 | `source_type=wiki_doc` | `wiki_doc_changed` | 全部入队 |
-| Wiki 文档发布 | `WikiDocumentService.publish_document` 写 `wiki_document_versions` + 更新 `current_version_id` 之后 | `source_type=wiki_doc` | `wiki_doc_changed` | 全部入队 |
-| Wiki 文档回滚 | `WikiDocumentService.rollback_to_version` 切换 `current_version_id` 之后 | `source_type=wiki_doc` | `wiki_doc_changed` | 全部入队 |
-| Wiki 草稿写入 | `save_draft` / `delete_draft` | — | — | **不入队**（PRD §3.3） |
-| Wiki 软删 | `WikiNode.deleted_at` 标记之后 | `source_type=wiki_doc`，`tombstone=true` | `wiki_doc_changed` | 全部入队（删 viking 资源） |
-| Wiki 目录 move/rename | tree service 移动节点 | `source_type=wiki_dir` | `wiki_dir_changed` | 全部入队 |
-| Report verify endpoint：`verified=false → true` | report status 写入之后 | `source_type=report` | `report_status_changed` | ✅ 入队 |
-| Report verify endpoint：`verified=true → false` | 反转之后 | `source_type=report`，`tombstone=true` | `report_status_changed` | ✅ 入队 tombstone |
-| Report `verified=true` 状态下编辑 | report 编辑 endpoint | `source_type=report` | `report_status_changed` | ✅ 入队（hash 不同才入） |
-| Report `verified=false` / draft 状态下编辑 | — | — | — | **不入队**（PRD §3.3） |
-| Report 软删 | delete endpoint | `source_type=report`，`tombstone=true` | `report_status_changed` | 入队 tombstone（仅曾 verified 过的） |
-| 单仓库 ready 完成 | code_index hook | `source_type=repo` | `repo_synced` | 单仓事件 |
+| 上传文档（legacy）| `POST /api/documents` 上传成功 + `LegacyWikiSyncService` 同步到 native wiki 后 | 投影对应 feature `knowledge-base/`，enqueue `source_type=wiki_feature` | `wiki_feature_changed` | 当前 feature 入队 |
+| Wiki 文档发布 | `WikiDocumentService.publish_document` 写 `wiki_document_versions` + 更新 `current_version_id` 之后 | 写当前 md，enqueue `source_type=wiki_feature` | `wiki_feature_changed` | 当前 feature 入队 |
+| Wiki 文档回滚 | `WikiDocumentService.rollback_to_version` 切换 `current_version_id` 之后 | 写当前 md，enqueue `source_type=wiki_feature` | `wiki_feature_changed` | 当前 feature 入队 |
+| Wiki 草稿写入 | `save_draft` / `delete_draft` | — | — | **不投影正文、不入队** |
+| Wiki 软删 / restore | `WikiNode.deleted_at` 变更之后 | 删除或恢复对应 md，enqueue `source_type=wiki_feature` | `wiki_feature_changed` | 当前 feature 入队 |
+| Wiki 目录 move/rename | tree service 移动节点 | 移动/重写受影响 md front matter，enqueue `source_type=wiki_feature` | `wiki_feature_changed` | 当前 feature 入队 |
+| Report verify / unverify / reject / delete | report status 写入之后 | 只更新 `problem-reports/` 文件视图 | `report_projection_changed` | **不进入 OpenViking** |
+| 单仓库 ready 完成 | code_index hook | 不入 OpenViking 内容同步队列 | `repo_synced` | 只作为 CodeAsk repo 状态事件 |
 | 批量 / hourly 仓库 refresh 完成 | code_index hook | — | `repo_refresh_summary` | 汇总事件，避免 per-repo success 洪流 |
-| 特性创建/重命名/归档 | feature CRUD | `source_type=feature_readme` + `global_index` | `feature_changed` | 全部入队 |
-| APScheduler 周期 sweep（默认 24h） | 后台 | 对存在但 sync_hash 不匹配的对象 | `scheduled_refresh` | sweep 时也遵守上述过滤（drafts / unverified 跳过）|
+| 特性创建/重命名/归档 | feature CRUD | 刷新 README/manifest 或删除 feature 子树；必要时 enqueue `wiki_feature` delete/upsert | `wiki_feature_changed` | 当前 feature 入队 |
+| APScheduler 周期 sweep（默认 1h） | 后台 | 对存在但 sync_hash 不匹配的对象 | `scheduled_refresh` | sweep 时也遵守上述过滤（drafts / unverified 跳过）|
 | admin UI 手动重同步 | API | 单对象 / 单特性 / 全量 | `manual_resync` | 同上 |
 | CodeAsk 启动时对齐 | startup | 缺失对象补 enqueue | `startup_sweep` | 同上 |
 | 模型切换 | embedding settings 改动 | 全量 reset → enqueue | `embedding_model_switched` | 同上 |
 
 定时增量 sweep（`scheduled_refresh`）的实现：
 
-- APScheduler 每 24h（可配）跑一次
-- 扫描 `wiki_documents`（仅 `current_version_id` not null 且 node 未软删）+ `reports`（仅 `verified=true`）+ feature / repo
-- 对每个候选对象计算 `source_hash`（基于内容 hash + mtime）
-- 与 `sync_jobs.source_hash` 比对；变化的写入新 pending job
-- 跑完一轮发 `scheduled_refresh_summary` 事件（新增多少 / 跳过多少 / 失败多少）
+- APScheduler 每 `openviking_scheduled_refresh_hours` 小时跑一次（当前默认 1h）。
+- 如果存在 running sync job，本轮跳过新增 add_resource，避免重叠提交。
+- 扫描 active feature 的已发布 Wiki 文档，按 feature 汇总 `source_hash`。
+- 与 `wiki_feature` sync job 的 `source_hash` 比对；变化的 feature 写入 pending job。
+- 同时对比 OpenViking 远端 `wiki/` 根目录，远端存在但 CodeAsk active feature 不存在的，入队 delete。
+- 跑完一轮发 `scheduled_refresh_summary` 事件（scanned / enqueued / skipped / remote_stale / remote_delete_enqueued）。
 
 ### 6.3 同步过滤规则（决定哪些内容进 OpenViking）
 
@@ -571,11 +569,11 @@ OpenViking 在 parse 阶段切完所有文件后才知道精确 chunk 数。这�
 |---|---|---|
 | WikiDocument `current_version_id` 指向的版本 | ✅ | 已发布的官方内容 |
 | WikiDocument 草稿（`wiki_document_drafts`） | ❌ | 草稿可能未审、未定稿，不应作为语义检索候选 |
-| Report `verified=true` | ✅ | verified 报告才是强证据 |
+| Report `verified=true` | ❌ | 只进入 `problem-reports/` 本地文件视图，不进入 OpenViking |
 | Report `verified=false` / draft | ❌ | 与 PRD §4 "verified 强于 draft" 保持一致；unverified 不进语义索引 |
 | Legacy 上传文档 | ✅（通过 `LegacyWikiSyncService` 桥接到 wiki_documents 后入队） | 上传即发布语义 |
-| 代码仓 | ✅（Phase 2） | |
-| 软删 / 反 verify | tombstone 入队 | 让 OpenViking 同步删除对应资源 |
+| 代码仓 | ❌ | 内容同步延后；仍通过 `prepare_worktree` 取得真实源码 |
+| Feature 删除 / 归档 | delete 入队 | 清理对应 `viking://resources/codeask/wiki/<feature_slug>` |
 
 ---
 
@@ -624,20 +622,21 @@ openviking_list / openviking_grep / openviking_glob / openviking_health
 ```md
 ## Knowledge Retrieval Layer (v1.0.5)
 
-CodeAsk derived knowledge is indexed in OpenViking under:
-- viking://resources/codeask/features/<feature_slug>/knowledge-base/   (wiki)
-- viking://resources/codeask/features/<feature_slug>/problem-reports/  (verified strong; drafts weak)
-- viking://resources/codeask/repos/<repo_slug>/                        (code repos)
-- viking://resources/codeask/global/                                   (indices)
+CodeAsk derived wiki knowledge is indexed in OpenViking under:
+- viking://resources/codeask/wiki                                      (all feature wiki roots)
+- viking://resources/codeask/wiki/<feature_slug>                       (one feature wiki)
+- viking://resources/codeask/code/<repo_slug>                          (reserved for future code indexing; do not assume content exists)
 
 Tool usage principles:
-1. Prefer OpenViking find/search to locate candidate Wiki, reports, or code paths.
-2. Use grep/glob for exact-text or filename matching when symbols or strings are known.
-3. OpenViking read(uri) returns OpenViking-managed content (abstract/overview/L2). It is not a substitute for real source code.
-4. Before reading real repository files, call CodeAsk MCP codeask_prepare_worktree.
-5. After the worktree is ready, use opencode native read/grep/glob on workspace-relative paths.
-6. Verified reports are strong evidence; draft reports are weak background only.
-7. Never claim a historical report matches the current issue unless symptoms, error, scenario, and root cause align tightly.
+1. If the relevant feature is unclear, first use OpenViking find/search on viking://resources/codeask/wiki to locate candidate Wiki.
+2. Once the feature is clear, narrow follow-up OpenViking recall to viking://resources/codeask/wiki/<feature_slug>.
+3. Use grep/glob for exact-text or filename matching when symbols or strings are known.
+4. OpenViking read(uri) returns OpenViking-managed knowledge content. It is not a substitute for real source code.
+5. Before reading real repository files, call CodeAsk MCP codeask_prepare_worktree.
+6. After the worktree is ready, use opencode native read/grep/glob on workspace-relative paths.
+7. Reports live in ./wiki/<feature_slug>/problem-reports/ and are inspected via local read/grep/glob, not OpenViking.
+8. Verified reports are strong evidence; draft reports are weak background only.
+9. Never claim a historical report matches the current issue unless symptoms, error, scenario, and root cause align tightly.
 ```
 
 提示保持原则导向；不固化"先 Wiki 后代码"等顺序。
@@ -652,8 +651,8 @@ Tool usage principles:
 |---|---|---|---|
 | OpenViking bin 不存在 | 标记 `backend_unavailable`；不重试 | Wiki UI 走 SQL ILIKE；opencode 不注入 OpenViking MCP，走 native grep | 卡片标红 `bin_missing`，含可执行路径与诊断指引 |
 | OpenViking 启动超时 | 重试一次；再失败标 `backend_unavailable` | 同上 | 卡片标红 `start_failed`，含最近 N 条启动错误 |
-| Ollama 不可达（`/api/tags` 超时 / 拒连） | 标 `embedding_unhealthy`；同步任务退避（不消耗 retry 配额）；CodeAsk 不会自动启动 Ollama | 已索引内容继续可查；新内容暂不入索引；UI 搜索 + opencode 都仍可用（走兜底） | 卡片标黄 `embedding_unhealthy` |
-| Ollama 可达但目标模型不在 `/api/tags` | 标 `embedding_model_missing`；OpenViking 同步任务 `failed`；CodeAsk **不会**自动 `ollama pull` | 同上 | 卡片标黄，提示 operator 执行 `ollama pull <model>` |
+| 当前 embedding provider 不可用 | 标 `embedding_unhealthy`；同步任务退避或失败；CodeAsk 不会自动启动外部 provider | 已索引内容继续可查；新内容暂不入索引；UI 搜索 + opencode 本地 wiki 仍可用 | 卡片标黄，展示 provider/model 与 doctor 结果 |
+| Ollama provider 可达但目标模型不在 `/api/tags` | 标 `embedding_model_missing`；OpenViking 同步任务 `failed`；CodeAsk **不会**自动 `ollama pull` | 同上 | 卡片标黄，提示 operator 执行 `ollama pull <model>` |
 | OpenViking server 崩溃 | keepalive 重启 + 当前轮 MCP 工具调用返回 error 给 opencode | opencode 收到 MCP error 后退回 native grep；不中断会话 | 行动轨迹错误事件 + 仪表盘 `openviking_restart_detected` |
 | 同步任务单次失败 | retry 退避 | 已索引内容继续可查；该项暂未入索引（UI 搜索走 ILIKE 兜底覆盖） | 事件流可见，可手动重试 |
 | 同步任务超阈值失败 | 标 cancelled | 同上 | 面板可重置 |
@@ -661,10 +660,10 @@ Tool usage principles:
 | MCP token 不一致 | 拒绝调用；审计 | opencode 退回 native grep | 行动轨迹错误事件 |
 | 资源不存在（read/list） | OpenViking 返回 not_found；模型自行处理 | 模型走其它工具 | 行动轨迹错误事件 |
 | OpenViking server 重启（手动 / 崩溃 / keepalive 拉起） | OpenViking 持久化队列（QueueFS + RedoLog）保证未完成 SemanticMsg 不丢；启动时自动恢复；in-flight 少数 chunk 重新入队；sync_jobs.progress 由 sweep 自动追上 | 重启窗口期内走兜底，恢复后自动续传 | 仪表盘事件 `openviking_restart_detected` + 进度从中断点继续 |
-| Ollama 进程重启 | OpenViking 端进度完全保留；in-flight HTTP connection reset 由 OpenViking re-enqueue；可能触发 circuit breaker 60 s 等待 | 同上 | 仪表盘事件 `ollama_recovery`；卡片显示"恢复中" |
+| Ollama 进程重启（仅 Ollama provider） | OpenViking 端进度保留；in-flight HTTP connection reset 由 OpenViking re-enqueue；可能触发 circuit breaker 60 s 等待 | 同上 | 仪表盘事件 `ollama_recovery`；卡片显示"恢复中" |
 | CodeAsk 进程重启 | OpenViking 独立运行，sync_jobs `running` 状态保留；CodeAsk 重启后 sweep 自动对齐 | 重启完成立即恢复全功能 | 仪表盘事件 `codeask_restart_sweep` |
 | 改 embedding 模型 / dimension | 必须清 vectordb collection 并全量重建（详见 §3.3）；旧 sync_jobs 全部置 pending；新 rebuild_status=rebuilding | 重建期间召回质量偏低，UI 搜索 ILIKE 兜底仍工作 | 仪表盘明示 "rebuilding in progress"；ETA 单独标识 |
-| Wiki UI 搜索框 OpenViking 返回 0 命中 | 不视为错误；自动回退 SQL ILIKE | 用户看到 ILIKE 结果，不感知后端差异 | 计入 `openviking_search_miss` 指标，不报错 |
+| OpenViking find/search 返回 0 命中 | 不视为错误；模型应改用本地 `./wiki` grep/read 或向用户澄清 | UI 搜索本来就走 SQL ILIKE，不受影响 | 不刷错误事件 |
 
 ---
 
@@ -684,14 +683,14 @@ class Settings:
     openviking_keepalive_interval_seconds: int = 30
     openviking_startup_timeout_seconds: int = 30
     openviking_graceful_shutdown_seconds: int = 5
-    openviking_verified_version: str | None = "0.3.17"
+    openviking_verified_version: str | None = None  # 运行时由 installed_version / health version 填充
 
     # 同步与定时
     openviking_sync_workers: int = 2
-    openviking_sync_interval_seconds: int = 60
+    openviking_sync_interval_seconds: int = 10
     openviking_sync_max_repeat_failures: int = 5
     openviking_progress_sweep_interval_seconds: int = 5
-    openviking_scheduled_refresh_hours: int = 24
+    openviking_scheduled_refresh_hours: int = 1
 
     # 事件流保留
     openviking_event_retention_count: int = 2000
@@ -701,10 +700,10 @@ class Settings:
     openviking_mcp_token: str | None = None        # 留 None 自动生成
 
     # Embedding（首次安装时填 OpenVikingEmbeddingSetting 表的默认值；之后以 DB 为准）
-    openviking_embed_provider: str = "ollama"
-    openviking_embed_base_url: str = "http://127.0.0.1:11434"
-    openviking_embed_model: str = "bge-m3"
-    openviking_embed_dimension: int = 1024
+    openviking_embed_provider: str = "local"
+    openviking_embed_base_url: str | None = None
+    openviking_embed_model: str = "bge-small-zh-v1.5-f16"
+    openviking_embed_dimension: int = 512
 
     # 数据目录
     openviking_data_dir: str = "{CODEASK_DATA_DIR}/openviking"
@@ -760,7 +759,7 @@ class OpenVikingDashboardEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    # wiki_doc_changed / wiki_dir_changed / report_status_changed / repo_synced /
+    # wiki_feature_changed / report_projection_changed / repo_synced /
     # repo_refresh_summary /
     # feature_changed / scheduled_refresh / scheduled_refresh_summary /
     # manual_resync / manual_retry / startup_sweep /

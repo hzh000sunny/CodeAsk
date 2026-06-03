@@ -1,7 +1,7 @@
 # M10 — 同步任务信息人话化 + 修复 cancelled 任务困死
 
 > 版本：v1.0.5
-> 状态：实现完成（前端 vitest 253 + 后端集成 + E3 live e2e 全绿，tsc/eslint clean）；待负责人最终验收
+> 状态：Completed（2026-06-03 release 复核：同步任务人话化、cancelled 重试、分页与 E3 live e2e 已验收）
 > 关联：[m8 仪表盘事件流人话化/降噪](./m8-dashboard-ux.md) · [m6 同步完整性与事件](./m6-sync-completeness-and-events.md) · [m11 代码仓同步](./m11-repo-openviking-sync.md) · [m12 wiki workspace 增量持久化](./m12-wiki-workspace-incremental.md) · [acceptance §3.1](./acceptance-checklist.md)
 > 来源：2026-05-30 终验复盘——事件流已完成人话化/降噪/补字段，同步任务卡片仍是"机器视角"，需对齐；复盘时发现 `cancelled` 任务在 UI 上无重试入口的真缺口。同次复盘还挖出"代码仓 / feature_readme / 全局目录"等 `source_type` 设计了却从未实现（架构拆分时遗漏），但那是**数据面缺口**而非 UX，已另拆 m11 / m12，**不并入本里程碑**避免范围膨胀。
 
@@ -216,4 +216,4 @@ StatusPill（`:732-739`）、Badge（`:870`）、行内 `状态 {job.status}`（
 - [x] **CSS**：`.settings-openviking-job-meta` 有样式（非裸渲染）；死规则 `.settings-openviking-status-only` 已删（§8）
 - [x] **UI 评审优化**：删冗余下拉、合并空态、错误去重、徽标位置对齐事件流（§8）
 - [x] **亲眼验证**：E3 live e2e 在真实浏览器覆盖 failed→重试路径（通过）；负责人页面实看并迭代了徽标位置/提示（§8 DoD）
-- [ ] 前端 vitest / e2e 全绿，tsc / eslint clean
+- [x] 前端 vitest / e2e 全绿，tsc / eslint clean

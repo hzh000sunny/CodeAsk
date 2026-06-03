@@ -1,11 +1,11 @@
 # M11 / B0 —— 代码仓进 OpenViking：Live PoC 调研清单（可交接执行）
 
 > 版本：v1.0.5
-> 状态：**方向已定**（2026-05-31 架构复核重测推翻"删除残留"冻结 → M11-B 可行）。本文 §5 是开发回填（保留），架构复核更正见下方 §6 与 [feasibility §6](./m11-openviking-repo-feasibility-research.md#6-架构复核重测--最终方向2026-05-31reviewer)。
+> 状态：**已延后为后续 repo 里程碑底稿**。2026-05-31 架构复核曾确认 M11-B 可行，但 2026-06-01 负责人决策把“代码仓内容进入 OpenViking”整体延后；当前 v1.0.5 release 不实现 repo 内容同步。本文 §5 是开发回填（保留），架构复核更正见下方 §6 与 [feasibility §6](./m11-openviking-repo-feasibility-research.md#6-架构复核重测--最终方向2026-05-31reviewer)。
 > 关联：[m11 实现计划](./m11-repo-openviking-sync.md) · [openviking-integration 设计 §2.1/§4](../design/openviking-integration.md) · [m9 运行时预备](./m9-openviking-runtime-provisioning.md)
 > 用途：记录 B′ 方案 live PoC 的真实行为与证据；后续 B0.1 在此基础上补新增/修改/读取契约验证。
 >
-> ⚠️ §5 总判定"不通过/B1/B2 冻结"已被 §6 复核更正：删除本身干净；所谓"残留"经受控复现复不出，疑似异步竞态而非确定性 bug。**M11-B 已解冻**。
+> ⚠️ §5 总判定"不通过/B1/B2 冻结"已被 §6 复核更正：删除本身干净；所谓"残留"经受控复现复不出，疑似异步竞态而非确定性 bug。**M11-B 技术上曾解冻，但产品排期已延后**。
 
 ---
 

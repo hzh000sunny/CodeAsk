@@ -4,18 +4,18 @@
 |---|---|
 | 版本 | v1.0.5 |
 | 起始日期 | 2026-05-20 |
-| 状态 | Completed |
-| 主题 | Wiki 与代码仓 RAG —— 接入 OpenViking 作为统一上下文数据库 |
+| 状态 | Release candidate（2026-06-03 文档复核） |
+| 主题 | Wiki RAG —— 接入 OpenViking，保留 CodeAsk worktree 作为源码事实路径 |
 | 基线版本 | `../v1.0.4/` |
-| 目标 | 让 opencode 在会话中能基于 OpenViking 语义检索 Wiki / 问题报告 / 代码仓候选；CodeAsk 继续掌握主数据、权限、审计和 worktree |
+| 目标 | 让 opencode 在会话中能基于 OpenViking 语义检索 Wiki；CodeAsk 继续掌握主数据、权限、审计和 worktree。问题报告保留为本地文件视图；代码仓进入 OpenViking 延后。 |
 
 ## 版本定位
 
-v1.0.4 已经让 opencode 成为 CodeAsk 默认会话的 Agent 执行引擎，CodeAsk 负责知识平台层。v1.0.5 在此基础上补齐 RAG：把 Wiki、问题报告和代码仓变成 OpenViking 资源，让 opencode 通过 OpenViking MCP 的 `find / search / read / list / grep / glob` 找到候选，再用 CodeAsk MCP `prepare_worktree` 准备真实源码读取环境。
+v1.0.4 已经让 opencode 成为 CodeAsk 默认会话的 Agent 执行引擎，CodeAsk 负责知识平台层。v1.0.5 在此基础上补齐 Wiki RAG：把每个 feature 的 Wiki `knowledge-base/` 目录作为 OpenViking 资源，让 opencode 通过 OpenViking MCP 的 `find / search / read / list / grep / glob` 找到 Wiki 候选；如果问题需要真实源码证据，模型仍必须通过 CodeAsk MCP `prepare_worktree` 准备仓库 worktree 后再读源码。
 
 本版本采用 `v1.0.5`，语义是：
 
-> 在 v1.0.4 opencode 主链路不变的前提下，把 Wiki 和代码仓 RAG 升级到 OpenViking 统一后端。
+> 在 v1.0.4 opencode 主链路不变的前提下，把 Wiki RAG 升级到 OpenViking 后端，并把模型配置、同步任务、运行指标和 OpenCode 工具权限做成可运维能力。
 
 不改变 CodeAsk 的产品定位、Feature/Wiki/Report/Repo 主数据归属、登录鉴权与权限边界。
 
@@ -33,10 +33,12 @@ v1.0.5 新增：
 
 - 新增 `src/codeask/rag/openviking/` 独立兼容模块
 - 启动管理 OpenViking server（参考 v1.0.4 `opencode_compat/process.py` 模式）
-- 把 CodeAsk Wiki / 问题报告 / 代码仓增量同步到 OpenViking `viking://resources/codeask/...`
+- 把 CodeAsk Wiki 按 feature 目录增量同步到 OpenViking `viking://resources/codeask/wiki/{feature_slug}`；代码仓预留 `viking://resources/codeask/code/{repo_slug}`，本版本不实现内容同步
 - opencode 同时挂 CodeAsk MCP 和 OpenViking remote MCP，会话动态上下文增加 OpenViking 资源布局提示
 - admin 设置页新增 OpenViking 仪表盘（健康卡 + 同步任务卡 + 事件流 + 运行指标 + 调优面板）；M8 已完成真实数据可读性与 UI 收敛：任务按状态分页、事件流完整分页（默认 5 条/页、总页数、每页条数、页码跳转）、事件行中文标题与人话描述、行内详情展开、失败事件建议与处置按钮、指标真实采集、调优参数默认折叠并在修改前居中确认
-- Wiki UI 搜索框改为 **OpenViking 优先 → SQL ILIKE 兜底**；Wiki 写路径（上传 / 发布 / 回滚 / Report verify）触发 OpenViking 增量同步；草稿与 unverified Report **不**入 OpenViking
+- Wiki UI 搜索框保持 **SQL ILIKE**，不再调用 OpenViking；OpenViking 只服务 opencode / LLM RAG 召回。Wiki 写路径通过持久化 `wiki_workspace/current/{feature_slug}/knowledge-base` 投影和定时 `add_resource` 同步进入 OpenViking；Report 不再进入 OpenViking，只维护 `problem-reports/` 文件视图供 opencode 本地读。
+- Admin OpenViking 设置页支持 provider-aware Embedding / VLM 配置；默认 embedding 改为 OpenViking local 模型，依赖声明为 `openviking[local-embed]>=0.3.22,<0.4`。
+- Admin OpenCode 设置页支持每工具 allow/deny 与 bash 白名单；工具返回 `{error: ...}` 时会被统一标记为失败，MCP `isError`、前端行动轨迹和持久化摘要口径一致。
 
 v1.0.5 废弃（删除）：
 
@@ -66,12 +68,12 @@ v1.0.5 不做：
 
 | 维度 | 选择 | 备注 |
 |---|---|---|
-| RAG 后端 | OpenViking 统一后端 | Wiki、问题报告、代码仓都进入同一 `viking://resources/codeask/` 资源空间 |
-| Embedding provider | 本机 Ollama | OpenViking ov.conf 顶层 `embedding.dense.provider = ollama`；默认模型 `bge-m3`（admin UI 可切换） |
+| RAG 后端 | OpenViking Wiki 后端 | Wiki 进入 `viking://resources/codeask/wiki/`；Report 不进 OpenViking；代码仓内容同步延后，URI 层级先预留到 `viking://resources/codeask/code/` |
+| Embedding provider | 默认 OpenViking local，可在 admin UI 切换 | 依赖 `openviking[local-embed]>=0.3.22,<0.4`；默认 `local/bge-small-zh-v1.5-f16` 512 维；可切到 Ollama / 云端 provider。切换 embedding 会重启 OpenViking、清理索引并重排同步。 |
 | OpenViking 进程 | CodeAsk 后端管理 | 参考 v1.0.4 shared opencode serve：启动拉起 + keepalive + admin 诊断；Ollama 进程不归 CodeAsk 管 |
 | 数据目录 | `$CODEASK_DATA_DIR/openviking/{ov.conf,workspace,models,logs}` | 不使用用户默认 `~/.openviking` |
 | 处理参考 | anything-llm | chunk header、vector cache、sync queue、source dedup、worker SSE 进度等模式 |
-| 退化策略 | **graceful degradation**：OpenViking 不可用时，Wiki UI 搜索框走 SQL ILIKE 兜底，opencode 会话走 native `read/grep/glob` 在 `workspace/wiki/` symlink 上检索；admin 仪表盘标 degraded，但用户路径保持可用、不弹窗中断 | OpenViking 是 v1.0.5 的**增强**而不是 hard dependency |
+| 退化策略 | **graceful degradation**：OpenViking 不可用时，Wiki UI 搜索框本来就走 SQL ILIKE；opencode 会话退回 native `read/grep/glob` 在 `workspace/wiki/` symlink 上检索；admin 仪表盘标 degraded，但用户路径保持可用、不弹窗中断 | OpenViking 是 v1.0.5 的**增强**而不是 hard dependency |
 
 ## 目录结构
 
@@ -107,6 +109,8 @@ v1.0.5/
 
 ## 当前实施进度
 
+> 说明：下方是按日期保留的实施日志。早期条目记录过 `openviking==0.3.17`、Ollama `bge-m3`、OpenViking-first UI 搜索、逐篇 `wiki_doc` / `report` 同步等历史口径；这些后续已被 M11/M12/M13/M14 收敛。当前 release 口径以上方“v1.0.5 新增 / 不做”和 `plans/acceptance-checklist.md` §0.1 为准。
+
 - 2026-05-20：v1.0.5 文档骨架建立；OpenViking 集成边界已声明（不修改源码、不内嵌源码）。
 - 2026-05-20：Phase 0 spike 启动；本机 Ollama 0.24.0 + OpenViking 0.3.17 + MCP 10 tools 全部验证通过；实测记录见 `specs/ollama-installation.md` 与 `specs/openviking-server-bootstrap.md`。
 - 2026-05-21：embedding 模型选定 `bge-m3`（中文 wiki 优先，admin UI 可切换；PRD §7.1、SDD §3.3 已补）。
@@ -124,6 +128,13 @@ v1.0.5/
 - 2026-05-28：补 A2 / C1 收口。`openviking-rag-live` 与 `admin-agent-source-live` 已改为"模型自主决策优先"的验收契约：不强制正向工具调用链，只保留答案正确性、写工具拒绝、degraded 不调用 OpenViking 等边界约束。Playwright globalSetup 会对 `references/anything-llm` 做幂等 git 初始化，fresh checkout / CI / 其它环境缺 `.git` 时不再导致 continuity / feature-scoped live E2E 自跳过。真实栈复跑：rag-live 3/3（DeepSeek-OpenAI-Pro）、admin-source 1/1、删除 `.git` 后 continuity + feature-scoped 3/3。
 - 2026-05-28：**M8 OpenViking Dashboard UX 收口**。真实库反馈的四类问题已落文档并修复：同步任务 / 事件流优先显示可读名称而不是主键或 hex id；同步任务改为按状态分组 + cursor 分页，事件流改为完整分页栏，默认 5 条/页，显示总页数，支持每页条数选择和页码跳转，每页展示独立事件行，不再跨页追加或显示 `×N` 聚合；事件标题、badge 和描述改为人话化展示，行内详情可展开查看原始事件字段与 payload，失败 / 警告事件优先显示错误原因，并提供重试任务、立即重新同步、重试重建等处置入口；运行指标接入 5 分钟真实采集；调优面板从"全量铺开 / 偏离推荐"收敛为三个 scope 默认折叠的配置面板，展开后统一 `参数 | 自定义值 | 推荐值 | 操作`，不再展示对齐推荐或回滚按钮，所有状态修改先走页面内居中确认框。详见 `plans/m8-dashboard-ux.md` 与 acceptance §3.2 / §3.4。
 - 2026-05-29：**M8 事件降噪补强**。事件流默认展示"重点事件"，可切换"全部事件"；空失败重试不写 `manual_retry_failed count=0`；no-op 调参不写 setting / audit / `tuning_change`；批量 / hourly repo refresh 不再刷 per-repo `repo_synced` success，改为单条 `repo_refresh_summary`；`openviking_event_retention` 定时任务每 24 小时裁剪事件表，每个 event_type 默认保留最近 2000 条。
+- 2026-05-30：**M10 同步任务 UX 收口**。同步任务列表从折叠分组改为状态药丸筛选 + page/limit 分页；`failed` 与 `cancelled` 分离展示，cancelled 行提供单条重试；错误原因和建议人话化，`attempts` / `next_retry_at` 展示到行内；E3 live e2e 与前端/后端相关测试通过。
+- 2026-05-31：**M9 运行时拉起修正完成并补生命周期加固**。OpenViking 改为 CodeAsk 声明依赖、运行期直接拉起 `.venv` 内 `openviking-server`，不再 `uvx` 在线解析。后续真实环境发现孤儿进程 / 端口占用导致 respawn 循环后，进程管理补了端口健康探测、已监听实例 adopt、真实 PID 解析和安装版本解析；仍建议 release 后做长跑观察。
+- 2026-06-01：**M11 OpenViking SDK/HTTP 客户端迁移完成**。嵌入式 `AsyncOpenViking(path=...)` 被 OpenViking 数据目录锁证伪，CodeAsk 改用官方 `AsyncHTTPClient` 连接现有 server；同步粒度从逐篇 `wiki_doc` / `report` 改为每个 feature 的 `knowledge-base/` 目录 `add_resource`；UI Wiki 搜索回到纯 SQL ILIKE；Report 不再进入 OpenViking；breaker 事件重接到 SDK 异常并补测试。
+- 2026-06-01 至 2026-06-02：**M12 Wiki workspace 写时增量持久化完成**。opencode 会话启动不再重建 `wiki_workspace/current`，Wiki 写路径在 DB commit 后增量投影到磁盘，再 enqueue OpenViking；冷启动 bootstrap、投影失败降级、report 文件视图、legacy 上传兼容、feature 删除 deferred delete、每小时远端对账和最小化文件改动原则均已落地。常规 wiki 结构变更不再重建整个 feature 目录。
+- 2026-06-02 至 2026-06-03：**M13 OpenViking 模型配置完成**。依赖升级为 `openviking[local-embed]>=0.3.22,<0.4`；默认 embedding 改为 `local/bge-small-zh-v1.5-f16`；admin UI 可配置 embedding provider/model/dimension/max_concurrent 与 VLM；测试按钮使用用户数据目录下临时 `ov.conf` 调 OpenViking doctor，不保存、不覆盖正式配置、不重启、不清索引；保存 embedding 才触发破坏性确认和索引重建。
+- 2026-06-03：**M14 OpenCode 工具权限与工具错误口径完成**。OpenCode admin 页可配置 read/grep/glob/webfetch/edit/write、OpenViking 写工具和 bash 三态白名单；默认与历史只读权限等价。CodeAsk MCP 工具如果 transport 层 completed 但结构化 output 带 `error`，会统一转为 MCP `isError=true`、前端 `tool_result.ok=false`、摘要日志 `ok=false`，避免 `prepare_worktree` 等工具“业务失败但显示成功”。
+- 2026-06-03：**发布复核结论**：按当前收窄后的 v1.0.5 范围，可以作为 release candidate 发布。阻塞项为 0；非阻塞延后项包括代码仓内容进入 OpenViking、OpenViking watch_interval 接入、真实全量外部 LLM provider smoke（火山订阅过期）、破坏性长跑/升级演练和 OpenViking 进程生命周期长跑观察。权威 release 清单见 `plans/acceptance-checklist.md` §0.1。
 
 ## 引用
 

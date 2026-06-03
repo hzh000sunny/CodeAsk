@@ -1,7 +1,7 @@
 # M12 — Wiki workspace 写时增量持久化 / 去 opencode 耦合
 
 > 版本：v1.0.5（排期在 m11 之后）
-> 状态：Implemented（2026-06-01 架构 review 后补齐 bootstrap / 失败降级 / report 投影 / legacy 兼容投影）
+> 状态：Completed（2026-06-03 release 复核：写时增量、bootstrap、deferred delete、远端对账、最小化文件改动均已落地）
 > 关联：[openviking-integration 设计 §3.1/§4](../design/openviking-integration.md) · [m11 OpenViking SDK 迁移](./m11-openviking-sdk-migration.md) · [m10 同步任务 UX](./m10-sync-jobs-ux.md)
 > 来源：2026-06-01 review——m11 把 wiki→OV 同步改为「按 feature 目录 import」后，发现被 import 的磁盘目录 `wiki_workspace/current/` 只在 **opencode 会话启动时**全量重建（`backend.py:149`），不随 wiki 增删改更新。负责人定调：磁盘目录应由 **wiki 写路径**写时增量、针对性维护，与 opencode 解耦。
 >
@@ -155,45 +155,51 @@ kind:
 ---
 
 ## 7. 验收闸门
-- [ ] wiki 文档 publish / rollback / restore → `knowledge-base/<path>.md` 内容为当前版本；draft save/delete 不生成文件、不触发 OpenViking
-- [ ] document node create 未 publish 时不生成正文 md；只刷新 feature README / manifest
-- [ ] wiki 文档删、节点 rename/move/subtree move/delete/restore、promotion、import apply、报告引用变更 → 磁盘 `wiki_workspace/current/` 对应文件**实时**正确（针对性，非全量重建）
-- [ ] node rename/move/subtree move 后旧磁盘路径不存在，新路径存在，内容不丢
-- [ ] 单文件写为原子替换；无活路径 `rmtree` 整树
-- [ ] full rebuild / bootstrap 与增量写互斥，不互相覆盖
-- [ ] opencode 会话启动不再触发 export；冷启动空目录能 bootstrap
-- [ ] OpenViking sync 不触发 export，纯读 `wiki_workspace/current/<feature>/knowledge-base`；**"发布 wiki 但从未开 opencode" 也能正确同步到 OV**（针对 §0 失效模式的集成测试）
-- [ ] "改 wiki 后未开 opencode，sync 推上去的是新内容、非旧快照"集成测试通过
-- [ ] OpenViking import 路径只允许 `knowledge-base/`；`problem-reports/` 不进入 OpenViking，report 变化不触发 OpenViking job
-- [ ] feature archive/delete 时，若 OpenViking upsert task 正在 embedding，sync job 记录 deferred delete，不立即调用 `delete_resource`；旧 task 完成后执行 delete，避免 OpenViking `ConflictError: Resource is being processed`
-- [ ] 每小时 scheduled refresh 对账 OpenViking `viking://resources/codeask/wiki` 下的远端 feature roots；远端存在但 DB active/current 不存在的 feature 自动 enqueue delete，并复用 deferred delete / retry 语义
-- [ ] 常规 wiki 结构变更遵守最小化持久化文件改动原则：未受影响的 `knowledge-base/*.md` 文件 content 与 mtime 均不变；不得因为新建/删除/移动/重命名单个 wiki 而重写整个 feature 的 `knowledge-base`
-- [ ] `rebuild_feature()` 只允许在 cold bootstrap / explicit repair / feature restore 等兜底路径使用；`node_created` / `node_moved` / `node_deleted` / `node_restored` / `feature_metadata_changed` / `report_projection_changed` 不再默认调用 feature 级 rebuild
-- [ ] `document_published` 只写当前文档 md + 必要索引文件；draft save/delete 不写持久化 wiki 文件、不触发 OpenViking
-- [ ] `node_created` 未 publish 时不创建正文 md；只刷新必要索引文件，不触发 OpenViking add_resource
-- [ ] `node_deleted` 只删除被删文档/子树对应 md，并清理空目录；其他 md 不重写
-- [ ] `node_moved` / rename 只移动/重写受影响子树对应 md；同 feature 其他 md 不重写
-- [ ] `node_restored` 只恢复受影响节点对应 md；同 feature 其他 md 不重写
-- [ ] `feature_metadata_changed` 只刷新 `<feature>/README.md` / `_manifest.json`，不触碰 `knowledge-base/*.md`，不触发 OpenViking add_resource
-- [ ] feature update 刷新 README / manifest；feature 归档/删除只清该 feature 子树，不误删他者；restore 后重建该 feature 子树
-- [ ] 投影失败有 `wiki_workspace_projection_failed` 事件 / 日志和可 repair 路径；失败时不继续基于旧目录 enqueue OpenViking
-- [ ] 内容决策（§5）有结论：feature_readme 投影到 `<feature>/README.md`；global_index 关闭或显式保留并更新设计 §4
-- [ ] 管理员"重建/对账"动作可全量重建并与增量结果一致（幂等）
-- [ ] 后端 / 前端 / e2e 全绿，lint / 类型 clean
-- [ ] 文档诚实化：`design/openviking-integration.md §4`、`plans/acceptance-checklist.md` 对 feature_readme/wiki_dir/global_index 的状态更新为"knowledge-base 目录 import 取代 / 见 m12"
+- [x] wiki 文档 publish / rollback / restore → `knowledge-base/<path>.md` 内容为当前版本；draft save/delete 不生成文件、不触发 OpenViking
+- [x] document node create 未 publish 时不生成正文 md；只刷新 feature README / manifest
+- [x] wiki 文档删、节点 rename/move/subtree move/delete/restore、promotion、import apply、报告引用变更 → 磁盘 `wiki_workspace/current/` 对应文件**实时**正确（针对性，非全量重建）
+- [x] node rename/move/subtree move 后旧磁盘路径不存在，新路径存在，内容不丢
+- [x] 单文件写为原子替换；无活路径 `rmtree` 整树
+- [x] full rebuild / bootstrap 与增量写互斥，不互相覆盖
+- [x] opencode 会话启动不再触发 export；冷启动空目录能 bootstrap
+- [x] OpenViking sync 不触发 export，纯读 `wiki_workspace/current/<feature>/knowledge-base`；**"发布 wiki 但从未开 opencode" 也能正确同步到 OV**（针对 §0 失效模式的集成测试）
+- [x] "改 wiki 后未开 opencode，sync 推上去的是新内容、非旧快照"集成测试通过
+- [x] OpenViking import 路径只允许 `knowledge-base/`；`problem-reports/` 不进入 OpenViking，report 变化不触发 OpenViking job
+- [x] feature archive/delete 时，若 OpenViking upsert task 正在 embedding，sync job 记录 deferred delete，不立即调用 `delete_resource`；旧 task 完成后执行 delete，避免 OpenViking `ConflictError: Resource is being processed`
+- [x] 每小时 scheduled refresh 对账 OpenViking `viking://resources/codeask/wiki` 下的远端 feature roots；远端存在但 DB active/current 不存在的 feature 自动 enqueue delete，并复用 deferred delete / retry 语义
+- [x] 常规 wiki 结构变更遵守最小化持久化文件改动原则：未受影响的 `knowledge-base/*.md` 文件 content 与 mtime 均不变；不得因为新建/删除/移动/重命名单个 wiki 而重写整个 feature 的 `knowledge-base`
+- [x] `rebuild_feature()` 只允许在 cold bootstrap / explicit repair / feature restore 等兜底路径使用；`node_created` / `node_moved` / `node_deleted` / `node_restored` / `feature_metadata_changed` / `report_projection_changed` 不再默认调用 feature 级 rebuild
+- [x] `document_published` 只写当前文档 md + 必要索引文件；draft save/delete 不写持久化 wiki 文件、不触发 OpenViking
+- [x] `node_created` 未 publish 时不创建正文 md；只刷新必要索引文件，不触发 OpenViking add_resource
+- [x] `node_deleted` 只删除被删文档/子树对应 md，并清理空目录；其他 md 不重写
+- [x] `node_moved` / rename 只移动/重写受影响子树对应 md；同 feature 其他 md 不重写
+- [x] `node_restored` 只恢复受影响节点对应 md；同 feature 其他 md 不重写
+- [x] `feature_metadata_changed` 只刷新 `<feature>/README.md` / `_manifest.json`，不触碰 `knowledge-base/*.md`，不触发 OpenViking add_resource
+- [x] feature update 刷新 README / manifest；feature 归档/删除只清该 feature 子树，不误删他者；restore 后重建该 feature 子树
+- [x] 投影失败有 `wiki_workspace_projection_failed` 事件 / 日志和可 repair 路径；失败时不继续基于旧目录 enqueue OpenViking
+- [x] 内容决策（§5）有结论：feature_readme 投影到 `<feature>/README.md`；global_index 关闭或显式保留并更新设计 §4
+- [x] 管理员"重建/对账"动作可全量重建并与增量结果一致（幂等）
+- [x] 后端 / 前端 / e2e 全绿，lint / 类型 clean
+- [x] 文档诚实化：`design/openviking-integration.md §4`、`plans/acceptance-checklist.md` 对 feature_readme/wiki_dir/global_index 的状态更新为"knowledge-base 目录 import 取代 / 见 m12"
 
 ---
 
 ## 8. A10 实施 Checklist
 
-- [ ] C1：补投影最小化测试工具，记录 `knowledge-base/*.md` 的 path/content/mtime_ns 快照，断言未受影响文件不变。
-- [ ] C2：`document_published`：验证只写当前文档 md，其他 md 不变；仍 enqueue 当前 feature 的 OpenViking upsert。
-- [ ] C3：`node_created`：未 publish 的 document/folder 只刷新 README/manifest；不创建正文 md，不 enqueue OpenViking upsert。
-- [ ] C4：`node_deleted`：删除单文档只删除该 md；删除 folder 子树只删除子树 md；同 feature 其他 md content/mtime 不变；仍 enqueue 当前 feature upsert。
-- [ ] C5：`node_moved` / rename：移动或重命名单文档只移动该 md 并更新 front matter；移动 folder 子树只移动/更新子树 md；同 feature 其他 md content/mtime 不变；仍 enqueue 当前 feature upsert。
-- [ ] C6：`node_restored`：只恢复受影响节点对应 md；同 feature 其他 md content/mtime 不变；仍 enqueue 当前 feature upsert。
-- [ ] C7：`feature_metadata_changed`：只刷新 `<feature>/README.md` 与 `_manifest.json`；`knowledge-base/*.md` content/mtime 不变；不 enqueue OpenViking upsert。
-- [ ] C8：`report_projection_changed`：只更新 `problem-reports/` 文件；不触碰 `knowledge-base/*.md`，不 enqueue OpenViking upsert。
-- [ ] C9：保留 `rebuild_feature()` 用于 bootstrap / repair / feature restore；常规事件分发中移除默认 rebuild。
-- [ ] C10：真实 e2e：创建测试 feature，依次执行 publish、create node、rename、move、delete、restore、feature metadata update、report status update；每步采集持久化 wiki 快照并核对 OpenViking sync job 是否符合预期。
-- [ ] C11：真实 OpenViking 观测：对只改 README/manifest 的操作确认不会新增 OpenViking job；对单文档变更确认只由 CodeAsk 入队一次 feature upsert，且持久化目录未产生无关文件 mtime 变化。
+- [x] C1：补投影最小化测试工具，记录 `knowledge-base/*.md` 的 path/content/mtime_ns 快照，断言未受影响文件不变。
+- [x] C2：`document_published`：验证只写当前文档 md，其他 md 不变；仍 enqueue 当前 feature 的 OpenViking upsert。
+- [x] C3：`node_created`：未 publish 的 document/folder 只刷新 README/manifest；不创建正文 md，不 enqueue OpenViking upsert。
+- [x] C4：`node_deleted`：删除单文档只删除该 md；删除 folder 子树只删除子树 md；同 feature 其他 md content/mtime 不变；仍 enqueue 当前 feature upsert。
+- [x] C5：`node_moved` / rename：移动或重命名单文档只移动该 md 并更新 front matter；移动 folder 子树只移动/更新子树 md；同 feature 其他 md content/mtime 不变；仍 enqueue 当前 feature upsert。2026-06-03 复检补了 `path:` / `title:` front matter 断言。
+- [x] C6：`node_restored`：只恢复受影响节点对应 md；同 feature 其他 md content/mtime 不变；仍 enqueue 当前 feature upsert。
+- [x] C7：`feature_metadata_changed`：只刷新 `<feature>/README.md` 与 `_manifest.json`；`knowledge-base/*.md` content/mtime 不变；不 enqueue OpenViking upsert。
+- [x] C8：`report_projection_changed`：只更新 `problem-reports/` 文件；不触碰 `knowledge-base/*.md`，不 enqueue OpenViking upsert。report_ref 经 tree API rename/delete 的漏接也已补。
+- [x] C9：保留 `rebuild_feature()` 用于 bootstrap / repair / feature restore；常规事件分发中不再默认 rebuild whole feature。注：`feature_restored`、bootstrap、explicit repair 仍允许 rebuild。
+- [x] C10：真实/API E2E：创建测试 feature，依次执行 publish、create node、rename、move、delete、restore、feature metadata update、report status update；每步采集持久化 wiki 快照并核对 OpenViking sync job 是否符合预期。
+- [x] C11：真实 OpenViking 观测：对只改 README/manifest 的操作确认不会新增 OpenViking job；对单文档变更确认只由 CodeAsk 入队一次 feature upsert，且持久化目录未产生无关文件 mtime 变化。
+
+## 9. 完成记录（2026-06-03）
+
+- 关键提交：`c05d0af Implement wiki workspace incremental projection`、`8b4e078 Defer OpenViking deletes for running feature syncs`、`e2678a0 Reconcile stale OpenViking wiki features`、`e48ddf8 Minimize wiki workspace projection writes`、`41e7448 Handle report ref workspace projection`。
+- 覆盖测试：`tests/integration/test_wiki_workspace_projection_api.py` 已覆盖 publish / rollback / rename / move / delete / restore / import / feature archive restore / report projection / projection failure / bootstrap / 最小化 mtime。
+- 仍属后续观察：OpenViking 自身对同目录 `add_resource` 的增量效率取决于上游实现；CodeAsk 侧已尽量减少持久化 wiki 文件无意义重写，避免诱发全量 embedding。

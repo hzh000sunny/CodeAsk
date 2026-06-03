@@ -1,10 +1,43 @@
 # v1.0.5 收口验收清单
 
 > 版本：v1.0.5
-> 状态：Completed
+> 状态：Release candidate（2026-06-03 文档复核）
 > 关联：[PRD](../prd/rag-knowledge.md) · [设计](../design/openviking-integration.md) · [Phase 0](./phase-0-spike.md) · [Phase 1](./phase-1-sync-adapter.md) · [Phase 2](./phase-2-opencode-integration.md) · [DEVELOPMENT_ACCEPTANCE](../../DEVELOPMENT_ACCEPTANCE.md)
 
 ---
+
+## 0.1 Release Readiness（2026-06-03）
+
+**结论：可以 release v1.0.5 release candidate。**
+
+本结论基于当前已经收窄并落地的版本范围：OpenViking 负责 **Wiki feature 目录级 RAG**；UI Wiki 搜索直接走 SQL ILIKE；Report 不进入 OpenViking；代码仓内容进入 OpenViking 延后。CodeAsk 仍通过 opencode + CodeAsk MCP 管理真实源码读取，OpenViking URI 证据不能替代 `prepare_worktree` 后读取真实仓库文件。
+
+**阅读规则**：本节是 2026-06-03 的发布判定口径；下方 §1 之后保留早期 phase / milestone 细项和历史验收矩阵，其中未勾项如果已在本节列为“延后项”，不再作为 v1.0.5 release candidate 阻塞。
+
+发布阻塞项：
+
+- [x] OpenViking 运行时不再 `uvx` 在线解析，作为 CodeAsk 依赖随 `uv sync` 安装并由后端拉起。
+- [x] OpenViking 后端调用已从手搓 HTTP 切到官方 `AsyncHTTPClient`；SDK 异常下 breaker 事件仍可观测。
+- [x] Wiki 同步粒度已收敛为 `wiki_feature`，路径为 `wiki_workspace/current/{feature_slug}/knowledge-base` → `viking://resources/codeask/wiki/{feature_slug}`。
+- [x] Wiki workspace 已写时增量持久化，opencode 启动不再重建目录；冷启动 bootstrap / 投影失败降级 / legacy 上传兼容 / feature 删除 deferred delete / 定时远端对账已实现。
+- [x] Admin OpenViking dashboard 覆盖健康状态、同步任务、索引构建、运行指标、事件流、调优、Embedding/VLM 配置；UI 搜索不依赖 OpenViking。
+- [x] Embedding 默认改为 OpenViking local provider；依赖为 `openviking[local-embed]>=0.3.22,<0.4`；候选配置测试通过用户数据目录临时 `ov.conf` 调 OpenViking doctor，不污染正式配置。
+- [x] OpenCode 工具权限可配置，默认行为与历史只读权限等价；bash 白名单、新会话生效语义、非管理员拒绝和审计已覆盖。
+- [x] MCP 工具结构化业务失败统一映射为失败：MCP `isError`、前端 `tool_result.ok=false`、持久化摘要 `ok=false` 口径一致。
+
+已知延后项，不阻塞本次 release：
+
+- [ ] **代码仓内容同步到 OpenViking**：延后到后续版本。v1.0.5 只预留 `viking://resources/codeask/code/{repo_slug}` 层级，源码证据仍由 `prepare_worktree` + opencode native read/grep 取得。
+- [ ] **OpenViking watch_interval 接入**：官方有 watch task 语义，但本版本先采用 CodeAsk 定时 `sweep + add_resource` 和远端 delete 对账；watch 的创建、取消、恢复和 UI 可观测性后续再做。
+- [ ] **破坏性 long-run / 升级演练**：切 embedding、重建索引、OpenViking 进程 orphan/adopt、真实升级 v1.0.4→v1.0.5 仍建议在 release 后或 release 前专用沙箱长跑一次。
+- [ ] **真实全量 LLM provider smoke**：DeepSeek 路径已用于近期 live E2E；火山配置因外部订阅过期不能作为 release 阻塞。
+- [ ] **本地 embedding 模型下载体验**：`openviking[local-embed]` 提供运行依赖，但 GGUF 首次使用仍由 OpenViking 懒下载；UI 已展示缓存/首次下载语义，不把模型文件提交进仓库。
+
+近期验证摘要：
+
+- 2026-06-03 M14 相关后端单测/集成、ruff、pyright、前端 lint/tsc/build/vitest 与非 live E2E 已在实现阶段跑通。
+- 2026-06-03 使用 DeepSeek 真实 LLM 配置做多轮 opencode 工具正向/反向调用验证，覆盖 `prepare_worktree` 成功、业务失败和恢复路径。
+- 2026-06-02 M11/M12/M13 期间已做 OpenViking 目录 `add_resource`、delete processing conflict、定时 sweep/远端对账、Embedding/VLM doctor 测试与 UI E2E 验证；慢 embedding 环境下测试用例按用户要求缩小 wiki 数据量。
 
 ## 0. 验收原则（重申）
 
@@ -17,17 +50,17 @@
 
 ## 1. OpenViking 集成边界
 
-- [ ] CodeAsk README / INSTALL 包含 OpenViking 引用
-- [ ] CodeAsk 仓库未拷贝 OpenViking 源码（grep 验证）
+- [x] CodeAsk README / INSTALL 包含 OpenViking 引用，并已按当前 release 口径更新为 Wiki RAG、UI SQL ILIKE、默认 local embedding、Ollama 可选
+- [x] CodeAsk 仓库未拷贝 OpenViking 源码（`rg --files | rg '(^|/)OpenViking(/|$)'` 无命中；仅有文档引用和依赖声明）
 - [x] OpenViking 作为 CodeAsk 声明依赖随 `uv sync` 安装；运行期通过 `openviking_bin` 直接拉起独立 `openviking-server` 子进程，不再使用 `uvx` 在线解析依赖；业务代码不 `import openviking`
-- [ ] 没有任何文件 `import openviking` 作为业务代码（grep 验证）
+- [x] 业务运行不嵌入 OpenViking engine；当前仅在配置/doctor/HTTP SDK 边界导入官方 `openviking_cli` / `openviking_server` 符号用于生成 `ov.conf`、校验配置、调用 `AsyncHTTPClient` 和读取版本，不拷贝源码、不接管其内部实现
 
 ---
 
 ## 2. Phase 0 spike
 
 - [x] `phase-0-spike.md` §10 实验记录已填
-- [x] OpenViking 版本（0.3.17）与 embedding 模型（bge-m3）已锁定并写入 PRD / SDD
+- [x] 历史 Phase 0 曾锁定 OpenViking 0.3.17 与 Ollama `bge-m3` 并写入 PRD / SDD；M13 后当前 release 默认已改为 `openviking[local-embed]>=0.3.22,<0.4` + OpenViking local embedding
 - [ ] 召回基线（relevance@5）：测试方法已固化 in §7；实际跑分推到 Phase 2 live E2E（依赖完整 fixture 索引）
 - [ ] §8 退出条件全部满足（含 Phase 2 推迟项确认）
 
@@ -65,12 +98,12 @@ v1.0.5 按交付里程碑 M1–M5 分段验收（M1–M5 跨 Phase 1/Phase 2 两
 - [x] M8 修复（§⑦ 补遗-2）：事件行建议按钮（重试该任务 / 立即重新同步 / 重试重建）成功 toast 只弹一次——去掉 onConfirm 乐观提示，仅保留 mutation onSuccess
 - [x] M8 修复（§⑦ 补遗-3）：后端 no-op 调参守卫与前端 `valuesEqual` 对齐——比较前两侧 `.strip()`，带首尾空格的语义相同值不再落库 / 发 `tuning_change`
 - [x] Wiki 变更 hook 全部接入；m11/m12 后 OpenViking 按 `wiki_feature` 的 `knowledge-base/` 目录同步，不再逐 `wiki_doc` / report 入队；report 只维护 `problem-reports/` 文件视图
-- [ ] 仓库变更 → OpenViking **内容同步**（`source_type=repo`）：⚠️ 2026-05-30 复盘修正——此前误判为已完成，实际 `cloner.py` 仅发 `repo_synced` **事件**、未入队/未上传仓库内容；`repo_uri` 为死 helper。真实内容同步与 backfill 纳入 repo 由 [m11](./m11-repo-openviking-sync.md) 跟踪
-- [ ] `feature_readme` / `wiki_dir` / `global_index`：m11 起 wiki 改「按 feature 的 `knowledge-base/` 目录 import」，三类不再作独立 `source_type`（`wiki_dir` 随目录结构自带、`global_index` 默认作废、`feature_readme` 投影为 `<feature>/README.md` 供 opencode / 本地文件视图使用，默认不进入 OpenViking）→ 由 [m12 wiki workspace 增量持久化](./m12-wiki-workspace-incremental.md) §5 收口
+- [ ] 仓库变更 → OpenViking **内容同步**（`source_type=repo`）：已延后，不阻塞 v1.0.5 RC。当前 `cloner.py` 仅维护 CodeAsk repo/worktree 状态并发 `repo_synced` 事件，不入队/不上传仓库内容；后续底稿见 [m11](./m11-repo-openviking-sync.md)
+- [x] `feature_readme` / `wiki_dir` / `global_index`：m11/m12 后 wiki 改为按 feature 的 `knowledge-base/` 目录 import；三类不再作独立 OpenViking `source_type`。`wiki_dir` 随目录结构自带，`global_index` 默认作废，`feature_readme` 投影为 `<feature>/README.md` 供 opencode / 本地文件视图使用，默认不进入 OpenViking
 - [x] kill OpenViking server 后重启：admin 仪表盘自动出现 `openviking_restart_detected` 事件，sync_jobs 进度从中断点续传，不重置
 - [x] kill Ollama 后重启：仪表盘出现 `ollama_recovery` 事件，sync_jobs 在 1–2 分钟内追上
 - [x] 编辑 Wiki → 仪表盘事件流出现 `wiki_feature_changed`；report 变更只更新 workspace `problem-reports/`，不创建 OpenViking 事件 / job；单仓库同步完成 → 事件流出现 `repo_synced`；批量 / hourly repo refresh 只写一条 `repo_refresh_summary`，不刷 per-repo success 洪流
-- [x] 24h scheduled_refresh 触发后产生 `scheduled_refresh_summary` 事件
+- [x] 定时 `scheduled_refresh` 触发后产生 `scheduled_refresh_summary` 事件；当前默认每 1 小时执行一次，若已有 running sync job 则跳过新增 add_resource
 - [x] admin 手动触发"单源重同步 / 全量重建 / 失败重试"三个动作走通；事件流出现 `manual_resync` / `manual_retry` 事件
 - [x] events 接口分页可用；每 event_type 保留策略生效（默认 2000 条）
 - [x] 事件流默认视图只展示重点事件；`repo_synced` success、`manual_retry_failed count=0`、`tuning_change` success / no-op 调参等噪声不进入默认看板，管理员可切换"全部事件"排查原始记录
@@ -82,14 +115,16 @@ v1.0.5 按交付里程碑 M1–M5 分段验收（M1–M5 跨 Phase 1/Phase 2 两
 
 ### 3.2.1 M1 边界回归（Superseded）
 
-M1 阶段的瞬时护栏已被后续里程碑有意推翻：§3.6 已接入 OpenViking-first UI 搜索，§3.8 已删除 FTS5，§3.9 已迁移 native backend，§3.7 已接入写路径 hook。该小节只保留历史口径，不能再作为当前版本回归失败判断。
+M1 阶段的瞬时护栏已被后续里程碑有意推翻或再收敛：M4 曾短暂接入 OpenViking-first UI 搜索，M11 又把 UI 搜索收回 SQL ILIKE；§3.8 已删除 FTS5，§3.9 已迁移 native backend，§3.7/§3.7.1 已接入 Wiki 投影与 `wiki_feature` 同步。该小节只保留历史口径，不能再作为当前版本回归失败判断。
 
-- [x] Superseded by §3.6：`api/wiki/search.py` 已改为 OpenViking-first + SQL ILIKE 兜底
+- [x] Superseded by M11：`api/wiki/search.py` 当前为 SQL ILIKE 主路径，不再调用 OpenViking
 - [x] Superseded by §3.8：`src/codeask/wiki/{search,indexer,tokenizer}.py` 已删除，FTS5 drop migration 已新增
 - [x] Superseded by §3.9：native Agent 已迁入 `agent/native_backend/` 并从请求链路下线
 - [x] Superseded by §3.7：Wiki publish / rollback / Report verify 已写入 `openviking_sync_jobs`
 
-### 3.2.2 M1 本地自测记录（2026-05-25）
+### 3.2.2 M1 本地自测记录（2026-05-25，历史记录）
+
+下列条目是 M1 当时的真实自测记录，保留用于追溯；当前 M13 后默认 provider 已变为 OpenViking local，OpenViking 运行版本来自实际进程，不再以 0.3.17 / Ollama `bge-m3` 作为 release 默认值。
 
 - [x] Ollama `/api/tags` 已确认存在 `bge-m3:latest`
 - [x] `openviking-server 0.3.17` 已通过 `uv sync` 安装到 CodeAsk `.venv`，并由 `uv run openviking-server --help` 验证；运行期不再依赖 `uvx --from ...`
@@ -146,18 +181,18 @@ M1 阶段的瞬时护栏已被后续里程碑有意推翻：§3.6 已接入 Open
 - [x] 后端 pytest 全量通过；不引入 ruff / pyright 新红
 - [ ] 真实数据备份升级回归通过
 
-### 3.6 Wiki UI 搜索框（OpenViking 优先 + ILIKE 兜底）
+### 3.6 Wiki UI 搜索框（SQL ILIKE，M11 收敛）
 
-- [x] **spike 前置**：已确认 OpenViking 查询走 REST 还是 MCP，记录端点 / 入参 / 响应结构 + 一次成功样本（`find_or_search` 在 M2 前不存在，须 spike 落地）
-- [x] `OpenVikingClient` 新增查询方法（复用 trusted headers / `trust_env=False`），有单测覆盖正常命中与异常
-- [x] OpenViking 健康有命中 → 命中走 OpenViking；事件流可见 `openviking_search_hit`（统计）
-- [x] OpenViking 健康 0 命中 → 自动回退 SQL ILIKE；前端不区分来源；事件流可见 `openviking_search_miss`
-- [x] OpenViking 不可达 / 异常 → 自动回退 SQL ILIKE；不弹窗；admin 仪表盘 Health 卡显示 degraded
-- [x] 分组（current_feature / other_current_features / history_features / current_feature_reports）在两条路径下行为一致
-- [x] 前端 `frontend/src/lib/wiki/api.ts` 无改动，证明后端是无缝替换
-- [x] OpenViking 长期不可用时连续搜索多次：仪表盘事件流不被搜索失败刷屏（去重 / 速率限制生效）
+M4 曾实现 OpenViking-first + SQL ILIKE 兜底；M11/M12 调整后，UI Wiki 搜索框直接走 SQL ILIKE，不再调用 OpenViking。OpenViking 只服务 opencode / LLM RAG 召回，避免 UI 导航搜索受 embedding 队列、模型切换或索引重建影响。
 
-### 3.7 Wiki / Report 写路径 hook（M5，详见 [m5-write-path-hooks.md](./m5-write-path-hooks.md)）
+- [x] `/api/wiki/search` 当前使用 `NativeWikiSearchService` SQL ILIKE
+- [x] 前端 `frontend/src/lib/wiki/api.ts` 无需理解 OpenViking，同一个搜索 API 保持可用
+- [x] OpenViking 不可达、重建中、embedding 切换中，UI Wiki 搜索仍可用
+- [x] OpenViking 搜索统计事件不再作为 UI 搜索验收项
+
+### 3.7 Wiki / Report 写路径 hook（M5 历史记录，已被 M11/M12 收敛）
+
+M5 的逐篇 `wiki_doc` / `report` 入队方案已经被 M11/M12 取代：当前 OpenViking 同步粒度是 `source_type=wiki_feature`，导入目录是 `wiki_workspace/current/<feature_slug>/knowledge-base`；Report 不再进入 OpenViking，只维护 `problem-reports/` 文件视图。下列 M5 条目保留为历史实现记录，不作为 v1.0.5 RC 当前阻塞判据；当前验收以 §3.7.1 为准。
 
 引擎底座（M5-0，D1 + D2）：
 
@@ -180,7 +215,7 @@ hook 接入（D3：均在 API 端点 `session.commit()` 之后，enqueue 失败�
 - [x] Report 在 `verified=false` 状态下编辑 → **sync_jobs 不增加新行**
 - [x] Report 在 `verified=true` 状态下编辑（且 hash 不同）→ upsert（当前产品禁止 verified 状态直接编辑，已核对无需新增 hook）
 - [ ] 导入会话软删（`imports/session_service.py`）后置，不在 M5 范围
-- [x] scheduled_refresh 24h sweep 也遵守上述过滤：扫描时跳过 drafts 与 unverified reports
+- [x] scheduled_refresh sweep（当前默认 1h；M5 历史方案曾写 24h）也遵守上述过滤：扫描时跳过 drafts 与 unverified reports
 - [x] OpenViking / delete 端点不可用时主写路径仍 2xx；tombstone job 走退避重试
 
 服务层发布路径覆盖（步骤 20c，F1 补齐——验收发现 D3 端点 hook 漏掉内部调 `publish_document` 的服务层）：

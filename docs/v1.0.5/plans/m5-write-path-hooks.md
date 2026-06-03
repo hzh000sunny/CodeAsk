@@ -1,10 +1,12 @@
 # M5 — Wiki / Report 写路径 hook（增量同步 OpenViking）
 
 > 版本：v1.0.5
-> 状态：开发中（M5-0 + 主写路径 hook + 20c 服务层发布覆盖已实现）
+> 状态：Superseded（M5 逐篇 `wiki_doc` / `report` 同步曾实现；2026-06-01 起被 M11/M12 的 `wiki_feature` 目录同步取代）
 > 关联：[Phase 1 计划 步骤 20-22](./phase-1-sync-adapter.md) · [验收 checklist §3.7](./acceptance-checklist.md) · [设计](../design/openviking-integration.md)
 
-M5 把 Wiki 文档发布/回滚、legacy 上传、Report verify 生命周期、Wiki 节点软删这些**写路径**接进 OpenViking 增量同步。M1–M4 已交付：M1 提供了同步队列 + 手动 enqueue + 后台 worker，但**不接任何写路径 hook**；M4 的 UI 搜索靠 `openviking_sync_jobs.viking_uri` 反查命中——只有 M5 把写路径喂进队列，搜索才有真实数据可召回。
+> **release 复核说明（2026-06-03）**：本文是 M5 历史方案。当前 release 事实以 [m11-openviking-sdk-migration](./m11-openviking-sdk-migration.md) 和 [m12-wiki-workspace-incremental](./m12-wiki-workspace-incremental.md) 为准：OpenViking 同步粒度是 `source_type=wiki_feature`，每个 feature 导入 `wiki_workspace/current/<feature_slug>/knowledge-base` 目录；Report 不进入 OpenViking，只维护 `problem-reports/` 文件视图；UI Wiki 搜索走 SQL ILIKE。本文下方的 `wiki_doc` / `report` 入队、M4 OpenViking-first 搜索反查等内容只作为历史记录保留，不再作为当前 release 验收口径。
+
+M5 当时目标是把 Wiki 文档发布/回滚、legacy 上传、Report verify 生命周期、Wiki 节点软删这些**写路径**接进 OpenViking 增量同步。M1–M4 已交付：M1 提供了同步队列 + 手动 enqueue + 后台 worker，但**不接任何写路径 hook**；M4 当时的 UI 搜索靠 `openviking_sync_jobs.viking_uri` 反查命中——只有 M5 把写路径喂进队列，搜索才有真实数据可召回。
 
 读真实代码后确认：M5 远不止"在三处调 `enqueue`"。当前同步引擎只能处理**内联了正文的 job**，且**没有任何删除/tombstone 通路**。本文记录已拍板的四个架构决策，再给分批开发清单。
 

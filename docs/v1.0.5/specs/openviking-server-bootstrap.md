@@ -5,6 +5,8 @@
 > 性质：Phase 0 spike 在本机首次启动 OpenViking server 的命令、配置漂移、故障模式和修复路径
 > 关联：[`../plans/phase-0-spike.md`](../plans/phase-0-spike.md) §3.3-§5 · [`./ollama-installation.md`](./ollama-installation.md)
 
+> **release 复核说明（2026-06-03）**：本文记录的是 OpenViking 0.3.17 + Ollama/bge-m3 spike 事实。当前 v1.0.5 release 依赖已升级为 `openviking[local-embed]>=0.3.22,<0.4`，默认 embedding provider 已改为 OpenViking local；CodeAsk 通过官方 `AsyncHTTPClient` 连接后端管理的 `openviking-server`。本文中的 `uvx`、0.3.17 schema 漂移、`/tmp/codeask-v105-spike` 和 Ollama/bge-m3 配置只作为历史排障证据，不是当前安装或运行默认值。
+
 ---
 
 ## 1. 文档定位
@@ -328,6 +330,8 @@ curl ... -d '{"jsonrpc":"2.0","id":3,"method":"tools/list"}'
 ---
 
 ## 9. 与 Phase 1 实现的衔接
+
+> 下表是 Phase 0 → Phase 1 的历史衔接记录。M9/M11/M13 之后，当前实现已经不再用 `uvx` 拉起 OpenViking，也不再默认使用 Ollama/bge-m3；当前权威实现见 [m9](../plans/m9-openviking-runtime-provisioning.md)、[m11 SDK/HTTP migration](../plans/m11-openviking-sdk-migration.md) 和 [m13 model configuration](../plans/m13-openviking-model-configuration.md)。
 
 下列事项必须沉淀进 `src/codeask/rag/openviking/`：
 

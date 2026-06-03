@@ -166,7 +166,7 @@ CodeAsk 暂时不适合作为：
 - v1.0.3 已补齐统一登录、用户自动注册、admin、特性管理员、全局附件开关、审计日志和真实浏览器 E2E。
 - 未登录访客仍可直接使用会话、查看特性和 Wiki；写操作由服务端权限守卫强制校验。
 - v1.0.4 已新增独立 `src/codeask/agent/opencode_compat/` 模块，默认会话接入 shared `opencode serve`、会话级 workspace、Wiki 零复制挂载、remote MCP、opencode 事件流、Agent 适配方式选择/手动测试和真实浏览器 live E2E 通道。LLM 配置新增/编辑表单连接测试遵循表单语义：先测试当前草稿，保存时才把测试状态写入数据库；API 使用通用 `agent_runtime_*` 字段，历史 `opencode_provider_*` 仅作为兼容层。v1.0.4 已完成人工验收，Agent 事件返回会对宿主机绝对路径做后端出口脱敏，并已覆盖长对话、刷新继续追问、特性源码调查和 opencode 完成事件闭合回归。
-- v1.0.5 已新增独立 `src/codeask/rag/openviking/` 模块，CodeAsk 管理 OpenViking server 子进程、同步队列、健康探测、admin 仪表盘、调优参数和事件流；Wiki UI 搜索改为 OpenViking 优先、SQL ILIKE 兜底；opencode 会话通过 OpenViking MCP 获取语义候选，再通过 CodeAsk MCP 准备真实 worktree 读取源码证据。OpenViking 作为声明依赖随 `uv sync` 安装，运行期通过 `openviking-server` 子进程直接拉起，不再用 `uvx` 在线解析依赖；OpenViking 是增强能力，不可用时用户路径 graceful degrade。
+- v1.0.5 正在收口 OpenViking Wiki RAG：opencode 会话可通过 OpenViking 检索 Wiki 语义候选，源码证据仍通过 CodeAsk worktree 读取；Wiki UI 搜索保持 SQL ILIKE，OpenViking 不可用时用户路径 graceful degrade。详细范围和 release 状态见 [docs/v1.0.5/](./docs/v1.0.5/)。
 
 仍在规划或后续专项中的能力：
 
@@ -235,6 +235,7 @@ CodeAsk/
 
 - [INSTALL.md](./INSTALL.md)：安装、配置、启动和测试。
 - [docs/README.md](./docs/README.md)：文档中心和版本入口。
+- [docs/operations/](./docs/operations/)：部署、升级、数据目录和排障。
 - [docs/rules/](./docs/rules/)：跨版本产品、交互和工程规则，包括 [临时目录规则](./docs/rules/temp-directory.md)。
 - [docs/future/](./docs/future/)：未来能力规划。
 - [docs/v1.0/](./docs/v1.0/)：MVP 基线设计。
@@ -242,7 +243,7 @@ CodeAsk/
 - [docs/v1.0.2/](./docs/v1.0.2/)：Agent 会话运行时优化。
 - [docs/v1.0.3/](./docs/v1.0.3/)：鉴权、访问控制和特性管理员。
 - [docs/v1.0.4/](./docs/v1.0.4/)：OpenCode Agent Backend 对接。
-- [docs/v1.0.5/](./docs/v1.0.5/)：Wiki 与代码仓 RAG，接入 OpenViking 统一上下文数据库。
+- [docs/v1.0.5/](./docs/v1.0.5/)：OpenViking Wiki RAG 与 opencode 会话增强。
 
 ## 开源参考
 
@@ -253,7 +254,7 @@ CodeAsk 的实现是面向自身产品定位的独立设计，但在部分版本
 | v1.0.2 | [anthropics/claude-code](https://github.com/anthropics/claude-code) | 参考了 Claude Code 在工具调用、长上下文处理、行动轨迹和面向代码任务的 Agent 运行时组织方式。 |
 | v1.0.2 | [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | 参考了社区对 Claude Code 架构和使用模式的整理，用于辅助理解工具编排、权限边界和交互体验。 |
 | v1.0.4 | [anomalyco/opencode](https://github.com/anomalyco/opencode) | 基于 opencode 1.14.48 实测接入 shared server、workspace 级配置、remote MCP、事件流和工具权限边界。 |
-| v1.0.5 | [volcengine/OpenViking](https://github.com/volcengine/OpenViking) | 参考并接入 OpenViking 0.3.17 作为统一上下文数据库；CodeAsk 不修改、不内嵌 OpenViking 源码，通过独立子进程调用。 |
+| v1.0.5 | [volcengine/OpenViking](https://github.com/volcengine/OpenViking) | 参考并接入 OpenViking 的 RAG / MCP / HTTP SDK 能力；CodeAsk 不修改、不内嵌 OpenViking 源码。 |
 
 ## License
 

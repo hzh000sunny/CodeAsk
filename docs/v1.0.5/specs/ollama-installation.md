@@ -5,6 +5,8 @@
 > 性质：Phase 0 spike 真实安装过程的命令与输出归档
 > 关联：[`../plans/phase-0-spike.md`](../plans/phase-0-spike.md) §3.2
 
+> **release 复核说明（2026-06-03）**：本文是 Ollama/bge-m3 spike 档案。M13 后 v1.0.5 默认 embedding provider 已改为 OpenViking local（`local/bge-small-zh-v1.5-f16`，依赖 `openviking[local-embed]>=0.3.22,<0.4`），不要求默认环境预装 Ollama 或提前拉 `bge-m3`。Ollama 仍是管理员可选 provider；选择 Ollama 时，本文的安装、模型拉取和 CPU 并发风险仍有参考价值。
+
 ---
 
 ## 1. 文档定位
@@ -201,6 +203,8 @@ curl -sf http://127.0.0.1:11434/api/version
 
 ## 6. 与 CodeAsk / OpenViking 的衔接
 
+> 当前 release 默认不再使用下方 Ollama 配置。下方内容是 Phase 0 spike 中 `ollama/bge-m3` 的可工作配置样本；管理员在 M13 UI 中显式选择 Ollama provider 时，才需要类似配置。
+
 Ollama 装好后，OpenViking `ov.conf` 中 `embedding` 段配置（顶层 key 是 `embedding`，dense 子段；详见 `./openviking-server-bootstrap.md` §4）：
 
 ```json
@@ -218,13 +222,13 @@ Ollama 装好后，OpenViking `ov.conf` 中 `embedding` 段配置（顶层 key �
 }
 ```
 
-CodeAsk 后端在 v1.0.5 实现阶段会通过 settings 暴露：
+Phase 0 时 CodeAsk 后端计划通过 settings 暴露：
 
 - `openviking_embed_base_url` 默认 `http://127.0.0.1:11434`
 - `openviking_embed_model` 默认 `bge-m3`（Phase 0 锁定）
 - `openviking_embed_dimension` 默认 `1024`（bge-m3 维度）
 
-Ollama 进程**不**归 CodeAsk 管理；CodeAsk 只在健康检查时探测 `<base_url>/api/tags` 是否可达。
+Ollama 进程**不**归 CodeAsk 管理；当前实现只在 active embedding provider / VLM 配置需要 Ollama 时探测 `<base_url>/api/tags` 是否可达。
 
 ---
 
@@ -258,13 +262,13 @@ sudo groupdel ollama 2>/dev/null || true
 
 ## 9. 与 INSTALL.md 的分工（已收口）
 
-v1.0.5 已决定把 Ollama 作为 RAG embedding 的默认（且当前唯一）provider，operator 安装指引已落入根目录 [`../../../INSTALL.md`](../../../INSTALL.md) 的"Ollama 与 RAG embedding（v1.0.5）"段，对应的产品契约见 [`../prd/rag-knowledge.md`](../prd/rag-knowledge.md) §7.0。
+v1.0.5 release 口径已把 Ollama 从默认 provider 调整为可选 provider；默认使用 OpenViking local embedding。Ollama 的 operator 指引应按“可选 provider”定位维护，对应产品契约见 [`../prd/rag-knowledge.md`](../prd/rag-knowledge.md) §7。
 
 分工：
 
 | 内容 | 落点 |
 |---|---|
-| 一行式安装命令、`ollama pull bge-m3`、`/api/tags` 验证、CodeAsk 探测行为承诺 | INSTALL.md |
+| 一行式安装命令、`ollama pull bge-m3`、`/api/tags` 验证、CodeAsk 探测行为承诺（仅 Ollama provider） | INSTALL.md / Admin 配置说明 |
 | Operator vs CodeAsk 生命周期边界、模型缺失时的 admin 仪表盘行为 | PRD §7.0 |
 | 本机首次安装的命令输出、磁盘分解、CUDA / Vulkan 处置、systemd 行为、卸载方式 | 本文件（spike 证据） |
 | OpenViking ov.conf 中 `embedding.dense` 与 `max_concurrent=1` 的配置细节 | [`./openviking-server-bootstrap.md`](./openviking-server-bootstrap.md) §4 / §6.3 |
@@ -280,4 +284,3 @@ v1.0.5 已决定把 Ollama 作为 RAG embedding 的默认（且当前唯一）pr
 | 2026-05-20 | 安装 Ollama 0.24.0 | Phase 0 spike 启动；OpenViking 需要 embedding provider |
 | 2026-05-20 | 不拉模型 | 用户要求严格控制磁盘 |
 | 2026-05-20 | CUDA / Vulkan 库 **不清理** | 保持原装状态，便于将来切换有 GPU 主机或重装时一致；当前 5.7 GB 余量在拉一个小 embedding 模型 + OpenViking 索引后仍 > 3 GB |
-

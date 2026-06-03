@@ -4,6 +4,8 @@
 > 状态：Completed
 > 关联：[PRD](../prd/rag-knowledge.md) · [设计](../design/openviking-integration.md) · [Phase 0](./phase-0-spike.md) · [Phase 2](./phase-2-opencode-integration.md)
 
+> **release 复核说明（2026-06-03）**：本文保留 Phase 1/M1–M5 的历史实施计划。后续 M11/M12/M13 已收敛当前 release 口径：UI Wiki 搜索直接走 SQL ILIKE；OpenViking 只导入 `wiki_feature` 的 `knowledge-base/` 目录；Report 不进入 OpenViking；代码仓内容同步延后；默认 embedding 改为 OpenViking local provider。本文下方旧的 “OpenViking-first UI 搜索”“逐篇 `wiki_doc` / `report` 入队”“repo 内容进入 OpenViking” 表述以本说明和 release readiness 为准。
+
 ---
 
 ## 0. 前置条件
@@ -31,8 +33,8 @@ v1.0.5 交付里程碑阶梯（按交付顺序）：
 | M1 | OpenViking 核心适配器 + 手动同步 + admin 仪表盘 | 本文（Phase 1） | 无（当前实施范围） |
 | M2 | opencode 主链路接入 OpenViking MCP（动态上下文 / MCP 只读工具 / 行动轨迹） | [phase-2 文档](./phase-2-opencode-integration.md) | M1 |
 | M3 | native Agent 隔离（搬入 `native_backend/` + `reports.py` 解耦 FTS5） | 本文（Phase 1） | M1 |
-| M4 | FTS5 删除 + Wiki UI 搜索 OpenViking-first/ILIKE 兜底 | 本文（Phase 1） | **M3**（`reports.py` 必须先从 `WikiSearchService` 解耦） |
-| M5 | Wiki / Report / Repo 写路径 hook（发布/verify/ready 后增量 enqueue） | 本文（Phase 1） | M1 |
+| M4 | FTS5 删除；UI 搜索曾短暂 OpenViking-first，M11 后收敛回 SQL ILIKE | 本文（Phase 1） | **M3**（`reports.py` 必须先从 `WikiSearchService` 解耦） |
+| M5 | Wiki / Report 写路径 hook 历史方案；M11/M12 后收敛为 `wiki_feature` 目录同步，Report 退出 OpenViking | 本文（Phase 1） | M1 |
 
 交付顺序 **M1 → M2 → M3 → M4 → M5**。硬依赖只有两条：①一切在 M1 之后；②**M4 必须在 M3 之后**。M2 与 M3/M5 代码区不重叠，理论上 M1 之后可并行；但定调为**先 M2 交付 opencode 价值，再做 M3/M4 的破坏性清理**（降低清理期风险）。
 
@@ -157,9 +159,9 @@ def downgrade():
 
 ---
 
-## 5. 同步触发点（hook 清单，M5 实施）
+## 5. 同步触发点（hook 清单，M5 历史方案；M11/M12 已收敛）
 
-M1 不接任何写路径 hook，只提供手动 enqueue / resync 入口和后台 worker。下表是 M5 的目标清单，保留在本文中用于后续里程碑衔接：
+M1 不接任何写路径 hook，只提供手动 enqueue / resync 入口和后台 worker。下表是 M5 当时的目标清单，保留为历史记录。当前 release 实现为：Wiki 写路径先更新 `wiki_workspace/current/<feature_slug>/knowledge-base`，再 enqueue `source_type=wiki_feature`；Report 只更新 `problem-reports/` 文件视图；Repo 内容同步延后。
 
 | 事件 | hook 位置 | 写入 source_type |
 |---|---|---|
@@ -587,7 +589,7 @@ M4 FTS5 链路清除（步骤 15-17，须在 native 解耦之后；不在 M1 实
     - 注：`document_chunks` 表保留（历史数据，删后不再读写），其 NOT NULL 的 `tokenized_text`/`ngram_text` 列无害，**不需要** migration 动它
 17. **（D2）alembic drop migration**：`revision = "0031"`、`down_revision = "0030"`（本仓用短数字 revision id，当前 head 是 `0030`，非文件名），drop `docs_fts` / `docs_ngram_fts` / `reports_fts`；`downgrade` raise `NotImplementedError`（详见 §3.2）
 
-M4 Wiki UI 搜索框 OpenViking-first + ILIKE 兜底（步骤 18-19；不在 M1 实施）：
+M4 Wiki UI 搜索框历史方案：OpenViking-first + ILIKE 兜底（步骤 18-19；不在 M1 实施；M11 已收敛回 SQL ILIKE）：
 
 18. **（D3）先 spike 再开工** —— OpenViking 查询侧 client 方法不存在，且查询走 REST 还是 MCP 未验证（M2 只验过 MCP `find`）：
     - **18a 半天 spike**：对运行中的 OpenViking server 实打查询，产出「查询接口（REST `/api/v1/...` 还是 MCP）+ 端点路径 + 入参（scope/filter/limit）+ 响应结构 + 一次成功样本」。这是 M4 唯一真实未知，不出结论后续全是返工
@@ -603,9 +605,9 @@ M4 Wiki UI 搜索框 OpenViking-first + ILIKE 兜底（步骤 18-19；不在 M1 
 - FTS5 模块已删除：`wiki/search.py` / `wiki/indexer.py` / `wiki/tokenizer.py` 不再存在；`tokenize` 迁入 `wiki/text_utils.py` 供 `path_resolver.py` 继续使用；`wiki/chunker.py` 删除 `tokenized_text` / `ngram_text` 运行时字段。`document_chunks` 物理表及历史列保留，不再由上传路径写入。
 - Alembic 新增 `0031` drop migration 删除三张旧虚表；历史 `0005` 迁移保留 revision 链但改为 no-op，避免新库安装再创建已废弃虚表。
 - OpenViking 查询 spike 结论：使用 REST `POST /api/v1/search/find`，入参 `{query,target_uri,limit,score_threshold}`，trusted headers 仍为 `X-OpenViking-Account/User/Agent`；响应为 `{status:"ok", result:{resources:[{uri,score,context_type,level,abstract,overview}], total}}`。实测成功样本命中 `viking://resources/codeask/features/m4-spike/knowledge-base/m4-spike.md/m4-spike.md`，score `0.6444`。读取正文端点实测为 `GET /api/v1/content/read`，不是旧文档里的 `/api/v1/fs/read`。
-- Wiki UI 搜索已改为 OpenViking-first：进程 running 且可查询时调用 `OpenVikingClient.find`；命中 URI 通过 `openviking_sync_jobs.viking_uri` 映射回 `WikiDocument` / `Report` 后复用原分组语义；0 命中、异常、未启动、无法映射都回退 `NativeWikiSearchService`；长期 unavailable 事件按 60s 限速，避免 dashboard 被刷屏。前端 `frontend/src/lib/wiki/api.ts` 未改。
+- Wiki UI 搜索在 M4 阶段曾改为 OpenViking-first：进程 running 且可查询时调用 `OpenVikingClient.find`；命中 URI 通过 `openviking_sync_jobs.viking_uri` 映射回 `WikiDocument` / `Report` 后复用原分组语义；0 命中、异常、未启动、无法映射都回退 `NativeWikiSearchService`；长期 unavailable 事件按 60s 限速，避免 dashboard 被刷屏。2026-06-01 M11 后 UI 搜索已收敛回 SQL ILIKE，OpenViking 只服务 opencode / LLM RAG。
 
-M5 Wiki / Report 写路径 hook（步骤 20-22；不在 M1 实施）。**完整计划见 [m5-write-path-hooks.md](./m5-write-path-hooks.md)**，下列为概要。
+M5 Wiki / Report 写路径 hook（步骤 20-22；不在 M1 实施）。**完整计划见 [m5-write-path-hooks.md](./m5-write-path-hooks.md)**，下列为历史概要；当前 release 已由 M11/M12 改为 `wiki_feature` 目录同步。
 
 四个已锁定决策（详见 m5 文档 §1）：① **D1 content 现查**——引擎按 `source_type`+`source_id` 现查正文，不内联快照（消除 `enqueue` 去重导致的 staleness）；② **D2 tombstone 净新增**——client 无删除方法、引擎只有 add，需 spike OpenViking 删除端点 + `client.delete_resource` + 引擎 `operation=upsert|delete`；③ **D3 hook 放 API 端点 commit 之后**（service 只 flush，commit 在 API 层；修正旧措辞"放进 `sync_legacy_markdown_document` 内"）；④ **D4 软删覆盖主路径**——tree 删除 + legacy 软删发 tombstone、恢复重新 upsert，导入会话软删后置。
 
@@ -625,6 +627,7 @@ source_type/source_id 与 M4 反查约定：`wiki_doc`→`WikiDocument.id`、`re
 - 已接入 publish / rollback / legacy upload / legacy backfill / report verify-unverify-reject-delete / tree soft-delete-restore / legacy soft-delete。
 - 步骤 20c 已补齐服务层发布路径：`publish_document` / `rollback_to_version` 只在 `session.info` 打标，不 import RAG；publish / rollback / promotion / import upload-resolve-bulk-retry-apply 端点 commit 后统一 `drain_wiki_document_syncs`。
 - 当前产品不允许 verified report 直接编辑，`ReportService.update_draft` 仅允许 `draft/rejected`，因此 verified edit upsert hook 无需实现。
+- 2026-06-01 后继收敛：逐篇 `wiki_doc` / `report` 入队已被替换。当前 OpenViking 只同步 feature `knowledge-base/` 目录，Report 不进入 OpenViking。
 
 收尾（每个里程碑合入前必做）：升级路径在真实数据备份上回归一次；勾选 acceptance-checklist 对应 Phase 1 子项。
 
@@ -636,7 +639,7 @@ source_type/source_id 与 M4 反查约定：`wiki_doc`→`WikiDocument.id`、`re
 
 - 临时空库 `start.sh` 跑通；OpenViking server 自动拉起，sync 队列从空开始
 - 真实数据备份升级路径完成；老数据无回归
-- 全量 sweep 后所有现存 Feature / Wiki / verified 报告 / ready 仓库都在 OpenViking 中可见
+- 全量 sweep 后所有现存 active feature 的 published Wiki `knowledge-base/` 目录都在 OpenViking 中可见；verified 报告和 ready 仓库内容不属于本版本 OpenViking 同步范围
 - admin 诊断接口与卡片可读 / 可看 / 显示完整宿主机绝对路径；路径脱敏只约束会话事件流和普通用户可见链路
 - 仪表盘三个核心组件（Health / SyncJobs / EventStream）展示真实数据：当前 embedding 配置、进行中任务进度 + ETA、最近 100 条事件
 - kill OpenViking server 后重启，仪表盘自动恢复显示进度，不需要 admin 手动刷新

@@ -5,6 +5,8 @@
 > 关联：[acceptance §3.2/§3.4/§3.7/§5](./acceptance-checklist.md) · [phase-1](./phase-1-sync-adapter.md) · [m5-write-path-hooks](./m5-write-path-hooks.md)
 > 来源：2026-05-27 全量回归发现 B1–B4 验收项引用的功能在 src 中未实现（grep 实证：相关 event_type / scheduler job 不存在）。
 
+> **release 复核说明（2026-06-03）**：本文的 B1/B2 是 M6 当时基于逐篇 `wiki_doc` / `report` 同步的完整性补丁。M11/M12 后当前实现已经收敛为 `wiki_feature` 目录级 sweep：枚举 active feature 的 published Wiki 文档，按 feature 汇总 hash 后导入 `knowledge-base/`；Report 只做 `problem-reports/` 文件投影，不再进入 OpenViking；定时 sweep 还会对账远端 stale wiki feature 并入队 delete。下方旧的 `wiki_doc_changed` / `report_status_changed` 事件名作为历史记录保留，当前 UI 主要看到 `wiki_feature_changed` / `report_projection_changed`。
+
 ---
 
 ## 0. 背景与范围

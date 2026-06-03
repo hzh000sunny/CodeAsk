@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-[**v1.0.5**](./v1.0.5/) — Wiki 与代码仓 RAG（Completed；引入 OpenViking 作为统一上下文数据库，让 opencode 通过 OpenViking MCP 检索 Wiki / 问题报告 / 代码仓候选）
+[**v1.0.5**](./v1.0.5/) — OpenViking Wiki RAG（Release candidate；opencode 会话可通过 OpenViking MCP 检索 Wiki 语义候选，源码证据仍由 CodeAsk worktree 提供）
 
 ## 上一稳定版本
 
@@ -38,6 +38,8 @@
 
 开发验收阶段、E2E 基线、Agent 连续会话验收和证据记录规则见 **[DEVELOPMENT_ACCEPTANCE.md](./DEVELOPMENT_ACCEPTANCE.md)**。
 
+部署、升级、数据目录和排障说明见 **[operations/](./operations/)**。
+
 ### 速查
 
 ```text
@@ -45,6 +47,7 @@ docs/
 ├── README.md          ← 本文件（顶层版本索引）
 ├── STRUCTURE.md       ← 文档约定的权威来源
 ├── DEVELOPMENT_ACCEPTANCE.md ← 项目级开发验收阶段与证据基线
+├── operations/        ← 部署、升级、数据目录和排障
 ├── rules/             ← 跨版本通用规则
 ├── future/            ← 版本待定的未来功能规划
 ├── v1.0/              ← MVP 基线版本（Completed）
@@ -57,7 +60,7 @@ docs/
 ├── v1.0.2/            ← LLM Agent 会话运行时优化（Completed）
 ├── v1.0.3/            ← 鉴权与访问控制（Completed）
 ├── v1.0.4/            ← OpenCode Agent Backend 对接（Manual Acceptance Completed）
-├── v1.0.5/            ← 当前版本：Wiki 与代码仓 RAG（Completed）
+├── v1.0.5/            ← 当前版本：OpenViking Wiki RAG（Release candidate）
 ├── v1.1/              ← 未来 minor 演进（尚未创建）
 └── v2.0/              ← 未来 major 演进（尚未创建）
 ```

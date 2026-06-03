@@ -1,7 +1,7 @@
 # M11 — CodeAsk 后端 OpenViking 调用：手搓 HTTP → 官方 SDK 客户端
 
 > 版本：v1.0.5
-> 状态：方向已二次收敛（2026-06-01，嵌入式被运行时证伪后改定 HTTP 客户端；随后实测单篇 `add_resource` 目录化，改为按 feature wiki 目录导入），开发中。
+> 状态：Completed（2026-06-03 release 复核：SDK HTTP client + feature 目录导入 + UI 搜索 SQL 化 + report 退出 OpenViking 均已落地）
 > 一句话：**CodeAsk 后端改用官方 SDK `AsyncHTTPClient`，但 OpenViking 写入范围收窄为 feature 级 Wiki 目录；UI Wiki 搜索只走 SQL ILIKE，report 不再进入 OpenViking。`openviking-server` 原样不动，opencode 不受影响。**
 > 关联：[openviking-integration 设计](../design/openviking-integration.md) · [m9 运行时拉起](./m9-openviking-runtime-provisioning.md)
 
@@ -141,11 +141,18 @@ await client.initialize()
 ---
 
 ## 4. 验收闸门
-- [ ] `OpenVikingClient` 内部走官方 `AsyncHTTPClient`；后端不再有自拼 httpx 请求 / multipart 上传的定制代码
-- [ ] Wiki 写入按 feature 目录导入：`~/.codeask/wiki_workspace/current/{slug}/knowledge-base` → `viking://resources/codeask/wiki/{slug}`
-- [ ] report 不再进入 OpenViking；旧 report sync job 不再由 sweep 产生
-- [ ] UI `/api/wiki/search` 只走 SQL ILIKE，不调用 OpenViking
-- [ ] breaker 事件 `openviking_breaker_tripped` 已重接到 SDK 异常（`UNAVAILABLE`/`RESOURCE_EXHAUSTED`）并有测试覆盖；无吃 `httpx.Response` 的死代码残留
-- [ ] CodeAsk 同步三 feature wiki → OpenViking find 在 `viking://resources/codeask/wiki` 和单 feature 目录均可召回；opencode 会话内 OpenViking 检索仍命中（证明 server/MCP 未受影响）。*注：本验证在磁盘目录已是最新的前提下进行（当前靠 opencode 会话或手动重建保证）；目录自动新鲜度是 M12 的遗留，不阻塞本闸门*
-- [ ] 后端 pytest / 集成测试 / live e2e 全绿；ruff / pyright clean
-- [ ] 待实现项已记录：当前任务完成后，优先实现 CodeAsk 定时 `sweep + add_resource` 作为 Wiki 内容自动同步；OpenViking `watch_interval` 和 `reindex` 分别作为后续候选/索引维护能力，不阻塞本轮
+- [x] `OpenVikingClient` 内部走官方 `AsyncHTTPClient`；后端不再有自拼 httpx 请求 / multipart 上传的定制代码
+- [x] Wiki 写入按 feature 目录导入：`~/.codeask/wiki_workspace/current/{slug}/knowledge-base` → `viking://resources/codeask/wiki/{slug}`
+- [x] report 不再进入 OpenViking；旧 report sync job 不再由 sweep 产生
+- [x] UI `/api/wiki/search` 只走 SQL ILIKE，不调用 OpenViking
+- [x] breaker 事件 `openviking_breaker_tripped` 已重接到 SDK 异常（`UNAVAILABLE`/`RESOURCE_EXHAUSTED`）并有测试覆盖；无吃 `httpx.Response` 的死代码残留
+- [x] CodeAsk 同步 feature wiki → OpenViking find 在 `viking://resources/codeask/wiki` 和单 feature 目录均可召回；opencode 会话内 OpenViking 检索仍命中（证明 server/MCP 未受影响）。目录自动新鲜度已由 M12 写时增量投影补齐。
+- [x] 后端 pytest / 集成测试 / live e2e、ruff / pyright 在本里程碑相关范围通过；后续 M12/M13/M14 又补了全链路回归。
+- [x] 待实现项已记录并部分落地：CodeAsk 定时 `sweep + add_resource` 已实现为 Wiki 内容自动同步主方案；OpenViking `watch_interval` 仍作为后续候选；`reindex` 保留为索引维护能力，不作为内容同步方案。
+
+## 5. 完成记录（2026-06-03）
+
+- 代码提交链路：`2c984ac Migrate OpenViking wiki sync to SDK directory imports`、`8275c16 Add scheduled OpenViking wiki refresh`、`25563c4 Fix OpenViking adoption and scheduled refresh` 以及后续 M12/M13 修正。
+- 当前 `OpenVikingSyncService` 只接受 `source_type="wiki_feature"`；`repo` / `report` 不再作为活同步 source_type。
+- `OpenVikingClient` 通过 `AsyncHTTPClient.add_resource/rm/find/get_task/ls` 连接现有 server；嵌入式 `AsyncOpenViking(path=...)` 的 `config_path` / `OPENVIKING_CONFIG_FILE` 临时代码未保留。
+- `api/wiki/search.py` 文件头即声明 `Wiki search routes backed by SQL ILIKE`，实现只调用 `NativeWikiSearchService`。

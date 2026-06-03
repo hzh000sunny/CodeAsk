@@ -1,7 +1,7 @@
 # M9 — OpenViking 改为声明依赖 + 像 opencode 一样直接拉起
 
 > 版本：v1.0.5
-> 状态：Completed（uvx→venv 根因，§0-§7）；**§8 进程生命周期加固 = 待修复**（2026-05-31 复盘新发现，未实现前不闭环）
+> 状态：Release-ready with follow-up（uvx→venv 根因已修；§8 已补健康端口 adopt / 真实 PID / 安装版本显示，PDEATHSIG 与动态端口完整加固延后）
 > 关联：[acceptance §1/§3.1](./acceptance-checklist.md) · [openviking-integration 设计](../design/openviking-integration.md) · [m8](./m8-dashboard-ux.md)
 > 来源：2026-05-29 OpenViking "拉不起来" 事故定位 + 负责人定调；2026-05-31 复盘发现第二类 respawn 死循环（§8）。
 
@@ -36,8 +36,9 @@ OpenViking 服务长时间无法监听 1933。根因：
 ## 3. 改动面
 
 ### 3-1 依赖声明（pyproject + lock）
-- `pyproject.toml` 增加运行依赖：`openviking==0.3.17`、`socksio`（保留原 `--with socksio` 的 SOCKS 能力）。按负责人意见**作为普通依赖**加入（不做 optional-extra）。
-- 显式钉 `litellm`（兼容 OpenViking 的 `<1.84.1`，当前 1.83.14）。
+- 2026-05-29 初版：`pyproject.toml` 增加运行依赖 `openviking==0.3.17`、`socksio`（保留原 `--with socksio` 的 SOCKS 能力），按负责人意见作为普通依赖加入。
+- 2026-06-03 release 口径：M13 已升级为 `openviking[local-embed]>=0.3.22,<0.4`，由 `uv.lock` 锁定当前 0.3.x 实际安装版本，并提供 local embedding 运行依赖。
+- `litellm` 版本由 OpenViking 依赖窗口约束；后续随 OpenViking 0.3.x 升级同步调整。
 - `uv lock` 重生成锁；**验证能解析**（重点盯 litellm / fastapi / urllib3 等共享包）；`uv sync` 后确认 `.venv/bin/openviking-server` 存在且 `--help` 可跑。
 
 ### 3-2 `process.py` 改为直接拉起（对齐 opencode）
@@ -78,9 +79,9 @@ OpenViking 服务长时间无法监听 1933。根因：
 - 迁移完成后，运行时不再依赖 `~/.cache/uv` 的临时解压；`.tmp*` 残留可随时 `uv cache prune` 清理（不再有"清了又重下"的时序顾虑——依赖已被 CodeAsk venv 硬引用）。
 - 临时止血（未实现 §8 前）：发现 dashboard 出现连续 `openviking_restart_detected` 时，`pkill -f "openviking-server"` 把**所有** OV 进程（含孤儿）清掉，再让 keepalive 重新拉起单一实例。
 
-## 7. 完成记录（2026-05-29）
+## 7. 完成记录（2026-05-29；2026-06-03 release 复核补注）
 
-- `pyproject.toml` 已声明 `openviking==0.3.17`、`socksio>=1.0.0`，并将 `litellm` 钉到 `1.83.14`；`uv lock` / `uv sync` 已重新生成并安装依赖。
+- 2026-05-29 初版已声明 `openviking==0.3.17`、`socksio>=1.0.0`；2026-06-03 当前 release 依赖已升级为 `openviking[local-embed]>=0.3.22,<0.4`。
 - `OpenVikingProcessManager` 已改为 `openviking_bin` 直接拉起 `[openviking-server, --config, ov.conf]`，`describe()` 返回 `configured_bin` / `resolved_bin`，缺失二进制时返回 `openviking_bin_not_found` 并提示先 `uv sync`。
 - `Settings` 新增 `openviking_bin`，默认 `openviking-server`；`app.py` 注入该配置。
 - 已验证 `uv run openviking-server --help` 能正常输出帮助信息，运行期不再需要 `uvx --from ...` 在线解析依赖。
@@ -88,7 +89,7 @@ OpenViking 服务长时间无法监听 1933。根因：
 
 ---
 
-## 8. 进程生命周期加固（2026-05-31 复盘新发现 · 待修复）
+## 8. 进程生命周期加固（2026-05-31 复盘新发现 · 部分落地 + 后续 hardening）
 
 > §0-§7 解决的是"用 uvx 在线解析依赖导致拉不起来"。本节是 m9 完成后、2026-05-31 在真实实例上暴露的**第二类 respawn 死循环**——与依赖无关，根因在**进程生命周期管理**。负责人 2026-05-31 提出两条硬约束，本节据此定方向，待开发实现、架构验收。
 
@@ -137,7 +138,7 @@ OpenViking 服务长时间无法监听 1933。根因：
 - 加退避；最坏情况落 `degraded=true` + `last_error_code=openviking_port_unavailable` 在 dashboard 明确报出，而非 30s 一轮 respawn。
 
 ### 8.4 故障回放验证（设计自检）
-- 新后端启动 → 读状态文件见 268276 在 1933 → probe 健康/0.3.17/是我们的 → **adopt**，零新拉、零 Errno 98、零 respawn。
+- 新后端启动 → probe 1933 `/health` 健康且版本在支持范围内 → **adopt**，零新拉、零 Errno 98、零 respawn。
 - 268276 若是外部/坏进程 → 换口或明确报错，**不进死循环**。
 - 加 pdeathsig → "后端被 kill 留孤儿"将来不再发生。
 
@@ -155,10 +156,16 @@ OpenViking 服务长时间无法监听 1933。根因：
 - 集成：起一个孤儿 OV 占 1933 → 启动 CodeAsk → 不产生 restart 风暴（事件库无连续 `restart_detected`），最终单实例可用。
 - 回归：后端 `SIGKILL` 后子 OV 在短时间内消失（PDEATHSIG 生效）。
 
-### 8.7 验收清单增量（待实现）
-- [ ] **C1**：后端被 `SIGKILL` 后子 OV 自动退出（PDEATHSIG），不留孤儿
-- [ ] **B**：`ensure_server` 在端口已有健康同版本 OV 时 adopt 复用，不盲目新拉
-- [ ] **C2**：首选端口被占且不可复用时换空闲端口，并把实际端口传播到 ov.conf / client base_url / opencode MCP 配置
-- [ ] **D**：撞 `EADDRINUSE` 不再 30s 紧打循环；最坏落 `degraded + openviking_port_unavailable` 并在 dashboard 报出
-- [ ] 集成：孤儿占端口场景不产生连续 `restart_detected`；事故可回放通过
-- [ ] 后端 pytest / 前端 vitest / e2e 全绿，ruff / pyright / tsc / eslint clean
+### 8.7 验收清单增量（2026-06-03 release 复核）
+
+- [ ] **C1**：后端被 `SIGKILL` 后子 OV 自动退出（PDEATHSIG），不留孤儿。当前未实现，作为后续 hardening。
+- [x] **B**：`ensure_server` 在端口已有健康 OV 时 adopt 复用，不盲目新拉。当前实现会 probe `http://{host}:{port}/health`，健康则记录 external handle，并通过 `/proc` 解析监听 PID。
+- [ ] **C2**：首选端口被占且不可复用时换空闲端口，并把实际端口传播到 ov.conf / client base_url / opencode MCP 配置。当前仍以 configured port 为准，作为后续 hardening。
+- [ ] **D**：撞 `EADDRINUSE` 不再 30s 紧打循环；最坏落 `degraded + openviking_port_unavailable` 并在 dashboard 报出。当前只解决“已有健康实例可 adopt”的主事故路径，非健康占端口仍需后续完善。
+- [x] Admin 诊断显示真实 PID 与安装/运行版本：`describe()` 返回 `pid`、`installed_version`、`verified_version` 和 `supported_version_range=">=0.3.22,<0.4"`；前端只展示运行版本。
+- [ ] 集成：孤儿占端口场景不产生连续 `restart_detected`；事故可回放通过。建议 release 后做长跑/事故回放观察。
+- [x] 与 release 相关的后端测试、ruff、pyright、前端验证已在 M11-M14 后续回归覆盖；§8 深度 hardening 不作为 v1.0.5 RC 阻塞。
+
+## 9. Release 口径（2026-06-03）
+
+本里程碑对 release 的硬阻塞已经解决：OpenViking 不再由 `uvx` 在线解析，随 `uv sync` 安装，并由 CodeAsk 直接拉起；健康监听实例可被 adopt，admin 能显示真实 PID 和版本。剩余 PDEATHSIG / 动态端口 / 不健康占端口退避属于长期运行加固项，记录为 v1.0.5 release 后 follow-up，而不是本次 release candidate 阻塞项。

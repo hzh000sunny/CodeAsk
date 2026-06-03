@@ -1,5 +1,9 @@
 # M11 上手学习路径 —— 给接手 SDK 迁移的新开发
 
+> 状态：Deprecated。当前不作为上手路径使用。
+
+> **已废弃（2026-06-01）**：本文是嵌入式 `AsyncOpenViking(path=...)` 方案被证伪前写给新开发的学习路径。后续验证确认嵌入式模式会被 OpenViking 数据目录锁/运行模型约束阻断，CodeAsk 当前采用官方 `AsyncHTTPClient` 连接既有 `openviking-server`。真实任务定义与实现口径见 [m11-openviking-sdk-migration.md](./m11-openviking-sdk-migration.md)。本文保留为历史记录，不作为当前开发 onboarding。
+
 > 目标任务：把 CodeAsk 后端写 wiki / 写 report / find 这几个走 HTTP 的 OpenViking 调用，改成官方**进程内嵌入式 SDK** `AsyncOpenViking`。`openviking-server` 原样不动。
 > 任务定义见 [m11-openviking-sdk-migration.md](./m11-openviking-sdk-migration.md)（先别急着读，按下面顺序到 §5 再读）。
 > 分工：你负责实现 + 自测；architect 做 review / 最终验收。
@@ -10,7 +14,7 @@
 
 目的：能本地启动 CodeAsk + OpenViking，能跑测试。跑不起来后面全是空中楼阁。
 
-1. 装依赖：项目用 `uv`。`uv sync` 一次装齐（`openviking==0.3.17` 是声明依赖，会进 `.venv`）。
+1. 装依赖：项目用 `uv`。当前 release 依赖见 `pyproject.toml`（M13 后为 `openviking[local-embed]>=0.3.22,<0.4`）；本文后续 `openviking==0.3.17` / Ollama `bge-m3` 表述是历史 spike 口径。
 2. 前置组件：
    - Ollama + `bge-m3` embedding 模型 —— 见 [`specs/ollama-installation.md`](../specs/ollama-installation.md)。
    - OpenViking server 启动机制 —— 见 [`specs/openviking-server-bootstrap.md`](../specs/openviking-server-bootstrap.md) 与 [`m9-openviking-runtime-provisioning.md`](./m9-openviking-runtime-provisioning.md)（server 生命周期 CodeAsk 已托管，**你不用改它**，但要懂它怎么起的）。
