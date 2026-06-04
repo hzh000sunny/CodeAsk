@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Activity, ChevronRight } from "lucide-react";
+import { Activity, ChevronRight, Database, FileSearch, Wrench } from "lucide-react";
 
 import { ActionTraceEvent } from "./ActionTraceEvent";
 import type { ActionTraceEvent as ActionTraceEventModel } from "./action-trace-model";
@@ -48,7 +48,13 @@ export function ActionTracePanel({ events, isStreaming }: ActionTracePanelProps)
   return (
     <section className="action-trace-section">
       <div className="panel-heading">
-        <h2>Agent 行动轨迹</h2>
+        {/* Match the icon + size of the "会话数据"/"模型状态" subheadings so
+            the three rail regions read as peers; primacy is carried by the
+            heartbeat and the tall list, not by a louder title. */}
+        <span className="panel-heading-label">
+          <Activity aria-hidden="true" size={16} />
+          <h2>Agent 行动轨迹</h2>
+        </span>
         {/* The rail's heartbeat: a still gray dot when idle, a pulsing blue
             dot (with a live action tally) while the agent is running. Blue is
             reserved here for the legitimate "working" signal. */}
@@ -76,8 +82,24 @@ export function ActionTracePanel({ events, isStreaming }: ActionTracePanelProps)
           </div>
         ) : (
           <div className="action-trace-empty">
-            <Activity aria-hidden="true" size={18} />
-            <p>发送问题后，这里会展示模型实际使用的上下文和工具动作。</p>
+            {/* A quiet "waiting page": a fanned trio of the kinds of actions
+                that will land here, in the same muted icon-chip vocabulary as
+                the cards — calm, not a loading skeleton. */}
+            <div aria-hidden="true" className="action-trace-empty-kinds">
+              <span className="action-trace-empty-kind">
+                <Database size={16} />
+              </span>
+              <span className="action-trace-empty-kind">
+                <FileSearch size={16} />
+              </span>
+              <span className="action-trace-empty-kind">
+                <Wrench size={16} />
+              </span>
+            </div>
+            <p className="action-trace-empty-title">等待第一个问题</p>
+            <p className="action-trace-empty-hint">
+              发送问题后，这里会展示模型实际使用的上下文和工具动作。
+            </p>
           </div>
         )
       ) : (

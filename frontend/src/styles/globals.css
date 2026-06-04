@@ -2169,6 +2169,15 @@ textarea:focus-visible {
   justify-content: space-between;
 }
 
+/* Groups a leading icon with the title so space-between still pins the
+   title block left and any trailing control (e.g. the trace status) right. */
+.panel-heading-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
 .panel-heading h2,
 .panel-subheading h3,
 .section-title h2 {
@@ -2182,6 +2191,12 @@ textarea:focus-visible {
 }
 
 .panel-subheading h3 {
+  font-size: 14px;
+}
+
+/* The action-trace heading sits among the "会话数据"/"模型状态" subheadings;
+   match their 14px so the three rail regions read as peers. */
+.action-trace-section .panel-heading h2 {
   font-size: 14px;
 }
 
@@ -2352,20 +2367,72 @@ textarea:focus-visible {
 
 .action-trace-empty {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  text-align: center;
+  gap: 12px;
   margin-top: 12px;
-  border: 1px dashed #cfd8e3;
-  border-radius: 8px;
-  background: #f8fafc;
+  border: 1px dashed #dde4ec;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fcfdff, #f6f8fc);
   color: #667085;
-  padding: 12px;
+  padding: 30px 22px;
 }
 
-.action-trace-empty p {
+/* The fanned trio: three muted chips overlapped and rotated like a small
+   deck of cards waiting to be dealt. Static (no skeleton shimmer), all
+   charcoal/gray — the empty state never spends the blue "working" signal. */
+.action-trace-empty-kinds {
+  display: inline-flex;
+  align-items: center;
+}
+
+.action-trace-empty-kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid #eaeef3;
+  background: #ffffff;
+  color: #98a2b3;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+}
+
+.action-trace-empty-kind:not(:first-child) {
+  margin-left: -9px;
+}
+
+.action-trace-empty-kind:nth-child(1) {
+  transform: rotate(-9deg);
+}
+
+.action-trace-empty-kind:nth-child(2) {
+  transform: translateY(-3px);
+  border-color: #dfe4ea;
+  color: #667085;
+  z-index: 1;
+}
+
+.action-trace-empty-kind:nth-child(3) {
+  transform: rotate(9deg);
+}
+
+.action-trace-empty .action-trace-empty-title {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
+  color: #344054;
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.action-trace-empty .action-trace-empty-hint {
+  margin: 0;
+  max-width: 30ch;
+  color: #98a2b3;
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
 .action-trace-list {
