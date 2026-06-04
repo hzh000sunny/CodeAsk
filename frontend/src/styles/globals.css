@@ -933,7 +933,9 @@ textarea:focus-visible {
 
 .session-title-row h1 {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-id-pill {
@@ -8107,15 +8109,35 @@ textarea:focus-visible {
   color: #98a2b3;
 }
 
-/* ---- header ---- */
-.session-workspace .page-header {
-  background: linear-gradient(180deg, #ffffff, rgba(251, 252, 254, 0.65));
-  backdrop-filter: blur(6px);
+/* ---- header: session title + a mono id chip, with a dek underneath that
+   names what the session is investigating (the first question). No repeated
+   boilerplate, no status badge; flat paper surface, typography does the work. */
+.session-workspace .page-header.session-header {
+  align-items: flex-start;
+  background: #ffffff;
+  padding: 15px 22px;
+}
+
+.session-header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
 }
 
 .session-workspace .page-header h1 {
+  font-size: 21px;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
+}
+
+.session-header-description {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.55;
 }
 
 /* ---- composer: polished input surface ---- */
