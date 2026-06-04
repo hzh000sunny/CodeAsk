@@ -1419,7 +1419,10 @@ textarea:focus-visible {
   min-height: 0;
   overflow: auto;
   padding: 26px 28px 34px;
-  scroll-behavior: smooth;
+  /* Jump-to-bottom (session switch, history load, streaming) must be instant —
+     smooth scroll-behavior would animate every programmatic scrollTop jump and
+     visibly scroll the transcript from top to bottom on each session switch. */
+  scroll-behavior: auto;
 }
 
 .transcript {
@@ -7961,10 +7964,6 @@ textarea:focus-visible {
 
 /* ============ Transcript reduced-motion ============ */
 @media (prefers-reduced-motion: reduce) {
-  .message-stream {
-    scroll-behavior: auto;
-  }
-
   .turn,
   .transcript-empty {
     animation: none;
