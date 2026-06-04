@@ -2,7 +2,9 @@
 
 ## 当前版本
 
-[**v1.0.5**](./v1.0.5/) — OpenViking Wiki RAG（Release candidate；opencode 会话可通过 OpenViking MCP 检索 Wiki 语义候选，源码证据仍由 CodeAsk worktree 提供）
+[**v1.0.6**](./v1.0.6/) — 前端视觉重构（In progress；ink-and-paper 黑白基调，会话界面已交付，设计 token 重铸待启）
+
+[**v1.0.5**](./v1.0.5/) — OpenViking Wiki RAG（Release candidate，收尾中；opencode 会话可通过 OpenViking MCP 检索 Wiki 语义候选，源码证据仍由 CodeAsk worktree 提供）
 
 ## 上一稳定版本
 
@@ -60,7 +62,8 @@ docs/
 ├── v1.0.2/            ← LLM Agent 会话运行时优化（Completed）
 ├── v1.0.3/            ← 鉴权与访问控制（Completed）
 ├── v1.0.4/            ← OpenCode Agent Backend 对接（Manual Acceptance Completed）
-├── v1.0.5/            ← 当前版本：OpenViking Wiki RAG（Release candidate）
+├── v1.0.5/            ← OpenViking Wiki RAG（Release candidate，收尾中）
+├── v1.0.6/            ← 当前版本：前端视觉重构（In progress）
 ├── v1.1/              ← 未来 minor 演进（尚未创建）
 └── v2.0/              ← 未来 major 演进（尚未创建）
 ```
