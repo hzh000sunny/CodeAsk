@@ -458,6 +458,12 @@ export function SessionWorkspace({
       aria-label="会话工作台"
     >
       <SessionListPanel
+        allSelected={
+          visibleSessions.length > 0 &&
+          visibleSessions.every((session) =>
+            bulkSelectedIds.includes(session.id),
+          )
+        }
         bulkMode={bulkMode}
         bulkSelectedIds={bulkSelectedIds}
         createPending={createMutation.isPending}
@@ -511,6 +517,16 @@ export function SessionWorkspace({
               ? current.filter((id) => id !== sessionId)
               : [...current, sessionId],
           )
+        }
+        onToggleSelectAll={() =>
+          setBulkSelectedIds((current) => {
+            const allVisibleSelected =
+              visibleSessions.length > 0 &&
+              visibleSessions.every((session) => current.includes(session.id));
+            return allVisibleSelected
+              ? []
+              : visibleSessions.map((session) => session.id);
+          })
         }
         pendingDelete={deleteMutation.isPending}
         query={query}

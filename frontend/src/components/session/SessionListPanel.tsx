@@ -7,6 +7,7 @@ import { Input } from "../ui/input";
 import { SessionListItem } from "./SessionListItem";
 
 export function SessionListPanel({
+  allSelected,
   bulkMode,
   bulkSelectedIds,
   createPending,
@@ -26,12 +27,14 @@ export function SessionListPanel({
   onToggleCollapsed,
   onTogglePin,
   onToggleSelect,
+  onToggleSelectAll,
   onConfirmBulkDelete,
   pendingDelete,
   query,
   selectedSessionId,
   visibleSessions,
 }: {
+  allSelected: boolean;
   bulkMode: boolean;
   bulkSelectedIds: string[];
   createPending: boolean;
@@ -51,6 +54,7 @@ export function SessionListPanel({
   onToggleCollapsed: () => void;
   onTogglePin: (session: SessionResponse) => void;
   onToggleSelect: (sessionId: string) => void;
+  onToggleSelectAll: () => void;
   onConfirmBulkDelete: () => void;
   pendingDelete: boolean;
   query: string;
@@ -108,6 +112,14 @@ export function SessionListPanel({
             <div className="bulk-toolbar">
               <span>已选择 {bulkSelectedIds.length} 个</span>
               <div className="row-actions">
+                <Button
+                  disabled={visibleSessions.length === 0}
+                  onClick={onToggleSelectAll}
+                  type="button"
+                  variant="quiet"
+                >
+                  {allSelected ? "取消全选" : "全选"}
+                </Button>
                 <Button
                   disabled={bulkSelectedIds.length === 0}
                   onClick={onConfirmBulkDelete}
