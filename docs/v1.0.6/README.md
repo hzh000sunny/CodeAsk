@@ -45,13 +45,13 @@ v1.0.5 完成 Wiki RAG 接入 OpenViking、模型配置、同步任务、运行�
 - **不动后端主线**：会话链路、OpenViking、数据归属、权限不变。
 - **新增前端视觉重构主线**（双轨，见 `plans/frontend-ui-restyle.md`）：
   - 轨道一 · 设计 token 重铸（全局，**未开始**）：把 `:root` 扩成完整语义系统（中性灰阶 ramp、elevation、字号/字重/行高、圆角/间距、动效 token），收编散落的硬编码 hex。
-  - 轨道二 · 关键页面结构重组（**会话界面已交付**）：去"气泡墙"，改"精炼实录"——用户右对齐小卡、助手说话人沟槽 + 全幅正文、流式 caret、内联可折叠 `WorkingTimeline`、左栏/顶栏/输入区/右栏取证卡全部纳入 ink-and-paper。
+  - 轨道二 · 关键页面结构重组（**会话界面已交付**）：去"气泡墙"，改"精炼实录"——用户右对齐小卡、助手说话人沟槽 + 全幅正文、流式 caret、左栏/顶栏/输入区/右栏取证卡全部纳入 ink-and-paper。
 - **顺手修复**：流式生成中无法向上滚动的 autoscroll bug。
 
 ## v1.0.6 已交付
 
-- 会话界面（对话流 + 左栏列表 + 顶栏 + 输入区 + 右栏取证卡 + 会话弹窗）ink-and-paper 重塑；纯 CSS，不动组件逻辑/DOM，272 测试 + lint + tsc + build 全绿。
-- trace → turn 映射用前端邻接 join 解决，无需后端改动。
+- 会话界面（对话流 + 左栏列表 + 顶栏 + 输入区 + 右栏取证卡 + 会话弹窗）ink-and-paper 重塑；纯 CSS，不动组件逻辑/DOM，build/lint/tsc/vitest 全绿。
+- **调查轨迹收敛为单一来源（右栏「Agent 行动轨迹」）**：曾短暂内联过一份可折叠 `WorkingTimeline`，与右栏 `ActionTracePanel` 是同一份 `ActionTraceEvent[]` 的两个视图，被产品负责人判为"事件重复"。2026-06-03 决策**删内联、保留右栏**，组件 / CSS / 前端邻接 join / 相关测试一并移除（详见 `plans/frontend-ui-restyle.md` §4.1）。
 
 ## v1.0.6 待办 / 待拍板
 
@@ -62,4 +62,4 @@ v1.0.5 完成 Wiki RAG 接入 OpenViking、模型配置、同步任务、运行�
 
 ## v1.0.6 已记录但未修（待数据层决策）
 
-- assistant turn 的 `turn_id` 在 live 与 reload 路径不一致（live = client turn id，reload = agent turn row id，二者无存储链接），导致反馈 badge reload 后丢失。内联时间线靠邻接 join 规避，但根因需后端数据模型决策，本版未动。
+- assistant turn 的 `turn_id` 在 live 与 reload 路径不一致（live = client turn id，reload = agent turn row id，二者无存储链接），导致反馈 badge reload 后丢失。根因需后端数据模型决策，本版未动。（原内联时间线靠前端邻接 join 规避此问题，但内联时间线已于 2026-06-03 删除；右栏 `ActionTracePanel` 自有持久化 trace 通路，不受影响。）

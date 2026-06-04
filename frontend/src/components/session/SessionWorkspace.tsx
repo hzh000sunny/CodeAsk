@@ -518,7 +518,6 @@ export function SessionWorkspace({
         feedbackByTurnId={feedbackByTurnId}
         feedbackPendingTurnId={feedbackPendingTurnId}
         fileInputRef={fileInputRef}
-        insights={insights}
         isStreaming={isSelectedSessionStreaming}
         messages={messages}
         onCopySessionId={() => void copySessionId()}

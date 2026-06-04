@@ -13,13 +13,10 @@ import type { FeedbackVerdict } from "../../types/api";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
-import type { ActionTraceEvent } from "./action-trace/action-trace-model";
 import type { ConversationMessage } from "./session-model";
-import { WorkingTimeline } from "./WorkingTimeline";
 
 interface MessageStreamProps {
   messages: ConversationMessage[];
-  insights?: ActionTraceEvent[];
   feedbackByTurnId?: Record<string, FeedbackVerdict>;
   feedbackPendingTurnId?: string | null;
   onCopyCode?: (code: string) => Promise<void> | void;
@@ -44,7 +41,6 @@ const SCROLL_STICK_THRESHOLD = 120;
 
 export function MessageStream({
   messages,
-  insights = [],
   feedbackByTurnId = {},
   feedbackPendingTurnId = null,
   onCopyCode,
@@ -138,8 +134,6 @@ export function MessageStream({
     );
   }
 
-  const precedingUserIdByMessageId = mapPrecedingUserIds(messages);
-
   return (
     <div
       className="message-stream transcript"
@@ -160,11 +154,6 @@ export function MessageStream({
           );
         }
 
-        const turnInsights = insightsForTurn(
-          message,
-          precedingUserIdByMessageId[message.id],
-          insights,
-        );
         return (
           <AssistantTurn
             copyLabel={
@@ -175,7 +164,6 @@ export function MessageStream({
               Boolean(message.turnId) &&
               feedbackPendingTurnId === message.turnId
             }
-            insights={turnInsights}
             key={message.id}
             message={message}
             onCopy={() => void copyMessage(message)}
@@ -227,7 +215,6 @@ function AssistantTurn({
   copyLabel,
   feedback,
   feedbackPending,
-  insights,
   message,
   onCopy,
   onCopyCode,
@@ -237,7 +224,6 @@ function AssistantTurn({
   copyLabel: string | null;
   feedback?: FeedbackVerdict;
   feedbackPending: boolean;
-  insights: ActionTraceEvent[];
   message: ConversationMessage;
   onCopy: () => void;
   onCopyCode?: (code: string) => Promise<void> | void;
@@ -270,8 +256,6 @@ function AssistantTurn({
             </span>
           ) : null}
         </div>
-
-        <WorkingTimeline events={insights} live={isStreaming} />
 
         {message.content ? (
           <div className="turn-content">
@@ -332,51 +316,6 @@ function AssistantTurn({
         </div>
       </div>
     </article>
-  );
-}
-
-/** Map each assistant message to the id of the user message that precedes it. */
-function mapPrecedingUserIds(
-  messages: ConversationMessage[],
-): Record<string, string | undefined> {
-  const result: Record<string, string | undefined> = {};
-  let cursor: string | undefined;
-  for (const message of messages) {
-    if (message.role === "user") {
-      cursor = message.id;
-    } else {
-      result[message.id] = cursor;
-    }
-  }
-  return result;
-}
-
-/**
- * Collect the action-trace events belonging to one assistant turn. The join
- * has to survive three id regimes: a live streaming turn (insights keyed by
- * `live_<assistantMessageId>`), a freshly-finished turn (migrated to the
- * server turn id, which also lands on `message.turnId`), and a reloaded turn
- * (traces keyed by the *user* turn id — i.e. the preceding user message id —
- * because the persisted agent turn row gets its own unrelated id).
- */
-function insightsForTurn(
-  message: ConversationMessage,
-  precedingUserMessageId: string | undefined,
-  insights: ActionTraceEvent[],
-): ActionTraceEvent[] {
-  if (insights.length === 0) {
-    return [];
-  }
-  const keys = new Set<string>();
-  if (message.turnId) {
-    keys.add(message.turnId);
-  }
-  keys.add(`live_${message.id}`);
-  if (precedingUserMessageId) {
-    keys.add(precedingUserMessageId);
-  }
-  return insights.filter(
-    (insight) => insight.turnId !== undefined && keys.has(insight.turnId),
   );
 }
 
