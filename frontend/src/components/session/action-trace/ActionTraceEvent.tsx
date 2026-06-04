@@ -88,15 +88,23 @@ export function ActionTraceEvent({ event }: { event: ActionTraceEventModel }) {
   return (
     <>
       <button
+        aria-expanded={preview !== null}
         aria-label={`${displayEvent.title} 详情`}
         className="action-trace-card"
+        data-open={preview !== null ? "true" : "false"}
         data-status={event.status ?? "info"}
-        onClick={(clickEvent) => openPreview(clickEvent.currentTarget)}
+        onClick={(clickEvent) =>
+          preview ? setPreview(null) : openPreview(clickEvent.currentTarget)
+        }
         type="button"
       >
         <span className="action-trace-card-title">
           <strong>{displayEvent.title}</strong>
-          <ChevronDown aria-hidden="true" size={14} />
+          <ChevronDown
+            aria-hidden="true"
+            className="action-trace-card-caret"
+            size={14}
+          />
         </span>
         <span className="action-trace-card-detail">
           {renderEventDetail(displayEvent)}

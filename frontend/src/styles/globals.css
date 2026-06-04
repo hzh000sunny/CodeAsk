@@ -2454,6 +2454,19 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
+/* The caret points down to invite a click, and flips up once the detail is
+   open — so a second click reads clearly as "collapse". */
+.action-trace-card-caret {
+  flex: none;
+  color: #98a2b3;
+  transition: transform 160ms ease;
+}
+
+.action-trace-card[data-open="true"] .action-trace-card-caret {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
 .action-trace-card-detail {
   gap: 7px;
   color: var(--muted);

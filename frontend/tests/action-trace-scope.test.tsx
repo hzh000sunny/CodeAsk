@@ -465,6 +465,33 @@ describe("action trace code scope display", () => {
     vi.useRealTimers();
   });
 
+  it("toggles the detail popover closed when the card is clicked again", () => {
+    const event: ActionTraceEventModel = {
+      id: "tool_result_toggle",
+      kind: "tool_result",
+      title: "代码搜索完成",
+      detail: "命中 1 个代码位置",
+      status: "success",
+      data: { tool_call_id: "call_toggle", tool_name: "search_code", ok: true },
+      evidenceRefs: [],
+    };
+
+    render(<ActionTraceEvent event={event} />);
+    const card = screen.getByRole("button", { name: "代码搜索完成 详情" });
+
+    fireEvent.click(card);
+    expect(
+      screen.getByRole("dialog", { name: "Agent 行动详情" }),
+    ).toBeInTheDocument();
+    expect(card).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(card);
+    expect(
+      screen.queryByRole("dialog", { name: "Agent 行动详情" }),
+    ).not.toBeInTheDocument();
+    expect(card).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("renders per-turn summary as stable metric chips including zero values", () => {
     const events: ActionTraceEventModel[] = [
       {
