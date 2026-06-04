@@ -76,7 +76,6 @@ export function SessionComposer({
       />
       <div className="composer-actions">
         <input
-          accept=".log,.txt,.md"
           className="visually-hidden"
           onChange={(event) => onUploadFile(event.target.files?.[0])}
           ref={fileInputRef}

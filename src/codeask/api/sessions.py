@@ -94,8 +94,6 @@ _FEATURE_INFERENCE_VERSION_INFO_WEIGHT = 60
 _FEATURE_INFERENCE_CANDIDATE_WEIGHT = 30
 
 _ALLOWED_KINDS = {"log", "image", "doc", "other"}
-_ALLOWED_EXTENSIONS = {".log", ".txt", ".md", ".png", ".jpg", ".jpeg"}
-_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 _DEFAULT_SESSION_TITLE = "新的研发会话"
 _SESSION_ATTACHMENTS_ENABLED_KEY = "session_attachments_enabled"
 
@@ -849,17 +847,11 @@ async def upload_attachment(
     filename = attachment_display_name(file.filename)
     if not filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file must have a name")
+    # CodeAsk just stores the material in the session working directory; how
+    # opencode / the model later reads it is out of scope here, so we accept
+    # any file type and size and keep the original suffix for the stored file.
     extension = Path(filename).suffix.lower()
-    if extension not in _ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"unsupported attachment extension: {extension}",
-        )
     content = await file.read()
-    if len(content) > _MAX_ATTACHMENT_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="file too large"
-        )
 
     attachment_id = f"att_{token_hex(8)}"
     storage_dir = request.app.state.settings.data_dir / "sessions" / session_id
