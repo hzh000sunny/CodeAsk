@@ -65,4 +65,27 @@ describe("MessageStream", () => {
     expect(container.querySelector(".turn-avatar")?.textContent).toBe("CA");
     expect(container.querySelector(".stream-caret")).toBeInTheDocument();
   });
+
+  it("shows a composing indicator before the first token arrives", () => {
+    const { container } = render(
+      <MessageStream
+        messages={[
+          { id: "msg_user_1", role: "user", content: "为什么会 401？" },
+          {
+            id: "msg_assistant_1",
+            role: "assistant",
+            content: "",
+            status: "streaming",
+          },
+        ]}
+      />,
+    );
+
+    const indicator = screen.getByRole("status", { name: "CodeAsk 正在准备回答" });
+    expect(indicator).toBeInTheDocument();
+    expect(container.querySelector(".composing-ink")).toBeInTheDocument();
+    expect(screen.getByText("正在落笔…")).toBeInTheDocument();
+    // The bare blinking caret no longer stands in for the preparing beat.
+    expect(container.querySelector(".stream-caret")).toBeNull();
+  });
 });

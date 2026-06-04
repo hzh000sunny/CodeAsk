@@ -1647,6 +1647,96 @@ textarea:focus-visible {
   }
 }
 
+/* ---- composing: the "preparing to answer" beat before the first token ----
+   An ink drop settling onto paper. The blue is the legitimate "agent is
+   working" signal; everything else stays charcoal and the life comes from
+   motion (a pulsing drop, a ripple spreading out, a band of light sweeping
+   the label) rather than from flooding the area with color. */
+.composing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  vertical-align: text-bottom;
+}
+
+.composing-ink {
+  position: relative;
+  flex: none;
+  width: 9px;
+  height: 9px;
+}
+
+.composing-ink::before {
+  content: "";
+  position: absolute;
+  inset: 1.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: composing-drop 1.7s ease-in-out infinite;
+}
+
+.composing-ink::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  animation: composing-ripple 1.7s ease-out infinite;
+}
+
+@keyframes composing-drop {
+  0%,
+  100% {
+    transform: scale(0.66);
+    opacity: 0.5;
+  }
+  45% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes composing-ripple {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  70%,
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+.composing-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: linear-gradient(
+    100deg,
+    rgba(43, 47, 55, 0.42) 0%,
+    rgba(43, 47, 55, 0.42) 34%,
+    #2b2f37 50%,
+    rgba(43, 47, 55, 0.42) 66%,
+    rgba(43, 47, 55, 0.42) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: composing-shimmer 2.6s ease-in-out infinite;
+}
+
+@keyframes composing-shimmer {
+  0% {
+    background-position: 130% 0;
+  }
+  100% {
+    background-position: -30% 0;
+  }
+}
+
 /* ---- footer: hover actions + feedback ---- */
 .turn-footer {
   margin-top: 8px;
@@ -7430,6 +7520,23 @@ textarea:focus-visible {
   .stream-caret {
     animation: none;
     opacity: 1;
+  }
+
+  .composing-ink::before {
+    animation: none;
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  .composing-ink::after {
+    animation: none;
+    opacity: 0;
+  }
+
+  .composing-label {
+    animation: none;
+    -webkit-text-fill-color: #2b2f37;
+    color: #2b2f37;
   }
 }
 

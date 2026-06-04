@@ -266,7 +266,7 @@ function AssistantTurn({
           </div>
         ) : isStreaming ? (
           <p className="streaming-placeholder">
-            <span aria-hidden="true" className="stream-caret" />
+            <ComposingIndicator />
           </p>
         ) : message.stoppedAt ? (
           <p className="streaming-placeholder">用户在模型回复前停止了这一轮</p>
@@ -316,6 +316,26 @@ function AssistantTurn({
         </div>
       </div>
     </article>
+  );
+}
+
+/**
+ * The beat before the first token lands. Rather than a bare blinking caret,
+ * an ink drop settles onto paper (the blue "agent is working" signal) beside a
+ * label that tells the reader an answer is being composed.
+ */
+function ComposingIndicator() {
+  return (
+    <span
+      aria-label="CodeAsk 正在准备回答"
+      className="composing-indicator"
+      role="status"
+    >
+      <span aria-hidden="true" className="composing-ink" />
+      <span aria-hidden="true" className="composing-label">
+        正在落笔…
+      </span>
+    </span>
   );
 }
 
