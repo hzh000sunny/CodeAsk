@@ -2199,6 +2199,157 @@ textarea:focus-visible {
   overflow: hidden;
 }
 
+/* ---- action-trace status: the rail's heartbeat ----
+   Idle reads as a still gray dot; running becomes a pulsing blue dot with a
+   ripple and a tabular tally, echoing the conversation's ink-drop language.
+   Blue stays reserved for the "agent is working" signal. */
+.action-trace-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.action-trace-status-dot {
+  position: relative;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #cdd5df;
+}
+
+.action-trace-status[data-state="running"] {
+  color: var(--accent);
+}
+
+.action-trace-status[data-state="running"] .action-trace-status-dot {
+  background: var(--accent);
+  animation: action-trace-breathe 1.7s ease-in-out infinite;
+}
+
+.action-trace-status[data-state="running"] .action-trace-status-dot::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  animation: action-trace-ripple 1.7s ease-out infinite;
+}
+
+.action-trace-status-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes action-trace-breathe {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  45% {
+    opacity: 1;
+  }
+}
+
+@keyframes action-trace-ripple {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.5;
+  }
+  70%,
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+/* ---- action-trace pending: the "still working" beat at the tail ----
+   A ghost of the next card — icon chip + shimmering label — so the agent
+   reads as alive between actions, in the same vocabulary as `.composing-*`. */
+.action-trace-pending {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 2px 2px;
+}
+
+.action-trace-pending-orb {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+}
+
+.action-trace-pending-orb::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: action-trace-breathe 1.4s ease-in-out infinite;
+}
+
+.action-trace-pending-orb::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  animation: action-trace-ripple 1.4s ease-out infinite;
+}
+
+.action-trace-pending-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: linear-gradient(
+    100deg,
+    rgba(37, 99, 235, 0.45) 0%,
+    rgba(37, 99, 235, 0.45) 34%,
+    var(--accent) 50%,
+    rgba(37, 99, 235, 0.45) 66%,
+    rgba(37, 99, 235, 0.45) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: action-trace-shimmer 2.4s ease-in-out infinite;
+}
+
+@keyframes action-trace-shimmer {
+  0% {
+    background-position: 130% 0;
+  }
+  100% {
+    background-position: -30% 0;
+  }
+}
+
 .action-trace-empty {
   display: flex;
   align-items: center;
@@ -7642,6 +7793,32 @@ textarea:focus-visible {
     animation: none;
     -webkit-text-fill-color: #2b2f37;
     color: #2b2f37;
+  }
+
+  .action-trace-status[data-state="running"] .action-trace-status-dot {
+    animation: none;
+    opacity: 1;
+  }
+
+  .action-trace-status[data-state="running"] .action-trace-status-dot::after {
+    animation: none;
+    opacity: 0;
+  }
+
+  .action-trace-pending-orb::before {
+    animation: none;
+    opacity: 1;
+  }
+
+  .action-trace-pending-orb::after {
+    animation: none;
+    opacity: 0;
+  }
+
+  .action-trace-pending-label {
+    animation: none;
+    -webkit-text-fill-color: var(--accent);
+    color: var(--accent);
   }
 }
 

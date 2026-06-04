@@ -659,3 +659,107 @@ describe("action trace code scope display", () => {
     );
   });
 });
+
+describe("action trace running affordances", () => {
+  const oneEvent: ActionTraceEventModel[] = [
+    {
+      id: "event_1",
+      kind: "tool_call",
+      title: "准备使用 代码搜索",
+      detail: "query=buddy",
+      status: "running",
+      turnId: "turn_1",
+      evidenceRefs: [],
+      data: { tool_name: "search_code" },
+    },
+  ];
+
+  it("shows a quiet ready status when idle", () => {
+    render(<ActionTracePanel events={oneEvent} isStreaming={false} />);
+
+    const status = screen.getByText("就绪").closest(".action-trace-status");
+    expect(status).toHaveAttribute("data-state", "ready");
+    expect(
+      status?.querySelector(".action-trace-status-count"),
+    ).toBeNull();
+  });
+
+  it("turns the status into a live heartbeat with an action tally while running", () => {
+    render(<ActionTracePanel events={oneEvent} isStreaming />);
+
+    const status = screen.getByText("运行中").closest(".action-trace-status");
+    expect(status).toHaveAttribute("data-state", "running");
+    expect(status).toHaveAttribute("aria-label", "运行中，本轮 1 个动作");
+    expect(
+      status?.querySelector(".action-trace-status-count"),
+    ).toHaveTextContent("1");
+  });
+
+  it("counts only the current turn in the live tally, resetting across turns", () => {
+    const acrossTurns: ActionTraceEventModel[] = [
+      {
+        id: "e1",
+        kind: "tool_call",
+        title: "上一轮动作 A",
+        detail: "",
+        status: "success",
+        turnId: "turn_1",
+        evidenceRefs: [],
+        data: {},
+      },
+      {
+        id: "e2",
+        kind: "tool_result",
+        title: "上一轮动作 B",
+        detail: "",
+        status: "success",
+        turnId: "turn_1",
+        evidenceRefs: [],
+        data: {},
+      },
+      {
+        id: "e3",
+        kind: "tool_call",
+        title: "本轮动作",
+        detail: "",
+        status: "running",
+        turnId: "turn_2",
+        evidenceRefs: [],
+        data: {},
+      },
+    ];
+
+    render(<ActionTracePanel events={acrossTurns} isStreaming />);
+
+    const status = screen.getByText("运行中").closest(".action-trace-status");
+    // 3 events total, but only the last turn (turn_2) has 1 — that's the tally.
+    expect(status).toHaveAttribute("aria-label", "运行中，本轮 1 个动作");
+    expect(
+      status?.querySelector(".action-trace-status-count"),
+    ).toHaveTextContent("1");
+  });
+
+  it("appends the still-working pending beat after the events while running", () => {
+    render(<ActionTracePanel events={oneEvent} isStreaming />);
+
+    expect(screen.getByLabelText("正在执行下一个动作")).toBeInTheDocument();
+    expect(screen.getByText("执行中…")).toBeInTheDocument();
+  });
+
+  it("does not show the pending beat once the run settles", () => {
+    render(<ActionTracePanel events={oneEvent} isStreaming={false} />);
+
+    expect(screen.queryByLabelText("正在执行下一个动作")).toBeNull();
+  });
+
+  it("shows the warming pending beat instead of the empty hint when streaming with no events yet", () => {
+    render(<ActionTracePanel events={[]} isStreaming />);
+
+    expect(screen.getByLabelText("正在执行下一个动作")).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "发送问题后，这里会展示模型实际使用的上下文和工具动作。",
+      ),
+    ).toBeNull();
+  });
+});

@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Activity, ChevronRight } from "lucide-react";
 
-import { Badge } from "../../ui/badge";
 import { ActionTraceEvent } from "./ActionTraceEvent";
 import type { ActionTraceEvent as ActionTraceEventModel } from "./action-trace-model";
 
@@ -10,8 +9,31 @@ interface ActionTracePanelProps {
   isStreaming: boolean;
 }
 
+// The still-working beat at the tail of the trace: a ghost of the next card
+// (icon chip + label) breathing in the same ink-drop language as the
+// conversation's "正在落笔…" indicator, so the rail and the message stream
+// speak with one voice about "the agent is alive and working".
+const pendingSignal = (
+  <div
+    aria-label="正在执行下一个动作"
+    className="action-trace-pending"
+    role="status"
+  >
+    <span aria-hidden="true" className="action-trace-pending-orb" />
+    <span className="action-trace-pending-label">执行中…</span>
+  </div>
+);
+
 export function ActionTracePanel({ events, isStreaming }: ActionTracePanelProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // The live tally counts only the current turn (the last group, by the same
+  // `turnId ?? "unassigned"` keying as the grouping below), so it reads as
+  // "how much this question has done" and resets when a new turn opens.
+  const currentTurnId = events.at(-1)?.turnId ?? "unassigned";
+  const currentTurnCount = events.filter(
+    (event) => (event.turnId ?? "unassigned") === currentTurnId,
+  ).length;
 
   useEffect(() => {
     const latestEvent = events.at(-1);
@@ -27,13 +49,37 @@ export function ActionTracePanel({ events, isStreaming }: ActionTracePanelProps)
     <section className="action-trace-section">
       <div className="panel-heading">
         <h2>Agent 行动轨迹</h2>
-        <Badge>{isStreaming ? "运行中" : "就绪"}</Badge>
+        {/* The rail's heartbeat: a still gray dot when idle, a pulsing blue
+            dot (with a live action tally) while the agent is running. Blue is
+            reserved here for the legitimate "working" signal. */}
+        <span
+          aria-label={
+            isStreaming ? `运行中，本轮 ${currentTurnCount} 个动作` : "就绪"
+          }
+          className="action-trace-status"
+          data-state={isStreaming ? "running" : "ready"}
+          role="status"
+        >
+          <span aria-hidden="true" className="action-trace-status-dot" />
+          <span className="action-trace-status-label">
+            {isStreaming ? "运行中" : "就绪"}
+          </span>
+          {isStreaming && currentTurnCount > 0 ? (
+            <span className="action-trace-status-count">{currentTurnCount}</span>
+          ) : null}
+        </span>
       </div>
       {events.length === 0 ? (
-        <div className="action-trace-empty">
-          <Activity aria-hidden="true" size={18} />
-          <p>发送问题后，这里会展示模型实际使用的上下文和工具动作。</p>
-        </div>
+        isStreaming ? (
+          <div className="action-trace-list action-trace-scroll">
+            {pendingSignal}
+          </div>
+        ) : (
+          <div className="action-trace-empty">
+            <Activity aria-hidden="true" size={18} />
+            <p>发送问题后，这里会展示模型实际使用的上下文和工具动作。</p>
+          </div>
+        )
       ) : (
         <div className="action-trace-list action-trace-scroll" ref={scrollRef}>
           {groupActionTraceEvents(events).map((group, index, groups) => {
@@ -101,6 +147,7 @@ export function ActionTracePanel({ events, isStreaming }: ActionTracePanelProps)
               </details>
             );
           })}
+          {isStreaming ? pendingSignal : null}
         </div>
       )}
     </section>
