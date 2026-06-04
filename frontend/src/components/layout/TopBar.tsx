@@ -46,7 +46,7 @@ export function TopBar({ onLoginRequest, onNavigate }: TopBarProps) {
   return (
     <header className="global-topbar">
       <div className="topbar-brand" aria-label="CodeAsk">
-        <div className="brand-mark">C</div>
+        <img alt="" className="brand-logo" height="30" src="/logo.svg" width="30" />
         <span>CodeAsk</span>
       </div>
       <div className="account-menu" ref={menuRef}>
