@@ -4,6 +4,7 @@ import type {
   FeedbackVerdict,
   SessionResponse,
 } from "../../types/api";
+import type { ActionTraceEvent } from "./action-trace/action-trace-model";
 import { MessageStream } from "./MessageStream";
 import { SessionComposer } from "./SessionComposer";
 import { SessionHeader } from "./SessionHeader";
@@ -17,6 +18,7 @@ interface SessionConversationPanelProps {
   feedbackByTurnId: Record<string, FeedbackVerdict>;
   feedbackPendingTurnId: string | null;
   fileInputRef: RefObject<HTMLInputElement | null>;
+  insights: ActionTraceEvent[];
   isStreaming: boolean;
   messages: ConversationMessage[];
   onCancelMessage: () => void;
@@ -45,6 +47,7 @@ export function SessionConversationPanel({
   feedbackByTurnId,
   feedbackPendingTurnId,
   fileInputRef,
+  insights,
   isStreaming,
   messages,
   onCancelMessage,
@@ -76,6 +79,7 @@ export function SessionConversationPanel({
       <MessageStream
         feedbackByTurnId={feedbackByTurnId}
         feedbackPendingTurnId={feedbackPendingTurnId}
+        insights={insights}
         messages={messages}
         onCopyCode={(code) => copyTextToClipboard(code)}
         onCopyMessage={(message) => copyTextToClipboard(message.content)}

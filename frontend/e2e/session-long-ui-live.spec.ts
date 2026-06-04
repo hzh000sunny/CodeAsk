@@ -40,7 +40,7 @@ test("long UI conversation preserves multiline user bubbles and runtime context"
 
   await sendThroughComposer(page, firstQuestion);
   const multilineText = await page
-    .locator(".message-bubble[data-role='user'] .plain-message-content")
+    .locator(".turn[data-role='user'] .plain-message-content")
     .last()
     .evaluate((node) => node.textContent);
   expect(multilineText).toBe(firstQuestion);

@@ -1436,7 +1436,7 @@ describe("SessionWorkspace streaming interaction", () => {
     );
     expect(
       await within(
-        copyMessageButton.closest(".message-actions") as HTMLElement,
+        copyMessageButton.closest(".turn-actions") as HTMLElement,
       ).findByText("已复制"),
     ).toBeInTheDocument();
     expect(screen.queryByText("已复制消息")).not.toBeInTheDocument();
@@ -1638,7 +1638,7 @@ describe("SessionWorkspace streaming interaction", () => {
       await screen.findByText("服务启动失败，日志显示配置缺失"),
     ).toBeInTheDocument();
     expect(await screen.findByText("检查配置缺失。")).toBeInTheDocument();
-    expect(screen.getByText("上下文已准备")).toBeInTheDocument();
+    expect(screen.getAllByText("上下文已准备")[0]).toBeInTheDocument();
 
     await waitFor(() => {
       const [, init] = fetchMock.mock.calls.find(([path]) =>
@@ -2098,7 +2098,7 @@ describe("SessionWorkspace streaming interaction", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
-    expect(await screen.findByText("准备使用 代码搜索")).toBeInTheDocument();
+    expect((await screen.findAllByText("准备使用 代码搜索"))[0]).toBeInTheDocument();
     expect(screen.getByText("命中小米病历")).toBeInTheDocument();
   });
 
@@ -2169,7 +2169,7 @@ describe("SessionWorkspace streaming interaction", () => {
 
     expect(await screen.findByText("第 1 轮")).toBeInTheDocument();
     expect(screen.getByText("第 2 轮")).toBeInTheDocument();
-    expect(screen.getByText("上下文已准备")).toBeInTheDocument();
+    expect(screen.getAllByText("上下文已准备")[0]).toBeInTheDocument();
     expect(screen.getByText("代码搜索完成")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /代码搜索完成/ }));
@@ -2323,14 +2323,14 @@ describe("SessionWorkspace streaming interaction", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     expect(await screen.findByText("正在分析")).toBeInTheDocument();
-    expect(screen.getByText("上下文已准备")).toBeInTheDocument();
+    expect(screen.getAllByText("上下文已准备")[0]).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "停止" }));
 
     await waitFor(() => {
       expect(screen.getByText("需要中断的长任务")).toBeInTheDocument();
       expect(screen.getByText("正在分析")).toBeInTheDocument();
       expect(screen.getByText("已停止")).toBeInTheDocument();
-      expect(screen.getByText("上下文已准备")).toBeInTheDocument();
+      expect(screen.getAllByText("上下文已准备")[0]).toBeInTheDocument();
     });
     expect(
       fetchMock.mock.calls.some(
@@ -2387,12 +2387,14 @@ describe("SessionWorkspace streaming interaction", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
-    expect(await screen.findByText("日志命中支付特性")).toBeInTheDocument();
-    expect(screen.getByText("评估证据")).toBeInTheDocument();
-    expect(screen.getByText("准备使用 Wiki 搜索")).toBeInTheDocument();
-    expect(screen.getByText("Wiki 搜索完成")).toBeInTheDocument();
-    expect(screen.getByText("证据：启动手册")).toBeInTheDocument();
-    expect(screen.getByText("请补充完整启动日志")).toBeInTheDocument();
+    expect(
+      (await screen.findAllByText("日志命中支付特性"))[0],
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("评估证据")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("准备使用 Wiki 搜索")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Wiki 搜索完成")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("证据：启动手册")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("请补充完整启动日志")[0]).toBeInTheDocument();
     expect(
       await screen.findByText("需要补充：请补充完整启动日志"),
     ).toBeInTheDocument();
@@ -2443,10 +2445,10 @@ describe("SessionWorkspace streaming interaction", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
-    expect(await screen.findByText("模型上下文超限")).toBeInTheDocument();
     expect(await screen.findByRole("alertdialog")).toHaveTextContent(
       "Agent 运行失败：模型上下文超限",
     );
+    expect(screen.getAllByText("模型上下文超限")[0]).toBeInTheDocument();
   });
 
   it("submits feedback and telemetry from the session workspace", async () => {
