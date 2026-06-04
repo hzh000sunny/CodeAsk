@@ -2174,8 +2174,10 @@ describe("SessionWorkspace streaming interaction", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /代码搜索完成/ }));
     const details = screen.getByRole("dialog", { name: "Agent 行动详情" });
-    expect(within(details).getByText("工具名称")).toBeInTheDocument();
-    expect(within(details).getByText("search_code")).toBeInTheDocument();
+    const toolRow = within(details)
+      .getByText("工具名称")
+      .closest(".action-trace-detail-row");
+    expect(toolRow).toHaveTextContent("search_code");
     expect(within(details).getByText("所属轮次")).toBeInTheDocument();
     expect(within(details).getByText("turn_2")).toBeInTheDocument();
     expect(within(details).getByText("发生时间")).toBeInTheDocument();

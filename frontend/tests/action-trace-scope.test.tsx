@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ActionTraceEvent } from "../src/components/session/action-trace/ActionTraceEvent";
@@ -463,6 +463,72 @@ describe("action trace code scope display", () => {
     });
     expect(screen.queryByText("已复制")).not.toBeInTheDocument();
     vi.useRealTimers();
+  });
+
+  it("shows a status-tinted kind anchor and key-metric chips in the lede", () => {
+    const event: ActionTraceEventModel = {
+      id: "tool_result_lede",
+      kind: "tool_result",
+      title: "代码搜索完成",
+      detail: "命中 2 个代码位置",
+      status: "success",
+      data: {
+        tool_call_id: "call_lede",
+        tool_name: "search_code",
+        ok: true,
+        result: { duration_ms: 42.3, data: { hits: [{}, {}] } },
+      },
+      evidenceRefs: [],
+    };
+
+    const { container } = render(<ActionTraceEvent event={event} />);
+
+    // The card carries a status-tinted kind anchor.
+    const card = screen.getByRole("button", { name: "代码搜索完成 详情" });
+    expect(card).toHaveAttribute("data-status", "success");
+    expect(container.querySelector(".action-trace-card-icon")).toBeInTheDocument();
+
+    fireEvent.click(card);
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
+    // Kind + status badge and the lede's key-metric chips.
+    expect(dialog).toHaveTextContent("结果 · 成功");
+    const metrics = dialog.querySelector(".action-trace-popover-metrics");
+    expect(metrics).not.toBeNull();
+    expect(metrics).toHaveTextContent("工具search_code");
+    expect(metrics).toHaveTextContent("耗时42.3 ms");
+    expect(metrics).toHaveTextContent("命中2");
+  });
+
+  it("does not echo the lede summary as a duplicate table row", () => {
+    const event: ActionTraceEventModel = {
+      id: "tool_result_dedupe",
+      kind: "tool_result",
+      title: "OpenViking 读取完成",
+      detail: "读取完成：返回 1 个文档",
+      status: "success",
+      data: {
+        tool_call_id: "call_read",
+        tool_name: "openviking_read",
+        ok: true,
+        summary: "读取完成：返回 1 个文档",
+      },
+      evidenceRefs: [],
+    };
+
+    render(<ActionTraceEvent event={event} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "OpenViking 读取完成 详情" }),
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
+    // The summary appears once — in the 结果摘要 row — not also as a lede line.
+    expect(
+      within(dialog).getAllByText("读取完成：返回 1 个文档"),
+    ).toHaveLength(1);
+    const summaryRow = within(dialog)
+      .getByText("结果摘要")
+      .closest(".action-trace-detail-row");
+    expect(summaryRow).toHaveTextContent("读取完成：返回 1 个文档");
   });
 
   it("toggles the detail popover closed when the card is clicked again", () => {

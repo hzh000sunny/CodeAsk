@@ -2433,23 +2433,53 @@ textarea:focus-visible {
   border-left-color: #d92d20;
 }
 
-.action-trace-card-title,
-.action-trace-card-detail {
+.action-trace-card-head {
   display: flex;
   align-items: center;
+  gap: 9px;
   min-width: 0;
 }
 
-.action-trace-card-title {
-  justify-content: space-between;
-  gap: 10px;
+/* The status-tinted kind anchor: at a glance, "what action + did it land".
+   The tint is the only color and it stays on a small chip, never a fill. */
+.action-trace-card-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: #f2f4f7;
+  color: #667085;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease;
 }
 
-.action-trace-card-title strong {
+.action-trace-card[data-status="running"] .action-trace-card-icon {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.action-trace-card[data-status="success"] .action-trace-card-icon {
+  background: #e7f6ee;
+  color: #067647;
+}
+
+.action-trace-card[data-status="error"] .action-trace-card-icon {
+  background: #fdeceb;
+  color: #b42318;
+}
+
+.action-trace-card-title {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: #182230;
   font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2467,19 +2497,23 @@ textarea:focus-visible {
   color: var(--accent);
 }
 
+/* Indented under the title (past the 24px anchor + 9px gap). The mono-first
+   stack renders paths/queries/numbers as code while CJK falls through to the
+   normal text font, so technical fragments read as technical. */
 .action-trace-card-detail {
-  gap: 7px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.action-trace-card-detail > span {
   display: -webkit-box;
+  min-width: 0;
+  padding-left: 33px;
   overflow: hidden;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  color: #667085;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
 }
 
 .action-trace-popover {
@@ -2536,15 +2570,33 @@ textarea:focus-visible {
   gap: 10px;
 }
 
-.action-trace-popover-header span {
+.action-trace-popover-kind {
   width: max-content;
   border: 1px solid #d9e1ea;
   border-radius: 999px;
   background: #f8fafc;
   color: #475467;
-  padding: 3px 8px;
+  padding: 3px 9px;
   font-size: 12px;
   font-weight: 700;
+}
+
+.action-trace-popover-kind[data-status="running"] {
+  border-color: #c3d9fb;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.action-trace-popover-kind[data-status="success"] {
+  border-color: #abe0c2;
+  background: #e7f6ee;
+  color: #067647;
+}
+
+.action-trace-popover-kind[data-status="error"] {
+  border-color: #f3c2bd;
+  background: #fef3f2;
+  color: #b42318;
 }
 
 .action-trace-popover-header button {
@@ -2578,26 +2630,82 @@ textarea:focus-visible {
   font-size: 13px;
 }
 
+/* The lede: the bits worth seeing first, set apart from the full table below. */
+.action-trace-popover-lede {
+  display: grid;
+  gap: 8px;
+}
+
+.action-trace-popover-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.action-trace-popover-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fbfcfe;
+  padding: 3px 9px;
+}
+
+.action-trace-popover-metric-label {
+  color: #98a2b3;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.action-trace-popover-metric strong {
+  color: #344054;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.action-trace-popover-metric[data-tone="error"] {
+  border-color: #f3c2bd;
+  background: #fef3f2;
+}
+
+.action-trace-popover-metric[data-tone="error"] strong {
+  color: #b42318;
+}
+
+/* The full record, de-boxed: a quiet two-column table with hairline rows so
+   the values — not a stack of card borders — carry the detail. */
 .action-trace-detail-grid {
   display: grid;
-  gap: 6px;
+  gap: 0;
   margin: 0;
+  border-top: 1px solid #eef1f5;
 }
 
 .action-trace-detail-row {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 8px;
-  border: 1px solid #edf1f5;
-  border-radius: 7px;
-  background: #fbfcfe;
-  padding: 7px 8px;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 12px;
+  border: 0;
+  border-bottom: 1px solid #f0f2f5;
+  border-radius: 0;
+  background: transparent;
+  padding: 7px 0;
+}
+
+.action-trace-detail-row:last-child {
+  border-bottom: 0;
 }
 
 .action-trace-detail-row dt {
   color: #667085;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .action-trace-detail-row dd {

@@ -169,8 +169,10 @@ describe("InvestigationPanel runtime previews", () => {
     fireEvent.click(screen.getByRole("button", { name: /代码仓库完成/ }));
 
     const dialog = screen.getByRole("dialog", { name: "Agent 行动详情" });
-    expect(within(dialog).getByText("结果条数")).toBeInTheDocument();
-    expect(within(dialog).getByText("1")).toBeInTheDocument();
+    const countRow = within(dialog)
+      .getByText("结果条数")
+      .closest(".action-trace-detail-row");
+    expect(countRow).toHaveTextContent("1");
     expect(within(dialog).getByText("结果预览")).toBeInTheDocument();
     expect(within(dialog).getByText(/repo_anything_llm/)).toBeInTheDocument();
     expect(

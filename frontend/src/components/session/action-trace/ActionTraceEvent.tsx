@@ -1,20 +1,73 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Brain, ChevronDown, Copy, X } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  BookOpen,
+  Brain,
+  CheckCircle2,
+  ChevronDown,
+  Copy,
+  Database,
+  FileSearch,
+  MessageCircleQuestion,
+  Search,
+  Sparkles,
+  Wrench,
+  X,
+  XCircle,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import { MarkdownRenderer } from "../../ui/MarkdownRenderer";
 import { copyTextToClipboard } from "../session-clipboard";
-import { ClarificationEvent } from "./ClarificationEvent";
-import { EvidenceEvent } from "./EvidenceEvent";
-import { RetrievalEvent } from "./RetrievalEvent";
-import { ToolCallEvent } from "./ToolCallEvent";
-import { ToolResultEvent } from "./ToolResultEvent";
 import {
   actionTraceKindLabel,
   evidenceLabel,
   type ActionTraceEvent as ActionTraceEventModel,
 } from "./action-trace-model";
 import { redactActionTraceEvent } from "./path-redaction";
+
+/** Kind → glyph for the card's status-tinted anchor. */
+const KIND_ICONS: Record<string, LucideIcon> = {
+  analysis: Brain,
+  retrieval: Database,
+  wiki_scope: BookOpen,
+  tool_call: Wrench,
+  tool_result: CheckCircle2,
+  evidence: FileSearch,
+  clarification: MessageCircleQuestion,
+  assistant_action: Sparkles,
+  runtime_status: Activity,
+  diagnostic: Search,
+  warning: AlertTriangle,
+  error: AlertCircle,
+};
+
+/** The card's one-line detail — evidence cards prefer their ref labels. */
+function eventDetailText(event: ActionTraceEventModel): string {
+  if (event.kind === "evidence") {
+    const labels = (event.evidenceRefs ?? []).map(evidenceLabel).slice(0, 2);
+    if (labels.length > 0) {
+      return labels.join(" · ");
+    }
+  }
+  return event.detail ?? "";
+}
+
+function statusLabel(status: string | undefined): string | null {
+  if (status === "running") {
+    return "运行中";
+  }
+  if (status === "success") {
+    return "成功";
+  }
+  if (status === "error") {
+    return "失败";
+  }
+  return null;
+}
 
 export function ActionTraceEvent({ event }: { event: ActionTraceEventModel }) {
   const displayEvent = redactActionTraceEvent(event);
@@ -85,6 +138,15 @@ export function ActionTraceEvent({ event }: { event: ActionTraceEventModel }) {
     });
   }
 
+  // A tool result's anchor reports its outcome; everything else shows its kind.
+  // Kept as a plain map lookup (not a helper call) so it reads as "select an
+  // existing icon", which is what the renderer expects.
+  const AnchorIcon =
+    displayEvent.kind === "tool_result" && displayEvent.status === "error"
+      ? XCircle
+      : (KIND_ICONS[String(displayEvent.kind)] ?? Search);
+  const detailText = eventDetailText(displayEvent);
+
   return (
     <>
       <button
@@ -98,17 +160,22 @@ export function ActionTraceEvent({ event }: { event: ActionTraceEventModel }) {
         }
         type="button"
       >
-        <span className="action-trace-card-title">
-          <strong>{displayEvent.title}</strong>
+        <span className="action-trace-card-head">
+          <span aria-hidden="true" className="action-trace-card-icon">
+            <AnchorIcon size={15} />
+          </span>
+          <strong className="action-trace-card-title">
+            {displayEvent.title}
+          </strong>
           <ChevronDown
             aria-hidden="true"
             className="action-trace-card-caret"
             size={14}
           />
         </span>
-        <span className="action-trace-card-detail">
-          {renderEventDetail(displayEvent)}
-        </span>
+        {detailText ? (
+          <span className="action-trace-card-detail">{detailText}</span>
+        ) : null}
       </button>
       {preview
         ? createPortal(
@@ -123,30 +190,6 @@ export function ActionTraceEvent({ event }: { event: ActionTraceEventModel }) {
             document.body,
           )
         : null}
-    </>
-  );
-}
-
-function renderEventDetail(event: ActionTraceEventModel) {
-  if (event.kind === "retrieval") {
-    return <RetrievalEvent event={event} />;
-  }
-  if (event.kind === "tool_call") {
-    return <ToolCallEvent event={event} />;
-  }
-  if (event.kind === "tool_result") {
-    return <ToolResultEvent event={event} />;
-  }
-  if (event.kind === "evidence") {
-    return <EvidenceEvent event={event} />;
-  }
-  if (event.kind === "clarification") {
-    return <ClarificationEvent event={event} />;
-  }
-  return (
-    <>
-      <Brain aria-hidden="true" size={15} />
-      <span>{event.detail}</span>
     </>
   );
 }
@@ -166,6 +209,14 @@ function ActionTracePreview({
   placement: "left" | "right" | "below";
   top: number;
 }) {
+  const status = event.status ?? "info";
+  const statusText = statusLabel(status);
+  const metrics = keyMetrics(event);
+  const rows = detailRowsForEvent(event);
+  // The lede summary is derived from the same fields that become table rows
+  // (a tool call's URI, a result's summary, …). Drop it when the table already
+  // carries it, so the popover never prints the same line twice.
+  const showLedeDetail = Boolean(event.detail) && !isDetailEchoedByRows(event.detail, rows);
   return (
     <section
       aria-label="Agent 行动详情"
@@ -176,7 +227,10 @@ function ActionTracePreview({
       style={{ left, maxHeight, top }}
     >
       <div className="action-trace-popover-header">
-        <span>{actionTraceKindLabel(event.kind)}</span>
+        <span className="action-trace-popover-kind" data-status={status}>
+          {actionTraceKindLabel(event.kind)}
+          {statusText ? ` · ${statusText}` : ""}
+        </span>
         <button
           aria-label="关闭行动详情"
           onClick={onClose}
@@ -186,15 +240,33 @@ function ActionTracePreview({
           <X aria-hidden="true" size={14} />
         </button>
       </div>
-      <strong>{event.title}</strong>
-      {event.detailMarkdown ? (
-        <div className="action-trace-markdown">
-          <MarkdownRenderer content={event.detailMarkdown} />
-        </div>
-      ) : (
-        <p>{event.detail}</p>
-      )}
-      <ActionTraceDetailRows event={event} />
+      <div className="action-trace-popover-lede">
+        <strong>{event.title}</strong>
+        {event.detailMarkdown ? (
+          <div className="action-trace-markdown">
+            <MarkdownRenderer content={event.detailMarkdown} />
+          </div>
+        ) : showLedeDetail ? (
+          <p>{event.detail}</p>
+        ) : null}
+        {metrics.length > 0 ? (
+          <div className="action-trace-popover-metrics" aria-label="关键指标">
+            {metrics.map((metric) => (
+              <span
+                className="action-trace-popover-metric"
+                data-tone={metric.tone}
+                key={metric.label}
+              >
+                <span className="action-trace-popover-metric-label">
+                  {metric.label}
+                </span>
+                <strong>{metric.value}</strong>
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <ActionTraceDetailRows rows={rows} />
       {(event.evidenceRefs?.length ?? 0) > 0 ? (
         <ul className="action-trace-evidence-list">
           {event.evidenceRefs?.map((ref, index) => (
@@ -209,8 +281,90 @@ function ActionTracePreview({
   );
 }
 
-function ActionTraceDetailRows({ event }: { event: ActionTraceEventModel }) {
-  const rows = detailRowsForEvent(event);
+interface TraceMetric {
+  label: string;
+  value: string;
+  tone: "neutral" | "activity" | "evidence" | "error";
+}
+
+/** The 1–4 figures worth seeing first, surfaced as chips above the full table. */
+function keyMetrics(event: ActionTraceEventModel): TraceMetric[] {
+  const data = event.data ?? {};
+  const result = recordValue(data.result) ?? {};
+  const resultData = recordValue(result.data) ?? {};
+  const timing = recordValue(data.timing);
+  const metrics: TraceMetric[] = [];
+
+  const toolName = stringValue(data.tool_name) ?? stringValue(data.name);
+  if (toolName) {
+    metrics.push({ label: "工具", value: toolName, tone: "neutral" });
+  }
+
+  const duration =
+    msDataLabel(data.duration_ms) ??
+    msDataLabel(result.duration_ms) ??
+    msDataLabel(resultData.duration_ms) ??
+    msDataLabel(timing?.total_elapsed_ms) ??
+    msDataLabel(timing?.turn_elapsed_ms);
+  if (duration) {
+    metrics.push({ label: "耗时", value: duration, tone: "activity" });
+  }
+
+  const hits = Array.isArray(resultData.hits) ? resultData.hits.length : null;
+  const itemsCount = numberDataLabel(data.items_count);
+  if (hits !== null) {
+    metrics.push({ label: "命中", value: String(hits), tone: "evidence" });
+  } else if (itemsCount) {
+    metrics.push({ label: "结果", value: itemsCount, tone: "evidence" });
+  }
+
+  const evidenceCount = event.evidenceRefs?.length ?? 0;
+  if (evidenceCount > 0 && metrics.length < 4) {
+    metrics.push({
+      label: "证据",
+      value: String(evidenceCount),
+      tone: "evidence",
+    });
+  }
+
+  const errorType = stringValue(data.error_type) ?? stringValue(result.error);
+  if (errorType) {
+    metrics.push({ label: "错误", value: errorType, tone: "error" });
+  }
+
+  return metrics.slice(0, 4);
+}
+
+/** Rows whose value the lede summary tends to echo verbatim. */
+const ECHO_ROW_LABELS = new Set([
+  "结果摘要",
+  "调用参数",
+  "结果预览",
+  "错误信息",
+  "原始参数",
+  "原始结果",
+]);
+
+function isDetailEchoedByRows(
+  detail: string | undefined,
+  rows: Array<{ label: string; value: string }>,
+): boolean {
+  const needle = (detail ?? "").replace(/\s+/g, "");
+  if (needle.length === 0) {
+    return true;
+  }
+  return rows.some(
+    (row) =>
+      ECHO_ROW_LABELS.has(row.label) &&
+      row.value.replace(/\s+/g, "").includes(needle),
+  );
+}
+
+function ActionTraceDetailRows({
+  rows,
+}: {
+  rows: Array<{ label: string; value: string }>;
+}) {
   if (rows.length === 0) {
     return null;
   }
