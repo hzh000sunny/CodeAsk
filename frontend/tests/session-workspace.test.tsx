@@ -962,7 +962,9 @@ describe("SessionWorkspace streaming interaction", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
-  it("promotes a session attachment into wiki and opens the promoted node", async () => {
+  // 晋级为 Wiki 的卡片入口暂时隐藏（功能未启用），故跳过其 UI 流程；
+  // API（promoteSessionAttachmentToWiki）与上层 prop 仍保留，待重新启用时恢复。
+  it.skip("promotes a session attachment into wiki and opens the promoted node", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/auth/me") {

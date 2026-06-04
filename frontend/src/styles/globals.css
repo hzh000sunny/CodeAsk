@@ -1083,7 +1083,7 @@ textarea:focus-visible {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #2f6fed 0%, #54a3ff 100%);
+  background: #2b2f37;
   transition: width 180ms ease;
 }
 
@@ -3281,6 +3281,52 @@ textarea:focus-visible {
   }
 }
 
+/* Calm empty/loading state for the session-data section — same muted
+   dashed-chip vocabulary as `.action-trace-empty`, but lighter since this is
+   a secondary rail section. Scoped class so the shared `.empty-note` stays
+   untouched. */
+.attachment-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  margin-top: 12px;
+  border: 1px dashed #dde4ec;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fcfdff, #f6f8fc);
+  color: #667085;
+  padding: 18px 16px;
+}
+
+.attachment-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid #eaeef3;
+  background: #ffffff;
+  color: #98a2b3;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+}
+
+.attachment-empty .attachment-empty-title {
+  margin: 0;
+  color: #344054;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.attachment-empty .attachment-empty-hint {
+  margin: 0;
+  max-width: 28ch;
+  color: #98a2b3;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .attachment-list {
   display: grid;
   gap: 8px;
@@ -3290,26 +3336,119 @@ textarea:focus-visible {
 }
 
 .attachment-list li {
+  position: relative;
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   border: 1px solid var(--line);
-  border-left: 3px solid #8aa4c2;
+  border-left: 3px solid #cbd2dc;
   border-radius: 8px;
   background: #ffffff;
   padding: 10px 11px;
+  box-shadow: 0 1px 1px rgba(16, 24, 40, 0.03);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.attachment-list li:hover {
+  border-color: #d8e2ec;
+  box-shadow: 0 2px 6px rgba(16, 24, 40, 0.06);
+}
+
+/* A muted document chip anchors the card in the rail's icon-chip vocabulary. */
+.attachment-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-top: 1px;
+  border-radius: 7px;
+  border: 1px solid #eaeef3;
+  background: #f7f9fc;
+  color: #98a2b3;
 }
 
 .attachment-summary {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   min-width: 0;
+  flex: 1;
 }
 
 .attachment-summary strong {
   color: #182230;
   font-size: 13px;
+  font-weight: 650;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Technical meta on one line — id/size in the mono-first stack, ellipsised
+   so it never wraps the way it did when the action buttons stole its width. */
+.attachment-summary .attachment-meta {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 11.5px;
+}
+
+/* Actions rest hidden and fade/slide in on hover or keyboard focus; a white
+   gradient backdrop keeps them clean over a long title's tail. Pinned to the
+   title row only (compact buttons) so the meta/description below stay clear,
+   and the container itself never captures pointer events — only the buttons
+   do — so the text underneath remains selectable/copyable. */
+.attachment-actions {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding-left: 18px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), #ffffff 36%);
+  opacity: 0;
+  transform: translateX(4px);
+  pointer-events: none;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.attachment-actions .icon-only {
+  width: 26px;
+  height: 26px;
+}
+
+.attachment-list li:hover .attachment-actions,
+.attachment-list li:focus-within .attachment-actions {
+  opacity: 1;
+  transform: none;
+}
+
+/* Only the buttons are interactive — the gradient and gaps let clicks and
+   text selection pass straight through to the content beneath. */
+.attachment-list li:hover .attachment-actions .icon-only,
+.attachment-list li:focus-within .attachment-actions .icon-only {
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attachment-list li,
+  .attachment-actions {
+    transition: none;
+  }
+
+  .attachment-actions {
+    transform: none;
+  }
 }
 
 .attachment-summary span {
@@ -8050,10 +8189,6 @@ textarea:focus-visible {
   background: #ffffff;
   padding: 12px 13px;
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.03);
-}
-
-.session-workspace .session-runtime-progress-bar {
-  background: #2b2f37;
 }
 
 @media (prefers-reduced-motion: reduce) {

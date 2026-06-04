@@ -1,10 +1,4 @@
-import {
-  ArrowUpRight,
-  FileText,
-  MessageSquareText,
-  Pencil,
-  Trash2,
-} from "lucide-react";
+import { Cpu, FileText, MessageSquareText, Pencil, Trash2 } from "lucide-react";
 
 import { ActionTracePanel } from "./action-trace/ActionTracePanel";
 import type { ActionTraceEvent } from "./action-trace/action-trace-model";
@@ -31,7 +25,6 @@ export function InvestigationPanel({
   isStreaming,
   onDescribeAttachment,
   onDeleteAttachment,
-  onPromoteAttachment,
   onRenameAttachment,
   runtimeState,
 }: InvestigationPanelProps) {
@@ -57,18 +50,34 @@ export function InvestigationPanel({
           <h3>会话数据</h3>
         </div>
         {isLoadingAttachments ? (
-          <p className="empty-note">正在加载会话数据</p>
+          <div className="attachment-empty">
+            <span aria-hidden="true" className="attachment-empty-icon">
+              <FileText size={15} />
+            </span>
+            <p className="attachment-empty-title">正在加载会话数据…</p>
+          </div>
         ) : null}
         {!isLoadingAttachments && attachments.length === 0 ? (
-          <p className="empty-note">暂无上传数据</p>
+          <div className="attachment-empty">
+            <span aria-hidden="true" className="attachment-empty-icon">
+              <FileText size={15} />
+            </span>
+            <p className="attachment-empty-title">暂无上传数据</p>
+            <p className="attachment-empty-hint">
+              上传的文件会显示在这里，供模型在调查时取用。
+            </p>
+          </div>
         ) : null}
         {attachments.length > 0 ? (
           <ul className="attachment-list attachment-scroll">
             {attachments.map((attachment) => (
               <li key={attachment.id}>
+                <span aria-hidden="true" className="attachment-icon">
+                  <FileText size={15} />
+                </span>
                 <div className="attachment-summary">
                   <strong>{attachment.display_name}</strong>
-                  <span>
+                  <span className="attachment-meta">
                     {attachment.kind} ·{" "}
                     {formatAttachmentSize(attachment.size_bytes)} ·{" "}
                     {shortAttachmentId(attachment.id)}
@@ -83,16 +92,8 @@ export function InvestigationPanel({
                     </span>
                   ) : null}
                 </div>
-                <div className="row-actions">
-                  <Button
-                    aria-label={`晋级为 Wiki ${attachment.display_name}`}
-                    className="icon-only"
-                    icon={<ArrowUpRight size={15} />}
-                    onClick={() => onPromoteAttachment(attachment)}
-                    title={`晋级为 Wiki ${attachment.display_name}`}
-                    type="button"
-                    variant="quiet"
-                  />
+                <div className="attachment-actions">
+                  {/* 晋级为 Wiki 暂时隐藏（功能未启用）；API 与上层 prop 保留。 */}
                   <Button
                     aria-label={`编辑用途说明 ${attachment.display_name}`}
                     className="icon-only"
@@ -132,7 +133,7 @@ export function InvestigationPanel({
         aria-label="会话运行状态"
       >
         <div className="panel-subheading">
-          <MessageSquareText aria-hidden="true" size={16} />
+          <Cpu aria-hidden="true" size={16} />
           <h3>模型状态</h3>
         </div>
         <div className="session-runtime-status">
