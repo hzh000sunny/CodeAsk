@@ -2957,14 +2957,6 @@ describe("SessionWorkspace streaming interaction", () => {
       },
     );
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal(
-      "prompt",
-      vi.fn(() => "node-a.log"),
-    );
-    vi.stubGlobal(
-      "confirm",
-      vi.fn(() => true),
-    );
 
     render(<App />);
 
@@ -2984,9 +2976,18 @@ describe("SessionWorkspace streaming interaction", () => {
         name: "重命名 service.log",
       }),
     );
-    expect(await screen.findByText("node-a.log")).toBeInTheDocument();
+    const renameDialog = await screen.findByRole("dialog", {
+      name: "重命名会话数据",
+    });
+    fireEvent.change(within(renameDialog).getByRole("textbox"), {
+      target: { value: "node-a.log" },
+    });
+    fireEvent.click(within(renameDialog).getByRole("button", { name: "保存" }));
     expect(
       await screen.findByText("已重命名为 node-a.log"),
+    ).toBeInTheDocument();
+    expect(
+      within(attachmentPanel).getByText("node-a.log"),
     ).toBeInTheDocument();
     await waitFor(
       () =>
@@ -3000,6 +3001,12 @@ describe("SessionWorkspace streaming interaction", () => {
     );
     fireEvent.click(
       within(attachmentPanel).getByRole("button", { name: "删除 node-a.log" }),
+    );
+    const deleteDialog = await screen.findByRole("dialog", {
+      name: "删除会话数据",
+    });
+    fireEvent.click(
+      within(deleteDialog).getByRole("button", { name: "确认删除" }),
     );
 
     await waitFor(() => {

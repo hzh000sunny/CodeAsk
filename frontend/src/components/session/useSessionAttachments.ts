@@ -10,6 +10,7 @@ import {
   uploadSessionAttachment,
 } from "../../lib/api";
 import type { AttachmentResponse, SessionResponse } from "../../types/api";
+import type { AttachmentDialog } from "./SessionAttachmentDialogs";
 import {
   sessionAttachmentsQueryKey,
   upsertAttachment,
@@ -32,6 +33,8 @@ export function useSessionAttachments({
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadStatus, setUploadStatus] = useState("");
+  const [attachmentDialog, setAttachmentDialog] =
+    useState<AttachmentDialog | null>(null);
   const { data: attachments = [], isFetching: isFetchingAttachments } =
     useQuery({
       queryKey: sessionAttachmentsQueryKey(selectedSessionId),
@@ -137,49 +140,95 @@ export function useSessionAttachments({
   }
 
   function renameAttachment(attachment: AttachmentResponse) {
-    const next = window.prompt("重命名会话数据", attachment.display_name);
-    const displayName = next?.trim();
-    if (!displayName || displayName === attachment.display_name) {
-      return;
-    }
-    renameAttachmentMutation.mutate({
-      attachmentId: attachment.id,
-      displayName,
-      sessionId: attachment.session_id,
-    });
+    setAttachmentDialog({ mode: "rename", attachment });
   }
 
   function deleteAttachment(attachment: AttachmentResponse) {
-    if (!window.confirm(`确认删除“${attachment.display_name}”？`)) {
-      return;
-    }
-    deleteAttachmentMutation.mutate({
-      attachmentId: attachment.id,
-      displayName: attachment.display_name,
-      sessionId: attachment.session_id,
-    });
+    setAttachmentDialog({ mode: "delete", attachment });
   }
 
   function describeAttachment(attachment: AttachmentResponse) {
-    const next = window.prompt("编辑用途说明", attachment.description ?? "");
-    if (next === null) {
+    setAttachmentDialog({ mode: "describe", attachment });
+  }
+
+  function closeAttachmentDialog() {
+    if (
+      renameAttachmentMutation.isPending ||
+      describeAttachmentMutation.isPending ||
+      deleteAttachmentMutation.isPending
+    ) {
       return;
     }
-    describeAttachmentMutation.mutate({
-      attachmentId: attachment.id,
-      description: next.trim() || null,
-      sessionId: attachment.session_id,
-    });
+    setAttachmentDialog(null);
+  }
+
+  function submitRenameAttachment(displayName: string) {
+    if (attachmentDialog?.mode !== "rename") {
+      return;
+    }
+    const { attachment } = attachmentDialog;
+    const next = displayName.trim();
+    if (!next || next === attachment.display_name) {
+      setAttachmentDialog(null);
+      return;
+    }
+    renameAttachmentMutation.mutate(
+      {
+        attachmentId: attachment.id,
+        displayName: next,
+        sessionId: attachment.session_id,
+      },
+      { onSuccess: () => setAttachmentDialog(null) },
+    );
+  }
+
+  function submitDescribeAttachment(description: string) {
+    if (attachmentDialog?.mode !== "describe") {
+      return;
+    }
+    const { attachment } = attachmentDialog;
+    describeAttachmentMutation.mutate(
+      {
+        attachmentId: attachment.id,
+        description: description.trim() || null,
+        sessionId: attachment.session_id,
+      },
+      { onSuccess: () => setAttachmentDialog(null) },
+    );
+  }
+
+  function submitDeleteAttachment() {
+    if (attachmentDialog?.mode !== "delete") {
+      return;
+    }
+    const { attachment } = attachmentDialog;
+    deleteAttachmentMutation.mutate(
+      {
+        attachmentId: attachment.id,
+        displayName: attachment.display_name,
+        sessionId: attachment.session_id,
+      },
+      { onSuccess: () => setAttachmentDialog(null) },
+    );
   }
 
   return {
+    attachmentDialog,
+    attachmentDialogPending:
+      renameAttachmentMutation.isPending ||
+      describeAttachmentMutation.isPending ||
+      deleteAttachmentMutation.isPending,
     attachments,
     clearUploadStatus: () => setUploadStatus(""),
+    closeAttachmentDialog,
     deleteAttachment,
     describeAttachment,
     fileInputRef,
     isFetchingAttachments,
     renameAttachment,
+    submitDescribeAttachment,
+    submitDeleteAttachment,
+    submitRenameAttachment,
     uploadLog,
     uploadStatus,
   };

@@ -26,6 +26,7 @@ import type {
   SessionTurnResponse,
 } from "../../types/api";
 import { InvestigationPanel } from "./InvestigationPanel";
+import { SessionAttachmentDialogs } from "./SessionAttachmentDialogs";
 import { SessionConversationPanel } from "./SessionConversationPanel";
 import { SessionListPanel } from "./SessionListPanel";
 import { SessionWorkspaceDialogs } from "./SessionWorkspaceDialogs";
@@ -364,13 +365,19 @@ export function SessionWorkspace({
     showActionNotice,
   });
   const {
+    attachmentDialog,
+    attachmentDialogPending,
     attachments,
     clearUploadStatus,
+    closeAttachmentDialog,
     deleteAttachment,
     describeAttachment,
     fileInputRef,
     isFetchingAttachments,
     renameAttachment,
+    submitDescribeAttachment,
+    submitDeleteAttachment,
+    submitRenameAttachment,
     uploadLog,
     uploadStatus,
   } = useSessionAttachments({
@@ -549,6 +556,14 @@ export function SessionWorkspace({
         onPromoteAttachment={wikiPromotion.openDialog}
         onRenameAttachment={renameAttachment}
         runtimeState={runtimeState}
+      />
+      <SessionAttachmentDialogs
+        dialog={attachmentDialog}
+        onClose={closeAttachmentDialog}
+        onSubmitDelete={submitDeleteAttachment}
+        onSubmitDescribe={submitDescribeAttachment}
+        onSubmitRename={submitRenameAttachment}
+        pending={attachmentDialogPending}
       />
       <SessionWorkspaceDialogs
         bulkSelectedCount={bulkSelectedIds.length}
