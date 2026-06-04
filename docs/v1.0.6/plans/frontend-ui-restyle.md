@@ -107,6 +107,36 @@
 - 顺手修复：流式生成中无法向上滚动的 autoscroll bug（stick-to-bottom 仅在贴近底部时跟随）。
 - **未修的历史 bug（已记录、待数据层决策）**：assistant turn 的 `turn_id` live 与 reload 不一致（live=client turn id，reload=agent turn row id，二者无存储链接），导致反馈 badge reload 后丢失。根因需后端数据模型决策，本次未动。（曾用前端邻接 join 在内联时间线侧规避，该时间线现已删除；右栏 trace 自有持久化通路，不受影响。）
 
+### 4.2 已交付（v1.0.6，2026-06-04）：会话界面二次打磨 + 品牌 logo
+
+承 §4.1，对会话三栏继续逐组件打磨，并补上一直缺失的品牌标识。仍为纯 CSS / 组件局部改动，不动框架与信息架构；`tsc` / `eslint` / 相关 vitest / `vite build` 全绿，已推 main。
+
+**右栏 · 行动轨迹（ActionTracePanel）**
+
+- header 用真实"运行中"心跳信号取代通用 Badge：就绪=灰点，运行中=蓝点 + 呼吸 + 涟漪；运行中显示**本轮**动作计数（按 `turnId` 过滤、每轮重置——既不是累计事件数、也不是轮次号或工具次数）。轨迹尾部加 pending beat（墨滴 orb + shimmer「执行中…」），与对话流"正在落笔…"同一套墨滴语汇。
+- 空状态从一行"等待输入"升级为"等待第一个问题"——扇形排开的静音 kind chips（Database/FileSearch/Wrench），非骨架屏。
+- "Agent 行动轨迹"标题与下方「会话数据」「模型状态」统一（前置 icon + 14px 同字号），三区读作同级。
+- 取证卡内容 + 详情弹层精炼（前置状态着色 kind icon、mono 技术片段、重点区 lede + 键值表），弹层再点击可关闭。
+- commits：`feedf8e` / `72329fc` / `b03ceca` / `e406310` / `def5f97`。
+
+**右栏 · 会话数据（附件）面板**
+
+- 列表卡改"悬停淡入"：前置文件 chip + 单行 mono 元信息（类型 · 大小 · 短 id），操作簇默认隐藏、hover/focus 显形（`pointer-events` 处理使下层文本仍可选）；空/加载态改静音卡；蓝色卡条退为中性。`0f105c8`。
+- 三个操作（重命名 / 编辑用途 / 删除）从浏览器原生 `window.prompt`/`confirm`（显示为页面顶部条）改为 **app 内居中弹窗**（复用既有 `dialog-backdrop`/`confirm-dialog` 样式，Esc/取消、提交中禁用、成功关闭）。新增 `SessionAttachmentDialogs.tsx`。`7f47a51`。
+- **放开上传**：删类型白名单 + 大小上限。边界确认：CodeAsk 对附件只负责**原样存进会话工作目录**（`write_bytes`），读取/解析（docx/zip 抽文本）是 opencode/模型侧的事，CodeAsk 不做内容抽取；重命名只改 DB 元数据、删除只删行 + `unlink`，三操作天然类型无关。`3376925`，见 [[feedback_attachment_scope_storage_only]]。
+
+**右栏 · 模型状态面板** — 去蓝色卡条、修正图标（→ `Cpu`）、删失效的蓝渐变进度条规则、静音空/加载态。`0f105c8`。
+
+**会话 header 重构（`SessionHeader`）** — 去掉 `active` 彩色徽章 + `blur`/渐变底，扁平纸面；标题 21px/700 收紧字距 + 单行省略号（hover 出全名）+ 等宽 ID 胶囊；标题下保留一行固定描述副文（取空状态那句"描述你遇到的问题…"，静音灰、自然换行）。空状态 hero 里的同句按用户要求保留（两处都在）。早期尝试过"副文=本轮第一句提问"和"相对更新时间"，均被否（前者与对话流重复、后者无人关注），最终用固定描述句。`2aad3e0`。
+
+**左栏 · 会话列表批量操作** — 新增「全选 / 取消全选」toggle（选中所有可见会话、尊重搜索过滤、与"已选 N 个"计数联动）。`bfe2dc8`。
+
+**对话流 · 切会话即时落底** — `.message-stream` 的 `scroll-behavior: smooth` → `auto`：之前每次 `scrollTop=scrollHeight` 都被浏览器做成动画，切会话时可见地"从上往下滚"；改 `auto` 后瞬间定位底部，并顺带消除流式逐 token 增长时的平滑滚动抖动。`bf54c35`。
+
+**品牌 logo / favicon（此前完全缺失）** — 新增"思考的猫"矢量标记（蓝→紫渐变线稿）：用 `potrace` 描摹原始 PNG → 路径，再以「整幅渐变矩形 + 线稿蒙版」上色（统一一条渐变、不拼色块）。favicon 与导航栏品牌位均采用**裁剪后的纯猫版**——按路径坐标分组、去掉问号/气泡/拖尾小圆点，并裁到猫的边界框填满图标方框，以提升小尺寸辨识度。`index.html` 接 favicon（`rel=icon` + `apple-touch-icon`），`TopBar` 占位「C」方块 → `<img>` logo（`.brand-mark` → `.brand-logo`）。`e64400b`。
+  - 资源：`frontend/public/logo.svg`（导航栏 30px）、`frontend/public/favicon.svg`（标签页），当前内容一致（均为纯猫裁剪版）。
+  - 遗留：细节线稿在 16px 仍偏糊（细节插画当 favicon 的物理上限）；若要 16px 真正锐利，需更简化的小图标变体（如仅猫头剪影），归后续。
+
 ## 5. 边界与约束
 
 - **一致性优先于炫技**：复用既有 token 体系，新风格须与产品其余页面（含 OpenCode 控制台）同一套语言；不从零另开一套调色/字体造成割裂。
