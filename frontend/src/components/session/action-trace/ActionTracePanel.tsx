@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Activity } from "lucide-react";
+import { Activity, ChevronRight } from "lucide-react";
 
 import { Badge } from "../../ui/badge";
 import { ActionTraceEvent } from "./ActionTraceEvent";
@@ -36,41 +36,71 @@ export function ActionTracePanel({ events, isStreaming }: ActionTracePanelProps)
         </div>
       ) : (
         <div className="action-trace-list action-trace-scroll" ref={scrollRef}>
-          {groupActionTraceEvents(events).map((group, index, groups) => (
-            <details
-              className="action-trace-turn"
-              key={group.id}
-              open={index === groups.length - 1}
-            >
-              <summary className="action-trace-turn-heading">
-                <span className="action-trace-turn-label">{group.label}</span>
-                <small className="action-trace-turn-summary" aria-label={`${group.label} 摘要`}>
-                  {group.summaryItems.map((item) => (
-                    <span
-                      className="action-trace-turn-metric"
-                      data-tone={item.tone}
-                      data-zero={item.value === 0 ? "true" : "false"}
-                      key={item.id}
-                    >
-                      <strong>{item.value}</strong>
-                      <span>{item.label}</span>
-                    </span>
-                  ))}
-                </small>
-              </summary>
-              <ul className="action-trace-turn-list">
-                {group.events.map((event) => (
-                  <li
-                    data-action-trace-id={event.id}
-                    data-kind={event.kind}
-                    key={event.id}
+          {groupActionTraceEvents(events).map((group, index, groups) => {
+            // Routine counts read as one quiet gray run (zeros dropped); only
+            // warnings/failures earn a small tinted flag.
+            const countsText = group.summaryItems
+              .filter(
+                (item) =>
+                  item.tone !== "warning" &&
+                  item.tone !== "error" &&
+                  item.value > 0,
+              )
+              .map((item) => `${item.value} ${item.label}`)
+              .join(" · ");
+            const flags = group.summaryItems.filter(
+              (item) =>
+                (item.tone === "warning" || item.tone === "error") &&
+                item.value > 0,
+            );
+            return (
+              <details
+                className="action-trace-turn"
+                key={group.id}
+                open={index === groups.length - 1}
+              >
+                <summary className="action-trace-turn-heading">
+                  <span className="action-trace-turn-headline">
+                    <ChevronRight
+                      aria-hidden="true"
+                      className="action-trace-turn-caret"
+                      size={14}
+                    />
+                    <span className="action-trace-turn-label">{group.label}</span>
+                  </span>
+                  <span
+                    className="action-trace-turn-summary"
+                    aria-label={`${group.label} 摘要`}
                   >
-                    <ActionTraceEvent event={event} />
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ))}
+                    {countsText ? (
+                      <span className="action-trace-turn-counts">{countsText}</span>
+                    ) : null}
+                    {flags.map((flag) => (
+                      <span
+                        className="action-trace-turn-flag"
+                        data-tone={flag.tone}
+                        key={flag.id}
+                      >
+                        <strong>{flag.value}</strong>
+                        {flag.label}
+                      </span>
+                    ))}
+                  </span>
+                </summary>
+                <ul className="action-trace-turn-list">
+                  {group.events.map((event) => (
+                    <li
+                      data-action-trace-id={event.id}
+                      data-kind={event.kind}
+                      key={event.id}
+                    >
+                      <ActionTraceEvent event={event} />
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            );
+          })}
         </div>
       )}
     </section>

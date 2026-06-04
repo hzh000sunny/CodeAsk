@@ -612,16 +612,50 @@ describe("action trace code scope display", () => {
 
     expect(screen.getByText("第 1 轮")).toBeInTheDocument();
     const summary = screen.getByLabelText("第 1 轮 摘要");
-    expect(summary).toHaveTextContent("4动作");
-    expect(summary).toHaveTextContent("3工具");
-    expect(summary).toHaveTextContent("1证据");
-    expect(summary).toHaveTextContent("1读码");
-    expect(summary).toHaveTextContent("0提醒");
-    expect(summary).toHaveTextContent("0失败");
+    // Routine counts collapse into one quiet run, with zeros dropped.
+    const counts = summary.querySelector(".action-trace-turn-counts");
+    expect(counts).toHaveTextContent("4 动作 · 3 工具 · 1 证据 · 1 读码");
+    // No failures/warnings → no tinted flags and no zero noise.
+    expect(summary.querySelector(".action-trace-turn-flag")).toBeNull();
+    expect(summary).not.toHaveTextContent("提醒");
+    expect(summary).not.toHaveTextContent("失败");
+  });
 
-    const warningMetric = screen.getByText("提醒").closest(".action-trace-turn-metric");
-    const errorMetric = screen.getByText("失败").closest(".action-trace-turn-metric");
-    expect(warningMetric).toHaveAttribute("data-zero", "true");
-    expect(errorMetric).toHaveAttribute("data-zero", "true");
+  it("flags a turn with failures as a tinted pill", () => {
+    const events: ActionTraceEventModel[] = [
+      {
+        id: "event_1",
+        kind: "tool_call",
+        title: "准备使用 代码搜索",
+        detail: "query=buddy",
+        status: "running",
+        turnId: "turn_1",
+        evidenceRefs: [],
+        data: { tool_name: "search_code" },
+      },
+      {
+        id: "event_2",
+        kind: "tool_result",
+        title: "代码搜索失败",
+        detail: "命中 0 个代码位置",
+        status: "error",
+        turnId: "turn_1",
+        evidenceRefs: [],
+        data: { tool_name: "search_code" },
+      },
+    ];
+
+    render(<ActionTracePanel events={events} isStreaming={false} />);
+
+    const summary = screen.getByLabelText("第 1 轮 摘要");
+    const flag = summary.querySelector(
+      '.action-trace-turn-flag[data-tone="error"]',
+    );
+    expect(flag).not.toBeNull();
+    expect(flag).toHaveTextContent("失败");
+    // Routine counts still read as a quiet run alongside the flag.
+    expect(summary.querySelector(".action-trace-turn-counts")).toHaveTextContent(
+      "2 动作 · 2 工具",
+    );
   });
 });

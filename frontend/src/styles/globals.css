@@ -2265,8 +2265,26 @@ textarea:focus-visible {
   display: none;
 }
 
-.action-trace-turn-label {
+.action-trace-turn-headline {
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+}
+
+/* The caret the hidden native marker never provided — flips open with the turn,
+   matching the event cards. */
+.action-trace-turn-caret {
+  flex: none;
+  color: #98a2b3;
+  transition: transform 160ms ease;
+}
+
+.action-trace-turn[open] .action-trace-turn-caret {
+  transform: rotate(90deg);
+}
+
+.action-trace-turn-label {
   color: #344054;
   font-size: 12px;
   font-weight: 700;
@@ -2279,80 +2297,50 @@ textarea:focus-visible {
   display: flex;
   flex: 1 1 auto;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 6px 8px;
   min-width: 0;
-  color: #5f6b7a;
-  font-size: 11px;
-  line-height: 1.3;
 }
 
-.action-trace-turn-metric {
+/* Routine counts: a quiet inline run, no capsules — the workhorse numbers
+   stay calm so the eye is free for the flags. */
+.action-trace-turn-counts {
+  color: #667085;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* Only warnings / failures earn a small tinted flag. */
+.action-trace-turn-flag {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border: 1px solid #e6ebf1;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid;
   border-radius: 999px;
-  background: #fbfcfe;
-  color: #667085;
+  font-size: 10.5px;
+  font-weight: 600;
   white-space: nowrap;
-  transition:
-    background-color 180ms ease,
-    border-color 180ms ease,
-    color 180ms ease;
 }
 
-.action-trace-turn-metric strong {
-  color: #1f2937;
+.action-trace-turn-flag strong {
   font-size: 11px;
   font-weight: 700;
 }
 
-.action-trace-turn-metric span {
-  color: #667085;
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.action-trace-turn-metric[data-tone="activity"] {
-  border-color: #d8e2ec;
-  background: #f6f9fc;
-}
-
-.action-trace-turn-metric[data-tone="evidence"] {
-  border-color: #d8e2ec;
-  background: #f6f9fc;
-}
-
-.action-trace-turn-metric[data-tone="warning"][data-zero="false"] {
+.action-trace-turn-flag[data-tone="warning"] {
   border-color: #f3dfb3;
   background: #fff9eb;
-}
-
-.action-trace-turn-metric[data-tone="warning"][data-zero="false"] strong,
-.action-trace-turn-metric[data-tone="warning"][data-zero="false"] span {
   color: #9a6700;
 }
 
-.action-trace-turn-metric[data-tone="error"][data-zero="false"] {
+.action-trace-turn-flag[data-tone="error"] {
   border-color: #f0c9c5;
   background: #fff5f4;
-}
-
-.action-trace-turn-metric[data-tone="error"][data-zero="false"] strong,
-.action-trace-turn-metric[data-tone="error"][data-zero="false"] span {
   color: #b42318;
-}
-
-.action-trace-turn-metric[data-zero="true"] {
-  border-color: #edf1f5;
-  background: #fcfcfd;
-}
-
-.action-trace-turn-metric[data-zero="true"] strong,
-.action-trace-turn-metric[data-zero="true"] span {
-  color: #98a2b3;
 }
 
 @media (max-width: 1080px) {
@@ -2363,10 +2351,6 @@ textarea:focus-visible {
 
   .action-trace-turn-summary {
     gap: 5px 6px;
-  }
-
-  .action-trace-turn-metric {
-    padding: 2px 7px;
   }
 }
 
