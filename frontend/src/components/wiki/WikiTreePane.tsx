@@ -165,7 +165,6 @@ export function WikiTreePane({
                   <WikiTreeNode
                     canManage={canManageFeature}
                     canRestoreArchivedSpace={canRestoreArchivedSpaces}
-                    depth={0}
                     expandedIds={expandedIds}
                     key={node.id}
                     node={node}

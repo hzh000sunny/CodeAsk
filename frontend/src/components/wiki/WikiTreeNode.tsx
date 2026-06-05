@@ -1,5 +1,18 @@
 import type { DragEvent as ReactDragEvent } from "react";
-import { Component, FileText, FolderOpen } from "lucide-react";
+import {
+  Archive,
+  Boxes,
+  ChevronRight,
+  FileText,
+  Folder,
+  FolderOpen,
+  History,
+  Layers,
+  Library,
+  Microscope,
+  ScrollText,
+  type LucideIcon,
+} from "lucide-react";
 
 import { cn } from "../../lib/utils";
 import type { WikiTreeNodeRecord } from "../../lib/wiki/tree";
@@ -7,10 +20,41 @@ import { canMoveWikiNode, getNodeMoveFlags } from "../../lib/wiki/tree-ordering"
 import { WikiNodeMenu } from "./WikiNodeMenu";
 import { WikiTreeDropIndicator } from "./WikiTreeDropIndicator";
 
+// 按节点角色挑选类型图标：用形状区分角色，颜色统一保持静音灰（ink-and-paper）。
+// 特殊系统角色优先（知识库 / 特性·当前 / 特性·历史 / 分组 / 报告集合），
+// 其余落到通用的 文件夹（开合）/ 报告引用 / 文档。
+function resolveNodeTypeIcon(node: WikiTreeNodeRecord, expanded: boolean): LucideIcon {
+  switch (node.system_role) {
+    case "knowledge_base":
+      return Library;
+    case "feature_space_current":
+      return Boxes;
+    case "feature_space_history":
+      return History;
+    case "feature_group_current":
+      return Layers;
+    case "feature_group_history":
+      return Archive;
+    case "reports":
+      // 问题定位报告（顶层容器，与知识库同级）——研究/排查身份，区别于文档。
+      return Microscope;
+    default:
+      // report_group（草稿/已验证/未通过）落到下面的文件夹分支——它们本就是目录。
+      break;
+  }
+  if (node.type === "report_ref") {
+    // 单篇报告：卷轴形，和普通文档（FileText）形状拉开。
+    return ScrollText;
+  }
+  if (node.type === "folder") {
+    return expanded ? FolderOpen : Folder;
+  }
+  return FileText;
+}
+
 export function WikiTreeNode({
   canManage,
   canRestoreArchivedSpace = false,
-  depth,
   expandedIds,
   node,
   onCreateDocument,
@@ -34,7 +78,6 @@ export function WikiTreeNode({
 }: {
   canManage: boolean;
   canRestoreArchivedSpace?: boolean;
-  depth: number;
   expandedIds: Set<number>;
   node: WikiTreeNodeRecord;
   onCreateDocument: (node: WikiTreeNodeRecord) => void;
@@ -67,9 +110,8 @@ export function WikiTreeNode({
   const expanded = expandedIds.has(node.id);
   const selected = node.id === selectedNodeId;
   const isFolder = node.type === "folder";
-  const isFeatureRoot =
-    node.system_role === "feature_space_current" || node.system_role === "feature_space_history";
   const canExpand = isFolder && node.children.length > 0;
+  const TypeIcon = resolveNodeTypeIcon(node, expanded);
   const moveFlags = getNodeMoveFlags(treeRoots ?? [node], node.id);
   const canDrag = canMoveWikiNode(node);
   const beforeActive = onMoveTarget?.nodeId === node.id && onMoveTarget.position === "before";
@@ -113,12 +155,12 @@ export function WikiTreeNode({
               onSelect(node);
             }
           }}
-          style={{ paddingLeft: `${12 + depth * 16}px` }}
           title={node.name}
           type="button"
         >
           <span
-            className={cn("wiki-tree-chevron", !canExpand && "is-placeholder")}
+            className={cn("wiki-tree-caret", !canExpand && "is-placeholder")}
+            data-expanded={canExpand && expanded ? "true" : undefined}
             onClick={(event) => {
               event.stopPropagation();
               if (canExpand) {
@@ -127,10 +169,10 @@ export function WikiTreeNode({
             }}
             role="presentation"
           >
-            {isFolder ? (isFeatureRoot ? <Component size={14} /> : <FolderOpen size={14} />) : <span />}
+            {canExpand ? <ChevronRight size={14} /> : null}
           </span>
           <span className="wiki-tree-icon">
-            {isFolder ? null : <FileText size={15} />}
+            <TypeIcon size={15} />
           </span>
           <span className="wiki-tree-label">{node.name}</span>
         </button>
@@ -156,7 +198,6 @@ export function WikiTreeNode({
           {node.children.map((child) => (
             <WikiTreeNode
               canManage={canManage}
-              depth={depth + 1}
               expandedIds={expandedIds}
               key={child.id}
               node={child}

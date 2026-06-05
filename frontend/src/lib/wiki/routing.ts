@@ -110,6 +110,68 @@ export function writeRouteStateToLocation(state: AppRouteState) {
   window.history.pushState(null, "", nextHash);
 }
 
+const WIKI_ROUTE_STORAGE_KEY = "codeask:wiki-route";
+
+// 把「上次的 Wiki 选中」持久化到 localStorage，使其在「切到别的页面再刷新浏览器」
+// 这种 URL 不携带 wiki 参数的场景下仍能恢复。只保存定位信息，不保存编辑/抽屉等临时态。
+export function writePersistedWikiRoute(wiki: WikiRouteState) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      WIKI_ROUTE_STORAGE_KEY,
+      JSON.stringify({
+        featureId: wiki.featureId,
+        nodeId: wiki.nodeId,
+        heading: wiki.heading,
+      }),
+    );
+  } catch {
+    // 忽略隐私模式 / 配额等存储异常，持久化只是增强、不是必须。
+  }
+}
+
+export function readPersistedWikiRoute(): WikiRouteState | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(WIKI_ROUTE_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<WikiRouteState>;
+    return {
+      featureId: typeof parsed.featureId === "number" ? parsed.featureId : null,
+      nodeId: typeof parsed.nodeId === "number" ? parsed.nodeId : null,
+      heading:
+        typeof parsed.heading === "string" && parsed.heading.length > 0 ? parsed.heading : null,
+      mode: "view",
+      drawer: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// 初始路由：URL 显式带 wiki 选中（深链、或在 Wiki 页刷新）时以 URL 为准；
+// 否则用 localStorage 里上次的 Wiki 选中补水，保证跨页面刷新仍记得选中的文档。
+export function readInitialAppRouteState(): AppRouteState {
+  if (typeof window === "undefined") {
+    return defaultAppRouteState;
+  }
+  const fromUrl = readRouteStateFromLocation();
+  if (fromUrl.wiki.featureId != null || fromUrl.wiki.nodeId != null) {
+    return fromUrl;
+  }
+  const persisted = readPersistedWikiRoute();
+  if (!persisted) {
+    return fromUrl;
+  }
+  return { ...fromUrl, wiki: persisted };
+}
+
 export function mergeWikiRouteState(
   current: AppRouteState,
   patch: Partial<WikiRouteState>,

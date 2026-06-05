@@ -33,7 +33,6 @@ import { findFeatureRootNode, findSystemRoleNode } from "../../lib/wiki/tree-sel
 import {
   buildWikiNodeDisplayPath,
   collectWikiNodeChainIds,
-  findFirstReadableDocument,
   findNodeById,
   formatWikiStoredPath,
   type WikiTreeNodeRecord,
@@ -149,10 +148,6 @@ export function WikiWorkbench({
       buildWikiNodeDisplayPath(tree, routeState.nodeId) ??
       formatWikiStoredPath(selectedNode?.path ?? null),
     [routeState.nodeId, selectedNode?.path, tree],
-  );
-  const firstDocument = useMemo(
-    () => findFirstReadableDocument(activeFeatureTree),
-    [activeFeatureTree],
   );
   const documentEnabled = selectedNode?.type === "document";
   const reportEnabled = selectedNode?.type === "report_ref";
@@ -278,14 +273,9 @@ export function WikiWorkbench({
     if (!tree.length || activeFeatureId == null) {
       return;
     }
+    // 默认不自动选中任何文档：保持空正文。只在仍有有效选中时保留，
+    // 否则把路由收敛到「当前特性 + 无选中节点」（清理失效的 nodeId）。
     if (routeState.nodeId != null && selectedNode) {
-      return;
-    }
-    if (firstDocument) {
-      if (routeState.featureId === activeFeatureId && routeState.nodeId === firstDocument.id) {
-        return;
-      }
-      onRouteChange({ featureId: activeFeatureId, nodeId: firstDocument.id, heading: null });
       return;
     }
     if (routeState.featureId === activeFeatureId && routeState.nodeId == null) {
@@ -294,7 +284,6 @@ export function WikiWorkbench({
     onRouteChange({ featureId: activeFeatureId, nodeId: null, heading: null });
   }, [
     activeFeatureId,
-    firstDocument,
     onRouteChange,
     routeState.featureId,
     routeState.nodeId,
@@ -303,21 +292,25 @@ export function WikiWorkbench({
   ]);
 
   useEffect(() => {
-    const nextExpanded = new Set<number>();
-    nextExpanded.add(-1);
-    if (routeState.nodeId != null) {
-      for (const nodeId of collectWikiNodeChainIds(tree, routeState.nodeId)) {
-        nextExpanded.add(nodeId);
+    // 默认所有特性闭合，只展开顶层「当前特性」分组以显示特性列表。
+    // 选中节点时「补充」展开其祖先链——仅新增、绝不收起既有展开，
+    // 这样深链/搜索跳转能定位，且清空选中或刷新树时不会把正在查看的子树收起，
+    // 用户手动展开的节点也会被保留。
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      for (const root of tree) {
+        if (root.system_role === "feature_group_current") {
+          next.add(root.id);
+        }
       }
-    }
-    if (activeFeatureRoot) {
-      nextExpanded.add(activeFeatureRoot.id);
-    }
-    if (knowledgeRoot) {
-      nextExpanded.add(knowledgeRoot.id);
-    }
-    setExpandedIds(nextExpanded);
-  }, [activeFeatureRoot, knowledgeRoot, routeState.nodeId, tree]);
+      if (routeState.nodeId != null) {
+        for (const nodeId of collectWikiNodeChainIds(tree, routeState.nodeId)) {
+          next.add(nodeId);
+        }
+      }
+      return next;
+    });
+  }, [routeState.nodeId, tree]);
 
   useEffect(() => {
     if (reportEnabled && routeState.mode === "edit") {

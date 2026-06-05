@@ -7,9 +7,10 @@ import { SessionWorkspace } from "../session/SessionWorkspace";
 import { SettingsPage } from "../settings/SettingsPage";
 import { WikiPage } from "../wiki/WikiPage";
 import {
-  defaultAppRouteState,
   mergeWikiRouteState,
+  readInitialAppRouteState,
   readRouteStateFromLocation,
+  writePersistedWikiRoute,
   writeRouteStateToLocation,
   type AppRouteState,
   type AppViewId,
@@ -31,9 +32,7 @@ interface WikiImportNavigationGuard {
 }
 
 export function AppShell() {
-  const [routeState, setRouteState] = useState<AppRouteState>(
-    typeof window === "undefined" ? defaultAppRouteState : readRouteStateFromLocation(),
-  );
+  const [routeState, setRouteState] = useState<AppRouteState>(readInitialAppRouteState);
   const activeSection = sectionForView(routeState.view);
   const [primaryCollapsed, setPrimaryCollapsed] = useState(false);
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
@@ -58,6 +57,14 @@ export function AppShell() {
     };
   }, []);
 
+  // 只在停留在 Wiki 页时持久化当前选中；离开 Wiki 不写入，避免把已保存的选中清掉。
+  useEffect(() => {
+    if (routeState.view !== "wiki") {
+      return;
+    }
+    writePersistedWikiRoute(routeState.wiki);
+  }, [routeState.view, routeState.wiki]);
+
   function showView(view: AppViewId, options?: { force?: boolean }) {
     if (
       !options?.force &&
@@ -78,7 +85,9 @@ export function AppShell() {
               featureId:
                 routeState.wiki.featureId ?? backgroundImportSession?.featureId ?? routeState.wiki.featureId,
             }
-          : defaultAppRouteState.wiki,
+          : // 离开 Wiki 时保留选中（featureId/nodeId/heading），切回来仍是同一篇；
+            // 只收掉临时态，避免把编辑器/抽屉一起带回。
+            { ...routeState.wiki, mode: "view", drawer: null },
     };
     setRouteState(nextState);
     writeRouteStateToLocation(nextState);

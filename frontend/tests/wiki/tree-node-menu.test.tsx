@@ -23,12 +23,11 @@ function createNode(
 }
 
 describe("WikiTreeNode menu", () => {
-  it("uses folder icons instead of disclosure chevrons for folders", () => {
+  it("pairs a folder type icon with a disclosure caret that reflects expand state", () => {
     const { container, rerender } = render(
       <ul>
         <WikiTreeNode
           canManage
-          depth={0}
           expandedIds={new Set()}
           node={createNode({
             id: 10,
@@ -58,15 +57,17 @@ describe("WikiTreeNode menu", () => {
       </ul>,
     );
 
-    expect(container.querySelector(".lucide-folder-open")).toBeInTheDocument();
-    expect(container.querySelector(".lucide-chevron-right")).not.toBeInTheDocument();
-    expect(container.querySelector(".lucide-chevron-down")).not.toBeInTheDocument();
+    // Collapsed: closed-folder type icon + a caret that is not yet expanded.
+    expect(container.querySelector(".lucide-folder")).toBeInTheDocument();
+    expect(container.querySelector(".lucide-folder-open")).not.toBeInTheDocument();
+    const collapsedCaret = container.querySelector(".wiki-tree-caret");
+    expect(collapsedCaret?.querySelector(".lucide-chevron-right")).toBeInTheDocument();
+    expect(collapsedCaret?.getAttribute("data-expanded")).toBeNull();
 
     rerender(
       <ul>
         <WikiTreeNode
           canManage
-          depth={0}
           expandedIds={new Set([10])}
           node={createNode({
             id: 10,
@@ -96,17 +97,19 @@ describe("WikiTreeNode menu", () => {
       </ul>,
     );
 
+    // Expanded: open-folder type icon + caret marked expanded (rotated via CSS).
     expect(container.querySelector(".lucide-folder-open")).toBeInTheDocument();
-    expect(container.querySelector(".lucide-chevron-right")).not.toBeInTheDocument();
-    expect(container.querySelector(".lucide-chevron-down")).not.toBeInTheDocument();
+    expect(container.querySelector(".lucide-folder")).not.toBeInTheDocument();
+    const expandedCaret = container.querySelector(".wiki-tree-caret");
+    expect(expandedCaret?.querySelector(".lucide-chevron-right")).toBeInTheDocument();
+    expect(expandedCaret?.getAttribute("data-expanded")).toBe("true");
   });
 
-  it("uses a component icon for feature root nodes", () => {
+  it("uses a distinct feature-module icon for feature root nodes", () => {
     const { container } = render(
       <ul>
         <WikiTreeNode
           canManage
-          depth={0}
           expandedIds={new Set()}
           node={createNode({
             id: -100007,
@@ -136,7 +139,7 @@ describe("WikiTreeNode menu", () => {
       </ul>,
     );
 
-    expect(container.querySelector(".lucide-component")).toBeInTheDocument();
+    expect(container.querySelector(".lucide-boxes")).toBeInTheDocument();
     expect(container.querySelector(".lucide-folder-open")).not.toBeInTheDocument();
   });
 
@@ -145,7 +148,6 @@ describe("WikiTreeNode menu", () => {
       <ul>
         <WikiTreeNode
           canManage
-          depth={0}
           expandedIds={new Set()}
           node={createNode({
             id: 10,
@@ -181,7 +183,6 @@ describe("WikiTreeNode menu", () => {
       <ul>
         <WikiTreeNode
           canManage
-          depth={0}
           expandedIds={new Set()}
           node={createNode({
             id: 1,
@@ -218,7 +219,6 @@ describe("WikiTreeNode menu", () => {
         <WikiTreeNode
           canManage
           canRestoreArchivedSpace
-          depth={0}
           expandedIds={new Set()}
           node={createNode({
             id: -100008,
@@ -253,7 +253,6 @@ describe("WikiTreeNode menu", () => {
       <ul>
         <WikiTreeNode
           canManage
-          depth={0}
           expandedIds={new Set()}
           node={createNode({
             id: -100007,
@@ -286,7 +285,6 @@ describe("WikiTreeNode menu", () => {
       <ul>
         <WikiTreeNode
           canManage
-          depth={0}
           expandedIds={new Set()}
           node={createNode({
             id: -1001,
@@ -318,7 +316,6 @@ describe("WikiTreeNode menu", () => {
       <ul>
         <WikiTreeNode
           canManage
-          depth={0}
           expandedIds={new Set()}
           node={createNode({
             id: 22,
@@ -349,7 +346,6 @@ describe("WikiTreeNode menu", () => {
       <ul>
         <WikiTreeNode
           canManage
-          depth={0}
           expandedIds={new Set([1])}
           node={createNode({
             id: 1,

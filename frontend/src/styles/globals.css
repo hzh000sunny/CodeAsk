@@ -5698,7 +5698,7 @@ textarea:focus-visible {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  background: #fbfcfe;
+  background: var(--panel-subtle);
 }
 
 .wiki-pane-resizer {
@@ -5722,29 +5722,17 @@ textarea:focus-visible {
   top: 0;
   bottom: 0;
   left: 5px;
-  width: 2px;
-  background: linear-gradient(
-    180deg,
-    rgba(148, 163, 184, 0.18),
-    rgba(99, 102, 241, 0.26),
-    rgba(148, 163, 184, 0.18)
-  );
-  box-shadow:
-    0 0 0 1px rgba(148, 163, 184, 0.18),
-    0 10px 22px rgba(15, 23, 42, 0.08);
+  width: 1px;
+  background: var(--line);
   transition:
-    transform 160ms ease,
     background 160ms ease,
-    box-shadow 160ms ease;
+    width 160ms ease;
 }
 
 .wiki-pane-resizer:hover::before,
 .wiki-pane-resizer:focus-visible::before {
-  background: linear-gradient(180deg, rgba(99, 102, 241, 0.28), rgba(59, 130, 246, 0.34));
-  box-shadow:
-    0 0 0 1px rgba(99, 102, 241, 0.24),
-    0 14px 28px rgba(59, 130, 246, 0.16);
-  transform: scaleX(1.6);
+  width: 2px;
+  background: var(--line-strong);
 }
 
 .wiki-pane-resizer-spacer {
@@ -5762,8 +5750,8 @@ textarea:focus-visible {
   display: grid;
   gap: 12px;
   border-bottom: 1px solid var(--line);
-  background: #ffffff;
-  padding: 14px 14px 12px;
+  background: var(--panel-subtle);
+  padding: 10px 10px 9px;
 }
 
 .wiki-toolbar-row {
@@ -5790,6 +5778,9 @@ textarea:focus-visible {
 
 .wiki-tree-children {
   margin-top: 2px;
+  margin-left: 19px;
+  border-left: 1px solid var(--line);
+  padding-left: 2px;
 }
 
 .wiki-tree-item {
@@ -5806,7 +5797,7 @@ textarea:focus-visible {
 .wiki-tree-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   max-width: calc(100% - 32px);
   min-height: 34px;
@@ -5823,13 +5814,15 @@ textarea:focus-visible {
 }
 
 .wiki-tree-button:hover {
-  background: #f2f5f8;
+  background: rgba(45, 47, 55, 0.05);
   color: #111827;
 }
 
 .wiki-tree-button[data-selected="true"] {
-  background: #eef4ff;
-  color: #111827;
+  background: var(--soft);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 0 #2b2f37;
 }
 
 .wiki-tree-button[draggable="true"] {
@@ -5841,12 +5834,12 @@ textarea:focus-visible {
 }
 
 .wiki-tree-button[data-drop-active="true"] {
-  background: #eff6ff;
-  box-shadow: inset 0 0 0 1px #93c5fd;
+  background: var(--soft);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
   color: #0f172a;
 }
 
-.wiki-tree-chevron,
+.wiki-tree-caret,
 .wiki-tree-icon {
   display: inline-grid;
   flex: 0 0 auto;
@@ -5855,12 +5848,24 @@ textarea:focus-visible {
   place-items: center;
 }
 
-.wiki-tree-chevron {
-  color: #667085;
+.wiki-tree-caret {
+  color: var(--muted);
+  transition:
+    transform 150ms ease,
+    color 150ms ease;
 }
 
-.wiki-tree-chevron.is-placeholder {
-  opacity: 0.34;
+.wiki-tree-caret[data-expanded="true"] {
+  transform: rotate(90deg);
+}
+
+.wiki-tree-icon {
+  color: var(--muted);
+}
+
+.wiki-tree-button[data-selected="true"] .wiki-tree-caret,
+.wiki-tree-button[data-selected="true"] .wiki-tree-icon {
+  color: #2b2f37;
 }
 
 .wiki-tree-label {
@@ -6129,21 +6134,34 @@ textarea:focus-visible {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 28px;
+  padding: 0;
 }
 
+/* 去卡片：正文直接落在纸面上，铺满工作区（含安全上限），靠页边距而非边框成形。 */
 .wiki-reader-body {
-  width: min(880px, 100%);
+  width: 100%;
+  max-width: 1200px;
   margin: 0 auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #ffffff;
-  padding: 28px 32px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.03);
+  padding: 20px clamp(24px, 4vw, 56px) 72px;
 }
 
 .wiki-reader-body .markdown-body {
   margin-top: 0;
+}
+
+/* 正文文字维持舒适阅读行宽、左对齐；宽内容（表格/代码/图/图表）不受此限，撑到纸宽。 */
+.wiki-reader-body .markdown-body > p,
+.wiki-reader-body .markdown-body > ul,
+.wiki-reader-body .markdown-body > ol,
+.wiki-reader-body .markdown-body > dl,
+.wiki-reader-body .markdown-body > blockquote,
+.wiki-reader-body .markdown-body > h1,
+.wiki-reader-body .markdown-body > h2,
+.wiki-reader-body .markdown-body > h3,
+.wiki-reader-body .markdown-body > h4,
+.wiki-reader-body .markdown-body > h5,
+.wiki-reader-body .markdown-body > h6 {
+  max-width: 860px;
 }
 
 .wiki-inline-toggle {
@@ -7124,13 +7142,16 @@ textarea:focus-visible {
     display: none;
   }
 
-  .wiki-reader-scroll,
   .wiki-editor-grid {
     padding: 16px;
   }
 
+  .wiki-reader-scroll {
+    padding: 0;
+  }
+
   .wiki-reader-body {
-    padding: 22px 18px;
+    padding: 18px 16px 56px;
   }
 
   .wiki-empty-state {
@@ -7200,7 +7221,8 @@ textarea:focus-visible {
   .session-id-pill,
   .source-nav-item,
   .source-nav-link,
-  .settings-index-item {
+  .settings-index-item,
+  .wiki-tree-caret {
     transition: none;
   }
 

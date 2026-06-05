@@ -332,6 +332,10 @@ describe("Wiki import workflow", () => {
     const wikiTreePane = await screen.findByRole("complementary", {
       name: "Wiki 目录树",
     });
+    // 默认特性闭合，先展开「支付结算」特性，露出其下的知识库节点。
+    fireEvent.click(
+      await within(wikiTreePane).findByRole("button", { name: "支付结算" }),
+    );
     fireEvent.click(
       await within(wikiTreePane).findByRole("button", {
         name: "打开节点 知识库 的更多操作",
@@ -640,6 +644,10 @@ describe("Wiki import workflow", () => {
     const wikiTreePane = await screen.findByRole("complementary", {
       name: "Wiki 目录树",
     });
+    // 默认特性闭合，先展开「支付结算」特性，露出其下的知识库节点。
+    fireEvent.click(
+      await within(wikiTreePane).findByRole("button", { name: "支付结算" }),
+    );
     fireEvent.click(
       await within(wikiTreePane).findByRole("button", {
         name: "打开节点 知识库 的更多操作",
@@ -898,6 +906,10 @@ describe("Wiki import workflow", () => {
     const wikiTreePane = await screen.findByRole("complementary", {
       name: "Wiki 目录树",
     });
+    // 默认特性闭合，先展开「支付结算」特性，露出其下的知识库节点。
+    fireEvent.click(
+      await within(wikiTreePane).findByRole("button", { name: "支付结算" }),
+    );
     fireEvent.click(
       await within(wikiTreePane).findByRole("button", {
         name: "打开节点 知识库 的更多操作",
@@ -1162,6 +1174,10 @@ describe("Wiki import workflow", () => {
     const wikiTreePane = await screen.findByRole("complementary", {
       name: "Wiki 目录树",
     });
+    // 默认特性闭合，先展开「支付结算」特性，露出其下的知识库节点。
+    fireEvent.click(
+      await within(wikiTreePane).findByRole("button", { name: "支付结算" }),
+    );
     fireEvent.click(
       await within(wikiTreePane).findByRole("button", {
         name: "打开节点 知识库 的更多操作",
@@ -1472,6 +1488,10 @@ describe("Wiki import workflow", () => {
     const wikiTreePane = await screen.findByRole("complementary", {
       name: "Wiki 目录树",
     });
+    // 默认特性闭合，先展开「支付结算」特性，露出其下的知识库节点。
+    fireEvent.click(
+      await within(wikiTreePane).findByRole("button", { name: "支付结算" }),
+    );
     fireEvent.click(
       await within(wikiTreePane).findByRole("button", {
         name: "打开节点 知识库 的更多操作",
@@ -1718,6 +1738,10 @@ describe("Wiki import workflow", () => {
     const wikiTreePane = await screen.findByRole("complementary", {
       name: "Wiki 目录树",
     });
+    // 默认特性闭合，先展开「支付结算」特性，露出其下的知识库节点。
+    fireEvent.click(
+      await within(wikiTreePane).findByRole("button", { name: "支付结算" }),
+    );
     fireEvent.click(
       await within(wikiTreePane).findByRole("button", {
         name: "打开节点 知识库 的更多操作",

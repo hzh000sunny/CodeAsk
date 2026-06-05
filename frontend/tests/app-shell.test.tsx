@@ -498,7 +498,11 @@ describe("CodeAsk AppShell information architecture", () => {
     expect(await within(tree).findByRole("button", { name: "历史特性" })).toBeInTheDocument();
     expect(await within(tree).findByRole("button", { name: "支付结算" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
-    expect(await screen.findByText("这里是独立 Wiki 预览正文。")).toBeInTheDocument();
+    // 默认不自动选中第一篇：正文落到空状态，不渲染任何文档预览。
+    expect(
+      await screen.findByText("当前特性还没有 Wiki 文档，或当前选择的节点不是文档。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("这里是独立 Wiki 预览正文。")).not.toBeInTheDocument();
   });
 
   it("keeps an archived feature wiki route readable even when the active feature list no longer contains it", async () => {
@@ -1132,8 +1136,18 @@ describe("CodeAsk AppShell information architecture", () => {
 
     render(<App />);
 
+    const tree = await screen.findByRole("complementary", { name: "Wiki 目录树" });
+    // 默认特性闭合：展开「支付结算」→ 其知识库 → 点开文档，确认预览。
+    fireEvent.click(await within(tree).findByRole("button", { name: "支付结算" }));
+    fireEvent.click(await within(tree).findByRole("button", { name: "知识库" }));
+    fireEvent.click(await within(tree).findByRole("button", { name: "支付接入说明" }));
     expect(await screen.findByText("这里是支付知识。")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "风控中心" }));
+
+    // 收起「支付结算」，切到「风控中心」→ 其知识库 → 点开文档，预览随之切换。
+    fireEvent.click(within(tree).getByRole("button", { name: "支付结算" }));
+    fireEvent.click(await within(tree).findByRole("button", { name: "风控中心" }));
+    fireEvent.click(await within(tree).findByRole("button", { name: "知识库" }));
+    fireEvent.click(await within(tree).findByRole("button", { name: "风控规则说明" }));
     expect(await screen.findByText("这里是风控知识。")).toBeInTheDocument();
   });
 
@@ -1284,6 +1298,8 @@ describe("CodeAsk AppShell information architecture", () => {
     render(<App />);
 
     const tree = await screen.findByRole("complementary", { name: "Wiki 目录树" });
+    // 默认特性闭合：先展开「支付结算」，露出其下的「问题定位报告」。
+    fireEvent.click(await within(tree).findByRole("button", { name: "支付结算" }));
     expect(await within(tree).findByRole("button", { name: "问题定位报告" })).toBeInTheDocument();
     fireEvent.click(within(tree).getByRole("button", { name: "问题定位报告" }));
     expect(await within(tree).findByRole("button", { name: "已验证" })).toBeInTheDocument();
