@@ -246,7 +246,9 @@ describe("Wiki node workflow", () => {
       ).not.toBeInTheDocument();
     });
     expect(
-      await screen.findByText("当前特性还没有 Wiki 文档，或当前选择的节点不是文档。"),
+      await screen.findByText(
+        "这个特性下还没有任何 Wiki 文档，新建一篇或导入现有资料即可开始。",
+      ),
     ).toBeInTheDocument();
   });
 

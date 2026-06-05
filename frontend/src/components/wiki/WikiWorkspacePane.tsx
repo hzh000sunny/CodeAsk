@@ -36,8 +36,14 @@ export function WikiWorkspacePane({
   showTreeToggle,
   showNoFeatureState,
   autosaveLabel,
+  activeFeatureName,
+  featureHasDocuments,
+  hasSelection,
 }: {
   activeFeature: { id: number } | null;
+  activeFeatureName: string | null;
+  featureHasDocuments: boolean;
+  hasSelection: boolean;
   brokenImageTargets: Set<string>;
   canCreate: boolean;
   canEdit: boolean;
@@ -128,15 +134,30 @@ export function WikiWorkspacePane({
         />
       ) : null}
 
-      {!document && !report && activeFeature ? (
-        <WikiEmptyState
-          canCreate={canCreate}
-          description="当前特性还没有 Wiki 文档，或当前选择的节点不是文档。"
-          mode="feature"
-          onCreateDocument={canCreate ? onCreateDocument : undefined}
-          onImport={canCreate ? onOpenImport : undefined}
-          title="开始建设这个特性的 Wiki"
-        />
+      {!document && !report && activeFeature && !hasSelection ? (
+        featureHasDocuments ? (
+          // 未选中任何节点、但特性下确有文档：引导去左侧选择，不预设给谁「建设」。
+          <WikiEmptyState
+            canCreate={false}
+            description="从左侧目录展开特性，点选其下的文档即可在此阅读。"
+            mode="select"
+            title="选择一篇 Wiki 查看"
+          />
+        ) : (
+          // 特性确实还没有任何 Wiki：点名是哪个特性，再给出建设入口。
+          <WikiEmptyState
+            canCreate={canCreate}
+            description="这个特性下还没有任何 Wiki 文档，新建一篇或导入现有资料即可开始。"
+            mode="feature"
+            onCreateDocument={canCreate ? onCreateDocument : undefined}
+            onImport={canCreate ? onOpenImport : undefined}
+            title={
+              activeFeatureName
+                ? `开始建设「${activeFeatureName}」的 Wiki`
+                : "开始建设这个特性的 Wiki"
+            }
+          />
+        )
       ) : null}
 
       {showNoFeatureState ? (

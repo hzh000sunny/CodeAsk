@@ -33,6 +33,7 @@ import { findFeatureRootNode, findSystemRoleNode } from "../../lib/wiki/tree-sel
 import {
   buildWikiNodeDisplayPath,
   collectWikiNodeChainIds,
+  findFirstDocumentInSubtree,
   findNodeById,
   formatWikiStoredPath,
   type WikiTreeNodeRecord,
@@ -137,6 +138,10 @@ export function WikiWorkbench({
   );
   const activeFeatureTree = useMemo(
     () => (activeFeatureRoot ? [activeFeatureRoot] : []),
+    [activeFeatureRoot],
+  );
+  const featureHasDocuments = useMemo(
+    () => (activeFeatureRoot ? Boolean(findFirstDocumentInSubtree(activeFeatureRoot)) : false),
     [activeFeatureRoot],
   );
   const selectedNode = useMemo(
@@ -781,6 +786,9 @@ export function WikiWorkbench({
       )}
       <WikiWorkspacePane
         activeFeature={activeFeatureId != null ? { id: activeFeatureId } : null}
+        activeFeatureName={activeListedFeature?.name ?? null}
+        featureHasDocuments={featureHasDocuments}
+        hasSelection={selectedNode != null}
         autosaveLabel={
           draftAutosave.autosaveStatus === "saving"
             ? "正在自动保存草稿..."

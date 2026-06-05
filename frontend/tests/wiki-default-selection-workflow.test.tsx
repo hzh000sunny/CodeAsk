@@ -176,10 +176,10 @@ describe("Wiki default selection workflow", () => {
     expect(screen.queryByText("知识库")).toBeNull();
     expect(screen.queryByText("正文。")).toBeNull();
 
-    // 正文区落到空状态，而非渲染某篇文档。
-    expect(
-      screen.getByText("当前特性还没有 Wiki 文档，或当前选择的节点不是文档。"),
-    ).toBeInTheDocument();
+    // 正文区落到「引导选择」空态，而非渲染某篇文档。
+    expect(screen.getByText("选择一篇 Wiki 查看")).toBeInTheDocument();
+    // 回归护栏：未选中任何特性/文档时，绝不出现「开始建设这个特性」这类误导文案。
+    expect(screen.queryByText(/开始建设/)).toBeNull();
   });
 
   it("URL 携带 node(刷新/切页回来):该文档仍被选中并渲染，祖先链展开", async () => {
@@ -198,7 +198,7 @@ describe("Wiki default selection workflow", () => {
     expect(await screen.findByText("知识库")).toBeInTheDocument();
     // 不应落到空状态。
     expect(
-      screen.queryByText("当前特性还没有 Wiki 文档，或当前选择的节点不是文档。"),
+      screen.queryByText("选择一篇 Wiki 查看"),
     ).toBeNull();
   });
 
@@ -221,7 +221,7 @@ describe("Wiki default selection workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Wiki" }));
     expect(await screen.findByText("正文。")).toBeInTheDocument();
     expect(
-      screen.queryByText("当前特性还没有 Wiki 文档，或当前选择的节点不是文档。"),
+      screen.queryByText("选择一篇 Wiki 查看"),
     ).toBeNull();
   });
 
@@ -250,7 +250,7 @@ describe("Wiki default selection workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Wiki" }));
     expect(await screen.findByText("正文。")).toBeInTheDocument();
     expect(
-      screen.queryByText("当前特性还没有 Wiki 文档，或当前选择的节点不是文档。"),
+      screen.queryByText("选择一篇 Wiki 查看"),
     ).toBeNull();
   });
 });

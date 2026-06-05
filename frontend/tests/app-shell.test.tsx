@@ -498,10 +498,10 @@ describe("CodeAsk AppShell information architecture", () => {
     expect(await within(tree).findByRole("button", { name: "历史特性" })).toBeInTheDocument();
     expect(await within(tree).findByRole("button", { name: "支付结算" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
-    // 默认不自动选中第一篇：正文落到空状态，不渲染任何文档预览。
-    expect(
-      await screen.findByText("当前特性还没有 Wiki 文档，或当前选择的节点不是文档。"),
-    ).toBeInTheDocument();
+    // 默认不自动选中第一篇：正文落到「引导选择」空态，不渲染任何文档预览。
+    expect(await screen.findByText("选择一篇 Wiki 查看")).toBeInTheDocument();
+    // 未选中时不应出现「开始建设这个特性」的误导文案。
+    expect(screen.queryByText(/开始建设/)).not.toBeInTheDocument();
     expect(screen.queryByText("这里是独立 Wiki 预览正文。")).not.toBeInTheDocument();
   });
 

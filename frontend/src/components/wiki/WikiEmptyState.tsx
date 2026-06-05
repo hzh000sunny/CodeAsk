@@ -1,4 +1,4 @@
-import { BookText, FilePlus2, FolderOpen, Sparkles } from "lucide-react";
+import { BookText, FilePlus2, FolderOpen, ListTree, Sparkles } from "lucide-react";
 
 import { Button } from "../ui/button";
 
@@ -12,20 +12,26 @@ export function WikiEmptyState({
 }: {
   canCreate: boolean;
   description: string;
-  mode?: "feature" | "global";
+  mode?: "feature" | "global" | "select";
   onCreateDocument?: () => void;
   onImport?: () => void;
   title: string;
 }) {
   const isFeatureMode = mode === "feature";
+  const headIcon =
+    mode === "feature" ? (
+      <BookText aria-hidden="true" size={22} />
+    ) : mode === "select" ? (
+      <ListTree aria-hidden="true" size={22} />
+    ) : (
+      <Sparkles aria-hidden="true" size={22} />
+    );
 
   return (
     <div className="wiki-empty-state">
       <div className="wiki-empty-card">
         <div className="wiki-empty-card-head">
-          <div className="wiki-empty-icon">
-            {isFeatureMode ? <BookText aria-hidden="true" size={22} /> : <Sparkles aria-hidden="true" size={22} />}
-          </div>
+          <div className="wiki-empty-icon">{headIcon}</div>
           <div className="wiki-empty-copy">
             {isFeatureMode ? <span className="wiki-empty-eyebrow">Wiki 工作区</span> : null}
             <h2>{title}</h2>
