@@ -6349,7 +6349,7 @@ textarea:focus-visible {
 /* 阅读画布：居中的两列栅格——左列正文卡、右列大纲目录；无目录时退化为单列。 */
 .wiki-reader-canvas {
   width: 100%;
-  max-width: 1200px;
+  max-width: 1360px;
   margin: 16px auto 32px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -6464,7 +6464,7 @@ textarea:focus-visible {
 .wiki-reader-body .markdown-body > h4,
 .wiki-reader-body .markdown-body > h5,
 .wiki-reader-body .markdown-body > h6 {
-  max-width: 860px;
+  max-width: 920px;
 }
 
 .wiki-inline-toggle {
