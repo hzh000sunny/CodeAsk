@@ -6137,12 +6137,16 @@ textarea:focus-visible {
   padding: 0;
 }
 
-/* 去卡片：正文直接落在纸面上，铺满工作区（含安全上限），靠页边距而非边框成形。 */
+/* 居中纸张：正文落在一张白纸上，两侧留出灰底，发丝边描形、极淡投影托起。 */
 .wiki-reader-body {
   width: 100%;
   max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px clamp(24px, 4vw, 56px) 72px;
+  margin: 16px auto 32px;
+  padding: 28px clamp(28px, 4vw, 60px) 72px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(29, 36, 48, 0.04);
 }
 
 .wiki-reader-body .markdown-body {
@@ -7151,6 +7155,8 @@ textarea:focus-visible {
   }
 
   .wiki-reader-body {
+    width: auto;
+    margin: 12px;
     padding: 18px 16px 56px;
   }
 
