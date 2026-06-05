@@ -139,6 +139,8 @@ export function WikiWorkbench({
     () => findFeatureRootNode(tree, activeFeatureId),
     [activeFeatureId, tree],
   );
+  // 历史特性是只读存档：不能新建/导入/重命名/删除，也不该出现「开始建设」引导。
+  const activeFeatureIsHistory = activeFeatureRoot?.system_role === "feature_space_history";
   const activeFeatureTree = useMemo(
     () => (activeFeatureRoot ? [activeFeatureRoot] : []),
     [activeFeatureRoot],
@@ -810,6 +812,7 @@ export function WikiWorkbench({
       <WikiWorkspacePane
         activeFeature={activeFeatureId != null ? { id: activeFeatureId } : null}
         activeFeatureName={activeListedFeature?.name ?? null}
+        activeFeatureIsHistory={activeFeatureIsHistory}
         featureHasDocuments={featureHasDocuments}
         hasSelection={selectedNode != null}
         autosaveLabel={

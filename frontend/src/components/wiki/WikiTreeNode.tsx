@@ -76,6 +76,7 @@ export function WikiTreeNode({
   onToggle,
   selectedNodeId,
   treeRoots,
+  withinHistoryFeature = false,
 }: {
   activeFeatureNodeId?: number | null;
   canManage: boolean;
@@ -108,7 +109,11 @@ export function WikiTreeNode({
   onToggle: (nodeId: number) => void;
   selectedNodeId: number | null;
   treeRoots?: WikiTreeNodeRecord[];
+  withinHistoryFeature?: boolean;
 }) {
+  // 历史特性是只读存档：其子树内不提供「新建/导入」入口（恢复/重新索引/重命名/删除照旧）。
+  const nodeWithinHistoryFeature =
+    withinHistoryFeature || node.system_role === "feature_space_history";
   const expanded = expandedIds.has(node.id);
   const selected = node.id === selectedNodeId;
   // 当前活动特性（未选中具体文档时）：在树里给特性根一个有别于文档选中的高亮，
@@ -184,6 +189,7 @@ export function WikiTreeNode({
         </button>
         <WikiNodeMenu
           canManage={canManage}
+          canCreateContent={!nodeWithinHistoryFeature}
           canRestoreArchivedSpace={canRestoreArchivedSpace}
           canMoveDown={moveFlags.canMoveDown}
           canMoveUp={moveFlags.canMoveUp}
@@ -227,6 +233,7 @@ export function WikiTreeNode({
               selectedNodeId={selectedNodeId}
               treeRoots={treeRoots ?? [node]}
               canRestoreArchivedSpace={canRestoreArchivedSpace}
+              withinHistoryFeature={nodeWithinHistoryFeature}
             />
           ))}
         </ul>

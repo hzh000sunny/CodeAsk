@@ -1,4 +1,4 @@
-import { BookText, FilePlus2, FolderOpen, ListTree, Sparkles } from "lucide-react";
+import { Archive, BookText, FilePlus2, FolderOpen, ListTree, Sparkles } from "lucide-react";
 
 import { Button } from "../ui/button";
 
@@ -12,7 +12,7 @@ export function WikiEmptyState({
 }: {
   canCreate: boolean;
   description: string;
-  mode?: "feature" | "global" | "select";
+  mode?: "feature" | "global" | "select" | "history";
   onCreateDocument?: () => void;
   onImport?: () => void;
   title: string;
@@ -23,6 +23,8 @@ export function WikiEmptyState({
       <BookText aria-hidden="true" size={22} />
     ) : mode === "select" ? (
       <ListTree aria-hidden="true" size={22} />
+    ) : mode === "history" ? (
+      <Archive aria-hidden="true" size={22} />
     ) : (
       <Sparkles aria-hidden="true" size={22} />
     );

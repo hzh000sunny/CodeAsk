@@ -24,6 +24,7 @@ import {
 
 export function WikiNodeMenu({
   canManage,
+  canCreateContent = true,
   canRestoreArchivedSpace,
   canMoveDown,
   canMoveUp,
@@ -39,6 +40,7 @@ export function WikiNodeMenu({
   onRestoreArchivedSpace,
 }: {
   canManage: boolean;
+  canCreateContent?: boolean;
   canRestoreArchivedSpace?: boolean;
   canMoveDown?: boolean;
   canMoveUp?: boolean;
@@ -53,7 +55,8 @@ export function WikiNodeMenu({
   onRename: (node: WikiTreeNodeRecord) => void;
   onRestoreArchivedSpace?: (node: WikiTreeNodeRecord) => void;
 }) {
-  const allowCreateChildren = canCreateChildrenInWikiNode(node);
+  // 历史特性子树：禁掉「新建/导入」内容入口，但保留恢复/重新索引/重命名/删除。
+  const allowCreateChildren = canCreateContent && canCreateChildrenInWikiNode(node);
   const allowRename = canRenameWikiNode(node);
   const allowDelete = canDeleteWikiNode(node);
   const allowReindex = canReindexWikiNode(node) && onReindex != null;

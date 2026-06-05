@@ -683,6 +683,117 @@ describe("CodeAsk AppShell information architecture", () => {
     );
   });
 
+  it("treats an empty historical feature as a read-only archive, hiding build/import even for admins", async () => {
+    window.history.replaceState(null, "", "/#/wiki?feature=42");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path === "/api/auth/me") {
+          return jsonResponse({
+            subject_id: "admin",
+            display_name: "admin",
+            role: "admin",
+            authenticated: true,
+          });
+        }
+        if (path === "/api/sessions") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/features") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/feature-admins/42") {
+          return jsonResponse([]);
+        }
+        if (path === "/api/wiki/tree") {
+          return jsonResponse({
+            space: null,
+            nodes: [
+              {
+                id: -2,
+                space_id: 0,
+                feature_id: null,
+                parent_id: null,
+                type: "folder",
+                name: "历史特性",
+                path: "历史特性",
+                system_role: "feature_group_history",
+                sort_order: 1,
+                created_at: "2026-04-30T10:00:00",
+                updated_at: "2026-04-30T10:00:00",
+              },
+              {
+                id: -200042,
+                space_id: 420,
+                feature_id: 42,
+                parent_id: -2,
+                type: "folder",
+                name: "Legacy Billing",
+                path: "历史特性/legacy-billing",
+                system_role: "feature_space_history",
+                sort_order: 0,
+                created_at: "2026-04-30T10:00:00",
+                updated_at: "2026-04-30T10:00:00",
+              },
+              {
+                id: 4201,
+                space_id: 420,
+                feature_id: 42,
+                parent_id: -200042,
+                type: "folder",
+                name: "知识库",
+                path: "knowledge-base",
+                system_role: "knowledge_base",
+                sort_order: 100,
+                created_at: "2026-04-30T10:00:00",
+                updated_at: "2026-04-30T10:00:00",
+              },
+            ],
+          });
+        }
+        if (path === "/api/wiki/spaces/by-feature/42") {
+          return jsonResponse({
+            id: 420,
+            feature_id: 42,
+            scope: "history",
+            display_name: "Legacy Billing",
+            slug: "legacy-billing",
+            status: "archived",
+            created_at: "2026-04-30T10:00:00",
+            updated_at: "2026-04-30T10:00:00",
+          });
+        }
+        if (path === "/api/wiki/reports/projections?feature_id=42") {
+          return jsonResponse({ items: [] });
+        }
+        if (path === "/api/me/llm-configs") {
+          return jsonResponse([]);
+        }
+        return jsonResponse({});
+      }),
+    );
+
+    render(<App />);
+
+    // 只读存档提示：点名是历史特性，且不引导「建设」。
+    expect(await screen.findByText(/是历史特性/)).toBeInTheDocument();
+    expect(screen.queryByText(/开始建设/)).not.toBeInTheDocument();
+    // 即便是 admin，历史特性也不给新建/导入入口。
+    expect(screen.queryByRole("button", { name: "新建 Wiki" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "导入 Wiki" })).not.toBeInTheDocument();
+
+    // 历史特性的目录树节点：菜单仍在（保留维护项），但去掉「新建/导入」内容入口。
+    const tree = await screen.findByRole("complementary", { name: "Wiki 目录树" });
+    fireEvent.click(
+      await within(tree).findByRole("button", { name: /打开节点 知识库 的更多操作/ }),
+    );
+    expect(screen.getByRole("menuitem", { name: "重新索引" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "新建 Wiki" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "导入 Wiki" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "新建目录" })).not.toBeInTheDocument();
+  });
+
   it("prompts before leaving wiki when an import drawer still has an unfinished session", async () => {
     window.history.replaceState(null, "", "/#/wiki");
     let uploadState: "pending" | "conflict" = "pending";

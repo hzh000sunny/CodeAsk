@@ -37,11 +37,13 @@ export function WikiWorkspacePane({
   showNoFeatureState,
   autosaveLabel,
   activeFeatureName,
+  activeFeatureIsHistory,
   featureHasDocuments,
   hasSelection,
 }: {
   activeFeature: { id: number } | null;
   activeFeatureName: string | null;
+  activeFeatureIsHistory: boolean;
   featureHasDocuments: boolean;
   hasSelection: boolean;
   brokenImageTargets: Set<string>;
@@ -142,6 +144,18 @@ export function WikiWorkspacePane({
             description="从左侧目录展开特性，点选其下的文档即可在此阅读。"
             mode="select"
             title="选择一篇 Wiki 查看"
+          />
+        ) : activeFeatureIsHistory ? (
+          // 历史特性是只读存档：不引导「建设」，也不给新建/导入入口。
+          <WikiEmptyState
+            canCreate={false}
+            description="这是一个历史特性，Wiki 为只读存档，没有可查看的文档。"
+            mode="history"
+            title={
+              activeFeatureName
+                ? `「${activeFeatureName}」是历史特性`
+                : "这是历史特性"
+            }
           />
         ) : (
           // 特性确实还没有任何 Wiki：点名是哪个特性，再给出建设入口。
