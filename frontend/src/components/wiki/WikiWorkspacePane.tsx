@@ -1,3 +1,5 @@
+import { ChevronRight } from "lucide-react";
+
 import type { WikiDocumentDetailRead, WikiReportDetailRead } from "../../types/wiki";
 import { copyTextToClipboard } from "../session/session-clipboard";
 import { WikiEditor } from "./WikiEditor";
@@ -5,6 +7,33 @@ import { WikiEmptyState } from "./WikiEmptyState";
 import { WikiFloatingActions } from "./WikiFloatingActions";
 import { WikiReader } from "./WikiReader";
 import { WikiReportViewer } from "./WikiReportViewer";
+
+// 报头面包屑：从特性开始的绝对路径，含当前文档本身（标题已去掉，不再做末段裁剪）。
+// 例：特性「OpenCode」下知识库里的 agent → OpenCode › 知识库 › agent。
+function buildBreadcrumbSegments(featureName: string | null, path: string | null): string[] {
+  const segments = (path ?? "")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  return featureName ? [featureName, ...segments] : segments;
+}
+
+function formatUpdatedAt(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export function WikiWorkspacePane({
   activeFeature,
@@ -40,6 +69,7 @@ export function WikiWorkspacePane({
   activeFeatureIsHistory,
   featureHasDocuments,
   hasSelection,
+  updatedAt,
 }: {
   activeFeature: { id: number } | null;
   activeFeatureName: string | null;
@@ -74,7 +104,10 @@ export function WikiWorkspacePane({
   showTreeToggle: boolean;
   showNoFeatureState: boolean;
   autosaveLabel: string;
+  updatedAt: string | null;
 }) {
+  const breadcrumbSegments = buildBreadcrumbSegments(activeFeatureName, selectedNodePath);
+  const updatedLabel = formatUpdatedAt(updatedAt);
   return (
     <section className="detail-panel wiki-detail-panel">
       {saveToast ? (
@@ -83,33 +116,61 @@ export function WikiWorkspacePane({
         </div>
       ) : null}
       {document && routeMode === "view" ? (
-        <>
-          <div className="page-header compact wiki-page-header">
-            <div>
-              <h1>{document.title}</h1>
-              <p>{selectedNodePath}</p>
-            </div>
-            <WikiFloatingActions
-              canEdit={canEdit}
-              onCopyLink={async () => {
-                await copyTextToClipboard(window.location.href);
-                setSaveToast("已复制当前 Wiki 链接");
-              }}
-              onEdit={onEdit}
-              onOpenDetail={onOpenDetail}
-              onOpenHistory={onOpenHistory}
-              onOpenImport={onOpenImport}
-              onOpenSources={onOpenSources}
-            />
-          </div>
-          <WikiReader
-            brokenImageTargets={brokenImageTargets}
-            content={document.current_body_markdown ?? ""}
-            headingTarget={headingTarget}
-            imageSrcMap={imageSrcMap}
-            linkHrefMap={linkHrefMap}
-          />
-        </>
+        <WikiReader
+          brokenImageTargets={brokenImageTargets}
+          content={document.current_body_markdown ?? ""}
+          header={
+            // 报头并进正文那张纸：与正文共享左缘与纸宽，内部一道发丝线分隔，
+            // 自身随文档滚动——它是这页文档的报头，而非浮在纸上方的另一块板。
+            <header className="wiki-doc-masthead">
+              <div className="wiki-doc-masthead-top">
+                <div className="wiki-doc-masthead-lead">
+                  {breadcrumbSegments.length > 0 ? (
+                    <nav aria-label="文档路径" className="wiki-doc-breadcrumb">
+                      {breadcrumbSegments.map((segment, index) => (
+                        <span className="wiki-doc-crumb" key={`${segment}-${index}`}>
+                          {index > 0 ? (
+                            <ChevronRight
+                              aria-hidden="true"
+                              className="wiki-doc-crumb-sep"
+                              size={13}
+                            />
+                          ) : null}
+                          <span>{segment}</span>
+                        </span>
+                      ))}
+                    </nav>
+                  ) : null}
+                  {updatedLabel ? (
+                    <span className="wiki-doc-meta">
+                      {breadcrumbSegments.length > 0 ? (
+                        <span aria-hidden="true" className="wiki-doc-meta-dot">
+                          ·
+                        </span>
+                      ) : null}
+                      更新于 {updatedLabel}
+                    </span>
+                  ) : null}
+                </div>
+                <WikiFloatingActions
+                  canEdit={canEdit}
+                  onCopyLink={async () => {
+                    await copyTextToClipboard(window.location.href);
+                    setSaveToast("已复制当前 Wiki 链接");
+                  }}
+                  onEdit={onEdit}
+                  onOpenDetail={onOpenDetail}
+                  onOpenHistory={onOpenHistory}
+                  onOpenImport={onOpenImport}
+                  onOpenSources={onOpenSources}
+                />
+              </div>
+            </header>
+          }
+          headingTarget={headingTarget}
+          imageSrcMap={imageSrcMap}
+          linkHrefMap={linkHrefMap}
+        />
       ) : null}
 
       {document && routeMode === "edit" ? (

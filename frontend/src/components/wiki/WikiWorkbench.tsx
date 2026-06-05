@@ -815,6 +815,7 @@ export function WikiWorkbench({
         activeFeatureIsHistory={activeFeatureIsHistory}
         featureHasDocuments={featureHasDocuments}
         hasSelection={selectedNode != null}
+        updatedAt={selectedNode?.updated_at ?? null}
         autosaveLabel={
           draftAutosave.autosaveStatus === "saving"
             ? "正在自动保存草稿..."

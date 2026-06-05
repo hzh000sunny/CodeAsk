@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../src/App";
@@ -338,8 +338,9 @@ describe("Wiki default selection workflow", () => {
 
     // 选中被保留：文档正文渲染出来（"正文。"只出现在已渲染的文档体内）。
     expect(await screen.findByText("正文。")).toBeInTheDocument();
-    // 祖先链展开：知识库节点可见。
-    expect(await screen.findByText("知识库")).toBeInTheDocument();
+    // 祖先链展开：知识库节点在目录树里可见（报头面包屑也会有"知识库"，故限定到树）。
+    const tree = screen.getByRole("complementary", { name: "Wiki 目录树" });
+    expect(await within(tree).findByRole("button", { name: "知识库" })).toBeInTheDocument();
     // 不应落到空状态。
     expect(
       screen.queryByText("选择一篇 Wiki 查看"),

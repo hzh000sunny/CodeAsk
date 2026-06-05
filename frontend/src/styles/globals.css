@@ -6100,36 +6100,101 @@ textarea:focus-visible {
   animation: toast-in 160ms ease-out;
 }
 
+/* 编辑器 / 报告视图仍用满铺 sticky 报头（文档阅读视图已改为下方并进纸张的 masthead）。 */
 .wiki-page-header {
   position: sticky;
   top: 0;
   z-index: 2;
 }
 
+/* 文档报头：整页满铺、固定在阅读区顶部（在滚动区之外，天然不随正文滚动），
+   底边一道发丝线收口。正文在它下方独立成卡、居中，互不绑定宽度。
+   行高压扁、meta 并进面包屑同一行，让报头尽量「薄」。 */
+.wiki-doc-masthead {
+  flex: 0 0 auto;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  padding: 10px clamp(20px, 3vw, 32px) 11px;
+}
+
+.wiki-doc-masthead-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 28px;
+}
+
+/* 报头第一行的左簇：面包屑 + 更新时间（同一行，静音灰）。 */
+.wiki-doc-masthead-lead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+/* 面包屑：祖先路径，静音灰、可换行；末段（当前文档）交给下面的标题点名。 */
+.wiki-doc-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1px 3px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.wiki-doc-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.wiki-doc-crumb > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-doc-crumb-sep {
+  flex: 0 0 auto;
+  color: var(--line-strong);
+}
+
+.wiki-doc-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wiki-doc-meta-dot {
+  color: var(--line-strong);
+}
+
+/* 动作收成安静的内联一排：去掉药丸/blur/重投影，按钮各自承担形态。 */
 .wiki-floating-actions {
-  position: sticky;
-  top: 20px;
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  align-self: flex-start;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  padding: 6px;
-  box-shadow: 0 12px 30px rgba(16, 24, 40, 0.08);
-  backdrop-filter: blur(14px);
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: 6px;
 }
 
 .wiki-floating-actions .button {
-  min-height: 34px;
-  border-radius: 999px;
+  min-height: 32px;
 }
 
 .wiki-more-button {
-  min-height: 34px;
-  border-radius: 999px;
+  min-height: 32px;
 }
 
 .wiki-floating-menu {
@@ -6151,16 +6216,125 @@ textarea:focus-visible {
   padding: 0;
 }
 
-/* 居中纸张：正文落在一张白纸上，两侧留出灰底，发丝边描形、极淡投影托起。 */
-.wiki-reader-body {
+/* 报头与正文之间的「淡出」过渡：贴在滚动区顶端的一道极薄白色渐变遮罩，
+   正文上滚时在这里渐渐隐没，而不是硬切在报头底边线上。sticky 故随视口常驻。 */
+.wiki-reader-scroll::before {
+  content: "";
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: block;
+  height: 26px;
+  margin-bottom: -26px;
+  background: linear-gradient(
+    to bottom,
+    var(--panel) 0%,
+    rgba(255, 255, 255, 0.72) 38%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+}
+
+/* 阅读画布：居中的两列栅格——左列正文卡、右列大纲目录；无目录时退化为单列。 */
+.wiki-reader-canvas {
   width: 100%;
   max-width: 1200px;
   margin: 16px auto 32px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.wiki-reader-canvas[data-has-toc="true"] {
+  grid-template-columns: minmax(0, 1fr) 224px;
+}
+
+/* 居中纸张：正文落在一张白纸上，两侧留出灰底，发丝边描形、极淡投影托起。 */
+.wiki-reader-body {
+  min-width: 0;
   padding: 28px clamp(28px, 4vw, 60px) 72px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
   box-shadow: 0 1px 2px rgba(29, 36, 48, 0.04);
+}
+
+/* 锚点跳转留出顶部呼吸位，避免标题贴着画布顶缘。 */
+.wiki-reader-body :is(h1, h2, h3) {
+  scroll-margin-top: 16px;
+}
+
+/* 文档大纲：sticky 跟随，顺着正文标题层级缩进；当前章节炭灰高亮 + 一道静音侧栏。 */
+.wiki-reader-toc {
+  position: sticky;
+  top: 26px;
+  align-self: start;
+  max-height: calc(100dvh - 168px);
+  overflow: auto;
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
+}
+
+.wiki-reader-toc-title {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.wiki-reader-toc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.wiki-reader-toc-link {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 5px 8px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease;
+}
+
+.wiki-reader-toc-link[data-indent="1"] {
+  padding-left: 20px;
+}
+
+.wiki-reader-toc-link[data-indent="2"] {
+  padding-left: 32px;
+}
+
+.wiki-reader-toc-link:hover {
+  background: var(--soft);
+  color: var(--text);
+}
+
+.wiki-reader-toc-link[data-active="true"] {
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 0 #2b2f37;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wiki-reader-toc-link {
+    transition: none;
+  }
 }
 
 .wiki-reader-body .markdown-body {
@@ -7168,9 +7342,24 @@ textarea:focus-visible {
     padding: 0;
   }
 
-  .wiki-reader-body {
-    width: auto;
+  .wiki-doc-masthead {
+    padding: 14px 16px;
+  }
+
+  .wiki-reader-canvas {
     margin: 12px;
+    gap: 18px;
+  }
+
+  .wiki-reader-canvas[data-has-toc="true"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wiki-reader-toc {
+    display: none;
+  }
+
+  .wiki-reader-body {
     padding: 18px 16px 56px;
   }
 
@@ -7194,10 +7383,15 @@ textarea:focus-visible {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .wiki-doc-masthead-top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
   .wiki-floating-actions {
     width: 100%;
-    justify-content: flex-end;
-    border-radius: 8px;
+    justify-content: flex-start;
   }
 
   .wiki-drawer,

@@ -210,12 +210,12 @@ describe("Wiki node workflow", () => {
     fireEvent.click(within(renameDialog).getByRole("button", { name: "保存名称" }));
 
     expect(await screen.findByText("Wiki 节点已重命名")).toBeInTheDocument();
-    expect(
-      await screen.findByText("Runbook Updated", { selector: ".wiki-page-header h1" }),
-    ).toBeInTheDocument();
-    expect(
-      await screen.findByText("知识库 / Runbook Updated", { selector: ".wiki-page-header p" }),
-    ).toBeInTheDocument();
+    // 报头是从特性开始的全路径面包屑（无独立标题）：重命名后末段同步成新名字，知识库仍在链上。
+    await waitFor(() => {
+      const trail = document.querySelector(".wiki-doc-breadcrumb")?.textContent ?? "";
+      expect(trail).toContain("知识库");
+      expect(trail).toContain("Runbook Updated");
+    });
     expect(
       await within(treePane).findByRole("button", { name: "Runbook Updated" }),
     ).toBeInTheDocument();
