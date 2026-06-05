@@ -270,6 +270,62 @@ textarea:focus-visible {
   transform: translateX(2px);
 }
 
+/* v1.0.6 ink-and-paper：主导航栏（.primary）与 Wiki 目录树（.wiki-tree-collapse-button）
+   的折叠把手——从「悬浮中点 + 重阴影药丸」改成贴顶的扁平发丝把手：与顶部工具行同高、
+   零阴影、炭灰 token、平时静音点缀、鼠标进 rail 或键盘聚焦时显形。其余 secondary 列表
+   面板（会话/特性/设置）暂仍用旧药丸，等后续一并收口，故此处按类名精确作用域、不波及。 */
+.edge-collapse-button.primary,
+.wiki-tree-collapse-button {
+  top: 13px;
+  right: -11px;
+  width: 22px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  box-shadow: none;
+  opacity: 0.4;
+  transform: translateY(0);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease;
+}
+
+/* 收起后整条 rail 近乎空白，把展开把手抬成该区最显眼的操作：常驻、加重。 */
+.edge-collapse-button.primary[data-collapsed="true"],
+.wiki-tree-collapse-button[data-collapsed="true"] {
+  opacity: 0.85;
+}
+
+/* 把手不靠 hover 独占：默认留一道淡痕（可见、可聚焦），鼠标进 rail 或聚焦其中时整体显形。 */
+.source-sidebar:hover .edge-collapse-button.primary,
+.source-sidebar:focus-within .edge-collapse-button.primary,
+.wiki-tree-pane:hover .wiki-tree-collapse-button,
+.wiki-tree-pane:focus-within .wiki-tree-collapse-button {
+  opacity: 1;
+}
+
+.edge-collapse-button.primary:hover,
+.edge-collapse-button.primary:focus-visible,
+.wiki-tree-collapse-button:hover,
+.wiki-tree-collapse-button:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--soft);
+  color: var(--text);
+  box-shadow: none;
+  opacity: 1;
+}
+
+/* 贴顶把手不再随 hover 上下平移（那是中点药丸「探出」的语义）；保留下方 svg 方向微移作朝向暗示。 */
+.edge-collapse-button.primary[data-collapsed="false"]:hover,
+.edge-collapse-button.primary[data-collapsed="true"]:hover,
+.wiki-tree-collapse-button[data-collapsed="false"]:hover,
+.wiki-tree-collapse-button[data-collapsed="true"]:hover {
+  transform: translateY(0);
+}
+
 .brand-lockup {
   display: flex;
   align-items: center;
@@ -5746,6 +5802,21 @@ textarea:focus-visible {
   overflow: visible;
 }
 
+/* 收起态从「一行竖排文字」升级为「图标 + 竖排标题」，保留这是 Wiki 目录的身份感；
+   顶部留白让出贴顶展开把手的落点（top 13 + 高 30），避免图标与把手叠在一起。 */
+.wiki-tree-collapsed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 52px;
+  color: var(--muted);
+}
+
+.wiki-tree-collapsed-icon {
+  color: var(--muted);
+}
+
 .wiki-tree-toolbar {
   display: grid;
   gap: 12px;
@@ -7451,6 +7522,16 @@ textarea:focus-visible {
   .edge-collapse-button[data-collapsed="false"]:hover,
   .edge-collapse-button[data-collapsed="true"]:hover {
     transform: translateY(-50%);
+  }
+
+  /* 贴顶把手是 translateY(0) 锚位，别被上面的 -50% 通则拽回中点。 */
+  .edge-collapse-button.primary:hover,
+  .edge-collapse-button.primary[data-collapsed="false"]:hover,
+  .edge-collapse-button.primary[data-collapsed="true"]:hover,
+  .wiki-tree-collapse-button:hover,
+  .wiki-tree-collapse-button[data-collapsed="false"]:hover,
+  .wiki-tree-collapse-button[data-collapsed="true"]:hover {
+    transform: translateY(0);
   }
 
   .edge-collapse-button[data-collapsed="false"]:hover svg,

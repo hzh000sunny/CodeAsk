@@ -1,5 +1,5 @@
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { BookOpenText, ChevronLeft, ChevronRight, Search } from "lucide-react";
 
 import type { WikiSearchHitRead } from "../../types/wiki";
 import type { WikiMoveNodePayload } from "../../types/wiki";
@@ -102,7 +102,15 @@ export function WikiTreePane({
         {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
       </button>
       {collapsed ? (
-        <div className="collapsed-panel-label">Wiki</div>
+        <div className="wiki-tree-collapsed">
+          <BookOpenText
+            aria-hidden="true"
+            className="wiki-tree-collapsed-icon"
+            size={18}
+            strokeWidth={1.9}
+          />
+          <div className="collapsed-panel-label">Wiki</div>
+        </div>
       ) : (
         <>
           <div className="wiki-tree-toolbar">
