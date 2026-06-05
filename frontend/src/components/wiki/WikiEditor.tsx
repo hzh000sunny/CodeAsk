@@ -1,12 +1,19 @@
+import { useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { ChevronRight, Clock3 } from "lucide-react";
 
 import { Button } from "../ui/button";
 import { WikiLivePreview } from "./WikiLivePreview";
 import { WikiSourceEditor } from "./WikiSourceEditor";
 
+const MIN_RATIO = 0.25;
+const MAX_RATIO = 0.75;
+const KEY_STEP = 0.04;
+
 export function WikiEditor({
   autosaveLabel,
   bodyMarkdown,
+  breadcrumbSegments,
+  isDirty,
   onCancel,
   onOpenHistory,
   onPublish,
@@ -20,6 +27,8 @@ export function WikiEditor({
 }: {
   autosaveLabel: string;
   bodyMarkdown: string;
+  breadcrumbSegments: string[];
+  isDirty: boolean;
   onCancel: () => void;
   onOpenHistory: () => void;
   onPublish: () => void;
@@ -31,6 +40,77 @@ export function WikiEditor({
   linkHrefMap?: Record<string, string>;
   setBodyMarkdown: (value: string) => void;
 }) {
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const sourceRef = useRef<HTMLTextAreaElement | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const syncingRef = useRef(false);
+  const [ratio, setRatio] = useState(0.5);
+
+  // 报头面包屑：没有路径时退回标题，保证编辑态也始终点名「在改哪一篇」。
+  const crumbs = breadcrumbSegments.length > 0 ? breadcrumbSegments : [title];
+  const statusState = publishing ? "saving" : isDirty ? "dirty" : "clean";
+
+  // 滚动同步：拖动任一栏，另一栏按滚动比例跟随；用一帧的锁避免来回触发。
+  function syncScroll(from: "source" | "preview") {
+    if (syncingRef.current) {
+      return;
+    }
+    const src = from === "source" ? sourceRef.current : previewRef.current;
+    const dst = from === "source" ? previewRef.current : sourceRef.current;
+    if (!src || !dst) {
+      return;
+    }
+    const srcMax = src.scrollHeight - src.clientHeight;
+    const dstMax = dst.scrollHeight - dst.clientHeight;
+    if (srcMax <= 0 || dstMax <= 0) {
+      return;
+    }
+    syncingRef.current = true;
+    dst.scrollTop = (src.scrollTop / srcMax) * dstMax;
+    window.requestAnimationFrame(() => {
+      syncingRef.current = false;
+    });
+  }
+
+  function startDrag(event: React.PointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const grid = gridRef.current;
+    if (!grid) {
+      return;
+    }
+    const rect = grid.getBoundingClientRect();
+    const onMove = (move: PointerEvent) => {
+      const next = (move.clientX - rect.left) / rect.width;
+      setRatio(Math.min(MAX_RATIO, Math.max(MIN_RATIO, next)));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    document.body.style.cursor = "col-resize";
+  }
+
+  function onDividerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setRatio((value) => Math.max(MIN_RATIO, value - KEY_STEP));
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setRatio((value) => Math.min(MAX_RATIO, value + KEY_STEP));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setRatio(0.5);
+    }
+  }
+
+  const gridStyle = {
+    "--col-a": `${ratio}fr`,
+    "--col-b": `${1 - ratio}fr`,
+  } as CSSProperties;
+
   return (
     <section className="wiki-editor-shell">
       {showTreeToggle ? (
@@ -44,10 +124,34 @@ export function WikiEditor({
           <ChevronRight size={15} />
         </button>
       ) : null}
-      <div className="page-header compact wiki-page-header">
-        <div>
-          <h1>{title}</h1>
-          <p>{autosaveLabel}</p>
+      <header className="wiki-editor-masthead">
+        <div className="wiki-editor-masthead-lead">
+          <nav aria-label="文档路径" className="wiki-doc-breadcrumb">
+            {crumbs.map((segment, index) => (
+              <span
+                className="wiki-doc-crumb"
+                data-current={index === crumbs.length - 1 || undefined}
+                key={`${segment}-${index}`}
+              >
+                {index > 0 ? (
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="wiki-doc-crumb-sep"
+                    size={13}
+                  />
+                ) : null}
+                <span>{segment}</span>
+              </span>
+            ))}
+          </nav>
+          <span
+            aria-live="polite"
+            className="wiki-editor-status"
+            data-state={statusState}
+          >
+            <span aria-hidden="true" className="wiki-editor-status-dot" />
+            {autosaveLabel}
+          </span>
         </div>
         <div className="header-actions">
           <Button
@@ -61,17 +165,39 @@ export function WikiEditor({
           <Button onClick={onCancel} type="button" variant="secondary">
             取消
           </Button>
-          <Button disabled={publishing} onClick={onPublish} type="button" variant="primary">
-            保存
+          <Button
+            disabled={publishing}
+            onClick={onPublish}
+            type="button"
+            variant="primary"
+          >
+            {publishing ? "保存中…" : "保存"}
           </Button>
         </div>
-      </div>
-      <div className="wiki-editor-grid">
-        <WikiSourceEditor onChange={setBodyMarkdown} value={bodyMarkdown} />
+      </header>
+      <div className="wiki-editor-grid" ref={gridRef} style={gridStyle}>
+        <WikiSourceEditor
+          onChange={setBodyMarkdown}
+          onScroll={() => syncScroll("source")}
+          textareaRef={sourceRef}
+          value={bodyMarkdown}
+        />
+        <button
+          aria-label="拖动调整源码与预览的宽度比例"
+          aria-orientation="vertical"
+          className="wiki-split-divider"
+          onKeyDown={onDividerKeyDown}
+          onPointerDown={startDrag}
+          role="separator"
+          tabIndex={0}
+          type="button"
+        />
         <WikiLivePreview
           content={bodyMarkdown}
           imageSrcMap={imageSrcMap}
           linkHrefMap={linkHrefMap}
+          onScroll={() => syncScroll("preview")}
+          scrollRef={previewRef}
         />
       </div>
     </section>

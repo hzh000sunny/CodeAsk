@@ -6212,12 +6212,6 @@ textarea:focus-visible {
 }
 
 /* 编辑器 / 报告视图仍用满铺 sticky 报头（文档阅读视图已改为下方并进纸张的 masthead）。 */
-.wiki-page-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-
 /* 文档报头：整页满铺、固定在阅读区顶部（在滚动区之外，天然不随正文滚动），
    底边一道发丝线收口。正文在它下方独立成卡、居中，互不绑定宽度。
    行高压扁、meta 并进面包屑同一行，让报头尽量「薄」。 */
@@ -6269,6 +6263,12 @@ textarea:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 末段（当前文档）在编辑态点亮成炭灰、加重，明确「正在改这一篇」。 */
+.wiki-doc-crumb[data-current] > span {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .wiki-doc-crumb-sep {
@@ -6473,32 +6473,130 @@ textarea:focus-visible {
   right: auto;
 }
 
+/* 编辑页头：与阅读页 masthead 同构的一道薄条——左簇面包屑 + 草稿/脏状态，
+   右簇操作。结构、字重、配色都对齐阅读态，让 view↔edit 切换不再「跳戏」。 */
+.wiki-editor-masthead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  padding: 12px clamp(18px, 3vw, 28px);
+}
+
+.wiki-editor-masthead-lead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+/* 草稿/脏状态 chip：文案给草稿自动保存的安心提示，圆点编码「未发布改动」。
+   蓝＝有未发布改动（安静的注意信号），灰＝已是最新，脉冲＝保存中。 */
+.wiki-editor-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.wiki-editor-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--line-strong);
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.wiki-editor-status[data-state="dirty"] .wiki-editor-status-dot {
+  background: var(--accent);
+}
+
+.wiki-editor-status[data-state="saving"] .wiki-editor-status-dot {
+  background: var(--accent);
+  animation: wiki-status-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes wiki-status-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.32);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0);
+  }
+}
+
 .wiki-editor-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: var(--col-a, 1fr) auto var(--col-b, 1fr);
+  gap: 0;
   flex: 1;
   min-height: 0;
-  padding: 18px 22px 22px;
+  padding: 16px clamp(18px, 3vw, 28px) 22px;
 }
 
 .wiki-editor-pane {
   display: flex;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #ffffff;
+  border-radius: 9px;
+  background: var(--panel);
   overflow: hidden;
 }
 
 .wiki-pane-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
   border-bottom: 1px solid var(--line);
-  background: #fbfcfe;
-  color: #475467;
-  padding: 12px 14px;
-  font-size: 12px;
-  font-weight: 700;
+  background: var(--panel-subtle);
+  padding: 9px 14px;
+}
+
+.wiki-pane-heading-label {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.wiki-pane-heading-meta {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+/* 源码栏是真正动手的工作面：纯白纸、聚焦时给一道炭灰焦点环点亮。 */
+.wiki-source-pane {
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.wiki-source-pane:focus-within {
+  border-color: var(--line-strong);
+  box-shadow: 0 0 0 3px rgba(43, 47, 55, 0.08);
+}
+
+/* 预览栏是回显镜像：底色退到 panel-subtle，比工作面「沉」一档，主次自明。 */
+.wiki-live-preview .wiki-live-preview-body {
+  background: var(--panel-subtle);
 }
 
 .wiki-source-editor {
@@ -6506,12 +6604,17 @@ textarea:focus-visible {
   flex: 1;
   border: 0;
   border-radius: 0;
+  background: var(--panel);
   padding: 16px;
   resize: none;
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "CodeAsk Sans CJK", "Noto Sans CJK SC", "Microsoft YaHei", monospace;
   line-height: 1.65;
+}
+
+.wiki-source-editor:focus-visible {
+  outline: none;
 }
 
 .wiki-live-preview-body {
@@ -6523,6 +6626,62 @@ textarea:focus-visible {
 
 .wiki-live-preview-body .markdown-body {
   margin-top: 0;
+}
+
+/* 分栏拖柄：常态一道发丝线，hover/focus 加粗成炭灰，可键盘 ←/→ 调比例、Home 复位。 */
+.wiki-split-divider {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.wiki-split-divider::before {
+  content: "";
+  width: 1px;
+  height: 100%;
+  background: var(--line);
+  transition:
+    width 140ms ease,
+    background-color 140ms ease;
+}
+
+.wiki-split-divider:hover::before,
+.wiki-split-divider:focus-visible::before {
+  width: 3px;
+  background: var(--line-strong);
+}
+
+.wiki-split-divider:focus-visible {
+  outline: none;
+}
+
+/* 窄屏退化为单列：源码在上、预览在下，拖柄隐藏。 */
+@media (max-width: 880px) {
+  .wiki-editor-grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: minmax(200px, 1fr);
+    row-gap: 14px;
+  }
+
+  .wiki-split-divider {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wiki-editor-status-dot,
+  .wiki-source-pane,
+  .wiki-split-divider::before {
+    transition: none;
+  }
+
+  .wiki-editor-status[data-state="saving"] .wiki-editor-status-dot {
+    animation: none;
+  }
 }
 
 .wiki-drawer-backdrop {

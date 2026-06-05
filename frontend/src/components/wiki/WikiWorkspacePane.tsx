@@ -177,7 +177,9 @@ export function WikiWorkspacePane({
         <WikiEditor
           autosaveLabel={autosaveLabel}
           bodyMarkdown={editingBody}
+          breadcrumbSegments={breadcrumbSegments}
           imageSrcMap={imageSrcMap}
+          isDirty={editingBody !== (document.current_body_markdown ?? "")}
           linkHrefMap={linkHrefMap}
           onCancel={onRequestCancelEdit}
           onOpenHistory={onOpenHistory}
