@@ -615,7 +615,8 @@ describe("FeatureWorkbench management actions", () => {
     expect(
       await screen.findByRole("button", { name: "进入 Wiki 工作台" }),
     ).toBeInTheDocument();
-    expect(await screen.findByText("支付接入说明")).toBeInTheDocument();
+    // 标题既出现在目录树节点，也出现在预览报头（点名当前文档），故允许多处命中。
+    expect(await screen.findAllByText("支付接入说明")).not.toHaveLength(0);
     expect(await screen.findByText("这里是接入说明正文。")).toBeInTheDocument();
     expect(screen.queryByText(/篇报告$/)).not.toBeInTheDocument();
     expect(

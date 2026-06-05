@@ -3996,7 +3996,10 @@ textarea:focus-visible {
   font-weight: 700;
 }
 
+/* 目录树窄、预览宽：树固定一条 268–300px 的栏，预览吃掉其余空间
+   （此前 two-column 的 1fr/1fr 把预览压得过窄）。窄屏由 .two-column 媒体查询回落单列。 */
 .knowledge-tab-content {
+  grid-template-columns: minmax(248px, 288px) minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -4008,74 +4011,47 @@ textarea:focus-visible {
   overflow: hidden;
 }
 
+/* 树体留白收紧，让 wiki-tree 行自身的内边距主导密度；负外边距把滚动区拉到
+   surface 内沿，使选中态的 inset 侧栏贴着面板边缘、不被 18px padding 推开。 */
 .knowledge-tree-scroll {
   min-height: 0;
+  margin: 0 -6px;
   overflow: auto;
-  padding-right: 4px;
+  padding: 2px 4px 4px;
 }
 
-.knowledge-tree-list {
-  display: grid;
-  gap: 4px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* 预览树复用 Wiki 工作台的 .wiki-tree-* 视觉，但没有节点菜单，
+   按钮无需为菜单让出 32px，铺满整行。 */
+.knowledge-tab-content .wiki-tree-button {
+  max-width: 100%;
 }
 
-.knowledge-tree-item {
-  min-width: 0;
+/* 预览正文给一个舒适的阅读测度并居中，避免在变宽后的预览栏里铺满整宽。 */
+.knowledge-preview {
+  margin-top: 0;
 }
 
-.knowledge-tree-button {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
+.knowledge-preview .markdown-body {
   width: 100%;
-  min-height: 34px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: #344054;
-  padding: 7px 10px;
-  text-align: left;
+  max-width: 820px;
+  margin-inline: auto;
 }
 
-.knowledge-tree-button:hover {
-  background: #f2f5f8;
-  color: #111827;
-}
-
-.knowledge-tree-button[data-selected="true"] {
-  background: #eef4ff;
-  color: #111827;
-}
-
-.knowledge-tree-prefix {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  flex: 0 0 16px;
-  color: var(--muted);
-}
-
-.knowledge-tree-name {
+/* 预览报头补一行当前文档名，点名「正在看哪一篇」。 */
+.knowledge-preview-heading {
   min-width: 0;
+}
+
+.knowledge-preview-name {
+  min-width: 0;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1 1 auto;
-}
-
-.knowledge-tree-button small {
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
   color: var(--muted);
-  font-size: 12px;
-  flex: 0 0 auto;
-}
-
-.knowledge-preview {
-  margin-top: 0;
+  font-size: 13px;
 }
 
 .settings-config-list li {

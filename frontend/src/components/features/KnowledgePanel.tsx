@@ -1,10 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { createElement, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  BookOpenText,
-  FolderOpen,
-  FolderTree,
-} from "lucide-react";
+import { BookOpenText, ChevronRight, FolderTree } from "lucide-react";
 
 import {
   getWikiDocument,
@@ -20,8 +16,10 @@ import {
   findNodeById,
   type WikiTreeNodeRecord,
 } from "../../lib/wiki/tree";
+import { cn } from "../../lib/utils";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { Button } from "../ui/button";
+import { resolveNodeTypeIcon } from "../wiki/WikiTreeNode";
 
 export function KnowledgePanel({
   featureId,
@@ -137,10 +135,9 @@ export function KnowledgePanel({
           </div>
         ) : (
           <div className="knowledge-tree-scroll">
-            <ul className="knowledge-tree-list">
+            <ul className="wiki-tree-list">
               {tree.map((node) => (
                 <KnowledgeTreePreviewNode
-                  depth={0}
                   expandedIds={expandedIds}
                   key={node.id}
                   node={node}
@@ -165,9 +162,14 @@ export function KnowledgePanel({
       </section>
       <section className="surface knowledge-preview-surface">
         <div className="content-toolbar">
-          <div className="section-title">
+          <div className="section-title knowledge-preview-heading">
             <BookOpenText aria-hidden="true" size={18} />
             <h2>内容预览</h2>
+            {selectedNode ? (
+              <span className="knowledge-preview-name" title={selectedNode.name}>
+                {selectedNode.name}
+              </span>
+            ) : null}
           </div>
         </div>
         {!featureId ? (
@@ -197,15 +199,15 @@ export function KnowledgePanel({
   );
 }
 
+// 复用 Wiki 工作台的树视觉（caret + 角色图标 + 缩进连接线 + 静音选中态），
+// 但去掉拖拽/节点菜单等编辑能力——这里是只读预览树。
 function KnowledgeTreePreviewNode({
-  depth,
   expandedIds,
   node,
   onSelect,
   onToggle,
   selectedNodeId,
 }: {
-  depth: number;
   expandedIds: Set<number>;
   node: WikiTreeNodeRecord;
   onSelect: (nodeId: number) => void;
@@ -216,36 +218,52 @@ function KnowledgeTreePreviewNode({
   const isFolder = node.type === "folder";
   const expanded = expandedIds.has(node.id);
   const selected = node.id === selectedNodeId;
+  const canExpand = node.children.length > 0;
+  // 角色图标按节点动态选取；用 createElement 而非 <Icon/>，避免在 render 中即时
+  // 创建组件（react-hooks/static-components）。
+  const typeIcon = createElement(resolveNodeTypeIcon(node, expanded), { size: 15 });
 
   return (
-    <li className="knowledge-tree-item">
-      <button
-        aria-expanded={isFolder ? expanded : undefined}
-        className="knowledge-tree-button"
-        data-selected={selected}
-        onClick={() => {
-          if (isFolder) {
-            onToggle(node.id);
-            return;
-          }
-          if (isSelectable) {
-            onSelect(node.id);
-          }
-        }}
-        style={{ paddingLeft: `${12 + depth * 16}px` }}
-        type="button"
-      >
-        <span className="knowledge-tree-prefix" aria-hidden="true">
-          {isFolder ? <FolderOpen size={14} /> : null}
-        </span>
-        <span className="knowledge-tree-name">{node.name}</span>
-        {node.type === "report_ref" ? <small>问题报告</small> : null}
-      </button>
-      {node.children.length > 0 && expanded ? (
-        <ul className="knowledge-tree-list">
+    <li className="wiki-tree-item">
+      <div className="wiki-tree-row">
+        <button
+          aria-expanded={canExpand ? expanded : undefined}
+          className="wiki-tree-button"
+          data-selected={selected}
+          onClick={() => {
+            if (isFolder) {
+              onToggle(node.id);
+              return;
+            }
+            if (isSelectable) {
+              onSelect(node.id);
+            }
+          }}
+          title={node.name}
+          type="button"
+        >
+          <span
+            className={cn("wiki-tree-caret", !canExpand && "is-placeholder")}
+            data-expanded={canExpand && expanded ? "true" : undefined}
+            onClick={(event) => {
+              if (!canExpand) {
+                return;
+              }
+              event.stopPropagation();
+              onToggle(node.id);
+            }}
+            role="presentation"
+          >
+            {canExpand ? <ChevronRight size={14} /> : null}
+          </span>
+          <span className="wiki-tree-icon">{typeIcon}</span>
+          <span className="wiki-tree-label">{node.name}</span>
+        </button>
+      </div>
+      {canExpand && expanded ? (
+        <ul className="wiki-tree-children">
           {node.children.map((child) => (
             <KnowledgeTreePreviewNode
-              depth={depth + 1}
               expandedIds={expandedIds}
               key={child.id}
               node={child}

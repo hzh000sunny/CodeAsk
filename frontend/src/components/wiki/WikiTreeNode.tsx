@@ -23,7 +23,7 @@ import { WikiTreeDropIndicator } from "./WikiTreeDropIndicator";
 // 按节点角色挑选类型图标：用形状区分角色，颜色统一保持静音灰（ink-and-paper）。
 // 特殊系统角色优先（知识库 / 特性·当前 / 特性·历史 / 分组 / 报告集合），
 // 其余落到通用的 文件夹（开合）/ 报告引用 / 文档。
-function resolveNodeTypeIcon(node: WikiTreeNodeRecord, expanded: boolean): LucideIcon {
+export function resolveNodeTypeIcon(node: WikiTreeNodeRecord, expanded: boolean): LucideIcon {
   switch (node.system_role) {
     case "knowledge_base":
       return Library;
