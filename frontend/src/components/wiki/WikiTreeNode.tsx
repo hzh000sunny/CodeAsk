@@ -53,6 +53,7 @@ function resolveNodeTypeIcon(node: WikiTreeNodeRecord, expanded: boolean): Lucid
 }
 
 export function WikiTreeNode({
+  activeFeatureNodeId = null,
   canManage,
   canRestoreArchivedSpace = false,
   expandedIds,
@@ -76,6 +77,7 @@ export function WikiTreeNode({
   selectedNodeId,
   treeRoots,
 }: {
+  activeFeatureNodeId?: number | null;
   canManage: boolean;
   canRestoreArchivedSpace?: boolean;
   expandedIds: Set<number>;
@@ -109,6 +111,9 @@ export function WikiTreeNode({
 }) {
   const expanded = expandedIds.has(node.id);
   const selected = node.id === selectedNodeId;
+  // 当前活动特性（未选中具体文档时）：在树里给特性根一个有别于文档选中的高亮，
+  // 避免和「打开某文档」的选中态混淆，也保证同一时刻最多一个高亮。
+  const activeFeature = !selected && activeFeatureNodeId != null && node.id === activeFeatureNodeId;
   const isFolder = node.type === "folder";
   const canExpand = isFolder && node.children.length > 0;
   const TypeIcon = resolveNodeTypeIcon(node, expanded);
@@ -131,6 +136,7 @@ export function WikiTreeNode({
         <button
           className="wiki-tree-button"
           data-selected={selected}
+          data-active-feature={activeFeature || undefined}
           data-drop-active={insideActive}
           data-drop-zone={isFolder ? "inside" : undefined}
           data-node-id={isFolder ? node.id : undefined}
@@ -197,6 +203,7 @@ export function WikiTreeNode({
         <ul className="wiki-tree-children">
           {node.children.map((child) => (
             <WikiTreeNode
+              activeFeatureNodeId={activeFeatureNodeId}
               canManage={canManage}
               expandedIds={expandedIds}
               key={child.id}

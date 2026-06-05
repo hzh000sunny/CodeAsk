@@ -5825,6 +5825,20 @@ textarea:focus-visible {
   box-shadow: inset 2px 0 0 0 #2b2f37;
 }
 
+/* 活动特性（无文档选中时）：比文档选中更克制——只加字重与一道静音侧栏，
+   背景极淡，明确「当前是哪个特性」却不冒充「已打开某文档」。 */
+.wiki-tree-button[data-active-feature="true"] {
+  background: rgba(45, 47, 55, 0.04);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 0 var(--line-strong);
+}
+
+.wiki-tree-button[data-active-feature="true"] .wiki-tree-caret,
+.wiki-tree-button[data-active-feature="true"] .wiki-tree-icon {
+  color: #2b2f37;
+}
+
 .wiki-tree-button[draggable="true"] {
   cursor: grab;
 }

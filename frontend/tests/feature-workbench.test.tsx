@@ -828,8 +828,7 @@ describe("FeatureWorkbench management actions", () => {
       name: "Wiki 目录树",
     });
 
-    // 默认特性闭合：先展开「支付结算」，露出其下的知识库节点。
-    fireEvent.click(await within(wikiTreePane).findByRole("button", { name: "支付结算" }));
+    // 从特性页带特性进入：该特性已被自动展开，无需手动点开即可看到其下的知识库节点。
     await within(wikiTreePane).findByRole("button", { name: "知识库" });
     expect(
       within(wikiTreePane).queryByRole("button", {

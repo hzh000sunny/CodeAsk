@@ -13,6 +13,7 @@ import { useWikiTreeDrag } from "./hooks/useWikiTreeDrag";
 import { WikiTreeNode } from "./WikiTreeNode";
 
 export function WikiTreePane({
+  activeFeatureNodeId = null,
   canManageFeature,
   canRestoreArchivedSpaces = false,
   collapsed,
@@ -40,6 +41,7 @@ export function WikiTreePane({
   selectedNodeId,
   setSearch,
 }: {
+  activeFeatureNodeId?: number | null;
   canManageFeature: boolean;
   canRestoreArchivedSpaces?: boolean;
   collapsed: boolean;
@@ -163,6 +165,7 @@ export function WikiTreePane({
               <ul className="wiki-tree-list">
                 {visibleRoots.map((node) => (
                   <WikiTreeNode
+                    activeFeatureNodeId={activeFeatureNodeId}
                     canManage={canManageFeature}
                     canRestoreArchivedSpace={canRestoreArchivedSpaces}
                     expandedIds={expandedIds}
