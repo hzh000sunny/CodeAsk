@@ -1,5 +1,6 @@
 import { useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { ChevronRight, Clock3 } from "lucide-react";
+import type { EditorView } from "@codemirror/view";
 
 import { Button } from "../ui/button";
 import { WikiLivePreview } from "./WikiLivePreview";
@@ -41,7 +42,7 @@ export function WikiEditor({
   setBodyMarkdown: (value: string) => void;
 }) {
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const sourceRef = useRef<HTMLTextAreaElement | null>(null);
+  const sourceViewRef = useRef<EditorView | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const syncingRef = useRef(false);
   const [ratio, setRatio] = useState(0.5);
@@ -55,8 +56,10 @@ export function WikiEditor({
     if (syncingRef.current) {
       return;
     }
-    const src = from === "source" ? sourceRef.current : previewRef.current;
-    const dst = from === "source" ? previewRef.current : sourceRef.current;
+    const sourceScroller = sourceViewRef.current?.scrollDOM ?? null;
+    const previewScroller = previewRef.current;
+    const src = from === "source" ? sourceScroller : previewScroller;
+    const dst = from === "source" ? previewScroller : sourceScroller;
     if (!src || !dst) {
       return;
     }
@@ -177,9 +180,9 @@ export function WikiEditor({
       </header>
       <div className="wiki-editor-grid" ref={gridRef} style={gridStyle}>
         <WikiSourceEditor
+          editorViewRef={sourceViewRef}
           onChange={setBodyMarkdown}
           onScroll={() => syncScroll("source")}
-          textareaRef={sourceRef}
           value={bodyMarkdown}
         />
         <button

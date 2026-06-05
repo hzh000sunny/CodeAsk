@@ -1,7 +1,34 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { EditorView } from "@codemirror/view";
 
 import { App } from "../src/App";
+
+// 源码栏现为 CodeMirror（contenteditable，非 textarea）：经 EditorView 读写内容。
+function getSourceEditorView(): EditorView {
+  const dom = document.querySelector(
+    ".wiki-source-editor .cm-editor",
+  ) as HTMLElement | null;
+  if (!dom) {
+    throw new Error("source editor not mounted");
+  }
+  const view = EditorView.findFromDOM(dom);
+  if (!view) {
+    throw new Error("CodeMirror view not found");
+  }
+  return view;
+}
+
+function setSourceEditorValue(text: string) {
+  const view = getSourceEditorView();
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: text },
+  });
+}
+
+function getSourceEditorValue(): string {
+  return getSourceEditorView().state.doc.toString();
+}
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -190,11 +217,8 @@ describe("Wiki edit leave workflow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "编辑" }));
 
-    const editor = document.querySelector(".wiki-source-editor") as HTMLTextAreaElement | null;
-    expect(editor).not.toBeNull();
-    fireEvent.change(editor as HTMLTextAreaElement, {
-      target: { value: "# Runbook\n\n正式内容。\n\n保留草稿" },
-    });
+    expect(document.querySelector(".wiki-source-editor")).not.toBeNull();
+    setSourceEditorValue("# Runbook\n\n正式内容。\n\n保留草稿");
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -216,8 +240,7 @@ describe("Wiki edit leave workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: "编辑" }));
 
     await waitFor(() => {
-      const nextEditor = document.querySelector(".wiki-source-editor") as HTMLTextAreaElement | null;
-      expect(nextEditor?.value).toContain("保留草稿");
+      expect(getSourceEditorValue()).toContain("保留草稿");
     });
   });
 
@@ -383,8 +406,7 @@ describe("Wiki edit leave workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: "编辑" }));
 
     await waitFor(() => {
-      const editor = document.querySelector(".wiki-source-editor") as HTMLTextAreaElement | null;
-      expect(editor?.value).toBe("# Runbook\n\n正式内容。");
+      expect(getSourceEditorValue()).toBe("# Runbook\n\n正式内容。");
     });
 
     await new Promise((resolve) => window.setTimeout(resolve, 950));
