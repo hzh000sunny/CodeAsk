@@ -1,9 +1,10 @@
 @font-face {
   font-family: "CodeAsk Sans CJK";
   font-style: normal;
-  font-weight: 400;
+  /* 可变字体：一份文件覆盖 100–900 全字重，标题/加粗用的是真字面而非合成虚胖。 */
+  font-weight: 100 900;
   font-display: swap;
-  src: url("/fonts/NotoSansSC-Regular.ttf") format("truetype");
+  src: url("/fonts/NotoSansSC-VF.woff2") format("woff2");
 }
 
 :root {
@@ -19,6 +20,7 @@
     sans-serif;
   background: #f6f7f9;
   color: #1d2430;
+  /* 字体已是可变字面（100–900 全有真粗体），无需合成；关掉合成保证字形锐利。 */
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
