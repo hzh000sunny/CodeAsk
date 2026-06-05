@@ -1,5 +1,13 @@
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
-import { BookOpenText, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import {
+  BookOpenText,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  FileText,
+  Search,
+  X,
+} from "lucide-react";
 
 import type { WikiSearchHitRead } from "../../types/wiki";
 import type { WikiMoveNodePayload } from "../../types/wiki";
@@ -13,6 +21,7 @@ import { useWikiTreeDrag } from "./hooks/useWikiTreeDrag";
 import { WikiTreeNode } from "./WikiTreeNode";
 
 export function WikiTreePane({
+  activeFeatureName = null,
   activeFeatureNodeId = null,
   canManageFeature,
   canRestoreArchivedSpaces = false,
@@ -41,6 +50,7 @@ export function WikiTreePane({
   selectedNodeId,
   setSearch,
 }: {
+  activeFeatureName?: string | null;
   activeFeatureNodeId?: number | null;
   canManageFeature: boolean;
   canRestoreArchivedSpaces?: boolean;
@@ -123,6 +133,17 @@ export function WikiTreePane({
                   placeholder="搜索"
                   value={search}
                 />
+                {search ? (
+                  <button
+                    aria-label="清除搜索"
+                    className="search-clear"
+                    onClick={() => setSearch("")}
+                    title="清除搜索"
+                    type="button"
+                  >
+                    <X aria-hidden="true" size={14} />
+                  </button>
+                ) : null}
               </label>
             </div>
           </div>
@@ -142,21 +163,45 @@ export function WikiTreePane({
                 ) : (
                   searchGroups.map((group) => (
                     <section className="wiki-search-group" key={group.key}>
-                      <div className="wiki-search-group-title">{group.label}</div>
+                      <div className="wiki-search-group-title">
+                        <span>{group.label}</span>
+                        <span className="wiki-search-group-count">
+                          {group.items.length}
+                        </span>
+                      </div>
                       <div className="wiki-search-group-items">
                         {group.items.map((item) => (
                           <button
                             className="wiki-search-hit"
+                            data-kind={item.kind}
                             key={`${item.kind}-${item.node_id}`}
                             onClick={() => onSelectSearchHit(item)}
                             type="button"
                           >
-                            <strong>{item.title}</strong>
-                            <span>{item.path}</span>
-                            {formatWikiSearchHitHeading(item) ? (
-                              <em>{formatWikiSearchHitHeading(item)}</em>
-                            ) : null}
-                            <small>{item.snippet}</small>
+                            <span aria-hidden="true" className="wiki-search-hit-icon">
+                              {item.kind === "report_ref" ? (
+                                <ClipboardList size={15} strokeWidth={1.9} />
+                              ) : (
+                                <FileText size={15} strokeWidth={1.9} />
+                              )}
+                            </span>
+                            <span className="wiki-search-hit-body">
+                              <strong>{item.title}</strong>
+                              <span className="wiki-search-hit-path">
+                                {activeFeatureName ? (
+                                  <span className="wiki-search-hit-feature">
+                                    {activeFeatureName}
+                                  </span>
+                                ) : null}
+                                <span className="wiki-search-hit-pathtext">
+                                  {item.path}
+                                </span>
+                              </span>
+                              {formatWikiSearchHitHeading(item) ? (
+                                <em>{formatWikiSearchHitHeading(item)}</em>
+                              ) : null}
+                              <small>{item.snippet}</small>
+                            </span>
                           </button>
                         ))}
                       </div>

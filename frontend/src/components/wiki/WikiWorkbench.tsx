@@ -723,6 +723,7 @@ export function WikiWorkbench({
       style={workspaceStyle}
     >
       <WikiTreePane
+        activeFeatureName={activeListedFeature?.name ?? null}
         activeFeatureNodeId={activeFeatureNodeId}
         canManageFeature={canManageFeature}
         canRestoreArchivedSpaces={canRestoreArchivedSpaces}
