@@ -1,6 +1,15 @@
-import { createElement, useEffect, useMemo, useState } from "react";
+import {
+  createElement,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpenText, ChevronRight, FolderTree } from "lucide-react";
+import { BookOpenText, ChevronRight, FolderTree, PanelsTopLeft } from "lucide-react";
 
 import {
   getWikiDocument,
@@ -30,6 +39,53 @@ export function KnowledgePanel({
 }) {
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  // 目录树 / 预览之间的左右拖动条：与 Wiki 编辑页的 split 拖柄同款，
+  // 但树用受控的像素宽（而非 fr 比例），保证预览始终留出阅读宽度。
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [treeWidth, setTreeWidth] = useState(272);
+  const MIN_TREE = 220;
+  const MAX_TREE = 520;
+  const KEY_STEP = 24;
+
+  function startDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const grid = gridRef.current;
+    if (!grid) {
+      return;
+    }
+    const rect = grid.getBoundingClientRect();
+    // 树列从内容盒左沿起算，需扣掉 .tab-content 的左内边距，拖柄才贴着光标。
+    const padLeft = Number.parseFloat(getComputedStyle(grid).paddingLeft) || 0;
+    const onMove = (move: PointerEvent) => {
+      // 预览至少留 360px，避免把正文重新压窄。
+      const max = Math.min(MAX_TREE, rect.width - padLeft - 360);
+      setTreeWidth(Math.min(max, Math.max(MIN_TREE, move.clientX - rect.left - padLeft)));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    document.body.style.cursor = "col-resize";
+  }
+
+  function onDividerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setTreeWidth((value) => Math.max(MIN_TREE, value - KEY_STEP));
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setTreeWidth((value) => Math.min(MAX_TREE, value + KEY_STEP));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setTreeWidth(272);
+    }
+  }
+
+  const gridStyle = { "--kn-tree": `${treeWidth}px` } as CSSProperties;
 
   const treeQuery = useQuery({
     queryKey: ["feature-knowledge-preview", featureId],
@@ -102,9 +158,13 @@ export function KnowledgePanel({
   );
 
   return (
-    <div className="tab-content two-column knowledge-tab-content">
+    <div
+      className="tab-content two-column knowledge-tab-content"
+      ref={gridRef}
+      style={gridStyle}
+    >
       <section className="surface knowledge-tree-surface">
-        <div className="content-toolbar">
+        <div className="content-toolbar knowledge-tree-toolbar">
           <div className="section-title">
             <FolderTree aria-hidden="true" size={18} />
             <h2>Wiki 目录</h2>
@@ -112,6 +172,7 @@ export function KnowledgePanel({
           {featureId ? (
             <div className="header-actions">
               <Button
+                icon={<PanelsTopLeft size={15} />}
                 onClick={() => onOpenWiki(featureId, { nodeId: selectedNodeId })}
                 type="button"
                 variant="secondary"
@@ -160,6 +221,16 @@ export function KnowledgePanel({
           </div>
         )}
       </section>
+      <button
+        aria-label="拖动调整目录树与预览的宽度"
+        aria-orientation="vertical"
+        className="wiki-split-divider"
+        onKeyDown={onDividerKeyDown}
+        onPointerDown={startDrag}
+        role="separator"
+        tabIndex={0}
+        type="button"
+      />
       <section className="surface knowledge-preview-surface">
         <div className="content-toolbar">
           <div className="section-title knowledge-preview-heading">

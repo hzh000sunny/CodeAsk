@@ -3996,11 +3996,32 @@ textarea:focus-visible {
   font-weight: 700;
 }
 
-/* 目录树窄、预览宽：树固定一条 268–300px 的栏，预览吃掉其余空间
-   （此前 two-column 的 1fr/1fr 把预览压得过窄）。窄屏由 .two-column 媒体查询回落单列。 */
+/* 目录树窄、预览宽：树是一条受控像素宽（--kn-tree，可由中间拖柄拉伸），
+   中列 auto 留给 .wiki-split-divider，预览吃掉其余空间（此前 1fr/1fr 把预览压窄）。
+   走 custom property 而非直接写死 grid-template-columns，是为了让窄屏媒体查询
+   仍能整列覆盖回落单列（内联 style 只设 --kn-tree、不锁 grid-template-columns）。 */
 .knowledge-tab-content {
-  grid-template-columns: minmax(248px, 288px) minmax(0, 1fr);
+  grid-template-columns: var(--kn-tree, 272px) auto minmax(0, 1fr);
+  gap: 0;
   overflow: hidden;
+}
+
+/* 树栏报头窄，标题与「进入 Wiki 工作台」竖排：标题在上，按钮整宽落在下方，
+   无论目录树被拉到多窄都不再换行挤压。 */
+.knowledge-tree-toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.knowledge-tree-toolbar .header-actions {
+  display: flex;
+  width: 100%;
+}
+
+.knowledge-tree-toolbar .header-actions > .button {
+  width: 100%;
+  justify-content: center;
 }
 
 .knowledge-tree-surface,
