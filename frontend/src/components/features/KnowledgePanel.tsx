@@ -43,7 +43,7 @@ export function KnowledgePanel({
   // 目录树 / 预览之间的左右拖动条：与 Wiki 编辑页的 split 拖柄同款，
   // 但树用受控的像素宽（而非 fr 比例），保证预览始终留出阅读宽度。
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const [treeWidth, setTreeWidth] = useState(272);
+  const [treeWidth, setTreeWidth] = useState(340);
   const MIN_TREE = 220;
   const MAX_TREE = 520;
   const KEY_STEP = 24;
@@ -81,7 +81,7 @@ export function KnowledgePanel({
       setTreeWidth((value) => Math.min(MAX_TREE, value + KEY_STEP));
     } else if (event.key === "Home") {
       event.preventDefault();
-      setTreeWidth(272);
+      setTreeWidth(340);
     }
   }
 
@@ -164,7 +164,7 @@ export function KnowledgePanel({
       style={gridStyle}
     >
       <section className="surface knowledge-tree-surface">
-        <div className="content-toolbar knowledge-tree-toolbar">
+        <div className="content-toolbar knowledge-tree-toolbar-row">
           <div className="section-title">
             <FolderTree aria-hidden="true" size={18} />
             <h2>Wiki 目录</h2>

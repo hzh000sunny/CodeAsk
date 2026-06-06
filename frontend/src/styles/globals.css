@@ -4006,22 +4006,24 @@ textarea:focus-visible {
   overflow: hidden;
 }
 
-/* 树栏报头窄，标题与「进入 Wiki 工作台」竖排：标题在上，按钮整宽落在下方，
-   无论目录树被拉到多窄都不再换行挤压。 */
-.knowledge-tree-toolbar {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
+/* 树栏报头：标题与「进入 Wiki 工作台」同排（默认树宽已放宽到容得下）。
+   标题可截断、按钮不折行，避免目录树被拖窄时按钮文字换成两行。 */
+.knowledge-tree-toolbar-row {
+  min-width: 0;
 }
 
-.knowledge-tree-toolbar .header-actions {
-  display: flex;
-  width: 100%;
+.knowledge-tree-toolbar-row .section-title {
+  min-width: 0;
 }
 
-.knowledge-tree-toolbar .header-actions > .button {
-  width: 100%;
-  justify-content: center;
+.knowledge-tree-toolbar-row .section-title h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-tree-toolbar-row .header-actions .button {
+  white-space: nowrap;
 }
 
 .knowledge-tree-surface,
