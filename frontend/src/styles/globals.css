@@ -4006,7 +4006,7 @@ textarea:focus-visible {
   overflow: hidden;
 }
 
-/* 树栏报头：标题与「进入 Wiki 工作台」同排（默认树宽已放宽到容得下）。
+/* 树栏报头：标题与「进入工作台」按钮同排（默认树宽已放宽到容得下）。
    标题可截断、按钮不折行，避免目录树被拖窄时按钮文字换成两行。 */
 .knowledge-tree-toolbar-row {
   min-width: 0;
@@ -4060,21 +4060,18 @@ textarea:focus-visible {
   margin-inline: auto;
 }
 
-/* 预览报头补一行当前文档名，点名「正在看哪一篇」。 */
+/* 预览报头在「内容预览」后接一条从特性起的全路径面包屑（复用 Wiki 页面的
+   .wiki-doc-breadcrumb 结构），一道发丝线把它与标题分开，点名「正在看哪一篇」。 */
 .knowledge-preview-heading {
   min-width: 0;
 }
 
-.knowledge-preview-name {
-  min-width: 0;
+.knowledge-preview-crumb {
   flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  flex-wrap: nowrap;
   padding-left: 10px;
   border-left: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 13px;
 }
 
 .settings-config-list li {

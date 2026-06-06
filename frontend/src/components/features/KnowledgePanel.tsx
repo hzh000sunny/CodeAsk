@@ -115,14 +115,19 @@ export function KnowledgePanel({
   );
   const firstDocument = useMemo(() => findFirstReadableDocument(tree), [tree]);
 
-  // 预览报头的全路径：从特性开始，例如「支付结算 / 知识库 / 接入 / 支付接入说明」。
-  // buildWikiNodeDisplayPath 给出特性内部的路径（知识库/… /当前节点），再补上特性名。
-  const previewPath = useMemo(() => {
+  // 预览报头的全路径：与 Wiki 页面报头同一结构——从特性开始、ChevronRight 分隔，
+  // 例如「OpenCode › 知识库 › agent」。buildWikiNodeDisplayPath 给出特性内部路径
+  // （知识库/…/当前节点），拆成段后补上特性名（对齐 WikiWorkspacePane 的 buildBreadcrumbSegments）。
+  const previewSegments = useMemo(() => {
     if (selectedNode == null) {
-      return null;
+      return [] as string[];
     }
-    const innerPath = buildWikiNodeDisplayPath(tree, selectedNode.id);
-    return [featureName?.trim(), innerPath].filter(Boolean).join(" / ");
+    const segments = (buildWikiNodeDisplayPath(tree, selectedNode.id) ?? "")
+      .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+    const name = featureName?.trim();
+    return name ? [name, ...segments] : segments;
   }, [featureName, selectedNode, tree]);
 
   useEffect(() => {
@@ -190,7 +195,7 @@ export function KnowledgePanel({
                 type="button"
                 variant="secondary"
               >
-                进入 Wiki 工作台
+                进入工作台
               </Button>
             </div>
           ) : null}
@@ -249,10 +254,24 @@ export function KnowledgePanel({
           <div className="section-title knowledge-preview-heading">
             <BookOpenText aria-hidden="true" size={18} />
             <h2>内容预览</h2>
-            {previewPath ? (
-              <span className="knowledge-preview-name" title={previewPath}>
-                {previewPath}
-              </span>
+            {previewSegments.length > 0 ? (
+              <nav
+                aria-label="文档路径"
+                className="wiki-doc-breadcrumb knowledge-preview-crumb"
+              >
+                {previewSegments.map((segment, index) => (
+                  <span className="wiki-doc-crumb" key={`${segment}-${index}`}>
+                    {index > 0 ? (
+                      <ChevronRight
+                        aria-hidden="true"
+                        className="wiki-doc-crumb-sep"
+                        size={13}
+                      />
+                    ) : null}
+                    <span>{segment}</span>
+                  </span>
+                ))}
+              </nav>
             ) : null}
           </div>
         </div>

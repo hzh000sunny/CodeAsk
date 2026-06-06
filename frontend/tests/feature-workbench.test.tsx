@@ -613,7 +613,7 @@ describe("FeatureWorkbench management actions", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "知识库" }));
     expect(
-      await screen.findByRole("button", { name: "进入 Wiki 工作台" }),
+      await screen.findByRole("button", { name: "进入工作台" }),
     ).toBeInTheDocument();
     // 标题既出现在目录树节点，也出现在预览报头（点名当前文档），故允许多处命中。
     expect(await screen.findAllByText("支付接入说明")).not.toHaveLength(0);
@@ -623,7 +623,7 @@ describe("FeatureWorkbench management actions", () => {
       screen.queryByText("支付接入说明", { selector: ".knowledge-preview-title" }),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "进入 Wiki 工作台" }));
+    fireEvent.click(screen.getByRole("button", { name: "进入工作台" }));
     const wikiTreePane = await screen.findByRole("complementary", {
       name: "Wiki 目录树",
     });
@@ -823,7 +823,7 @@ describe("FeatureWorkbench management actions", () => {
     fireEvent.click(screen.getByRole("button", { name: "特性" }));
     expect(await screen.findAllByText("支付结算")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("tab", { name: "知识库" }));
-    fireEvent.click(await screen.findByRole("button", { name: "进入 Wiki 工作台" }));
+    fireEvent.click(await screen.findByRole("button", { name: "进入工作台" }));
 
     const wikiTreePane = await screen.findByRole("complementary", {
       name: "Wiki 目录树",
