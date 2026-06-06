@@ -70,6 +70,7 @@ function FeatureTabContent({
     return (
       <KnowledgePanel
         featureId={feature?.id}
+        featureName={feature?.name ?? null}
         onOpenWiki={(featureId, options) => onOpenWiki(featureId, options)}
       />
     );

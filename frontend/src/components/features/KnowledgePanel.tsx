@@ -20,6 +20,7 @@ import {
 import { buildWikiMarkdownLinkMaps } from "../../lib/wiki/markdown";
 import { injectWikiReportProjections } from "../../lib/wiki/presentation";
 import {
+  buildWikiNodeDisplayPath,
   buildWikiTree,
   findFirstReadableDocument,
   findNodeById,
@@ -32,9 +33,11 @@ import { resolveNodeTypeIcon } from "../wiki/WikiTreeNode";
 
 export function KnowledgePanel({
   featureId,
+  featureName,
   onOpenWiki,
 }: {
   featureId?: number;
+  featureName?: string | null;
   onOpenWiki: (featureId: number, options?: { drawer?: "import" | null; nodeId?: number | null }) => void;
 }) {
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
@@ -111,6 +114,16 @@ export function KnowledgePanel({
     [selectedNodeId, tree],
   );
   const firstDocument = useMemo(() => findFirstReadableDocument(tree), [tree]);
+
+  // 预览报头的全路径：从特性开始，例如「支付结算 / 知识库 / 接入 / 支付接入说明」。
+  // buildWikiNodeDisplayPath 给出特性内部的路径（知识库/… /当前节点），再补上特性名。
+  const previewPath = useMemo(() => {
+    if (selectedNode == null) {
+      return null;
+    }
+    const innerPath = buildWikiNodeDisplayPath(tree, selectedNode.id);
+    return [featureName?.trim(), innerPath].filter(Boolean).join(" / ");
+  }, [featureName, selectedNode, tree]);
 
   useEffect(() => {
     if (selectedNodeId != null && selectedNode) {
@@ -236,9 +249,9 @@ export function KnowledgePanel({
           <div className="section-title knowledge-preview-heading">
             <BookOpenText aria-hidden="true" size={18} />
             <h2>内容预览</h2>
-            {selectedNode ? (
-              <span className="knowledge-preview-name" title={selectedNode.name}>
-                {selectedNode.name}
+            {previewPath ? (
+              <span className="knowledge-preview-name" title={previewPath}>
+                {previewPath}
               </span>
             ) : null}
           </div>
