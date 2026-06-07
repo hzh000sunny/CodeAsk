@@ -21,6 +21,7 @@ interface FeatureWorkbenchProps {
   onRouteChange: (patch: Partial<FeatureRouteState>) => void;
   reportTarget?: ReportTarget | null;
   routeFeatureId: number | null;
+  routeNodeId: number | null;
   routeTab: FeatureTabId | null;
 }
 
@@ -29,6 +30,7 @@ export function FeatureWorkbench({
   onRouteChange,
   reportTarget,
   routeFeatureId,
+  routeNodeId,
   routeTab,
 }: FeatureWorkbenchProps) {
   const queryClient = useQueryClient();
@@ -76,7 +78,7 @@ export function FeatureWorkbench({
       }),
     onSuccess: (feature) => {
       setCreatedFeatures((current) => mergeById(current, [feature]));
-      onRouteChange({ featureId: feature.id });
+      onRouteChange({ featureId: feature.id, nodeId: null });
       setShowCreate(false);
       setFeatureName("");
       setFeatureDescription("");
@@ -91,7 +93,7 @@ export function FeatureWorkbench({
         current.filter((feature) => feature.id !== featureId),
       );
       if (routeFeatureId === featureId) {
-        onRouteChange({ featureId: null });
+        onRouteChange({ featureId: null, nodeId: null });
       }
       setDeleteCandidate(null);
       setDeleteError("");
@@ -153,7 +155,7 @@ export function FeatureWorkbench({
         onFeatureDescriptionChange={setFeatureDescription}
         onFeatureNameChange={setFeatureName}
         onQueryChange={setQuery}
-        onSelect={(featureId) => onRouteChange({ featureId })}
+        onSelect={(featureId) => onRouteChange({ featureId, nodeId: null })}
         onShowCreateChange={(value) => {
           if (value && !canCreateFeature) {
             showError("请联系管理员添加", { title: "无权创建特性" });
@@ -195,7 +197,9 @@ export function FeatureWorkbench({
         <FeatureTabs
           activeTab={activeTab}
           feature={selected}
+          knowledgeNodeId={routeNodeId}
           onChange={(tab) => onRouteChange({ tab: tab as FeatureTabId })}
+          onKnowledgeNodeChange={(nodeId) => onRouteChange({ nodeId })}
           onOpenWiki={onOpenWiki}
           selectedReportId={reportTarget?.reportId ?? null}
         />

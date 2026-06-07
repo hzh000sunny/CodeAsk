@@ -26,13 +26,17 @@ const tabs = [
 export function FeatureTabs({
   activeTab,
   feature,
+  knowledgeNodeId,
   onChange,
+  onKnowledgeNodeChange,
   onOpenWiki,
   selectedReportId,
 }: {
   activeTab: string;
   feature: FeatureRead | null;
+  knowledgeNodeId: number | null;
   onChange: (tab: string) => void;
+  onKnowledgeNodeChange: (nodeId: number | null) => void;
   onOpenWiki: (featureId: number, options?: FeatureWikiOpenOptions) => void;
   selectedReportId: number | null;
 }) {
@@ -43,6 +47,8 @@ export function FeatureTabs({
         activeTab={activeTab}
         canManageFeature={canManageFeature}
         feature={feature}
+        knowledgeNodeId={knowledgeNodeId}
+        onKnowledgeNodeChange={onKnowledgeNodeChange}
         onOpenWiki={onOpenWiki}
         selectedReportId={selectedReportId}
       />
@@ -54,12 +60,16 @@ function FeatureTabContent({
   activeTab,
   canManageFeature,
   feature,
+  knowledgeNodeId,
+  onKnowledgeNodeChange,
   onOpenWiki,
   selectedReportId,
 }: {
   activeTab: string;
   canManageFeature: boolean;
   feature: FeatureRead | null;
+  knowledgeNodeId: number | null;
+  onKnowledgeNodeChange: (nodeId: number | null) => void;
   onOpenWiki: (featureId: number, options?: FeatureWikiOpenOptions) => void;
   selectedReportId: number | null;
 }) {
@@ -72,6 +82,8 @@ function FeatureTabContent({
         featureId={feature?.id}
         featureName={feature?.name ?? null}
         onOpenWiki={(featureId, options) => onOpenWiki(featureId, options)}
+        onSelectedNodeChange={onKnowledgeNodeChange}
+        selectedNodeId={knowledgeNodeId}
       />
     );
   }

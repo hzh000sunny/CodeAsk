@@ -22,6 +22,7 @@ import { injectWikiReportProjections } from "../../lib/wiki/presentation";
 import {
   buildWikiNodeDisplayPath,
   buildWikiTree,
+  collectWikiNodeChainIds,
   findFirstReadableDocument,
   findNodeById,
   type WikiTreeNodeRecord,
@@ -35,12 +36,16 @@ export function KnowledgePanel({
   featureId,
   featureName,
   onOpenWiki,
+  onSelectedNodeChange,
+  selectedNodeId,
 }: {
   featureId?: number;
   featureName?: string | null;
   onOpenWiki: (featureId: number, options?: { drawer?: "import" | null; nodeId?: number | null }) => void;
+  // 选中预览的节点由路由驱动（AppRouteState.features.nodeId），切走/刷新后仍保留。
+  onSelectedNodeChange: (nodeId: number | null) => void;
+  selectedNodeId: number | null;
 }) {
-  const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   // 目录树 / 预览之间的左右拖动条：与 Wiki 编辑页的 split 拖柄同款，
@@ -130,21 +135,41 @@ export function KnowledgePanel({
     return name ? [name, ...segments] : segments;
   }, [featureName, selectedNode, tree]);
 
+  // 树加载后才回落到第一篇：选中为空、或路由里的旧节点（换特性 / 已删除）在本树
+  // 找不到时，把第一篇写回路由。树未加载（空）时不动，避免把恢复出来的选中冲掉。
   useEffect(() => {
+    if (tree.length === 0) {
+      return;
+    }
     if (selectedNodeId != null && selectedNode) {
       return;
     }
-    setSelectedNodeId(firstDocument?.id ?? null);
-  }, [firstDocument?.id, selectedNode, selectedNodeId]);
+    const fallback = firstDocument?.id ?? null;
+    if (fallback !== selectedNodeId) {
+      onSelectedNodeChange(fallback);
+    }
+  }, [firstDocument?.id, onSelectedNodeChange, selectedNode, selectedNodeId, tree.length]);
 
+  // 展开：保底展开知识库根；另把「挂载时就已恢复出来的选中节点」的祖先链一并展开，
+  // 让切走再回来的深层选中在树里可见。只认挂载初值（restoredNodeId），不跟随后续自动
+  // 选中——否则新进入时自动选的第一篇会把它所在文件夹也展开。增量合并、不收起其它分支。
+  const [restoredNodeId] = useState(selectedNodeId);
   useEffect(() => {
     if (tree.length === 0) {
-      setExpandedIds(new Set());
       return;
     }
-    const knowledgeRoot = tree.find((node) => node.system_role === "knowledge_base") ?? tree[0];
-    setExpandedIds(knowledgeRoot ? new Set([knowledgeRoot.id]) : new Set());
-  }, [tree]);
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      const knowledgeRoot = tree.find((node) => node.system_role === "knowledge_base") ?? tree[0];
+      if (knowledgeRoot) {
+        next.add(knowledgeRoot.id);
+      }
+      for (const id of collectWikiNodeChainIds(tree, restoredNodeId)) {
+        next.add(id);
+      }
+      return next;
+    });
+  }, [restoredNodeId, tree]);
 
   const documentQuery = useQuery({
     queryKey: ["feature-knowledge-document", selectedNode?.id],
@@ -220,7 +245,7 @@ export function KnowledgePanel({
                   expandedIds={expandedIds}
                   key={node.id}
                   node={node}
-                  onSelect={setSelectedNodeId}
+                  onSelect={onSelectedNodeChange}
                   onToggle={(nodeId) =>
                     setExpandedIds((current) => {
                       const next = new Set(current);

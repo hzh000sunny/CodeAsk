@@ -28,6 +28,8 @@ export interface WikiRouteState {
 export interface FeatureRouteState {
   featureId: number | null;
   tab: FeatureTabId | null;
+  // 知识库 tab 里当前预览的 wiki 节点；与 wiki 视图共用 node 参数（语义一致：wiki 树节点 id）。
+  nodeId: number | null;
 }
 
 export interface AppRouteState {
@@ -53,6 +55,7 @@ export const defaultWikiRouteState: WikiRouteState = {
 export const defaultFeatureRouteState: FeatureRouteState = {
   featureId: null,
   tab: null,
+  nodeId: null,
 };
 
 export const defaultAppRouteState: AppRouteState = {
@@ -86,6 +89,7 @@ export function readRouteStateFromLocation(): AppRouteState {
     features: {
       featureId: readInt(search.get("feature")),
       tab: readFeatureTab(search.get("tab")),
+      nodeId: readInt(search.get("node")),
     },
     wiki: {
       featureId: readInt(search.get("feature")),
@@ -114,6 +118,9 @@ export function writeRouteStateToLocation(state: AppRouteState) {
     }
     if (state.features.tab) {
       params.set("tab", state.features.tab);
+    }
+    if (state.features.nodeId != null) {
+      params.set("node", String(state.features.nodeId));
     }
   }
   if (state.view === "wiki") {
@@ -200,6 +207,7 @@ export function writePersistedFeatureRoute(features: FeatureRouteState) {
       JSON.stringify({
         featureId: features.featureId,
         tab: features.tab,
+        nodeId: features.nodeId,
       }),
     );
   } catch {
@@ -220,6 +228,7 @@ export function readPersistedFeatureRoute(): FeatureRouteState | null {
     return {
       featureId: typeof parsed.featureId === "number" ? parsed.featureId : null,
       tab: readFeatureTab(typeof parsed.tab === "string" ? parsed.tab : null),
+      nodeId: typeof parsed.nodeId === "number" ? parsed.nodeId : null,
     };
   } catch {
     return null;
@@ -240,7 +249,11 @@ export function readInitialAppRouteState(): AppRouteState {
       hydrated.wiki = persistedWiki;
     }
   }
-  if (fromUrl.features.featureId == null && fromUrl.features.tab == null) {
+  if (
+    fromUrl.features.featureId == null &&
+    fromUrl.features.tab == null &&
+    fromUrl.features.nodeId == null
+  ) {
     const persistedFeatures = readPersistedFeatureRoute();
     if (persistedFeatures) {
       hydrated.features = persistedFeatures;

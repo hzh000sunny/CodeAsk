@@ -202,6 +202,7 @@ export function AppShell() {
               onRouteChange={navigateFeatures}
               reportTarget={reportTarget}
               routeFeatureId={routeState.features.featureId}
+              routeNodeId={routeState.features.nodeId}
               routeTab={routeState.features.tab}
             />
           ) : null}
@@ -232,6 +233,7 @@ export function AppShell() {
                   features: {
                     ...routeState.features,
                     featureId,
+                    nodeId: null,
                   },
                   wiki: {
                     ...routeState.wiki,

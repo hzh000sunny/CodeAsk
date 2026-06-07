@@ -39,6 +39,7 @@ describe("wiki routing heading anchors", () => {
       features: {
         featureId: null,
         tab: null,
+        nodeId: null,
       },
       wiki: {
         featureId: 7,
@@ -70,6 +71,7 @@ describe("wiki routing heading anchors", () => {
         features: {
           featureId: null,
           tab: null,
+          nodeId: null,
         },
         wiki: {
           featureId: 7,
@@ -88,14 +90,19 @@ describe("wiki routing heading anchors", () => {
 });
 
 describe("feature tab routing", () => {
-  it("reads selected feature and active tab from the features hash route", () => {
-    window.history.replaceState(null, "", "#/features?feature=7&tab=knowledge");
+  it("reads selected feature, tab, and knowledge node from the features hash route", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "#/features?feature=7&tab=knowledge&node=703",
+    );
 
     const state = readRouteStateFromLocation();
 
     expect(state.view).toBe("features");
     expect(state.features.featureId).toBe(7);
     expect(state.features.tab).toBe("knowledge");
+    expect(state.features.nodeId).toBe(703);
   });
 
   it("ignores an unknown tab token", () => {
@@ -112,13 +119,13 @@ describe("feature tab routing", () => {
     writeRouteStateToLocation({
       ...defaultAppRouteState,
       view: "features",
-      features: { featureId: 7, tab: "reports" },
+      features: { featureId: 7, tab: "knowledge", nodeId: 703 },
     });
 
     expect(pushState).toHaveBeenCalledWith(
       null,
       "",
-      "#/features?feature=7&tab=reports",
+      "#/features?feature=7&tab=knowledge&node=703",
     );
     pushState.mockRestore();
   });
