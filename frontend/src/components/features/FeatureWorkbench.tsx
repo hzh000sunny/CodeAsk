@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { createFeature, deleteFeature, listFeatures } from "../../lib/api";
 import type { FeatureRead } from "../../types/api";
+import type { FeatureRouteState, FeatureTabId } from "../../lib/wiki/routing";
 import { useAppFeedback } from "../feedback/AppFeedback";
 import { DeleteFeatureDialog } from "./FeatureDialogs";
 import { FeatureListPanel } from "./FeatureListPanel";
@@ -17,18 +18,24 @@ interface ReportTarget {
 
 interface FeatureWorkbenchProps {
   onOpenWiki: (featureId: number, options?: FeatureWikiOpenOptions) => void;
+  onRouteChange: (patch: Partial<FeatureRouteState>) => void;
   reportTarget?: ReportTarget | null;
+  routeFeatureId: number | null;
+  routeTab: FeatureTabId | null;
 }
 
 export function FeatureWorkbench({
   onOpenWiki,
+  onRouteChange,
   reportTarget,
+  routeFeatureId,
+  routeTab,
 }: FeatureWorkbenchProps) {
   const queryClient = useQueryClient();
   const { showError } = useAppFeedback();
   const [query, setQuery] = useState("");
-  const [activeTab, setActiveTab] = useState("settings");
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  // 选中的特性与子 tab 改由路由驱动（AppRouteState.features），跨页面切换/刷新都能恢复。
+  const activeTab = routeTab ?? "settings";
   const [listCollapsed, setListCollapsed] = useState(false);
   const [createdFeatures, setCreatedFeatures] = useState<FeatureRead[]>([]);
   const [deletedFeatureIds, setDeletedFeatureIds] = useState<number[]>([]);
@@ -52,13 +59,13 @@ export function FeatureWorkbench({
     (feature) => !deletedFeatureIds.includes(feature.id),
   );
 
+  // 选中特性 + reports tab 由 AppShell 在打开报告时写入路由；这里只需清空搜索，
+  // 保证目标特性一定出现在过滤后的列表里。
   useEffect(() => {
     if (!reportTarget) {
       return;
     }
     setQuery("");
-    setSelectedId(reportTarget.featureId);
-    setActiveTab("reports");
   }, [reportTarget]);
 
   const createMutation = useMutation({
@@ -69,7 +76,7 @@ export function FeatureWorkbench({
       }),
     onSuccess: (feature) => {
       setCreatedFeatures((current) => mergeById(current, [feature]));
-      setSelectedId(feature.id);
+      onRouteChange({ featureId: feature.id });
       setShowCreate(false);
       setFeatureName("");
       setFeatureDescription("");
@@ -83,8 +90,8 @@ export function FeatureWorkbench({
       setCreatedFeatures((current) =>
         current.filter((feature) => feature.id !== featureId),
       );
-      if (selectedId === featureId) {
-        setSelectedId(null);
+      if (routeFeatureId === featureId) {
+        onRouteChange({ featureId: null });
       }
       setDeleteCandidate(null);
       setDeleteError("");
@@ -103,10 +110,23 @@ export function FeatureWorkbench({
     });
   }, [features, query]);
   const selected =
-    visibleFeatures.find((item) => item.id === selectedId) ??
+    visibleFeatures.find((item) => item.id === routeFeatureId) ??
     visibleFeatures[0] ??
     null;
   const { canCreateFeature, isAdmin } = useFeaturePermissions(selected?.id);
+
+  // 当路由没有指向有效特性（首次进入、或 localStorage 里是已删除的旧 id）时，
+  // 把自动选中的第一个特性写回路由，使 URL/持久化反映真实选中。
+  // 路由指向的特性只是被搜索过滤掉时不覆盖（features 里仍存在）。
+  useEffect(() => {
+    if (selected == null || routeFeatureId === selected.id) {
+      return;
+    }
+    if (routeFeatureId != null && features.some((item) => item.id === routeFeatureId)) {
+      return;
+    }
+    onRouteChange({ featureId: selected.id });
+  }, [features, onRouteChange, routeFeatureId, selected]);
 
   return (
     <section
@@ -133,7 +153,7 @@ export function FeatureWorkbench({
         onFeatureDescriptionChange={setFeatureDescription}
         onFeatureNameChange={setFeatureName}
         onQueryChange={setQuery}
-        onSelect={setSelectedId}
+        onSelect={(featureId) => onRouteChange({ featureId })}
         onShowCreateChange={(value) => {
           if (value && !canCreateFeature) {
             showError("请联系管理员添加", { title: "无权创建特性" });
@@ -175,7 +195,7 @@ export function FeatureWorkbench({
         <FeatureTabs
           activeTab={activeTab}
           feature={selected}
-          onChange={setActiveTab}
+          onChange={(tab) => onRouteChange({ tab: tab as FeatureTabId })}
           onOpenWiki={onOpenWiki}
           selectedReportId={reportTarget?.reportId ?? null}
         />

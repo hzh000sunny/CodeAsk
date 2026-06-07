@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  defaultAppRouteState,
+  mergeFeaturesRouteState,
   mergeWikiRouteState,
   readRouteStateFromLocation,
   writeRouteStateToLocation,
@@ -34,6 +36,10 @@ describe("wiki routing heading anchors", () => {
       settings: {
         adminPageId: null,
       },
+      features: {
+        featureId: null,
+        tab: null,
+      },
       wiki: {
         featureId: 7,
         nodeId: 25,
@@ -61,6 +67,10 @@ describe("wiki routing heading anchors", () => {
         settings: {
           adminPageId: null,
         },
+        features: {
+          featureId: null,
+          tab: null,
+        },
         wiki: {
           featureId: 7,
           nodeId: 25,
@@ -74,5 +84,50 @@ describe("wiki routing heading anchors", () => {
 
     expect(next.wiki.nodeId).toBe(26);
     expect(next.wiki.heading).toBeNull();
+  });
+});
+
+describe("feature tab routing", () => {
+  it("reads selected feature and active tab from the features hash route", () => {
+    window.history.replaceState(null, "", "#/features?feature=7&tab=knowledge");
+
+    const state = readRouteStateFromLocation();
+
+    expect(state.view).toBe("features");
+    expect(state.features.featureId).toBe(7);
+    expect(state.features.tab).toBe("knowledge");
+  });
+
+  it("ignores an unknown tab token", () => {
+    window.history.replaceState(null, "", "#/features?feature=7&tab=bogus");
+
+    expect(readRouteStateFromLocation().features.tab).toBeNull();
+  });
+
+  it("writes feature and tab back into the features hash route", () => {
+    const pushState = vi
+      .spyOn(window.history, "pushState")
+      .mockImplementation(() => undefined);
+
+    writeRouteStateToLocation({
+      ...defaultAppRouteState,
+      view: "features",
+      features: { featureId: 7, tab: "reports" },
+    });
+
+    expect(pushState).toHaveBeenCalledWith(
+      null,
+      "",
+      "#/features?feature=7&tab=reports",
+    );
+    pushState.mockRestore();
+  });
+
+  it("merges a feature patch and switches the view to features", () => {
+    const next = mergeFeaturesRouteState(defaultAppRouteState, { tab: "repos" });
+
+    expect(next.view).toBe("features");
+    expect(next.features.tab).toBe("repos");
+    expect(next.features.featureId).toBeNull();
   });
 });

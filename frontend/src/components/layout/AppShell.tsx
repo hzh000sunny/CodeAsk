@@ -7,13 +7,16 @@ import { SessionWorkspace } from "../session/SessionWorkspace";
 import { SettingsPage } from "../settings/SettingsPage";
 import { WikiPage } from "../wiki/WikiPage";
 import {
+  mergeFeaturesRouteState,
   mergeWikiRouteState,
   readInitialAppRouteState,
   readRouteStateFromLocation,
+  writePersistedFeatureRoute,
   writePersistedWikiRoute,
   writeRouteStateToLocation,
   type AppRouteState,
   type AppViewId,
+  type FeatureRouteState,
   type SettingsAdminPageId,
 } from "../../lib/wiki/routing";
 import { Sidebar, type SectionId } from "./Sidebar";
@@ -65,6 +68,14 @@ export function AppShell() {
     writePersistedWikiRoute(routeState.wiki);
   }, [routeState.view, routeState.wiki]);
 
+  // 同理：停留在特性页时持久化选中的特性与子 tab，跨页面刷新后仍能恢复。
+  useEffect(() => {
+    if (routeState.view !== "features") {
+      return;
+    }
+    writePersistedFeatureRoute(routeState.features);
+  }, [routeState.view, routeState.features]);
+
   function showView(view: AppViewId, options?: { force?: boolean }) {
     if (
       !options?.force &&
@@ -105,6 +116,12 @@ export function AppShell() {
 
   function navigateWiki(patch: Partial<AppRouteState["wiki"]>) {
     const nextState = mergeWikiRouteState(routeState, patch);
+    setRouteState(nextState);
+    writeRouteStateToLocation(nextState);
+  }
+
+  function navigateFeatures(patch: Partial<FeatureRouteState>) {
+    const nextState = mergeFeaturesRouteState(routeState, patch);
     setRouteState(nextState);
     writeRouteStateToLocation(nextState);
   }
@@ -166,7 +183,7 @@ export function AppShell() {
               onSelectedSessionChange={navigateSession}
               onOpenReport={(target) => {
                 setReportTarget(target);
-                showView("features");
+                navigateFeatures({ featureId: target.featureId, tab: "reports" });
               }}
               onOpenWiki={({ featureId, nodeId }) => {
                 setReportTarget(null);
@@ -182,7 +199,10 @@ export function AppShell() {
           {routeState.view === "features" ? (
             <FeatureWorkbench
               onOpenWiki={openWikiFromFeature}
+              onRouteChange={navigateFeatures}
               reportTarget={reportTarget}
+              routeFeatureId={routeState.features.featureId}
+              routeTab={routeState.features.tab}
             />
           ) : null}
           {routeState.view === "wiki" ? (
@@ -209,6 +229,10 @@ export function AppShell() {
                 const nextState: AppRouteState = {
                   ...routeState,
                   view: "features",
+                  features: {
+                    ...routeState.features,
+                    featureId,
+                  },
                   wiki: {
                     ...routeState.wiki,
                     featureId,

@@ -9,6 +9,13 @@ export type SettingsAdminPageId =
   | "openviking";
 export type WikiMode = "view" | "edit";
 export type WikiDrawer = "detail" | "history" | "import" | "sources" | null;
+export type FeatureTabId =
+  | "settings"
+  | "knowledge"
+  | "reports"
+  | "repos"
+  | "skill"
+  | "admins";
 
 export interface WikiRouteState {
   featureId: number | null;
@@ -16,6 +23,11 @@ export interface WikiRouteState {
   heading: string | null;
   mode: WikiMode;
   drawer: WikiDrawer;
+}
+
+export interface FeatureRouteState {
+  featureId: number | null;
+  tab: FeatureTabId | null;
 }
 
 export interface AppRouteState {
@@ -26,6 +38,7 @@ export interface AppRouteState {
   settings: {
     adminPageId: SettingsAdminPageId | null;
   };
+  features: FeatureRouteState;
   wiki: WikiRouteState;
 }
 
@@ -37,6 +50,11 @@ export const defaultWikiRouteState: WikiRouteState = {
   drawer: null,
 };
 
+export const defaultFeatureRouteState: FeatureRouteState = {
+  featureId: null,
+  tab: null,
+};
+
 export const defaultAppRouteState: AppRouteState = {
   view: "sessions",
   sessions: {
@@ -45,6 +63,7 @@ export const defaultAppRouteState: AppRouteState = {
   settings: {
     adminPageId: null,
   },
+  features: defaultFeatureRouteState,
   wiki: defaultWikiRouteState,
 };
 
@@ -63,6 +82,10 @@ export function readRouteStateFromLocation(): AppRouteState {
     },
     settings: {
       adminPageId: readSettingsAdminPage(search.get("page")),
+    },
+    features: {
+      featureId: readInt(search.get("feature")),
+      tab: readFeatureTab(search.get("tab")),
     },
     wiki: {
       featureId: readInt(search.get("feature")),
@@ -84,6 +107,14 @@ export function writeRouteStateToLocation(state: AppRouteState) {
   }
   if (state.view === "settings" && state.settings.adminPageId) {
     params.set("page", state.settings.adminPageId);
+  }
+  if (state.view === "features") {
+    if (state.features.featureId != null) {
+      params.set("feature", String(state.features.featureId));
+    }
+    if (state.features.tab) {
+      params.set("tab", state.features.tab);
+    }
   }
   if (state.view === "wiki") {
     if (state.wiki.featureId != null) {
@@ -155,21 +186,81 @@ export function readPersistedWikiRoute(): WikiRouteState | null {
   }
 }
 
-// 初始路由：URL 显式带 wiki 选中（深链、或在 Wiki 页刷新）时以 URL 为准；
-// 否则用 localStorage 里上次的 Wiki 选中补水，保证跨页面刷新仍记得选中的文档。
+const FEATURE_ROUTE_STORAGE_KEY = "codeask:feature-route";
+
+// 把「上次的特性选中 + 子 tab」持久化到 localStorage，使其在「切到别的页面再刷新浏览器」
+// 这种 URL 不携带特性参数的场景下仍能恢复。
+export function writePersistedFeatureRoute(features: FeatureRouteState) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      FEATURE_ROUTE_STORAGE_KEY,
+      JSON.stringify({
+        featureId: features.featureId,
+        tab: features.tab,
+      }),
+    );
+  } catch {
+    // 忽略隐私模式 / 配额等存储异常，持久化只是增强、不是必须。
+  }
+}
+
+export function readPersistedFeatureRoute(): FeatureRouteState | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(FEATURE_ROUTE_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<FeatureRouteState>;
+    return {
+      featureId: typeof parsed.featureId === "number" ? parsed.featureId : null,
+      tab: readFeatureTab(typeof parsed.tab === "string" ? parsed.tab : null),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// 初始路由：URL 显式带选中（深链、或在对应页刷新）时以 URL 为准；
+// 否则用 localStorage 里上次的选中补水，保证跨页面刷新仍记得选中的特性/文档。
 export function readInitialAppRouteState(): AppRouteState {
   if (typeof window === "undefined") {
     return defaultAppRouteState;
   }
   const fromUrl = readRouteStateFromLocation();
-  if (fromUrl.wiki.featureId != null || fromUrl.wiki.nodeId != null) {
-    return fromUrl;
+  const hydrated: AppRouteState = { ...fromUrl };
+  if (fromUrl.wiki.featureId == null && fromUrl.wiki.nodeId == null) {
+    const persistedWiki = readPersistedWikiRoute();
+    if (persistedWiki) {
+      hydrated.wiki = persistedWiki;
+    }
   }
-  const persisted = readPersistedWikiRoute();
-  if (!persisted) {
-    return fromUrl;
+  if (fromUrl.features.featureId == null && fromUrl.features.tab == null) {
+    const persistedFeatures = readPersistedFeatureRoute();
+    if (persistedFeatures) {
+      hydrated.features = persistedFeatures;
+    }
   }
-  return { ...fromUrl, wiki: persisted };
+  return hydrated;
+}
+
+export function mergeFeaturesRouteState(
+  current: AppRouteState,
+  patch: Partial<FeatureRouteState>,
+): AppRouteState {
+  return {
+    ...current,
+    view: "features",
+    features: {
+      ...current.features,
+      ...patch,
+    },
+  };
 }
 
 export function mergeWikiRouteState(
@@ -203,6 +294,20 @@ function readDrawer(raw: string | null): WikiDrawer {
 
 function readString(raw: string | null) {
   return typeof raw === "string" && raw.length > 0 ? raw : null;
+}
+
+function readFeatureTab(raw: string | null): FeatureTabId | null {
+  if (
+    raw === "settings" ||
+    raw === "knowledge" ||
+    raw === "reports" ||
+    raw === "repos" ||
+    raw === "skill" ||
+    raw === "admins"
+  ) {
+    return raw;
+  }
+  return null;
 }
 
 function isAppViewId(raw: string): raw is AppViewId {
