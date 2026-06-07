@@ -52,6 +52,36 @@ describe("MarkdownRenderer wiki affordances", () => {
     );
   });
 
+  it("resolves chinese relative image paths despite react-markdown url encoding", () => {
+    // react-markdown 会把含中文的相对路径百分号编码后传给 img；查表需按解码后命中。
+    render(
+      <MarkdownRenderer
+        content="![中文图](图片/测试.png)"
+        imageSrcMap={{ "图片/测试.png": "/api/wiki/assets/91/content" }}
+      />,
+    );
+
+    expect(screen.getByRole("img", { name: "中文图" })).toHaveAttribute(
+      "src",
+      "/api/wiki/assets/91/content",
+    );
+  });
+
+  it("renders external http(s) image urls directly even if legacy resolution marked them broken", () => {
+    render(
+      <MarkdownRenderer
+        brokenImageTargets={new Set(["https://example.com/a.png"])}
+        content="![远程](https://example.com/a.png)"
+      />,
+    );
+
+    expect(screen.getByRole("img", { name: "远程" })).toHaveAttribute(
+      "src",
+      "https://example.com/a.png",
+    );
+    expect(screen.queryByText("图片无法加载")).not.toBeInTheDocument();
+  });
+
   it("renders mapped html img assets with native wiki content urls", () => {
     render(
       <MarkdownRenderer

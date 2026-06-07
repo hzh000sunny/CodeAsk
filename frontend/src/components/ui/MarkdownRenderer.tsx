@@ -71,12 +71,15 @@ export function MarkdownRenderer({
             );
           },
           a({ href, children }) {
-            const nextHref = (href && linkHrefMap?.[href]) || href || "#";
+            const nextHref = lookupByTarget(linkHrefMap, href) ?? href ?? "#";
             return <a href={nextHref}>{children}</a>;
           },
           img({ src, alt }) {
-            const nextSrc = (src && imageSrcMap?.[src]) || src || "";
-            const isBroken = Boolean(src && brokenImages?.has(src));
+            const nextSrc = lookupByTarget(imageSrcMap, src) ?? src ?? "";
+            // 外部图片(http/https/data/协议相对)直接按原地址渲染：后端无法核验其可达性，
+            // 旧文档里它们可能被误标 broken；真正加载失败交给 <img onError> 兜底。
+            const isBroken =
+              !isExternalUrl(src) && hasBrokenTarget(brokenImages, src);
             return (
               <MarkdownImage
                 alt={alt ?? ""}
@@ -104,6 +107,55 @@ export function MarkdownRenderer({
       </ReactMarkdown>
     </div>
   );
+}
+
+// react-markdown 会对 Markdown 里的 URL 做百分号编码，含中文/空格的相对路径会变成
+// `%E5%9B%BE%E7%89%87/...`，而后端解析出的 ref.target 是未编码的原文（如 `图片/测试.png`）。
+// 查表时按原值和解码后两种形态都试一次，避免编码差异导致命中失败、图片/内链失效。
+function safeDecodeUri(value: string): string {
+  try {
+    return decodeURI(value);
+  } catch {
+    return value;
+  }
+}
+
+// 带协议或协议相对的外部地址，永远不是 wiki 内部资源。
+const EXTERNAL_URL_RE = /^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/\/)/;
+
+function isExternalUrl(value: string | null | undefined): boolean {
+  return Boolean(value && EXTERNAL_URL_RE.test(value.trim()));
+}
+
+function lookupByTarget(
+  map: Record<string, string> | undefined,
+  target: string | null | undefined,
+): string | undefined {
+  if (!map || !target) {
+    return undefined;
+  }
+  if (map[target] !== undefined) {
+    return map[target];
+  }
+  const decoded = safeDecodeUri(target);
+  if (decoded !== target && map[decoded] !== undefined) {
+    return map[decoded];
+  }
+  return undefined;
+}
+
+function hasBrokenTarget(
+  broken: Set<string> | null,
+  target: string | null | undefined,
+): boolean {
+  if (!broken || !target) {
+    return false;
+  }
+  if (broken.has(target)) {
+    return true;
+  }
+  const decoded = safeDecodeUri(target);
+  return decoded !== target && broken.has(decoded);
 }
 
 let mermaidInitialized = false;

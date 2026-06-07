@@ -16,6 +16,9 @@ from codeask.wiki.paths import normalize_asset_name, normalize_node_name
 _IMG_LINK_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 _REL_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)\s#]+)(?:\s+\"[^\"]*\")?\)")
 _HTML_IMG_SRC_RE = re.compile(r"<img\b[^>]*\bsrc\s*=\s*[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
+# 绝对/外部地址：带协议(http:、https:、data:、mailto: 等)或协议相对(//)。
+# 这类目标永远不是 wiki 内部节点，不能按相对路径去解析，否则会被误判为 broken。
+_EXTERNAL_TARGET_RE = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.\-]*:|//)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,27 +27,29 @@ class MarkdownReference:
     kind: str
 
 
+def is_external_target(target: str) -> bool:
+    """带协议或协议相对的外部地址，不参与 wiki 相对路径解析。"""
+    return bool(_EXTERNAL_TARGET_RE.match(target.strip()))
+
+
 def parse_markdown_references(raw_text: str) -> list[MarkdownReference]:
     refs: list[MarkdownReference] = []
     seen: set[tuple[str, str]] = set()
+
+    def add(target: str, kind: str) -> None:
+        if is_external_target(target):
+            return
+        key = (target, kind)
+        if key not in seen:
+            seen.add(key)
+            refs.append(MarkdownReference(target=target, kind=kind))
+
     for match in _IMG_LINK_RE.finditer(raw_text):
-        target = match.group(1)
-        key = (target, "image")
-        if key not in seen:
-            seen.add(key)
-            refs.append(MarkdownReference(target=target, kind="image"))
+        add(match.group(1), "image")
     for match in _REL_LINK_RE.finditer(raw_text):
-        target = match.group(1)
-        key = (target, "link")
-        if key not in seen:
-            seen.add(key)
-            refs.append(MarkdownReference(target=target, kind="link"))
+        add(match.group(1), "link")
     for match in _HTML_IMG_SRC_RE.finditer(raw_text):
-        target = match.group(1)
-        key = (target, "image")
-        if key not in seen:
-            seen.add(key)
-            refs.append(MarkdownReference(target=target, kind="image"))
+        add(match.group(1), "image")
     return refs
 
 
