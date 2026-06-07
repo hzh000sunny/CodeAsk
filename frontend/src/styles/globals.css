@@ -272,11 +272,12 @@ textarea:focus-visible {
   transform: translateX(2px);
 }
 
-/* v1.0.6 ink-and-paper：主导航栏（.primary）与 Wiki 目录树（.wiki-tree-collapse-button）
-   的折叠把手——从「悬浮中点 + 重阴影药丸」改成贴顶的扁平发丝把手：与顶部工具行同高、
-   零阴影、炭灰 token、平时静音点缀、鼠标进 rail 或键盘聚焦时显形。其余 secondary 列表
-   面板（会话/特性/设置）暂仍用旧药丸，等后续一并收口，故此处按类名精确作用域、不波及。 */
+/* v1.0.6 ink-and-paper：折叠把手——从「悬浮中点 + 重阴影药丸」改成贴顶的扁平发丝把手：
+   与顶部工具行同高、零阴影、炭灰 token、平时静音点缀、鼠标进 rail 或键盘聚焦时显形。
+   覆盖主导航（.primary）、Wiki 目录树（.wiki-tree-collapse-button）以及其余 secondary
+   列表面板（会话/特性/设置，统一收口）。 */
 .edge-collapse-button.primary,
+.edge-collapse-button.secondary,
 .wiki-tree-collapse-button {
   top: 13px;
   right: -11px;
@@ -297,6 +298,7 @@ textarea:focus-visible {
 
 /* 收起后整条 rail 近乎空白，把展开把手抬成该区最显眼的操作：常驻、加重。 */
 .edge-collapse-button.primary[data-collapsed="true"],
+.edge-collapse-button.secondary[data-collapsed="true"],
 .wiki-tree-collapse-button[data-collapsed="true"] {
   opacity: 0.85;
 }
@@ -305,12 +307,18 @@ textarea:focus-visible {
 .source-sidebar:hover .edge-collapse-button.primary,
 .source-sidebar:focus-within .edge-collapse-button.primary,
 .wiki-tree-pane:hover .wiki-tree-collapse-button,
-.wiki-tree-pane:focus-within .wiki-tree-collapse-button {
+.wiki-tree-pane:focus-within .wiki-tree-collapse-button,
+.list-panel:hover .edge-collapse-button.secondary,
+.list-panel:focus-within .edge-collapse-button.secondary,
+.settings-index:hover .edge-collapse-button.secondary,
+.settings-index:focus-within .edge-collapse-button.secondary {
   opacity: 1;
 }
 
 .edge-collapse-button.primary:hover,
 .edge-collapse-button.primary:focus-visible,
+.edge-collapse-button.secondary:hover,
+.edge-collapse-button.secondary:focus-visible,
 .wiki-tree-collapse-button:hover,
 .wiki-tree-collapse-button:focus-visible {
   border-color: var(--line-strong);
@@ -323,6 +331,8 @@ textarea:focus-visible {
 /* 贴顶把手不再随 hover 上下平移（那是中点药丸「探出」的语义）；保留下方 svg 方向微移作朝向暗示。 */
 .edge-collapse-button.primary[data-collapsed="false"]:hover,
 .edge-collapse-button.primary[data-collapsed="true"]:hover,
+.edge-collapse-button.secondary[data-collapsed="false"]:hover,
+.edge-collapse-button.secondary[data-collapsed="true"]:hover,
 .wiki-tree-collapse-button[data-collapsed="false"]:hover,
 .wiki-tree-collapse-button[data-collapsed="true"]:hover {
   transform: translateY(0);
