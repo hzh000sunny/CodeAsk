@@ -3569,18 +3569,23 @@ textarea:focus-visible {
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: #667085;
+  color: var(--muted);
   padding: 10px 12px;
   font-weight: 650;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease;
 }
 
 .tab-button:hover {
-  color: #1f2937;
+  color: var(--text);
 }
 
+/* 选中指示走炭灰墨色（结构强调），不用蓝——蓝留给 primary CTA，
+   避免导航条与主按钮抢同一抹蓝。 */
 .tab-button[aria-selected="true"] {
-  border-bottom-color: var(--accent);
-  color: #1f2937;
+  border-bottom-color: #2b2f37;
+  color: #2b2f37;
 }
 
 .tab-content {
@@ -8875,6 +8880,209 @@ textarea:focus-visible {
 
   .session-workspace .list-toolbar .icon-only:hover,
   .session-workspace .composer .composer-primary-actions .button-primary:hover {
+    transform: none;
+  }
+}
+
+/* ============================================================
+   v1.0.6 特性工作台 ink-and-paper 收口（scoped）
+   设计规则：色 = 动作（primary CTA 留蓝），墨 = 结构/选中（炭灰 #2b2f37）。
+   仅作用于 .feature-workspace / .reports-tab-content，不触碰设置页、Wiki、
+   导入弹窗共享的 .surface / .section-title / .report-filter 基样式。
+   ============================================================ */
+.feature-workspace {
+  background: var(--bg);
+}
+
+/* ---- 左栏特性列表：对齐会话页的纸面 + 炭灰选中条（不再整行泛蓝） ---- */
+.feature-workspace .list-panel {
+  background: linear-gradient(180deg, #ffffff, #fbfcfe 60%);
+}
+
+.feature-workspace .list-toolbar {
+  background: rgba(255, 255, 255, 0.66);
+  backdrop-filter: blur(6px);
+}
+
+.feature-workspace .search-field {
+  border-radius: 10px;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.feature-workspace .search-field:focus-within {
+  border-color: #b4b8c0;
+  box-shadow: 0 0 0 3px rgba(22, 24, 29, 0.06);
+}
+
+.feature-workspace .list-toolbar .icon-only {
+  border-color: transparent;
+  background: #2b2f37;
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.18);
+  transition:
+    transform 150ms ease,
+    background-color 150ms ease;
+}
+
+.feature-workspace .list-toolbar .icon-only:hover {
+  background: #1b1e24;
+  transform: translateY(-1px);
+}
+
+.feature-workspace .list-toolbar .icon-only:active {
+  transform: translateY(0);
+}
+
+.feature-workspace .list-row {
+  margin-bottom: 2px;
+  transition: background-color 150ms ease;
+}
+
+.feature-workspace .list-row:hover {
+  background: #f3f4f5;
+}
+
+.feature-workspace .list-row[data-active="true"] {
+  background: #f1f2f3;
+  box-shadow: inset 3px 0 0 #2b2f37;
+}
+
+.feature-workspace .list-row:hover .list-item,
+.feature-workspace .list-item:hover,
+.feature-workspace .list-item[data-active="true"] {
+  background: transparent;
+}
+
+.feature-workspace .item-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #344054;
+}
+
+.feature-workspace .list-item[data-active="true"] .item-title {
+  color: #2b2f37;
+  font-weight: 700;
+}
+
+.feature-workspace .feature-item-description {
+  color: #98a2b3;
+}
+
+/* ---- masthead：紧凑纸面 + 紧字距标题 + slug chip + 安静 dek ---- */
+.feature-workspace .feature-header {
+  align-items: center;
+  background: #ffffff;
+  padding: 15px 22px;
+}
+
+.feature-header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.feature-workspace .feature-header h1 {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feature-header-description {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+/* ---- de-shout 各面板 section-title：16px 深标题降为安静 eyebrow，
+       图标缩小退成静音灰，让正文/操作主导密度 ---- */
+.feature-workspace .tab-content .section-title {
+  gap: 8px;
+}
+
+.feature-workspace .tab-content .section-title svg {
+  width: 15px;
+  height: 15px;
+  color: #98a2b3;
+}
+
+.feature-workspace .tab-content .section-title h2 {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: #667085;
+}
+
+/* surface 去重投影，靠发丝线 + 留白分层（克制阴影） */
+.feature-workspace .surface {
+  box-shadow: none;
+}
+
+/* ---- 设置页：可编辑表单 + 无权时只读展示 ---- */
+.feature-settings-form {
+  display: grid;
+  gap: 4px;
+}
+
+.feature-settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.feature-readonly-fields {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 16px 0 0;
+  font-size: 13px;
+}
+
+.feature-readonly-fields dt {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.feature-readonly-fields dd {
+  margin: 0;
+  min-width: 0;
+  color: #1f2937;
+  overflow-wrap: anywhere;
+}
+
+.feature-readonly-fields dd.is-empty {
+  color: #98a2b3;
+}
+
+/* ---- 报告筛选段控：ink 收口（仅特性报告页，不动 Wiki 导入弹窗） ---- */
+.reports-tab-content .report-filter-tabs {
+  border-color: var(--line);
+  background: var(--soft);
+}
+
+.reports-tab-content .report-filter-button[aria-selected="true"] {
+  background: #ffffff;
+  color: #2b2f37;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feature-workspace .list-row,
+  .feature-workspace .search-field,
+  .feature-workspace .list-toolbar .icon-only,
+  .feature-workspace .tab-button {
+    transition: none;
+  }
+
+  .feature-workspace .list-toolbar .icon-only:hover {
     transform: none;
   }
 }

@@ -173,16 +173,26 @@ export function FeatureWorkbench({
       />
 
       <section className="detail-panel">
-        <div className="page-header">
-          <div>
+        <div className="page-header feature-header">
+          <div className="feature-header-main">
             <h1>{selected?.name ?? "选择或创建特性"}</h1>
-            <p>
-              {selected?.description ??
-                "特性内统一管理设置、知识库、问题报告、仓库关联和专属 Skill。"}
-            </p>
-          </div>
-          <div className="header-actions">
+            {/* slug 不进报头（沿用既有产品决策，见 feature-workbench 测试）。
+                去掉旧的每特性重复样板话：有描述才显示描述，没选中时给一句引导，
+                选中但无描述时不占位（设置页可补描述）。 */}
             {selected ? (
+              selected.description ? (
+                <p className="feature-header-description">
+                  {selected.description}
+                </p>
+              ) : null
+            ) : (
+              <p className="feature-header-description">
+                从左侧选择一个特性，或点击 + 新建。
+              </p>
+            )}
+          </div>
+          {selected ? (
+            <div className="header-actions">
               <button
                 className="button button-secondary"
                 onClick={() => onOpenWiki(selected.id)}
@@ -190,8 +200,8 @@ export function FeatureWorkbench({
               >
                 打开 Wiki
               </button>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
 
         <FeatureTabs

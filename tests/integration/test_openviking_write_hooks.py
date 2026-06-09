@@ -453,6 +453,36 @@ async def test_report_delete_updates_workspace_without_openviking_job(
     ).exists()
 
 
+@pytest.mark.asyncio
+async def test_feature_rename_refreshes_index_and_enqueues_openviking_upsert(
+    client: AsyncClient,
+    app: FastAPI,
+) -> None:
+    feature_id, _space_id, _root_id = await _create_feature_space(client, slug="ov-rename")
+    # 新建特性此刻无正文可索引：只重写磁盘索引，不入队。
+    assert await _job_count(app) == 0
+    readme = _feature_workspace(app, "ov-rename") / "README.md"
+    assert readme.exists()
+    assert "# ov-rename" in readme.read_text(encoding="utf-8")
+
+    renamed = await client.put(
+        f"/api/features/{feature_id}",
+        json={"name": "结算链路"},
+        headers={"X-Subject-Id": "owner@dev-1"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["name"] == "结算链路"
+    # 改名不改 slug：磁盘路径 / OpenViking URI 都稳定，无需迁移。
+    assert renamed.json()["slug"] == "ov-rename"
+
+    # 磁盘上的特性索引(README `# {name}`)立即重写为新名。
+    assert "# 结算链路" in readme.read_text(encoding="utf-8")
+    # 改名即刻入队一个 OpenViking upsert（按稳定 slug 的 URI），不等每小时定时 refresh。
+    job = await _single_feature_job(app)
+    _assert_wiki_feature_job(job, slug="ov-rename")
+    assert await _event_types(app) == ["wiki_feature_changed"]
+
+
 async def _job_count(app: FastAPI) -> int:
     async with app.state.session_factory() as session:
         rows = (await session.execute(select(OpenVikingSyncJob))).scalars().all()

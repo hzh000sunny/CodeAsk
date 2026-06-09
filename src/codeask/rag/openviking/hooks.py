@@ -210,6 +210,13 @@ async def drain_wiki_workspace_events(request: Request, session: AsyncSession) -
                 "feature_metadata_changed",
             }:
                 await projector.refresh_feature_indexes(event.feature_slug)
+                if event.kind == "feature_metadata_changed":
+                    # 改名/改描述重写了磁盘上的特性索引(`# {name}`)与 manifest 的 name；
+                    # slug 不变，URI 稳定，这里立即 enqueue upsert 把新名推给 OpenViking
+                    # （add_resource 内容级增量，只重嵌变化的索引文件，廉价），
+                    # 不必等每小时定时 refresh。feature_created/node_created 此刻无正文可索引，
+                    # 维持不入队。
+                    enqueue_features.add(event.feature_slug)
             elif event.kind == "feature_archived":
                 await projector.prune_feature(event.feature_slug)
                 await enqueue_prebuilt_sync_job(

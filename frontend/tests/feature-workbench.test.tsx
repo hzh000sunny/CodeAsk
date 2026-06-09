@@ -112,6 +112,8 @@ function installFeatureFetchMock(
       return [Number(row.id), { ...row }];
     }),
   );
+  // 可变的特性行：让 PUT 改名后的 GET /api/features 反映新值（slug 不变）。
+  const featureRow: Record<string, unknown> = { ...feature };
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
@@ -119,7 +121,7 @@ function installFeatureFetchMock(
         return jsonResponse(options.auth ?? anonymousAuth);
       }
       if (path === "/api/features" && init?.method !== "POST") {
-        return jsonResponse([feature]);
+        return jsonResponse([featureRow]);
       }
       if (path === "/api/features" && init?.method === "POST") {
         return jsonResponse(
@@ -129,6 +131,20 @@ function installFeatureFetchMock(
       }
       if (path === "/api/features/7" && init?.method === "DELETE") {
         return new Response(null, { status: 204 });
+      }
+      if (path === "/api/features/7" && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body ?? "{}")) as {
+          name?: string;
+          description?: string;
+        };
+        if (typeof body.name === "string") {
+          featureRow.name = body.name;
+        }
+        if (typeof body.description === "string") {
+          featureRow.description = body.description;
+        }
+        featureRow.updated_at = "2026-04-30T12:00:00";
+        return jsonResponse(featureRow);
       }
       if (path === "/api/features/7/admins") {
         return jsonResponse(options.featureAdmins ?? []);
@@ -567,6 +583,52 @@ describe("FeatureWorkbench management actions", () => {
       name: "风控策略",
     });
     expect(JSON.parse(String(init.body))).not.toHaveProperty("slug");
+  });
+
+  it("lets an admin edit a feature name/description from the settings tab and persists via PUT", async () => {
+    const fetchMock = installFeatureFetchMock({ auth: adminAuth });
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+
+    // 设置 tab 默认选中：admin 拿到的是真实可编辑输入框（不是只读假框）。
+    const nameInput = await screen.findByDisplayValue("支付结算");
+    fireEvent.change(nameInput, { target: { value: "支付结算中心" } });
+
+    const saveButton = screen.getByRole("button", { name: "保存修改" });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(
+        ([path, options]) =>
+          path === "/api/features/7" &&
+          (options as RequestInit | undefined)?.method === "PUT",
+      );
+      expect(putCall).toBeTruthy();
+      expect(JSON.parse(String((putCall![1] as RequestInit).body))).toMatchObject(
+        { name: "支付结算中心" },
+      );
+    });
+
+    // 保存后列表刷新出新名（slug 不变，仍是同一条）。
+    expect(await screen.findAllByText("支付结算中心")).not.toHaveLength(0);
+  });
+
+  it("shows feature settings read-only (no editable inputs) for members without manage rights", async () => {
+    installFeatureFetchMock({ auth: memberAuth, featureAdmins: [] });
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "特性" }));
+
+    // 无管理权限：名称以只读文本展示，不渲染可编辑输入框，也没有保存按钮。
+    expect(
+      await screen.findByText("支付结算", { selector: ".feature-readonly-fields dd" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("支付结算")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "保存修改" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows feature descriptions in the tree and hides slug badges from the detail header", async () => {
