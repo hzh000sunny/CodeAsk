@@ -269,19 +269,24 @@ export function ReportsPanel({
         ) : (
           <ul className="data-list">
             {filteredReports.map((report) => (
-              <li key={report.id}>
+              <li
+                data-active={report.id === selectedLocalReportId}
+                key={report.id}
+              >
                 <button
                   className="plain-row-button"
                   onClick={() => selectReport(report)}
                   type="button"
                 >
                   <span>{report.title}</span>
-                  <small>
-                    {reportStatusLabel(report)} ·{" "}
-                    {new Date(report.updated_at).toLocaleString()}
-                  </small>
+                  {/* 状态由右侧带色点的徽章承担，这行只留时间，避免一行里念两遍状态 */}
+                  <small>{new Date(report.updated_at).toLocaleString()}</small>
                 </button>
-                <Badge>{reportStatusLabel(report)}</Badge>
+                <Badge
+                  className={`report-status-chip is-${reportStatusKey(report)}`}
+                >
+                  {reportStatusLabel(report)}
+                </Badge>
               </li>
             ))}
           </ul>
@@ -294,7 +299,11 @@ export function ReportsPanel({
             <h2>报告详情</h2>
           </div>
           {selectedReport ? (
-            <Badge>{reportStatusLabel(selectedReport)}</Badge>
+            <Badge
+              className={`report-status-chip is-${reportStatusKey(selectedReport)}`}
+            >
+              {reportStatusLabel(selectedReport)}
+            </Badge>
           ) : null}
         </div>
         {selectedReport ? (
@@ -327,7 +336,7 @@ export function ReportsPanel({
                       icon={<CheckCircle2 aria-hidden="true" size={16} />}
                       onClick={() => verifyMutation.mutate(selectedReport.id)}
                       type="button"
-                      variant="primary"
+                      variant="confirm"
                     >
                       验证通过
                     </Button>
@@ -337,7 +346,7 @@ export function ReportsPanel({
                         icon={<XCircle aria-hidden="true" size={16} />}
                         onClick={() => rejectMutation.mutate(selectedReport.id)}
                         type="button"
-                        variant="secondary"
+                        variant="warn"
                       >
                         验证不通过
                       </Button>

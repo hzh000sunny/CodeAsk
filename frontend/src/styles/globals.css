@@ -611,14 +611,48 @@ textarea:focus-visible {
   background: #1d4ed8;
 }
 
+/* 禁用的 primary 退成纸灰，不再保持饱和色装作可点 */
+.button-primary:disabled {
+  background: #e9ecf0;
+  color: #98a2b3;
+}
+
+/* 语义动作实心三件套（报告评审等场景）：肯定=绿底、警示否决=琥珀底、
+   危险销毁=红底——色相说话，深度统一压在沉稳档不刺眼 */
+.button-confirm {
+  background: var(--green);
+  color: #ffffff;
+}
+
+.button-confirm:hover:not(:disabled) {
+  background: #115c38;
+}
+
+.button-warn {
+  background: #b45309;
+  color: #ffffff;
+}
+
+.button-warn:hover:not(:disabled) {
+  background: #93450a;
+}
+
 .button-danger {
   border-color: #b42318;
   background: #b42318;
   color: #ffffff;
 }
 
-.button-danger:hover {
+.button-danger:hover:not(:disabled) {
   background: #912018;
+}
+
+.button-confirm:disabled,
+.button-warn:disabled,
+.button-danger:disabled {
+  border-color: transparent;
+  background: #e9ecf0;
+  color: #98a2b3;
 }
 
 .button-secondary {
@@ -8838,36 +8872,8 @@ textarea:focus-visible {
   outline: none;
 }
 
-.session-workspace .composer .composer-primary-actions .button-primary {
-  border-color: transparent;
-  background: #2b2f37;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.2);
-  transition:
-    transform 150ms ease,
-    background-color 150ms ease,
-    box-shadow 150ms ease;
-}
-
-.session-workspace .composer .composer-primary-actions .button-primary:hover {
-  background: #1b1e24;
-  transform: translateY(-1px);
-  box-shadow: 0 3px 10px rgba(16, 24, 40, 0.22);
-}
-
-.session-workspace .composer .composer-primary-actions .button-primary:active {
-  transform: translateY(0);
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.2);
-}
-
-/* ---- dialogs: ink primary action (scoped to session, leaves app-wide
-   --accent convention untouched on other pages) ---- */
-.session-workspace .confirm-dialog .button-primary {
-  background: #2b2f37;
-}
-
-.session-workspace .confirm-dialog .button-primary:hover {
-  background: #1b1e24;
-}
+/* （主按钮不再单独收墨：实心墨块被用户否掉——中性主操作回全局蓝
+   --accent，肯定/危险走 .button-confirm / .button-danger 语义描边。） */
 
 /* ---- right rail: investigation panel ---- */
 .session-workspace .progress-panel {
@@ -8892,22 +8898,23 @@ textarea:focus-visible {
   .session-workspace .list-row,
   .session-workspace .search-field,
   .session-workspace .composer .textarea,
-  .session-workspace .list-toolbar .icon-only,
-  .session-workspace .composer .composer-primary-actions .button-primary {
+  .session-workspace .list-toolbar .icon-only {
     transition: none;
   }
 
-  .session-workspace .list-toolbar .icon-only:hover,
-  .session-workspace .composer .composer-primary-actions .button-primary:hover {
+  .session-workspace .list-toolbar .icon-only:hover {
     transform: none;
   }
 }
 
 /* ============================================================
    v1.0.6 特性工作台 ink-and-paper 收口（scoped）
-   设计规则：墨 = 结构/选中/主动作（炭灰 #2b2f37，primary 对齐会话页
-   composer 的墨色按钮——蓝 accent 在纸面上过亮、和炭灰选中条打架）；
-   色只留静音状态信号（danger 红不动）。
+   设计规则（2026-06-09 两轮与用户对齐）：合适的才是最好的，不拿单一颜色刷满——
+   墨 = 结构（tab 下划线、聚焦灰圈、列表选中行左条、文字字重）；
+   蓝 --accent = 中性主操作实心（保存/创建/发送），不做选中条（用户嫌丑）；
+   语义动作 = 实心三件套：肯定绿底 .button-confirm / 警示琥珀底 .button-warn /
+   危险红底 .button-danger；状态徽章用带色点的静音 chip；
+   实心墨按钮、整行刷色都不要。
    仅作用于 .feature-workspace / .reports-tab-content，不触碰设置页、Wiki、
    导入弹窗共享的 .surface / .section-title / .report-filter 基样式。
    ============================================================ */
@@ -8915,7 +8922,7 @@ textarea:focus-visible {
   background: var(--bg);
 }
 
-/* ---- 左栏特性列表：对齐会话页的纸面 + 炭灰选中条（不再整行泛蓝） ---- */
+/* ---- 左栏特性列表：对齐会话页的纸面，选中行 = 灰底 + 蓝 accent 细条 ---- */
 .feature-workspace .list-panel {
   background: linear-gradient(180deg, #ffffff, #fbfcfe 60%);
 }
@@ -9053,36 +9060,6 @@ textarea:focus-visible {
 
 /* surface 去重投影，靠发丝线 + 留白分层（克制阴影） */
 .feature-workspace .surface {
-  box-shadow: none;
-}
-
-/* ---- 主操作按钮：本工作台 primary 收墨色（与左栏 + 按钮、会话页
-       composer 同族），禁用态退成纸灰，不再保持饱和色装作可点 ---- */
-.feature-workspace .button-primary {
-  border-color: transparent;
-  background: #2b2f37;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.18);
-  transition:
-    transform 150ms ease,
-    background-color 150ms ease,
-    color 150ms ease,
-    box-shadow 150ms ease;
-}
-
-.feature-workspace .button-primary:hover:not(:disabled) {
-  background: #1b1e24;
-  transform: translateY(-1px);
-  box-shadow: 0 3px 10px rgba(16, 24, 40, 0.22);
-}
-
-.feature-workspace .button-primary:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.18);
-}
-
-.feature-workspace .button-primary:disabled {
-  background: #e9ecf0;
-  color: #98a2b3;
   box-shadow: none;
 }
 
@@ -9243,10 +9220,142 @@ textarea:focus-visible {
   background: var(--soft);
 }
 
+.reports-tab-content .report-filter-button {
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
 .reports-tab-content .report-filter-button[aria-selected="true"] {
   background: #ffffff;
   color: #2b2f37;
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.1);
+}
+
+.reports-tab-content .report-filter-button small {
+  color: #98a2b3;
+  font-variant-numeric: tabular-nums;
+}
+
+.reports-tab-content .report-filter-button[aria-selected="true"] small {
+  color: #2b2f37;
+}
+
+/* ---- 报告列表：去掉「面板里再套一圈卡片」的盒中盒，
+       改发丝行 + 炭灰选中条（与左栏列表/会话页同语言） ---- */
+.reports-tab-content .data-list {
+  gap: 0;
+}
+
+.reports-tab-content .data-list li {
+  border: 0;
+  border-top: 1px solid var(--soft);
+  border-radius: 0;
+  background: transparent;
+  padding: 10px 8px;
+  transition: background-color 150ms ease;
+}
+
+.reports-tab-content .data-list li:first-child {
+  border-top: 0;
+}
+
+.reports-tab-content .data-list li:hover {
+  background: #f3f4f5;
+}
+
+.reports-tab-content .data-list li[data-active="true"] {
+  background: #f1f2f3;
+  box-shadow: inset 3px 0 0 #2b2f37;
+}
+
+.reports-tab-content .plain-row-button span {
+  color: #344054;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.reports-tab-content .data-list li[data-active="true"] .plain-row-button span {
+  color: #2b2f37;
+  font-weight: 700;
+}
+
+.reports-tab-content .plain-row-button small {
+  color: #98a2b3;
+  font-size: 12px;
+}
+
+/* ---- 状态徽章：发丝描边 + 静音状态点（绿=已验证、红=未通过、
+       琥珀=过期/替代、灰=草稿），文字保持中性灰 ---- */
+.report-status-chip {
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.report-status-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #c2c9d2;
+}
+
+.report-status-chip.is-verified::before {
+  background: var(--green);
+}
+
+.report-status-chip.is-rejected::before {
+  background: #b42318;
+}
+
+.report-status-chip.is-stale::before,
+.report-status-chip.is-superseded::before {
+  background: #b54708;
+}
+
+/* ---- 详情面板：操作行下加发丝分隔，与设置页表单页脚同语言 ---- */
+.reports-tab-content .report-detail-actions {
+  margin: 12px 0 14px;
+  border-bottom: 1px solid var(--soft);
+  padding-bottom: 14px;
+}
+
+/* 标题和正文贴紧排：grid 默认 align-content: stretch 会把 auto 行撑开、
+   在标题和正文之间随面板高度漏出一条大空隙 */
+.reports-tab-content .report-preview {
+  align-content: start;
+}
+
+/* ---- 特性 tab 内容区输入框统一炭灰 focus（搜索框在列表栏，不受影响） ---- */
+.feature-workspace .tab-content .input,
+.feature-workspace .tab-content .textarea {
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.feature-workspace .tab-content .input:focus,
+.feature-workspace .tab-content .textarea:focus {
+  border-color: #b4b8c0;
+  box-shadow: 0 0 0 3px rgba(22, 24, 29, 0.06);
+  outline: none;
+}
+
+/* ---- 空态：居中、退灰，不再用加粗深字喊话 ---- */
+.reports-tab-content .empty-block {
+  display: grid;
+  min-height: 96px;
+  place-items: center;
+  border-color: var(--line);
+  background: var(--panel-subtle);
+}
+
+.reports-tab-content .empty-block p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 550;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -9254,9 +9363,12 @@ textarea:focus-visible {
   .feature-workspace .search-field,
   .feature-workspace .list-toolbar .icon-only,
   .feature-workspace .tab-button,
-  .feature-workspace .button-primary,
   .feature-settings-form .input,
-  .feature-settings-form .textarea {
+  .feature-settings-form .textarea,
+  .feature-workspace .tab-content .input,
+  .feature-workspace .tab-content .textarea,
+  .reports-tab-content .report-filter-button,
+  .reports-tab-content .data-list li {
     transition: none;
   }
 
