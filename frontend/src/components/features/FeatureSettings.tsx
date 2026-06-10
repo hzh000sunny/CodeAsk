@@ -32,8 +32,10 @@ export function FeatureSettings({
   const savedName = feature?.name ?? "";
   const savedDescription = feature?.description ?? "";
   const trimmedName = name.trim();
+  // 按 trim 后的值判脏：只敲了首尾空白不算修改（保存本来就发 trim 值，
+  // 否则会发出一次内容不变、只刷 updated_at 的 PUT）。
   const dirty =
-    name !== savedName || description !== savedDescription;
+    trimmedName !== savedName || description.trim() !== savedDescription;
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -62,22 +64,32 @@ export function FeatureSettings({
     saveMutation.mutate();
   }
 
-  const editable = Boolean(feature) && canManageFeature;
+  // 未选中特性时不再渲染一张写满「未创建 / -」的治理卡，只给一句引导。
+  if (!feature) {
+    return (
+      <div className="tab-content feature-settings-content is-empty">
+        <section className="surface feature-settings-empty">
+          <p className="empty-note">选择一个特性后查看与编辑其设置。</p>
+        </section>
+      </div>
+    );
+  }
+
+  const hint = !trimmedName ? "名称不能为空" : dirty ? "有未保存的修改" : "";
 
   return (
     <div className="tab-content two-column feature-settings-content">
-      <section className="surface">
+      <section className="surface feature-settings-card">
         <div className="section-title">
           <SlidersHorizontal aria-hidden="true" size={18} />
           <h2>特性设置</h2>
         </div>
-        {!feature ? (
-          <p className="empty-note">选择一个特性后查看与编辑其设置。</p>
-        ) : editable ? (
+        {canManageFeature ? (
           <form className="feature-settings-form" onSubmit={onSubmit}>
             <label className="field-label">
               名称
               <Input
+                disabled={saveMutation.isPending}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="特性名称"
                 value={name}
@@ -86,12 +98,21 @@ export function FeatureSettings({
             <label className="field-label">
               描述
               <Textarea
+                disabled={saveMutation.isPending}
                 onChange={(event) => setDescription(event.target.value)}
                 placeholder="维护特性的业务边界和常见问题"
                 value={description}
               />
             </label>
-            <div className="feature-settings-actions">
+            <div className="feature-settings-footer">
+              {hint ? (
+                <p
+                  className="feature-settings-hint"
+                  data-tone={!trimmedName ? "warn" : "info"}
+                >
+                  {hint}
+                </p>
+              ) : null}
               <Button
                 disabled={!dirty || !trimmedName || saveMutation.isPending}
                 type="submit"
@@ -113,20 +134,24 @@ export function FeatureSettings({
           </dl>
         )}
       </section>
-      <section className="surface">
+      <section className="surface feature-governance-card">
         <div className="section-title">
           <ShieldCheck aria-hidden="true" size={18} />
           <h2>治理信息</h2>
         </div>
-        <dl className="meta-grid">
-          <dt>Owner</dt>
-          <dd>{feature?.owner_subject_id ?? "未创建"}</dd>
-          <dt>配置权限</dt>
-          <dd>{canManageFeature ? "可管理" : "只读"}</dd>
-          <dt>更新时间</dt>
-          <dd>
-            {feature ? new Date(feature.updated_at).toLocaleString() : "-"}
-          </dd>
+        <dl className="feature-governance-list">
+          <div className="feature-governance-row">
+            <dt>Owner</dt>
+            <dd className="is-id">{feature.owner_subject_id}</dd>
+          </div>
+          <div className="feature-governance-row">
+            <dt>配置权限</dt>
+            <dd>{canManageFeature ? "可管理" : "只读"}</dd>
+          </div>
+          <div className="feature-governance-row">
+            <dt>更新时间</dt>
+            <dd>{new Date(feature.updated_at).toLocaleString()}</dd>
+          </div>
         </dl>
       </section>
     </div>

@@ -5835,7 +5835,9 @@ textarea:focus-visible {
   gap: 12px;
   border-bottom: 1px solid var(--line);
   background: var(--panel-subtle);
-  padding: 10px 10px 9px;
+  /* 左右 12px 与会话/特性页 .list-toolbar 对齐：给主导航悬出的折叠把手
+     （overhang 11px）留出一线间隙，避免搜索框左边框和把手贴死 */
+  padding: 10px 12px 9px;
 }
 
 .wiki-toolbar-row {
@@ -5843,21 +5845,29 @@ textarea:focus-visible {
   padding: 0;
 }
 
-/* 搜索框聚焦：与会话页同款 charcoal 静音环（不刷蓝）；内层 input 的蓝描边交给外框承接。 */
+/* 搜索框：与会话/特性页同款圆角 + charcoal 静音聚焦环（不刷蓝）；
+   内层 input 的蓝描边交给外框承接。本栏只有搜索框，不配 + 按钮。 */
 .wiki-tree-toolbar .search-field {
+  border-radius: 10px;
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
 }
 
 .wiki-tree-toolbar .search-field:focus-within {
-  border-color: var(--line-strong);
-  box-shadow: 0 0 0 3px rgba(43, 47, 55, 0.06);
+  border-color: #b4b8c0;
+  box-shadow: 0 0 0 3px rgba(22, 24, 29, 0.06);
 }
 
 .wiki-tree-toolbar .search-field .input:focus-visible {
   outline: none;
   outline-offset: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wiki-tree-toolbar .search-field {
+    transition: none;
+  }
 }
 
 /* 有输入时才现身的清除按钮：扁平、炭灰、hover 用 --soft 垫底。 */
@@ -8716,18 +8726,27 @@ textarea:focus-visible {
   box-shadow: 0 0 0 3px rgba(22, 24, 29, 0.06);
 }
 
+/* 内层 input 的全局蓝色 focus 描边交给外框承接，避免框中框 */
+.session-workspace .search-field .input:focus-visible {
+  outline: none;
+  outline-offset: 0;
+}
+
+/* + 按钮反转：白底为主、墨色为辅（与特性页一致），实心黑在纸面上太重 */
 .session-workspace .list-toolbar .icon-only {
-  border-color: transparent;
-  background: #2b2f37;
-  color: #ffffff;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.18);
+  border-color: var(--line-strong);
+  background: #ffffff;
+  color: #2b2f37;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
   transition:
     transform 150ms ease,
-    background-color 150ms ease;
+    background-color 150ms ease,
+    border-color 150ms ease;
 }
 
 .session-workspace .list-toolbar .icon-only:hover {
-  background: #1b1e24;
+  border-color: #2b2f37;
+  background: #f5f6f8;
   transform: translateY(-1px);
 }
 
@@ -8886,7 +8905,9 @@ textarea:focus-visible {
 
 /* ============================================================
    v1.0.6 特性工作台 ink-and-paper 收口（scoped）
-   设计规则：色 = 动作（primary CTA 留蓝），墨 = 结构/选中（炭灰 #2b2f37）。
+   设计规则：墨 = 结构/选中/主动作（炭灰 #2b2f37，primary 对齐会话页
+   composer 的墨色按钮——蓝 accent 在纸面上过亮、和炭灰选中条打架）；
+   色只留静音状态信号（danger 红不动）。
    仅作用于 .feature-workspace / .reports-tab-content，不触碰设置页、Wiki、
    导入弹窗共享的 .surface / .section-title / .report-filter 基样式。
    ============================================================ */
@@ -8916,18 +8937,27 @@ textarea:focus-visible {
   box-shadow: 0 0 0 3px rgba(22, 24, 29, 0.06);
 }
 
+/* 内层 input 的全局蓝色 focus 描边交给外框承接，避免框中框 */
+.feature-workspace .search-field .input:focus-visible {
+  outline: none;
+  outline-offset: 0;
+}
+
+/* + 按钮反转：白底为主、墨色为辅——纸面工具栏里一坨实心黑太重 */
 .feature-workspace .list-toolbar .icon-only {
-  border-color: transparent;
-  background: #2b2f37;
-  color: #ffffff;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.18);
+  border-color: var(--line-strong);
+  background: #ffffff;
+  color: #2b2f37;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
   transition:
     transform 150ms ease,
-    background-color 150ms ease;
+    background-color 150ms ease,
+    border-color 150ms ease;
 }
 
 .feature-workspace .list-toolbar .icon-only:hover {
-  background: #1b1e24;
+  border-color: #2b2f37;
+  background: #f5f6f8;
   transform: translateY(-1px);
 }
 
@@ -9026,16 +9056,161 @@ textarea:focus-visible {
   box-shadow: none;
 }
 
-/* ---- 设置页：可编辑表单 + 无权时只读展示 ---- */
+/* ---- 主操作按钮：本工作台 primary 收墨色（与左栏 + 按钮、会话页
+       composer 同族），禁用态退成纸灰，不再保持饱和色装作可点 ---- */
+.feature-workspace .button-primary {
+  border-color: transparent;
+  background: #2b2f37;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.18);
+  transition:
+    transform 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.feature-workspace .button-primary:hover:not(:disabled) {
+  background: #1b1e24;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(16, 24, 40, 0.22);
+}
+
+.feature-workspace .button-primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.18);
+}
+
+.feature-workspace .button-primary:disabled {
+  background: #e9ecf0;
+  color: #98a2b3;
+  box-shadow: none;
+}
+
+/* ---- 设置页：登记表单（宽主列）+ 治理登记卡（窄侧栏），
+       不再左右各占一半把两张卡都摊平 ---- */
+.feature-settings-content {
+  grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr);
+  align-items: start;
+}
+
+.feature-settings-content.is-empty {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.feature-settings-empty {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+}
+
 .feature-settings-form {
   display: grid;
   gap: 4px;
 }
 
-.feature-settings-actions {
+.feature-settings-form .input,
+.feature-settings-form .textarea {
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.feature-settings-form .input:hover:not(:disabled, :focus),
+.feature-settings-form .textarea:hover:not(:disabled, :focus) {
+  border-color: var(--line-strong);
+}
+
+.feature-settings-form .input:focus,
+.feature-settings-form .textarea:focus {
+  border-color: #b4b8c0;
+  box-shadow: 0 0 0 3px rgba(22, 24, 29, 0.06);
+  outline: none;
+}
+
+.feature-settings-form .input:disabled,
+.feature-settings-form .textarea:disabled {
+  background: var(--panel-subtle);
+  color: var(--muted);
+}
+
+.feature-settings-form .textarea {
+  min-height: 120px;
+  line-height: 1.6;
+}
+
+/* 表单页脚：发丝线分隔的「表单尾栏」，提示靠左、动作靠右 */
+.feature-settings-footer {
   display: flex;
-  gap: 8px;
-  margin-top: 18px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+  border-top: 1px solid var(--soft);
+  padding-top: 14px;
+}
+
+.feature-settings-hint {
+  margin: 0 auto 0 0;
+  color: #98a2b3;
+  font-size: 12.5px;
+}
+
+.feature-settings-hint[data-tone="warn"] {
+  color: #b54708;
+}
+
+/* ---- 治理登记卡：淡纸底 + 发丝行，标签退灰、值走墨色 ---- */
+.feature-workspace .feature-governance-card {
+  background: linear-gradient(180deg, #ffffff, var(--panel-subtle));
+}
+
+.feature-governance-list {
+  margin: 14px 0 0;
+  font-size: 13px;
+}
+
+.feature-governance-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+  border-top: 1px solid var(--soft);
+  padding: 9px 0;
+}
+
+.feature-governance-row:first-of-type {
+  border-top: 0;
+  padding-top: 2px;
+}
+
+.feature-governance-row dt {
+  color: #98a2b3;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.7;
+}
+
+.feature-governance-row dd {
+  margin: 0;
+  min-width: 0;
+  color: #344054;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.feature-governance-row dd.is-id {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 12px;
+}
+
+@media (max-width: 860px) {
+  .feature-settings-content {
+    grid-template-columns: 1fr;
+  }
 }
 
 .feature-readonly-fields {
@@ -9078,11 +9253,15 @@ textarea:focus-visible {
   .feature-workspace .list-row,
   .feature-workspace .search-field,
   .feature-workspace .list-toolbar .icon-only,
-  .feature-workspace .tab-button {
+  .feature-workspace .tab-button,
+  .feature-workspace .button-primary,
+  .feature-settings-form .input,
+  .feature-settings-form .textarea {
     transition: none;
   }
 
-  .feature-workspace .list-toolbar .icon-only:hover {
+  .feature-workspace .list-toolbar .icon-only:hover,
+  .feature-workspace .button-primary:hover:not(:disabled) {
     transform: none;
   }
 }

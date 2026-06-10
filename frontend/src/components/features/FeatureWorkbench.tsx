@@ -52,11 +52,16 @@ export function FeatureWorkbench({
     data: fetchedFeatures = [],
     error: featuresError,
     isError: hasFeaturesError,
+    isFetching: isFetchingFeatures,
     isLoading,
   } = useQuery({
     queryKey: ["features"],
     queryFn: listFeatures,
   });
+  // 进入本页时若缓存里躺着一条旧错误（比如会话页早先拉 features 失败过），
+  // react-query 会立刻在后台重拉；重拉期间不把旧错误弹给用户，
+  // 只有这一轮真的失败落定（isFetching 归 false）才提示。
+  const settledFeaturesError = hasFeaturesError && !isFetchingFeatures;
   const features = mergeById(fetchedFeatures, createdFeatures).filter(
     (feature) => !deletedFeatureIds.includes(feature.id),
   );
@@ -83,6 +88,9 @@ export function FeatureWorkbench({
       setFeatureName("");
       setFeatureDescription("");
       void queryClient.invalidateQueries({ queryKey: ["features"] });
+    },
+    onError: (error) => {
+      showError(`创建特性失败：${messageFromError(error)}`);
     },
   });
   const deleteMutation = useMutation({
@@ -141,7 +149,7 @@ export function FeatureWorkbench({
         featureDescription={featureDescription}
         featureName={featureName}
         loadErrorMessage={
-          hasFeaturesError
+          settledFeaturesError
             ? `加载特性失败：${messageFromError(featuresError)}`
             : ""
         }
