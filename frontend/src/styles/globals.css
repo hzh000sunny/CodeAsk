@@ -581,6 +581,17 @@ textarea:focus-visible {
   resize: vertical;
 }
 
+/* 下拉框：原生箭头在 Chrome 里贴右边框、推不动，改用自绘箭头并留出右侧间距 */
+select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23667085' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 14px;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -4206,6 +4217,82 @@ textarea:focus-visible {
   width: fit-content;
 }
 
+/* ---- 分析策略（特性/全局共用）：去盒改发丝行，policy 专属，
+       不碰设置页其它 .data-list / .settings-config-list 列表 ---- */
+.policy-list {
+  gap: 0;
+}
+
+.policy-list li.policy-row {
+  border: 0;
+  border-top: 1px solid var(--soft);
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 10px;
+  column-gap: 16px;
+}
+
+.policy-list li.policy-row:first-child {
+  border-top: 0;
+}
+
+/* 停用的策略整体退后，一眼分「生效 / 未生效」；开关与操作仍保持清晰 */
+.policy-row[data-enabled="false"] .policy-row-content {
+  opacity: 0.5;
+}
+
+/* 阶段做中性 chip、优先级做安静序号，替代原来挤在一起的一行灰小字 */
+.policy-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.stage-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475467;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.policy-priority {
+  color: #98a2b3;
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 开关「开」态用沉稳绿（绿=开 的通用约定，去荧光感）；仅作用于策略行，
+   设置页其它开关不受影响 */
+.policy-row .switch-control[data-checked="true"] {
+  color: #177245;
+}
+
+.policy-row .switch-control[data-checked="true"] .switch-track {
+  border-color: #177245;
+  background: #177245;
+}
+
+/* 表单：适用阶段 + 优先级并行（阶段占主、优先级收窄，不让小数字撑满整行）；
+   Prompt 是这张表单的主体，给足高度 */
+.policy-meta-fields {
+  grid-template-columns: minmax(0, 1fr) 160px;
+  align-items: end;
+}
+
+.policy-form .policy-prompt-field .textarea {
+  min-height: 160px;
+}
+
 .policy-prompt-preview {
   display: -webkit-box;
   max-width: 1200px;
@@ -4227,13 +4314,29 @@ textarea:focus-visible {
 .policy-full-details summary {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   width: fit-content;
   border-radius: 6px;
-  color: #1d4ed8;
+  color: #667085;
   font-size: 12px;
   font-weight: 650;
   cursor: pointer;
   list-style: none;
+}
+
+/* 安静的展开箭头，替代原来的蓝色链接感 */
+.policy-full-details summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+
+.policy-full-details[open] summary::before {
+  transform: rotate(45deg);
 }
 
 .policy-full-details summary::-webkit-details-marker {
@@ -4241,12 +4344,12 @@ textarea:focus-visible {
 }
 
 .policy-full-details summary:hover {
-  color: #1e40af;
+  color: #1d2430;
 }
 
 .policy-full-details summary:focus-visible {
-  outline: 3px solid rgba(21, 112, 239, 0.18);
-  outline-offset: 3px;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(22, 24, 29, 0.08);
 }
 
 .policy-full-text {

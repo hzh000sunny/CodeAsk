@@ -1,7 +1,6 @@
 import { Pencil, Trash2 } from "lucide-react";
 
 import type { SkillResponse } from "../../types/api";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { PolicyEditForm, type PolicyUpdatePayload } from "./PolicyForm";
 import { stageLabel } from "./policy-options";
@@ -48,13 +47,14 @@ export function PolicyRow({
     promptText.length > PROMPT_PREVIEW_LIMIT || promptText.includes("\n");
 
   return (
-    <li className="policy-row">
+    <li className="policy-row" data-enabled={policy.enabled ? "true" : "false"}>
       <div className="policy-row-content">
         <div className="config-summary policy-summary">
           <span>{policy.name}</span>
-          <small className="policy-meta">
-            {stageLabel(policy.stage)} · 优先级 {policy.priority}
-          </small>
+          <div className="policy-meta-row">
+            <span className="stage-chip">{stageLabel(policy.stage)}</span>
+            <span className="policy-priority">优先级 {policy.priority}</span>
+          </div>
         </div>
         <p className="policy-prompt-preview">{promptPreview}</p>
         {hasFullPrompt ? (
@@ -71,7 +71,6 @@ export function PolicyRow({
           label={`${policy.name} 启用状态`}
           onChange={onToggle}
         />
-        <Badge>{policy.scope === "global" ? "全局" : "特性"}</Badge>
         {!readOnly ? (
           <>
             <Button

@@ -57,33 +57,36 @@ export function PolicyForm({
           value={name}
         />
       </label>
-      <label className="field-label compact">
-        适用阶段
-        <select
-          className="input"
-          onChange={(event) => onStageChange(event.target.value)}
-          value={stage}
-        >
-          {STAGE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field-label compact">
-        优先级
-        <Input
-          min="0"
-          onChange={(event) => onPriorityChange(event.target.value)}
-          type="number"
-          value={priority}
-        />
-      </label>
+      <div className="form-row policy-meta-fields">
+        <label className="field-label compact">
+          适用阶段
+          <select
+            className="input"
+            onChange={(event) => onStageChange(event.target.value)}
+            value={stage}
+          >
+            {STAGE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field-label compact">
+          优先级
+          <Input
+            min="0"
+            onChange={(event) => onPriorityChange(event.target.value)}
+            type="number"
+            value={priority}
+          />
+        </label>
+      </div>
       <label className="field-label compact policy-prompt-field">
         Prompt 内容
         <Textarea
           onChange={(event) => onPromptChange(event.target.value)}
+          placeholder="写明该策略要补充的业务术语、排查习惯或输出要求…"
           value={promptTemplate}
         />
       </label>

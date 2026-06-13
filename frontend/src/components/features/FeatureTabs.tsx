@@ -102,13 +102,17 @@ function FeatureTabContent({
   if (activeTab === "admins") {
     return <FeatureAdminsPanel featureId={feature?.id} />;
   }
+  // AnalysisPolicyManager 与全局设置页共用、自身只渲染 .surface；其它特性 tab 都靠
+  // 外层 .tab-content 提供 22px 留白，这里补上同一层壳，避免卡片贴边、与别的 tab 不一致。
   return (
-    <AnalysisPolicyManager
-      description="特性策略只在该特性的上下文中注入，用于补充业务术语、排查习惯和输出要求。"
-      featureId={feature?.id}
-      readOnly={!canManageFeature}
-      scope="feature"
-      title="特性分析策略"
-    />
+    <div className="tab-content">
+      <AnalysisPolicyManager
+        description="特性策略只在该特性的上下文中注入，用于补充业务术语、排查习惯和输出要求。"
+        featureId={feature?.id}
+        readOnly={!canManageFeature}
+        scope="feature"
+        title="特性分析策略"
+      />
+    </div>
   );
 }

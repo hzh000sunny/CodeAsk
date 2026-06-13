@@ -162,7 +162,7 @@ export function AnalysisPolicyManager({
           <p>暂无分析策略</p>
         </div>
       ) : (
-        <ul className="data-list settings-config-list">
+        <ul className="data-list settings-config-list policy-list">
           {policies.map((policy) => (
             <PolicyRow
               editing={editingId === policy.id}
