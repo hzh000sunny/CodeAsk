@@ -3930,6 +3930,9 @@ textarea:focus-visible {
 
 .reports-tab-content {
   overflow: hidden;
+  /* 列表是导航、详情才是主体：列表收成一栏够展示标题的定宽栏，
+     详情吃掉剩余空间，不再五五分把报告正文挤窄 */
+  grid-template-columns: minmax(360px, 400px) minmax(0, 1fr);
 }
 
 .report-list-surface,
@@ -3971,22 +3974,35 @@ textarea:focus-visible {
   margin: 12px 0 14px;
 }
 
+/* 编辑态：用纵向 flex（不要 grid——grid 的 align-content:stretch 会把多余高度
+   摊到各行，把标题/输入框拉开、把按钮撑成超高方块）。标题、按钮取自然高度，
+   内容文本域 flex 撑满剩余空间。 */
 .report-edit-form {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
-  gap: 12px;
+  gap: 14px;
   overflow: auto;
   padding-right: 4px;
 }
 
+.report-edit-form .field-label:has(.textarea) {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .report-edit-form .textarea {
-  min-height: 220px;
+  min-height: 160px;
+  height: 100%;
+  resize: none;
 }
 
 .report-edit-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
@@ -9274,6 +9290,10 @@ textarea:focus-visible {
   color: #344054;
   font-size: 13.5px;
   font-weight: 600;
+  /* 标题作导航用：单行省略，不让长标题换行堆成好几行；完整标题在右侧详情头 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .reports-tab-content .data-list li[data-active="true"] .plain-row-button span {
