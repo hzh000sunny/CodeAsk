@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-[**v1.0.6**](./v1.0.6/) — 前端视觉重构（In progress；ink-and-paper 黑白基调，会话界面已交付，设计 token 重铸待启）
+[**v1.0.6**](./v1.0.6/) — 前端视觉重构（In progress；会话/Wiki/特性页已交付，设计 token 重铸待启）
 
 [**v1.0.5**](./v1.0.5/) — OpenViking Wiki RAG（Release candidate，收尾中；opencode 会话可通过 OpenViking MCP 检索 Wiki 语义候选，源码证据仍由 CodeAsk worktree 提供）
 

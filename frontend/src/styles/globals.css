@@ -617,8 +617,8 @@ textarea:focus-visible {
   color: #98a2b3;
 }
 
-/* 语义动作实心三件套（报告评审等场景）：肯定=绿底、警示否决=琥珀底、
-   危险销毁=红底——色相说话，深度统一压在沉稳档不刺眼 */
+/* 报告评审等场景的语义动作按钮：肯定 .button-confirm / 警示 .button-warn /
+   危险 .button-danger */
 .button-confirm {
   background: var(--green);
   color: #ffffff;
@@ -8924,15 +8924,10 @@ textarea:focus-visible {
 }
 
 /* ============================================================
-   v1.0.6 特性工作台 ink-and-paper 收口（scoped）
-   设计规则（2026-06-09 两轮与用户对齐）：合适的才是最好的，不拿单一颜色刷满——
-   墨 = 结构（tab 下划线、聚焦灰圈、列表选中行左条、文字字重）；
-   蓝 --accent = 中性主操作实心（保存/创建/发送），不做选中条（用户嫌丑）；
-   语义动作 = 实心三件套：肯定绿底 .button-confirm / 警示琥珀底 .button-warn /
-   危险红底 .button-danger；状态徽章用带色点的静音 chip；
-   实心墨按钮、整行刷色都不要。
-   仅作用于 .feature-workspace / .reports-tab-content，不触碰设置页、Wiki、
-   导入弹窗共享的 .surface / .section-title / .report-filter 基样式。
+   v1.0.6 特性工作台样式（scoped）
+   视觉总则：合适的才是最好的——按元素角色/语境单独判断，不预设规则。
+   作用域仅限 .feature-workspace / .reports-tab-content，不触碰设置页、
+   Wiki、导入弹窗共享的 .surface / .section-title / .report-filter 基样式。
    ============================================================ */
 .feature-workspace {
   background: var(--bg);
@@ -9378,6 +9373,254 @@ textarea:focus-visible {
   font-weight: 550;
 }
 
+/* ============================================================
+   关联仓库 tab：勾选清单同样去「盒中盒」，改发丝行；已关联行用
+   炭灰左条 + 浅底（与报告/会话选中行同语汇）。状态走色点徽章，
+   类型走前导图标，行三分区：勾选框 → 名称+路径 → 状态徽章。
+   ============================================================ */
+.repos-tab-content .surface {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.repos-tab-content .repos-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.repos-count {
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.repos-count strong {
+  color: #2b2f37;
+  font-weight: 700;
+}
+
+/* 只读时一条统一提示，替代每行尾巴上的「· 只读」 */
+.repos-readonly-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-subtle);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.repos-readonly-note svg {
+  flex: none;
+  color: #98a2b3;
+}
+
+/* 清单：发丝行，撑满可滚动 */
+.repos-tab-content .check-list {
+  gap: 0;
+  min-height: 0;
+  margin-top: 14px;
+  overflow: auto;
+}
+
+.repos-tab-content .check-list li {
+  border: 0;
+  border-top: 1px solid var(--soft);
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  transition: background-color 150ms ease;
+}
+
+.repos-tab-content .check-list li:first-child {
+  border-top: 0;
+}
+
+.repos-tab-content .check-list li:hover {
+  background: #f8f9fa;
+}
+
+/* 多选场景：勾选框本身就是状态指示，已关联只用一层柔和底色轻轻托一下，
+   不再加硬竖线（勾多个会堆成一摞黑杠，反而生硬） */
+.repos-tab-content .check-list li[data-linked="true"] {
+  background: #f2f4f6;
+}
+
+.repos-tab-content .check-list li[data-linked="true"]:hover {
+  background: #eef1f4;
+}
+
+/* 行：居中三分区 */
+.repos-tab-content .repo-check-row {
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+}
+
+/* 自绘复选框：方块圆角，白底墨边；已勾用「浅填反转」——极浅灰底 + 墨色对勾，
+   不再实心墨填充（一列堆下来太重、发闷）。对勾本身承担状态。 */
+.repos-tab-content .repo-check-row input[type="checkbox"] {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 5px;
+  background-color: #ffffff;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 72%;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.repos-tab-content .repo-check-row input[type="checkbox"]:hover:not(:disabled) {
+  border-color: #2b2f37;
+}
+
+.repos-tab-content .repo-check-row input[type="checkbox"]:checked {
+  border-color: #2b2f37;
+  background-color: #eef0f3;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232b2f37' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+}
+
+.repos-tab-content .repo-check-row input[type="checkbox"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(22, 24, 29, 0.08);
+}
+
+.repos-tab-content .repo-check-row input[type="checkbox"]:disabled {
+  border-color: #e3e7ec;
+  cursor: not-allowed;
+}
+
+.repos-tab-content
+  .repo-check-row
+  input[type="checkbox"]:disabled:checked {
+  background-color: #f1f3f5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2398a2b3' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+}
+
+.repos-tab-content .repo-check-row .repo-source-glyph {
+  display: inline-flex;
+  flex: none;
+  color: #98a2b3;
+}
+
+.repos-tab-content .check-list li[data-linked="true"] .repo-source-glyph {
+  color: #2b2f37;
+}
+
+.repos-tab-content .repo-check-row .repo-meta {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.repos-tab-content .repo-check-row .repo-meta strong {
+  overflow: hidden;
+  color: #344054;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.repos-tab-content
+  .check-list
+  li[data-linked="true"]
+  .repo-meta
+  strong {
+  color: #2b2f37;
+  font-weight: 700;
+}
+
+.repos-tab-content .repo-check-row .repo-meta small {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 状态色点徽章：就绪=绿、克隆中=琥珀（脉冲）、待同步=中性、失败=红 */
+.repos-tab-content .repo-check-row .repo-status-chip {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.repo-status-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #c2c9d2;
+}
+
+.repo-status-chip.is-ready::before {
+  background: var(--green);
+}
+
+.repo-status-chip.is-failed::before {
+  background: #b42318;
+}
+
+.repo-status-chip.is-cloning::before {
+  background: #b54708;
+  animation: repo-dot-pulse 1.4s ease-in-out infinite;
+}
+
+.repo-status-chip.is-pending::before {
+  background: #98a2b3;
+}
+
+@keyframes repo-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* 空仓库池：给一条「去哪加」的出口，不做死胡同 */
+.repos-tab-content .repos-empty-pool {
+  display: grid;
+  gap: 6px;
+  place-items: center;
+  min-height: 120px;
+  border-color: var(--line);
+  background: var(--panel-subtle);
+  text-align: center;
+}
+
+.repos-tab-content .repos-empty-pool p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.repos-tab-content .repos-empty-pool .repos-empty-hint {
+  font-size: 12px;
+  font-weight: 450;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .feature-workspace .list-row,
   .feature-workspace .search-field,
@@ -9388,8 +9631,13 @@ textarea:focus-visible {
   .feature-workspace .tab-content .input,
   .feature-workspace .tab-content .textarea,
   .reports-tab-content .report-filter-button,
-  .reports-tab-content .data-list li {
+  .reports-tab-content .data-list li,
+  .repos-tab-content .check-list li {
     transition: none;
+  }
+
+  .repo-status-chip.is-cloning::before {
+    animation: none;
   }
 
   .feature-workspace .list-toolbar .icon-only:hover,
