@@ -3733,21 +3733,144 @@ select.input {
   margin-top: 16px;
 }
 
+/* ---- 特性管理员：人员清单去盒改发丝行 + 字母头像；候选结果收进一个
+       带框的下拉式结果区，与下方「当前管理员」明确区分 ---- */
+.feature-admins-panel .admins-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admins-count {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 人员行通用：字母头像 + 名字（+ 副信息） */
+.user-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.user-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #eef1f5;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.user-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #1d2430;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.user-meta {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.user-meta strong {
+  overflow: hidden;
+  color: #1d2430;
+  font-weight: 650;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.user-meta small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 候选结果：收进带框、浅底的结果区，读作「搜索出来待添加的人」 */
+.candidate-panel {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-subtle);
+  overflow: hidden;
+}
+
 .candidate-list {
   display: grid;
-  gap: 8px;
-  list-style: none;
-  margin: 10px 0 0;
+  gap: 0;
+  margin: 0;
   padding: 0;
+  list-style: none;
 }
 
 .candidate-list li {
-  align-items: center;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 8px;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
+  gap: 12px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--soft);
+}
+
+.candidate-list li:first-child {
+  border-top: 0;
+}
+
+.candidate-empty {
+  margin: 0;
+  padding: 14px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* 搜索区与下方列表/空态之间留出间距，避免输入框与「还没有管理员」提示贴在一起 */
+.feature-admins-panel .feature-admin-search {
+  margin-bottom: 18px;
+}
+
+/* 当前管理员清单：去盒改发丝行（用 panel 前缀提高特异度，盖过 .data-list li 卡片）*/
+.feature-admins-panel .feature-admin-list {
+  gap: 0;
+}
+
+.feature-admins-panel .feature-admin-list li {
+  border: 0;
+  border-top: 1px solid var(--soft);
+  border-radius: 0;
+  background: transparent;
+  padding: 11px 10px;
+}
+
+.feature-admins-panel .feature-admin-list li:first-child {
+  border-top: 0;
+}
+
+/* 移除：图标化 quiet 按钮，hover 转危险红（移除管理员是破坏性操作）*/
+.feature-admin-list .admin-remove {
+  flex: none;
+  padding: 7px;
+  color: #98a2b3;
+}
+
+.feature-admin-list .admin-remove:hover:not(:disabled) {
+  border-color: #f2c4c0;
+  background: #fdf2f1;
+  color: #b42318;
 }
 
 .settings-toggle-row {

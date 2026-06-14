@@ -60,12 +60,20 @@ export function FeatureAdminsPanel({ featureId }: { featureId?: number }) {
     onError: (error) => showError(`移除特性管理员失败：${messageFromError(error)}`),
   });
 
+  const trimmedQuery = query.trim();
+  const candidates = candidateQuery.data ?? [];
+
   return (
     <div className="tab-content">
       <section className="surface feature-admins-panel">
-        <div className="section-title">
-          <ShieldCheck aria-hidden="true" size={18} />
-          <h2>特性管理员</h2>
+        <div className="admins-head">
+          <div className="section-title">
+            <ShieldCheck aria-hidden="true" size={18} />
+            <h2>特性管理员</h2>
+          </div>
+          {featureId && admins.length > 0 ? (
+            <span className="admins-count">{admins.length} 位管理员</span>
+          ) : null}
         </div>
         {!featureId ? (
           <div className="empty-block wide">
@@ -76,61 +84,78 @@ export function FeatureAdminsPanel({ featureId }: { featureId?: number }) {
             {isAdmin ? (
               <div className="feature-admin-search">
                 <label className="field-label compact" htmlFor="feature-admin-search">
-                  搜索用户
+                  添加管理员
                   <Input
                     aria-label="搜索可添加用户"
                     id="feature-admin-search"
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="输入用户名"
+                    placeholder="输入用户名搜索并添加"
                     value={query}
                   />
                 </label>
-                {candidateQuery.data?.length ? (
-                  <ul className="candidate-list">
-                    {candidateQuery.data.map((candidate) => (
-                      <li key={candidate.id}>
-                        <span>{candidate.username}</span>
-                        <Button
-                          disabled={addMutation.isPending}
-                          icon={<UserPlus aria-hidden="true" size={15} />}
-                          onClick={() => addMutation.mutate(candidate.id)}
-                          type="button"
-                          variant="secondary"
-                        >
-                          添加 {candidate.username}
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
+                {trimmedQuery ? (
+                  <div className="candidate-panel">
+                    {candidateQuery.isFetching ? (
+                      <p className="candidate-empty">正在搜索…</p>
+                    ) : candidates.length ? (
+                      <ul className="candidate-list">
+                        {candidates.map((candidate) => (
+                          <li key={candidate.id}>
+                            <span className="user-cell">
+                              <span aria-hidden="true" className="user-avatar">
+                                {monogram(candidate.username)}
+                              </span>
+                              <span className="user-name">{candidate.username}</span>
+                            </span>
+                            <Button
+                              disabled={addMutation.isPending}
+                              icon={<UserPlus aria-hidden="true" size={15} />}
+                              onClick={() => addMutation.mutate(candidate.id)}
+                              type="button"
+                              variant="secondary"
+                            >
+                              添加
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="candidate-empty">无匹配用户</p>
+                    )}
+                  </div>
                 ) : null}
               </div>
             ) : null}
             {isLoading ? <p className="empty-note">正在加载特性管理员</p> : null}
             {!isLoading && admins.length === 0 ? (
               <div className="empty-block wide">
-                <p>暂无特性管理员。</p>
+                <p>还没有特性管理员{isAdmin ? "，搜索用户添加。" : "。"}</p>
               </div>
             ) : (
               <ul className="data-list feature-admin-list">
                 {admins.map((admin) => (
                   <li key={admin.user_id}>
-                    <div className="config-summary">
-                      <span>{admin.username}</span>
-                      <small>添加时间 {new Date(admin.created_at).toLocaleString()}</small>
-                    </div>
+                    <span className="user-cell">
+                      <span aria-hidden="true" className="user-avatar">
+                        {monogram(admin.username)}
+                      </span>
+                      <span className="user-meta">
+                        <strong>{admin.username}</strong>
+                        <small>
+                          添加时间 {new Date(admin.created_at).toLocaleString()}
+                        </small>
+                      </span>
+                    </span>
                     {isAdmin ? (
-                      <div className="row-actions">
-                        <Button
-                          aria-label={`移除管理员 ${admin.username}`}
-                          disabled={removeMutation.isPending}
-                          icon={<Trash2 aria-hidden="true" size={15} />}
-                          onClick={() => removeMutation.mutate(admin.user_id)}
-                          type="button"
-                          variant="quiet"
-                        >
-                          移除
-                        </Button>
-                      </div>
+                      <Button
+                        aria-label={`移除管理员 ${admin.username}`}
+                        className="admin-remove"
+                        disabled={removeMutation.isPending}
+                        icon={<Trash2 aria-hidden="true" size={15} />}
+                        onClick={() => removeMutation.mutate(admin.user_id)}
+                        type="button"
+                        variant="quiet"
+                      />
                     ) : null}
                   </li>
                 ))}
@@ -141,4 +166,9 @@ export function FeatureAdminsPanel({ featureId }: { featureId?: number }) {
       </section>
     </div>
   );
+}
+
+// 用户名首字符作字母头像（中文取首字、英文取首字母大写）
+function monogram(username: string) {
+  return [...username.trim()][0]?.toUpperCase() ?? "?";
 }
