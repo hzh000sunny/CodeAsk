@@ -9039,9 +9039,9 @@ select.input {
   background: #f3f4f5;
 }
 
+/* 与特性列表同款：中性柔底轻提示，去掉炭灰硬竖条 */
 .session-workspace .list-row[data-active="true"] {
-  background: #f1f2f3;
-  box-shadow: inset 3px 0 0 #2b2f37;
+  background: #eef0f3;
 }
 
 .session-workspace .item-title-text {
@@ -9051,8 +9051,8 @@ select.input {
 }
 
 .session-workspace .list-item[data-active="true"] .item-title-text {
-  color: #2b2f37;
-  font-weight: 700;
+  color: #1d2430;
+  font-weight: 600;
 }
 
 .session-workspace .item-meta {
@@ -9218,9 +9218,9 @@ select.input {
   background: #f3f4f5;
 }
 
+/* 选中＝一层比 hover 稍稳的中性柔底，不再用炭灰硬竖条——轻提示而非强调块 */
 .feature-workspace .list-row[data-active="true"] {
-  background: #f1f2f3;
-  box-shadow: inset 3px 0 0 #2b2f37;
+  background: #eef0f3;
 }
 
 .feature-workspace .list-row:hover .list-item,
@@ -9236,8 +9236,8 @@ select.input {
 }
 
 .feature-workspace .list-item[data-active="true"] .item-title {
-  color: #2b2f37;
-  font-weight: 700;
+  color: #1d2430;
+  font-weight: 600;
 }
 
 .feature-workspace .feature-item-description {
@@ -9502,9 +9502,9 @@ select.input {
   background: #f3f4f5;
 }
 
+/* 选中＝中性柔底轻提示，与特性/会话列表同款，不再用炭灰硬竖条 */
 .reports-tab-content .data-list li[data-active="true"] {
-  background: #f1f2f3;
-  box-shadow: inset 3px 0 0 #2b2f37;
+  background: #eef0f3;
 }
 
 .reports-tab-content .plain-row-button span {
