@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BookOpen } from "lucide-react";
 
 import { createFeature, deleteFeature, listFeatures } from "../../lib/api";
 import type { FeatureRead } from "../../types/api";
 import type { FeatureRouteState, FeatureTabId } from "../../lib/wiki/routing";
 import { useAppFeedback } from "../feedback/AppFeedback";
+import { Button } from "../ui/button";
 import { DeleteFeatureDialog } from "./FeatureDialogs";
 import { FeatureListPanel } from "./FeatureListPanel";
 import { FeatureTabs, type FeatureWikiOpenOptions } from "./FeatureTabs";
@@ -201,13 +203,14 @@ export function FeatureWorkbench({
           </div>
           {selected ? (
             <div className="header-actions">
-              <button
-                className="button button-secondary"
+              <Button
+                icon={<BookOpen aria-hidden="true" size={15} />}
                 onClick={() => onOpenWiki(selected.id)}
                 type="button"
+                variant="secondary"
               >
                 打开 Wiki
-              </button>
+              </Button>
             </div>
           ) : null}
         </div>
