@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { PlugZap } from "lucide-react";
+import { AlertTriangle, Check, PlugZap } from "lucide-react";
 
 import type { LLMConfigTestResponse } from "../../../types/api";
 import { Button } from "../../ui/button";
@@ -111,23 +111,37 @@ export function LlmConfigForm({
           value={configName}
         />
       </label>
-      <label className="field-label compact">
-        消息接口协议
-        <select
-          className="input"
-          onChange={(event) => {
-            setProtocol(event.target.value as LlmProtocol);
-            clearTestResult();
-          }}
-          value={protocol}
-        >
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic</option>
-        </select>
-      </label>
+      <div className="form-row">
+        <label className="field-label compact">
+          消息接口协议
+          <select
+            className="input"
+            onChange={(event) => {
+              setProtocol(event.target.value as LlmProtocol);
+              clearTestResult();
+            }}
+            value={protocol}
+          >
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+          </select>
+        </label>
+        <label className="field-label compact">
+          模型名称
+          <Input
+            className="console-mono"
+            onChange={(event) => {
+              setModelName(event.target.value);
+              clearTestResult();
+            }}
+            value={modelName}
+          />
+        </label>
+      </div>
       <label className="field-label compact">
         Base URL
         <Input
+          className="console-mono"
           onChange={(event) => {
             setBaseUrl(event.target.value);
             clearTestResult();
@@ -138,22 +152,13 @@ export function LlmConfigForm({
       <label className="field-label compact">
         API Key
         <Input
+          className="console-mono"
           onChange={(event) => {
             setApiKey(event.target.value);
             clearTestResult();
           }}
           type="password"
           value={apiKey}
-        />
-      </label>
-      <label className="field-label compact">
-        模型名称
-        <Input
-          onChange={(event) => {
-            setModelName(event.target.value);
-            clearTestResult();
-          }}
-          value={modelName}
         />
       </label>
       <label className="field-label compact">
@@ -183,6 +188,23 @@ export function LlmConfigForm({
           text={enabled ? "启用" : "停用"}
         />
       </div>
+      {testResult ? (
+        <div
+          className="console-status-line"
+          data-tone={testResult.status === "ok" ? "ok" : "error"}
+        >
+          {testResult.status === "ok" ? (
+            <Check aria-hidden="true" size={15} />
+          ) : (
+            <AlertTriangle aria-hidden="true" size={15} />
+          )}
+          <span>
+            {testResult.status === "ok"
+              ? `连接正常${testResult.profile_id ? ` · ${testResult.profile_id}` : ""}`
+              : `连接失败：${testResult.error ?? "未知错误"}`}
+          </span>
+        </div>
+      ) : null}
       <div className="form-actions">
         <Button
           disabled={!canSubmit || disabled || testing}

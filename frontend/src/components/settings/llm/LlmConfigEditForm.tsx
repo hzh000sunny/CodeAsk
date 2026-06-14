@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { PlugZap } from "lucide-react";
+import { AlertTriangle, Check, PlugZap } from "lucide-react";
 
 import type { LLMConfigResponse, LLMConfigTestResponse } from "../../../types/api";
 import { Button } from "../../ui/button";
@@ -106,26 +106,40 @@ export function LlmConfigEditForm({
           value={name}
         />
       </label>
-      <label className="field-label compact">
-        编辑消息接口协议
-        <select
-          className="input"
-          onChange={(event) => {
-            setProtocol(event.target.value as LlmProtocol);
-            clearTestResult();
-          }}
-          value={protocol}
-        >
-          <option value="openai">OpenAI</option>
-          {protocol === "openai_compatible" ? (
-            <option value="openai_compatible">OpenAI Compatible (历史)</option>
-          ) : null}
-          <option value="anthropic">Anthropic</option>
-        </select>
-      </label>
+      <div className="form-row">
+        <label className="field-label compact">
+          编辑消息接口协议
+          <select
+            className="input"
+            onChange={(event) => {
+              setProtocol(event.target.value as LlmProtocol);
+              clearTestResult();
+            }}
+            value={protocol}
+          >
+            <option value="openai">OpenAI</option>
+            {protocol === "openai_compatible" ? (
+              <option value="openai_compatible">OpenAI Compatible (历史)</option>
+            ) : null}
+            <option value="anthropic">Anthropic</option>
+          </select>
+        </label>
+        <label className="field-label compact">
+          编辑模型名称
+          <Input
+            className="console-mono"
+            onChange={(event) => {
+              setModelName(event.target.value);
+              clearTestResult();
+            }}
+            value={modelName}
+          />
+        </label>
+      </div>
       <label className="field-label compact">
         编辑 Base URL
         <Input
+          className="console-mono"
           onChange={(event) => {
             setBaseUrl(event.target.value);
             clearTestResult();
@@ -136,6 +150,7 @@ export function LlmConfigEditForm({
       <label className="field-label compact">
         编辑 API Key
         <Input
+          className="console-mono"
           onChange={(event) => {
             setApiKey(event.target.value);
             clearTestResult();
@@ -143,16 +158,6 @@ export function LlmConfigEditForm({
           placeholder="留空则不修改"
           type="password"
           value={apiKey}
-        />
-      </label>
-      <label className="field-label compact">
-        编辑模型名称
-        <Input
-          onChange={(event) => {
-            setModelName(event.target.value);
-            clearTestResult();
-          }}
-          value={modelName}
         />
       </label>
       <label className="field-label compact">
@@ -174,6 +179,23 @@ export function LlmConfigEditForm({
           ))}
         </select>
       </label>
+      {testResult ? (
+        <div
+          className="console-status-line"
+          data-tone={testResult.status === "ok" ? "ok" : "error"}
+        >
+          {testResult.status === "ok" ? (
+            <Check aria-hidden="true" size={15} />
+          ) : (
+            <AlertTriangle aria-hidden="true" size={15} />
+          )}
+          <span>
+            {testResult.status === "ok"
+              ? `连接正常${testResult.profile_id ? ` · ${testResult.profile_id}` : ""}`
+              : `连接失败：${testResult.error ?? "未知错误"}`}
+          </span>
+        </div>
+      ) : null}
       <div className="form-actions llm-edit-actions">
         <Button
           disabled={!canSubmit || disabled || testing}

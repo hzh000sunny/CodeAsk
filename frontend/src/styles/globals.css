@@ -8529,6 +8529,74 @@ select.input {
   border-top: 0;
 }
 
+/* 名称 + 状态 chip 同排 */
+.console-name-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 控制台状态 chip：点 + 短标签，完整详情走 title（连接正常/失败/未测试） */
+.console-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.console-status-chip::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.console-status-chip[data-tone="ok"] {
+  border-color: #abefc6;
+  background: #f6fef9;
+  color: #067647;
+}
+
+.console-status-chip[data-tone="error"] {
+  border-color: #fecdca;
+  background: #fffbfa;
+  color: #b42318;
+}
+
+.console-status-chip[data-tone="idle"] {
+  background: var(--panel-subtle);
+  color: #98a2b3;
+}
+
+/* 配置类清单去盒改发丝行（保留 settings-config-list 的编辑态布局） */
+.console-config-list {
+  gap: 0;
+}
+
+.console-config-list li {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  border-top: 1px solid var(--soft);
+  padding: 13px 2px;
+}
+
+.console-config-list li:first-child {
+  border-top: 0;
+}
+
+.console-config-list li[data-editing="true"] {
+  border-top: 1px solid var(--soft);
+  padding: 13px 0;
+}
+
 .console-stat-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
