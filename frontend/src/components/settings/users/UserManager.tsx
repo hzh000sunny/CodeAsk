@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Search, UsersRound } from "lucide-react";
+import { Info, KeyRound, Search, SearchX, UsersRound } from "lucide-react";
 
 import { clearUserPassword, searchUsers } from "../../../lib/api";
 import { useAppFeedback } from "../../feedback/AppFeedback";
@@ -27,49 +27,72 @@ export function UserManager() {
     onError: (error) => showError(`清空密码失败：${messageFromApiError(error)}`),
   });
 
+  const hits = usersQuery.data ?? [];
+
   return (
-    <section className="surface">
-      <div className="section-title">
-        <UsersRound aria-hidden="true" size={18} />
-        <h2>用户管理</h2>
-      </div>
-      <label className="search-field settings-user-search">
-        <Search aria-hidden="true" size={16} />
-        <Input
-          aria-label="搜索用户"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="输入用户名"
-          value={query}
-        />
-      </label>
-      {trimmed && usersQuery.data?.length === 0 ? (
-        <div className="empty-block wide">
-          <p>没有匹配的用户。</p>
+    <div className="console-stack">
+      <section className="surface">
+        <div className="section-title">
+          <UsersRound aria-hidden="true" size={18} />
+          <h2>用户管理</h2>
         </div>
-      ) : null}
-      {usersQuery.data?.length ? (
-        <ul className="data-list settings-config-list">
-          {usersQuery.data.map((user) => (
-            <li key={user.id}>
-              <div className="config-summary">
-                <span>{user.username}</span>
-                <small>{user.id}</small>
-              </div>
-              <div className="row-actions">
-                <Button
-                  disabled={clearMutation.isPending}
-                  icon={<KeyRound aria-hidden="true" size={15} />}
-                  onClick={() => clearMutation.mutate(user.id)}
-                  type="button"
-                  variant="secondary"
-                >
-                  清空密码
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </section>
+        <label className="search-field settings-user-search">
+          <Search aria-hidden="true" size={16} />
+          <Input
+            aria-label="搜索用户"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="输入用户名"
+            value={query}
+          />
+        </label>
+
+        {!trimmed ? (
+          <div className="console-status-line" data-tone="muted">
+            <Info aria-hidden="true" size={15} />
+            <span>输入用户名搜索，可查看其 ID 并清空密码记录。</span>
+          </div>
+        ) : usersQuery.isFetching ? (
+          <p className="empty-note">正在搜索用户…</p>
+        ) : hits.length ? (
+          <>
+            <p className="console-hit-count">命中 {hits.length} 个用户</p>
+            <ul className="console-user-list">
+              {hits.map((user) => (
+                <li key={user.id}>
+                  <span className="user-cell">
+                    <span aria-hidden="true" className="user-avatar">
+                      {monogram(user.username)}
+                    </span>
+                    <span className="user-meta">
+                      <strong>{user.username}</strong>
+                      <small className="console-mono">{user.id}</small>
+                    </span>
+                  </span>
+                  <Button
+                    disabled={clearMutation.isPending}
+                    icon={<KeyRound aria-hidden="true" size={15} />}
+                    onClick={() => clearMutation.mutate(user.id)}
+                    type="button"
+                    variant="secondary"
+                  >
+                    清空密码
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <div className="console-status-line" data-tone="muted">
+            <SearchX aria-hidden="true" size={15} />
+            <span>没有匹配「{trimmed}」的用户。</span>
+          </div>
+        )}
+      </section>
+    </div>
   );
+}
+
+// 用户名首字符作字母头像（中文取首字、英文取首字母大写）。
+function monogram(username: string) {
+  return [...username.trim()][0]?.toUpperCase() ?? "?";
 }

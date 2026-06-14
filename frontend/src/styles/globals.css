@@ -3731,6 +3731,7 @@ select.input {
 .feature-admin-search,
 .settings-user-search {
   margin-top: 16px;
+  margin-bottom: 14px;
 }
 
 /* ---- 特性管理员：人员清单去盒改发丝行 + 字母头像；候选结果收进一个
@@ -8479,6 +8480,152 @@ select.input {
   border-color: var(--err-border);
   background: var(--err-bg);
   color: var(--err-text);
+}
+
+/* ===== Admin 控制台共享语汇 =====
+   从 OpenCode 样板页（.opencode-*）泛化出的可复用件，供其余管理页拉齐到同一观感：
+   等宽数值、stat 指标块、语气状态行、子项 rise-in。OpenCode 页保持原样不动。 */
+.console-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.console-stack > * {
+  animation: opencode-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.console-mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.console-hit-count {
+  margin: 0 0 6px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* 控制台风格的人员清单：去盒发丝行 + 字母头像 + 等宽 ID（与特性管理员页同语汇） */
+.console-user-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.console-user-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 2px;
+  border-top: 1px solid var(--soft);
+}
+
+.console-user-list li:first-child {
+  border-top: 0;
+}
+
+.console-stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.console-stat {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 11px;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.console-stat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #697586;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.console-stat strong {
+  overflow: hidden;
+  color: #182230;
+  font-size: 14px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.console-status-line svg {
+  flex: none;
+}
+
+.console-status-line[data-tone="ok"] {
+  border-color: #abefc6;
+  background: #f6fef9;
+  color: #067647;
+}
+
+.console-status-line[data-tone="error"] {
+  border-color: #fecdca;
+  background: #fffbfa;
+  color: #b42318;
+}
+
+.console-status-line[data-tone="info"] {
+  border-color: #c7d7fe;
+  background: #f5f8ff;
+  color: #3538cd;
+}
+
+/* 中性语气：用于纯指引/空结果这类「非状态」提示，安静不抢色 */
+.console-status-line[data-tone="muted"] {
+  border-color: var(--line);
+  background: var(--panel-subtle);
+  color: var(--muted);
+}
+
+.console-status-line[data-tone="muted"] svg {
+  color: #98a2b3;
+}
+
+/* 技术值行：标签 / 等宽值 / 尾随操作（用户 ID、路径、配置项等通用） */
+.console-kv-row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px;
+  border: 1px solid #eef0f4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.console-kv-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 650;
 }
 
 /* ---- Permission matrix ---- */
