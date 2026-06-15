@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Paperclip } from "lucide-react";
+import { Ban, Check, Paperclip } from "lucide-react";
 
 import { getSystemSettings, updateSystemSettings } from "../../lib/api";
 import { useAppFeedback } from "../feedback/AppFeedback";
@@ -34,37 +34,59 @@ export function SessionAttachmentSettings() {
     settingsQuery.data?.session_attachments_enabled ?? true;
 
   return (
-    <section className="surface">
-      <div className="section-title">
-        <Paperclip aria-hidden="true" size={18} />
-        <h2>会话附件</h2>
-      </div>
-      <p className="settings-page-copy">
-        控制所有会话的附件上传入口。禁用后按钮仍保留，但用户点击时会看到明确提示。
-      </p>
-      <label
-        className="switch-control settings-toggle-row"
-        data-checked={attachmentsEnabled}
-        data-disabled={updateMutation.isPending ? "true" : "false"}
-      >
-        <input
-          aria-label="会话附件上传开关"
-          checked={attachmentsEnabled}
-          disabled={updateMutation.isPending}
-          onChange={(event) =>
-            updateMutation.mutate({
-              session_attachments_enabled: event.target.checked,
-            })
-          }
-          role="switch"
-          type="checkbox"
-        />
-        <span aria-hidden="true" className="switch-track" />
-        <span className="switch-text">
-          {attachmentsEnabled ? "允许上传附件" : "已禁用附件上传"}
-        </span>
-      </label>
-    </section>
+    <div className="console-stack">
+      <section className="surface">
+        <div className="section-title">
+          <Paperclip aria-hidden="true" size={18} />
+          <h2>会话附件</h2>
+        </div>
+
+        <div className="console-toggle-row">
+          <div className="console-toggle-text">
+            <strong>附件上传入口</strong>
+            <small>对所有会话的附件上传按钮生效</small>
+          </div>
+          <label
+            className="switch-control"
+            data-checked={attachmentsEnabled}
+            data-disabled={updateMutation.isPending ? "true" : "false"}
+          >
+            <input
+              aria-label="会话附件上传开关"
+              checked={attachmentsEnabled}
+              disabled={updateMutation.isPending}
+              onChange={(event) =>
+                updateMutation.mutate({
+                  session_attachments_enabled: event.target.checked,
+                })
+              }
+              role="switch"
+              type="checkbox"
+            />
+            <span aria-hidden="true" className="switch-track" />
+            <span className="switch-text">
+              {attachmentsEnabled ? "开启" : "关闭"}
+            </span>
+          </label>
+        </div>
+
+        <div
+          className="console-status-line"
+          data-tone={attachmentsEnabled ? "ok" : "muted"}
+        >
+          {attachmentsEnabled ? (
+            <Check aria-hidden="true" size={15} />
+          ) : (
+            <Ban aria-hidden="true" size={15} />
+          )}
+          <span>
+            {attachmentsEnabled
+              ? "附件上传已开启，所有会话均可上传附件。"
+              : "附件上传已关闭，上传按钮仍保留，用户点击时会看到明确提示。"}
+          </span>
+        </div>
+      </section>
+    </div>
   );
 }
 

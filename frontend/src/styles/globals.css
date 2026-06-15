@@ -8721,6 +8721,40 @@ select.input {
   font-weight: 650;
 }
 
+/* 全局开关行：标签/说明 + 右侧开关，作为一个明确的设置控件 */
+.console-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 0 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-subtle);
+}
+
+.console-toggle-text {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.console-toggle-text strong {
+  color: #182230;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.console-toggle-text small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.console-toggle-row .switch-control {
+  flex: none;
+}
+
 /* ---- Permission matrix ---- */
 
 .opencode-perms-head {
