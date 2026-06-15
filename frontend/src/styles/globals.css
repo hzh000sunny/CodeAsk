@@ -4618,121 +4618,388 @@ select.input {
 }
 
 .openviking-dashboard {
+  --ok-border: #abefc6;
+  --ok-bg: #f6fef9;
+  --ok-text: #067647;
+  --err-border: #fecdca;
+  --err-bg: #fffbfa;
+  --err-text: #b42318;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   display: grid;
   gap: 14px;
   padding-bottom: 18px;
 }
 
-.openviking-status-pill {
+/* 三层错峰入场：状态带 → 运维两列 → 配置两列 → 调优 */
+.openviking-dashboard > * {
+  animation: opencode-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.openviking-dashboard > *:nth-child(2) {
+  animation-delay: 0.06s;
+}
+
+.openviking-dashboard > *:nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.openviking-dashboard > *:nth-child(4) {
+  animation-delay: 0.18s;
+}
+
+/* 运维两列（同步任务 / 事件流）与配置两列（Embedding / VLM） */
+/* 运维层（同步任务 / 事件流）= 整宽堆叠：队列与日志行 + 多按钮头 + 分页页脚需要横向空间 */
+.ov-ops-grid {
   display: grid;
-  gap: 2px;
-  min-width: 0;
-  padding: 9px 11px;
-  border: 1px solid #e4e9f2;
-  border-radius: 8px;
-  background: #ffffff;
+  gap: 14px;
 }
 
-.openviking-status-pill span {
-  overflow: hidden;
-  color: #697586;
-  font-size: 11px;
+/* 配置层（Embedding / VLM）= 两列：表单密度适中 */
+.ov-config-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+/* 每张卡片都是 inline-size 容器：头部动作 / 分页 / 字段网格按「卡片自身宽度」收拢，
+   而不是看视口宽度——宽屏下半宽卡片也能正确换行收口。 */
+.openviking-card {
+  container-type: inline-size;
+}
+
+/* 卡片自身变窄时（如半宽配置卡 / 平板 / 移动），让头部动作、字段网格、分页、过滤行
+   各自堆叠收口，避免按钮挤成一行放不下。 */
+@container (max-width: 520px) {
+  .settings-openviking-card-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-openviking-card-actions {
+    justify-content: flex-start;
+  }
+
+  .settings-openviking-field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-openviking-filter-row {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-openviking-pagination {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-openviking-pagination-actions {
+    justify-content: space-between;
+  }
+
+  .tuning-advanced-header {
+    display: none;
+  }
+
+  .tuning-advanced-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .tuning-advanced-row .tuning-row-label {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ---- 状态带 hero ---- */
+.ov-status-band {
+  display: grid;
+  gap: 0;
+}
+
+.ov-activity-badge {
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-subtle);
+  color: #475467;
+  font-size: 12px;
   font-weight: 650;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.openviking-status-pill strong {
-  overflow: hidden;
-  color: #182230;
-  font-size: 13px;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.ov-activity-badge small {
+  color: #98a2b3;
+  font-weight: 600;
 }
 
-.openviking-status-pill[data-outcome="success"] {
-  border-color: #abefc6;
-  background: #f6fef9;
+.ov-activity-badge[data-tone="success"] {
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+  color: var(--ok-text);
 }
 
-.openviking-status-pill[data-outcome="warning"] {
+.ov-activity-badge[data-tone="warning"] {
   border-color: #fedf89;
   background: #fffcf5;
+  color: #b54708;
 }
 
-.openviking-status-pill[data-outcome="error"] {
-  border-color: #fecdca;
-  background: #fffbfa;
+.ov-activity-badge[data-tone="error"] {
+  border-color: var(--err-border);
+  background: var(--err-bg);
+  color: var(--err-text);
 }
 
-.settings-diagnostic-grid {
+.ov-activity-spin {
+  animation: ov-spin 1.1s linear infinite;
+}
+
+@keyframes ov-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* hero 内进度条：确定态填充 + 不确定态滑动 shimmer */
+.ov-hero-progress {
+  position: relative;
+  z-index: 1;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.ov-hero-progress-track {
+  position: relative;
+  overflow: hidden;
+  height: 7px;
+  border-radius: 999px;
+  background: #e9edf3;
+}
+
+.ov-hero-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #12b76a, #067647);
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ov-hero-progress[data-indeterminate="true"] .ov-hero-progress-fill {
+  width: 34% !important;
+  animation: ov-indeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes ov-indeterminate {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(330%);
+  }
+}
+
+.ov-hero-progress small {
+  color: #667085;
+  font-size: 12px;
+}
+
+/* 诊断 / 路径折叠区 */
+.ov-hero-details {
+  position: relative;
+  z-index: 1;
+  margin-top: 14px;
+  border-top: 1px solid var(--soft);
+  padding-top: 10px;
+}
+
+.ov-hero-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  color: #475467;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ov-hero-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ov-hero-details > summary svg {
+  color: #98a2b3;
+  transition: transform 0.2s ease;
+}
+
+.ov-hero-details[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.ov-hero-details-body {
+  display: grid;
   gap: 10px;
   margin-top: 12px;
 }
 
-.settings-diagnostic-grid-compact {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.settings-diagnostic-grid-metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  max-width: 640px;
-}
-
-.settings-diagnostic-grid-metrics .settings-diagnostic-item {
-  text-align: center;
-  padding: 16px 12px;
-}
-
-.settings-diagnostic-grid-metrics .settings-diagnostic-item span {
-  justify-content: center;
-  font-size: 11px;
-}
-
-.settings-diagnostic-grid-metrics .settings-diagnostic-item strong {
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.settings-diagnostic-grid-metrics .settings-diagnostic-item[data-metric-placeholder] strong {
-  font-size: 13px;
-  font-weight: 400;
-  color: #9aa4b2;
-}
-
-.settings-diagnostic-grid-indexing {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
-  max-width: none;
-}
-
-.settings-diagnostic-grid-indexing .settings-diagnostic-item {
-  min-height: 68px;
-  padding: 10px 6px;
-  text-align: center;
-}
-
-.settings-diagnostic-grid-indexing .settings-diagnostic-item span {
-  justify-content: center;
-  font-size: 10px;
-}
-
-.settings-diagnostic-grid-indexing .settings-diagnostic-item strong {
-  font-size: 13px;
-}
-
-.settings-diagnostic-grid-fixed {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.settings-openviking-grid {
+/* 状态带指标分两组：服务身份 / 运行指标，各自成行，行整齐 */
+.ov-metric-groups {
+  position: relative;
+  z-index: 1;
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 16px;
-  align-items: start;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.ov-metric-group {
+  display: grid;
+  gap: 7px;
+}
+
+.ov-metric-group-label {
+  color: #697586;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* 固定五列：两组共用同一容器宽度，每个 chip = 1/5 宽，跨行完全等大；
+   末行不足五个时左对齐、尾格留空，不再被 1fr 拉伸。 */
+.ov-metric-group .opencode-chip-strip {
+  margin-top: 0;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 1200px) {
+  .ov-metric-group .opencode-chip-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .ov-metric-group .opencode-chip-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .ov-metric-group .opencode-chip-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* hero chip 值的语气着色（健康探针 / Ollama 就绪态） */
+.opencode-chip[data-tone="ok"] strong {
+  color: var(--ok-text);
+}
+
+.opencode-chip[data-tone="err"] strong {
+  color: var(--err-text);
+}
+
+/* 同步任务状态过滤 chip：色点 + 标签 + 计数，按下=该状态过滤生效。
+   自然宽度、左对齐成一排过滤胶囊，不拉满整行（整宽卡片下避免稀疏空旷）。 */
+.ov-filter-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid #e4e9f2;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475467;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.ov-filter-chip:hover {
+  border-color: #cdd5df;
+  background: #fafbfc;
+}
+
+.ov-filter-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #98a2b3;
+}
+
+.ov-filter-chip[data-tone="success"] .ov-filter-dot {
+  background: #12b76a;
+}
+
+.ov-filter-chip[data-tone="warning"] .ov-filter-dot {
+  background: #f79009;
+}
+
+.ov-filter-chip[data-tone="error"] .ov-filter-dot {
+  background: #f04438;
+}
+
+.ov-filter-label {
+  flex: none;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.ov-filter-chip strong {
+  flex: none;
+  color: #182230;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.ov-filter-chip[data-selected="true"] {
+  border-color: var(--accent);
+  background: #f5f8ff;
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: #182230;
+}
+
+.ov-filter-chip[data-selected="true"][data-tone="error"] {
+  border-color: #f04438;
+  background: #fffbfa;
+  box-shadow: inset 0 0 0 1px #f04438;
+}
+
+.ov-filter-chip[data-selected="true"][data-tone="success"] {
+  border-color: #12b76a;
+  background: #f6fef9;
+  box-shadow: inset 0 0 0 1px #12b76a;
+}
+
+/* Embedding / VLM 当前配置一览：复用 console-stat 的自适应指标条 */
+.ov-config-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.console-stat[data-tone="ok"] {
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+}
+
+.console-stat[data-tone="ok"] strong {
+  color: var(--ok-text);
+}
+
+.console-stat[data-tone="idle"] strong {
+  color: #98a2b3;
+  font-weight: 600;
 }
 
 .openviking-card {
@@ -4796,57 +5063,6 @@ select.input {
   min-width: 0;
 }
 
-.openviking-overview-panel {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 14px;
-  align-items: stretch;
-}
-
-.openviking-overview-side {
-  display: grid;
-  gap: 14px;
-  align-content: start;
-  min-width: 0;
-}
-
-.openviking-card-health {
-  grid-column: auto;
-  align-self: stretch;
-}
-
-.openviking-card-embedding {
-  grid-column: span 6;
-  align-self: stretch;
-}
-
-.openviking-card-vlm {
-  grid-column: span 6;
-  align-self: stretch;
-}
-
-.openviking-card-metrics {
-  grid-column: span 6;
-}
-
-.openviking-card-indexing {
-  grid-column: span 6;
-}
-
-.openviking-overview-side > .openviking-card-indexing,
-.openviking-overview-side > .openviking-card-metrics {
-  grid-column: auto;
-}
-
-.openviking-card-sync,
-.openviking-card-events {
-  grid-column: span 6;
-}
-
-.openviking-card-tuning {
-  grid-column: 1 / -1;
-}
 
 .settings-openviking-controls {
   display: grid;
@@ -4873,12 +5089,20 @@ select.input {
 .settings-openviking-field select {
   min-width: 0;
   min-height: 36px;
-  border: 1px solid #d0d5dd;
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: #ffffff;
   color: #182230;
   padding: 0 10px;
   font: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.settings-openviking-field input:focus,
+.settings-openviking-field select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
 }
 
 .settings-openviking-muted {
@@ -4893,7 +5117,7 @@ select.input {
   gap: 12px;
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid #e4e9f2;
+  border-top: 1px solid var(--soft);
 }
 
 .settings-openviking-field-grid {
@@ -5018,85 +5242,11 @@ select.input {
   line-height: 1.4;
 }
 
-.settings-openviking-snippet {
-  display: grid;
-  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid #e4e9f2;
-}
-
-.settings-openviking-snippet p {
-  margin: 5px 0 0;
-  color: #667085;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.settings-openviking-snippet code {
-  display: block;
-  min-width: 0;
-  max-height: 130px;
-  overflow: auto;
-  padding: 10px;
-  border: 1px solid #e4e9f2;
-  border-radius: 8px;
-  background: #fbfcfe;
-  white-space: pre-wrap;
-}
-
-.settings-openviking-snippet-actions {
-  display: grid;
-  gap: 8px;
-  justify-items: start;
-}
-
-.settings-openviking-verify-result {
-  color: #344054;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 .settings-openviking-job-summary {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-top: 12px;
-}
-
-.settings-openviking-job-summary .openviking-status-pill {
-  flex: 1;
-  min-width: 0;
-}
-
-.settings-openviking-indexing-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.openviking-status-pill[role="button"] {
-  cursor: pointer;
-  user-select: none;
-  transition: box-shadow 0.15s;
-}
-
-.openviking-status-pill[role="button"]:hover {
-  box-shadow: 0 0 0 2px #2563eb40;
-}
-
-.openviking-status-pill[data-selected] {
-  box-shadow: 0 0 0 2px #2563eb;
-}
-
-.openviking-status-pill[data-selected][data-outcome="error"] {
-  box-shadow: 0 0 0 2px #b42318;
-}
-
-.openviking-status-pill[data-selected][data-outcome="success"] {
-  box-shadow: 0 0 0 2px #0d9488;
+  margin-top: 14px;
 }
 
 .settings-openviking-job-list,
@@ -5237,8 +5387,21 @@ select.input {
 
 .settings-openviking-progress progress {
   width: 100%;
-  height: 8px;
-  accent-color: #2563eb;
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: #e9edf3;
+  accent-color: var(--ok-text);
+}
+
+.settings-openviking-progress progress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: #e9edf3;
+}
+
+.settings-openviking-progress progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: linear-gradient(90deg, #12b76a, #067647);
 }
 
 .settings-openviking-progress small,
@@ -5248,23 +5411,24 @@ select.input {
   font-size: 12px;
 }
 
-.settings-openviking-job-guidance {
-  border: 1px solid #e4e9f2;
-  border-radius: 6px;
-  background: #f8fafc;
-  color: #344054;
-  font-size: 12px;
-  line-height: 18px;
-  padding: 8px 10px;
-  white-space: normal;
+/* 失败建议 / 事件补救：复用 console-status-line，多行可换行、右侧动作按钮推到行尾 */
+.ov-advice {
+  align-items: flex-start;
+  line-height: 1.5;
+  font-weight: 600;
+}
+
+.ov-advice > span {
+  flex: 1;
   overflow-wrap: anywhere;
 }
 
-.settings-openviking-job-guidance[data-tone="failed"],
-.settings-openviking-job-guidance[data-tone="cancelled"] {
-  border-color: #fedf89;
-  background: #fffaeb;
-  color: #7a2e0e;
+.ov-advice-action {
+  flex: none;
+  align-self: center;
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .settings-openviking-job-details {
@@ -5328,13 +5492,12 @@ select.input {
 }
 
 .tuning-scope-summary:hover {
-  border-color: #b7c7da;
-  background: #fbfdff;
-  box-shadow: 0 8px 18px rgba(16, 24, 40, 0.06);
+  border-color: var(--line-strong);
+  background: var(--panel-subtle);
 }
 
 .tuning-scope-summary[open] {
-  border-color: #b7c7da;
+  border-color: var(--line-strong);
   background: #ffffff;
 }
 
@@ -5411,9 +5574,9 @@ select.input {
 
 .tuning-scope-summary:hover .tuning-scope-action,
 .tuning-scope-summary[open] .tuning-scope-action {
-  border-color: #84caff;
-  background: #eff8ff;
-  color: #175cd3;
+  border-color: var(--accent);
+  background: #f5f8ff;
+  color: var(--accent);
 }
 
 .tuning-scope-action svg {
@@ -5438,30 +5601,31 @@ select.input {
 
 .tuning-advanced-table {
   display: grid;
-  gap: 6px;
-  padding: 0 10px 10px;
+  gap: 0;
+  padding: 0 2px;
 }
 
 .tuning-advanced-header {
   display: grid;
   grid-template-columns: var(--tuning-grid-columns, minmax(180px, 1fr) 120px 96px 72px);
-  gap: 8px;
-  padding: 0 8px;
-  color: #667085;
+  gap: 10px;
+  padding: 0 2px 8px;
+  color: #98a2b3;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
+/* 参数行去盒改发丝（与其它 console 列表同语汇） */
 .tuning-advanced-row {
   display: grid;
   grid-template-columns: var(--tuning-grid-columns, minmax(180px, 1fr) 120px 96px 72px);
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  min-height: 38px;
-  padding: 6px 8px;
-  border: 1px solid #e4e9f2;
-  border-radius: 7px;
-  background: #ffffff;
+  min-height: 44px;
+  padding: 9px 2px;
+  border-top: 1px solid var(--soft);
 }
 
 .tuning-row-label {
@@ -5498,9 +5662,16 @@ select.input {
 .tuning-advanced-row input {
   width: 100%;
   min-height: 32px;
-  border: 1px solid #d0d5dd;
+  border: 1px solid var(--line-strong);
   border-radius: 7px;
   padding: 0 9px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.tuning-advanced-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
 }
 
 .tuning-advanced-row .button {
@@ -5509,36 +5680,14 @@ select.input {
   padding: 0 10px;
 }
 
-.tuning-advanced-row span {
+.tuning-advanced-row span,
+.tuning-recommended {
   color: #667085;
   font-size: 12px;
 }
 
-.settings-diagnostic-item {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid #e4e9f2;
-  border-radius: 8px;
-  background: #fbfcfe;
-}
-
-.settings-diagnostic-item span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #697586;
-  font-size: 12px;
-}
-
-.settings-diagnostic-item strong {
-  overflow: hidden;
-  color: #182230;
-  font-size: 13px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.tuning-recommended .console-mono {
+  color: #475467;
 }
 
 .settings-runtime-summary {
@@ -5704,23 +5853,40 @@ select.input {
   min-width: 0;
 }
 
-.settings-openviking-event-remediation {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
+/* 事件时间线色点：按 outcome 着色 */
+.ov-event-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #98a2b3;
+}
+
+.ov-event-dot[data-outcome="success"] {
+  background: #12b76a;
+}
+
+.ov-event-dot[data-outcome="warning"] {
+  background: #f79009;
+}
+
+.ov-event-dot[data-outcome="error"] {
+  background: #f04438;
+}
+
+/* 标题过长省略、时间紧跟其后；不再顶到行尾 */
+.settings-openviking-event-title strong {
+  flex: 0 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.settings-openviking-event-remediation small {
-  color: #6941c6;
-  font-weight: 650;
-}
-
-.settings-openviking-event-remediation .button {
-  min-height: 30px;
-  padding: 0 10px;
-  font-size: 12px;
+.settings-openviking-event-title time {
+  flex: none;
+  color: #98a2b3;
+  font-size: 11px;
 }
 
 .settings-openviking-event-details {
@@ -5914,60 +6080,13 @@ select.input {
 }
 
 @media (max-width: 1180px) {
-  .openviking-overview-panel {
+  .ov-ops-grid,
+  .ov-config-grid {
     grid-template-columns: 1fr;
-  }
-
-  .openviking-card-health,
-  .openviking-card-sync,
-  .openviking-card-tuning,
-  .openviking-card-embedding,
-  .openviking-card-events,
-  .openviking-card-indexing,
-  .openviking-card-metrics {
-    grid-column: 1 / -1;
   }
 }
 
 @media (max-width: 980px) {
-  .settings-openviking-card-header {
-    display: grid;
-  }
-
-  .settings-openviking-card-actions {
-    justify-content: flex-start;
-  }
-
-  .settings-openviking-grid,
-  .settings-openviking-controls,
-  .settings-openviking-indexing-head,
-  .settings-openviking-job-row,
-  .tuning-advanced-header,
-  .tuning-advanced-row,
-  .settings-openviking-snippet,
-  .settings-openviking-filter-row,
-  .settings-openviking-pagination,
-  .settings-openviking-job-summary {
-    flex-wrap: wrap;
-  }
-
-  .settings-diagnostic-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-diagnostic-grid-indexing {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .settings-openviking-pagination {
-    display: grid;
-    justify-items: stretch;
-  }
-
-  .settings-openviking-pagination-actions {
-    justify-content: flex-start;
-  }
-
   .settings-runtime-summary,
   .settings-runtime-path-item {
     grid-template-columns: 1fr;
@@ -8689,6 +8808,12 @@ select.input {
   color: #3538cd;
 }
 
+.console-status-line[data-tone="warning"] {
+  border-color: #fedf89;
+  background: #fffcf5;
+  color: #b54708;
+}
+
 /* 中性语气：用于纯指引/空结果这类「非状态」提示，安静不抢色 */
 .console-status-line[data-tone="muted"] {
   border-color: var(--line);
@@ -9172,7 +9297,10 @@ select.input {
 
 @media (prefers-reduced-motion: reduce) {
   .opencode-console > *,
-  .opencode-terminal {
+  .opencode-terminal,
+  .openviking-dashboard > *,
+  .ov-activity-spin,
+  .ov-hero-progress[data-indeterminate="true"] .ov-hero-progress-fill {
     animation: none;
   }
 

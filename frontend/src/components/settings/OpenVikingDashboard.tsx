@@ -7,7 +7,6 @@ import {
   Copy,
   Database,
   Eye,
-  Gauge,
   LoaderCircle,
   ListChecks,
   SlidersHorizontal,
@@ -22,7 +21,6 @@ import {
   applyOpenVikingTuningPreset,
   applyVLMConfig,
   disableVLMConfig,
-  getOllamaSnippet,
   getOpenVikingEmbedding,
   getOpenVikingStatus,
   getOpenVikingSyncJobsSummary,
@@ -39,7 +37,6 @@ import {
   retrySyncJob,
   testEmbeddingConfig,
   testVLMConfig,
-  verifyOllamaSettings,
 } from "../../lib/api";
 import type {
   OpenVikingDashboardEvent,
@@ -278,10 +275,6 @@ export function OpenVikingDashboard() {
     queryKey: ["admin-openviking-tuning-preset"],
     queryFn: getTuningPreset,
   });
-  const snippetQuery = useQuery({
-    queryKey: ["admin-openviking-ollama-snippet"],
-    queryFn: getOllamaSnippet,
-  });
 
   const events = eventsQuery.data?.items ?? [];
   const eventTypeOptions = eventsQuery.data?.event_types ?? [];
@@ -335,34 +328,13 @@ export function OpenVikingDashboard() {
 
   return (
     <div className="openviking-dashboard">
-      <div className="settings-openviking-grid">
-        <div className="openviking-overview-panel">
-          <OpenVikingHealthCard
-            status={statusQuery.data}
-            feedback={feedback}
-            loading={statusQuery.isLoading}
-            error={statusQuery.isError ? "读取 OpenViking 状态失败" : null}
-          />
-          <div className="openviking-overview-side">
-            <OpenVikingIndexingCard status={statusQuery.data} />
-            <OpenVikingMetricsCard status={statusQuery.data} />
-          </div>
-        </div>
-        <OpenVikingEmbeddingCard
-          embedding={embeddingQuery.data}
-          candidates={candidatesQuery.data?.items ?? []}
-          feedback={feedback}
-          loading={embeddingQuery.isLoading}
-          onRefresh={refresh}
-          requestConfirm={setConfirmRequest}
-        />
-        <OpenVikingVLMCard
-          vlm={vlmQuery.data}
-          feedback={feedback}
-          loading={vlmQuery.isLoading}
-          onRefresh={refresh}
-          requestConfirm={setConfirmRequest}
-        />
+      <OpenVikingStatusBand
+        status={statusQuery.data}
+        feedback={feedback}
+        loading={statusQuery.isLoading}
+        error={statusQuery.isError ? "读取 OpenViking 状态失败" : null}
+      />
+      <div className="ov-ops-grid">
         <OpenVikingSyncJobsCard
           feedback={feedback}
           onRefresh={refresh}
@@ -393,15 +365,31 @@ export function OpenVikingDashboard() {
           total={eventTotal}
           totalPages={eventTotalPages}
         />
-        <OpenVikingTuningCard
+      </div>
+      <div className="ov-config-grid">
+        <OpenVikingEmbeddingCard
+          embedding={embeddingQuery.data}
+          candidates={candidatesQuery.data?.items ?? []}
           feedback={feedback}
-          tuning={tuningQuery.data}
-          preset={presetQuery.data?.preset ?? tuningQuery.data?.preset ?? EMPTY_VALUE}
-          snippet={snippetQuery.data?.snippet ?? ""}
+          loading={embeddingQuery.isLoading}
+          onRefresh={refresh}
+          requestConfirm={setConfirmRequest}
+        />
+        <OpenVikingVLMCard
+          vlm={vlmQuery.data}
+          feedback={feedback}
+          loading={vlmQuery.isLoading}
           onRefresh={refresh}
           requestConfirm={setConfirmRequest}
         />
       </div>
+      <OpenVikingTuningCard
+        feedback={feedback}
+        tuning={tuningQuery.data}
+        preset={presetQuery.data?.preset ?? tuningQuery.data?.preset ?? EMPTY_VALUE}
+        onRefresh={refresh}
+        requestConfirm={setConfirmRequest}
+      />
       {confirmRequest ? (
         <OpenVikingConfirmDialog
           request={confirmRequest}
@@ -473,20 +461,19 @@ function StatusPill({
   value: string;
 }) {
   return (
-    <div
-      className="openviking-status-pill"
-      data-outcome={tone}
-      data-selected={selected ? "" : undefined}
-      role={onClick ? "button" : undefined}
-      aria-pressed={onClick ? selected : undefined}
-      aria-label={onClick ? `按${label}筛选` : undefined}
-      tabIndex={onClick ? 0 : undefined}
+    <button
+      aria-label={`按${label}筛选`}
+      aria-pressed={selected}
+      className="ov-filter-chip"
+      data-selected={selected ? "true" : undefined}
+      data-tone={tone}
+      type="button"
       onClick={onClick}
-      onKeyDown={onClick ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onClick(); } } : undefined}
     >
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
+      <span aria-hidden="true" className="ov-filter-dot" />
+      <span className="ov-filter-label">{label}</span>
+      <strong className="console-mono">{value}</strong>
+    </button>
   );
 }
 
@@ -515,7 +502,7 @@ function OpenVikingCardHeader({
   );
 }
 
-function OpenVikingHealthCard({
+function OpenVikingStatusBand({
   feedback,
   status,
   loading,
@@ -527,61 +514,186 @@ function OpenVikingHealthCard({
   error: string | null;
 }) {
   const running = status?.running ?? false;
+  const healthy = running && !(status?.degraded ?? false);
+  const stateLabel = healthy ? "运行中" : running ? "降级运行" : "未运行";
+  const stateNote = healthy
+    ? "语义检索在线；偶发异常会进入降级，用户会话保持可用。"
+    : running
+      ? "进程在线但健康探针异常，检索能力受限，建议展开下方诊断。"
+      : "进程未运行，语义检索不可用，Wiki 搜索已回退到 SQL。";
+  const indexing = status?.indexing;
+  const metrics = status?.metrics_5min;
+  const phaseActive =
+    indexing != null && indexing.phase !== "idle" && indexing.phase !== "indexed";
+  const progress = indexing?.progress_percent ?? null;
+  const indeterminate = phaseActive && progress === null;
+
   return (
-    <section className="surface openviking-card openviking-card-health" aria-label="OpenViking 健康状态">
-      <OpenVikingCardHeader
-        description="服务进程、健康探针、模型后端与运行路径。"
-        icon={<Database aria-hidden="true" size={16} />}
-        title="健康状态"
-      />
-      {loading ? <p className="empty-note">正在读取 OpenViking 状态</p> : null}
+    <section
+      className="surface opencode-hero ov-status-band"
+      data-running={healthy ? "true" : "false"}
+      aria-label="OpenViking 健康状态"
+    >
+      <div className="opencode-hero-head">
+        <span className="opencode-signal" data-running={healthy ? "true" : "false"}>
+          <span className="opencode-signal-ring" aria-hidden="true" />
+          <span className="opencode-signal-core">
+            <Database aria-hidden="true" size={20} />
+          </span>
+        </span>
+        <div className="opencode-hero-text">
+          <span className="opencode-hero-kicker">OpenViking 语义服务</span>
+          <strong>{loading && !status ? "读取中…" : stateLabel}</strong>
+          <p>{loading && !status ? "正在读取 OpenViking 状态。" : stateNote}</p>
+        </div>
+        {indexing ? (
+          <span className="ov-activity-badge" data-tone={indexingPhaseTone(indexing.phase)}>
+            {phaseActive ? (
+              <LoaderCircle aria-hidden="true" className="ov-activity-spin" size={13} />
+            ) : (
+              <CheckCircle2 aria-hidden="true" size={13} />
+            )}
+            <span>{indexingPhaseLabel(indexing.phase)}</span>
+            {indexing.eta_label ? <small>· 预计 {indexing.eta_label}</small> : null}
+          </span>
+        ) : null}
+      </div>
+
       {error ? <StatusError text={error} /> : null}
-      {status ? (
-        <>
-          <div className="settings-runtime-summary" data-running={running && !status.degraded}>
-            <div className="settings-runtime-status">
-              <span className="settings-runtime-status-icon">
-                {running && !status.degraded ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
-              </span>
-              <div>
-                <span>运行状态</span>
-                <strong>{running && !status.degraded ? "running" : "degraded"}</strong>
-              </div>
-            </div>
-            <p>
-              {running
-                ? "异常会进入 degraded，用户会话保持降级可用。"
-                : "进程未运行时语义检索不可用，Wiki 搜索回退到 SQL。"}
-            </p>
-          </div>
-          <div className="settings-diagnostic-grid settings-diagnostic-grid-fixed">
-            <Metric label="端口" value={status.port} />
-            <Metric label="PID" value={status.pid} />
-            <Metric label="运行版本" value={status.version} />
-            <Metric label="OpenViking /health" value={status.health?.healthy ? "healthy" : "degraded"} />
-            <Metric label="模型后端" value={modelBackendValue(status)} />
-            {hasConfiguredOllamaDependency(status) ? (
-              <Metric label="外部依赖" value={`Ollama ${status.ollama.model_available ? "ready" : "missing"}`} />
-            ) : null}
-          </div>
-          {status.doctor ? (
-            <OpenVikingDoctorPanel
-              doctor={status.doctor}
-              ollamaConfigured={hasConfiguredOllamaDependency(status)}
-              vlmEnabled={status.vlm?.enabled ?? false}
+
+      {phaseActive ? (
+        <div className="ov-hero-progress" data-indeterminate={indeterminate ? "true" : "false"}>
+          <div className="ov-hero-progress-track">
+            <div
+              className="ov-hero-progress-fill"
+              style={indeterminate ? undefined : { width: `${progress ?? 0}%` }}
             />
-          ) : null}
-          <div className="settings-runtime-paths">
-            <PathBlock feedback={feedback} label="配置文件" value={status.config_file} />
-            <PathBlock feedback={feedback} label="工作目录" value={status.workspace_path} />
-            <PathBlock feedback={feedback} label="日志文件" value={status.log_file} />
           </div>
-          {status.last_error ? <StatusError text={status.last_error} /> : null}
-          {status.health?.error ? <StatusError text={status.health.error} /> : null}
-          {status.ollama?.error ? <StatusError text={status.ollama.error} /> : null}
-        </>
+          <small>
+            {indeterminate
+              ? "目录级任务已提交，embedding 队列处理中，当前阶段暂无精确百分比。"
+              : `索引构建 ${progress}%`}
+            {indexing?.items_per_minute != null ? ` · ${indexing.items_per_minute}/min` : ""}
+          </small>
+        </div>
+      ) : null}
+
+      {status ? (
+        <div className="ov-metric-groups">
+          <div className="ov-metric-group">
+            <span className="ov-metric-group-label">服务身份</span>
+            <div className="opencode-chip-strip">
+              <HeroChip
+                label="健康探针"
+                tone={status.health?.healthy ? "ok" : "err"}
+                value={status.health?.healthy ? "healthy" : "degraded"}
+              />
+              <HeroChip label="端口" mono value={displayValue(status.port)} />
+              <HeroChip label="PID" mono value={displayValue(status.pid)} />
+              <HeroChip label="版本" mono value={displayValue(status.version)} />
+              <HeroChip label="模型后端" mono value={modelBackendValue(status)} />
+              {hasConfiguredOllamaDependency(status) ? (
+                <HeroChip
+                  label="Ollama"
+                  tone={status.ollama.model_available ? "ok" : "err"}
+                  value={status.ollama.model_available ? "ready" : "missing"}
+                />
+              ) : null}
+            </div>
+          </div>
+          <div className="ov-metric-group">
+            <span className="ov-metric-group-label">运行指标 · 5min</span>
+            <div className="opencode-chip-strip">
+              <HeroChip
+                label="已索引特性"
+                value={`${indexing?.sync_jobs?.indexed ?? 0}/${indexing?.sync_jobs?.total ?? 0}`}
+              />
+              <HeroChip label="吞吐 / min" mono value={displayValue(metrics?.throughput_per_min)} />
+              <HeroChip
+                label="Latency p95"
+                mono
+                value={metrics?.latency_p95_ms != null ? `${metrics.latency_p95_ms}ms` : (metrics?.message ?? "未采集")}
+              />
+              <HeroChip label="Breaker trips" mono value={displayValue(metrics?.breaker_trips)} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {status ? (
+        <details className="ov-hero-details">
+          <summary>
+            <span>诊断与运行路径</span>
+            <ChevronDown aria-hidden="true" size={15} />
+          </summary>
+          <div className="ov-hero-details-body">
+            {status.doctor ? (
+              <OpenVikingDoctorPanel
+                doctor={status.doctor}
+                ollamaConfigured={hasConfiguredOllamaDependency(status)}
+                vlmEnabled={status.vlm?.enabled ?? false}
+              />
+            ) : null}
+            <div className="opencode-paths">
+              <PathRow feedback={feedback} label="配置文件" value={status.config_file} />
+              <PathRow feedback={feedback} label="工作目录" value={status.workspace_path} />
+              <PathRow feedback={feedback} label="日志文件" value={status.log_file} />
+            </div>
+            {status.last_error ? <StatusError text={status.last_error} /> : null}
+            {status.health?.error ? <StatusError text={status.health.error} /> : null}
+            {status.ollama?.error ? <StatusError text={status.ollama.error} /> : null}
+          </div>
+        </details>
       ) : null}
     </section>
+  );
+}
+
+function HeroChip({
+  label,
+  mono,
+  tone,
+  value,
+}: {
+  label: string;
+  mono?: boolean;
+  tone?: "ok" | "err";
+  value: string;
+}) {
+  return (
+    <div className="opencode-chip" data-tone={tone}>
+      <span className="opencode-chip-label">{label}</span>
+      <strong className={mono ? "console-mono" : undefined}>{value}</strong>
+    </div>
+  );
+}
+
+function PathRow({
+  feedback,
+  label,
+  value,
+}: {
+  feedback: DashboardFeedback;
+  label: string;
+  value?: string | null;
+}) {
+  if (!value) {
+    return null;
+  }
+  return (
+    <div className="opencode-path-item">
+      <span className="opencode-path-label">{label}</span>
+      <code className="console-mono">{value}</code>
+      <button
+        aria-label={`复制 ${label}`}
+        className="opencode-copy-button"
+        type="button"
+        onClick={() => copyToClipboard(value, label, feedback)}
+      >
+        <Copy aria-hidden="true" size={13} />
+        复制
+      </button>
+    </div>
   );
 }
 
@@ -855,16 +967,17 @@ function OpenVikingEmbeddingCard({
       {loading ? <p className="empty-note">正在读取 Embedding 配置</p> : null}
       {embedding ? (
         <>
-          <div className="settings-diagnostic-grid settings-diagnostic-grid-compact">
-            <Metric label="Provider" value={embedding.provider} />
-            <Metric label="当前模型" value={embedding.model} />
-            <Metric label="维度" value={embedding.dimension} />
-            <Metric label="最大并发" value={embedding.max_concurrent} />
-            <Metric
+          <div className="ov-config-summary">
+            <ConfigStat label="Provider" value={embedding.provider} />
+            <ConfigStat label="当前模型" mono value={displayValue(embedding.model)} />
+            <ConfigStat label="维度" mono value={displayValue(embedding.dimension)} />
+            <ConfigStat label="最大并发" mono value={displayValue(embedding.max_concurrent)} />
+            <ConfigStat
               label="API Key"
+              mono
               value={embedding.api_key_configured ? (embedding.api_key_masked ?? "已配置") : "未配置"}
             />
-            <Metric label="重建状态" value={embedding.rebuild_status} />
+            <ConfigStat label="重建状态" value={displayValue(embedding.rebuild_status)} />
           </div>
           {embedding.local_cache ? (
             <p className="settings-openviking-muted">
@@ -909,6 +1022,7 @@ function OpenVikingEmbeddingCard({
                 <>
                   <TextField
                     label="Base URL"
+                    mono
                     value={form.base_url}
                     placeholder="http://127.0.0.1:11434"
                     onChange={handleBaseUrlChange}
@@ -916,6 +1030,7 @@ function OpenVikingEmbeddingCard({
                   <label className="settings-openviking-field">
                     <span>模型</span>
                     <input
+                      className="console-mono"
                       list="ov-ollama-model-suggestions"
                       value={form.model}
                       placeholder="bge-m3"
@@ -948,12 +1063,14 @@ function OpenVikingEmbeddingCard({
                 <>
                   <TextField
                     label="API Base"
+                    mono
                     value={form.base_url}
                     placeholder="https://api.openai.com/v1"
                     onChange={(value) => updateForm({ base_url: value })}
                   />
                   <TextField
                     label="模型"
+                    mono
                     value={form.model}
                     placeholder="text-embedding-3-small"
                     onChange={(value) => updateForm({ model: value })}
@@ -1005,12 +1122,14 @@ function OpenVikingEmbeddingCard({
                   />
                   <TextField
                     label="Host"
+                    mono
                     value={form.host}
                     placeholder="可选"
                     onChange={(value) => updateForm({ host: value })}
                   />
                   <TextField
                     label="模型"
+                    mono
                     value={form.model}
                     placeholder="向量模型名"
                     onChange={(value) => updateForm({ model: value })}
@@ -1203,38 +1322,39 @@ function OpenVikingVLMCard({
     testMutation.mutate(buildVLMApply(form));
   }
 
-  function handleSave() {
-    if (!form.provider.trim() || !form.model.trim()) {
-      feedback.showError("请填写 VLM provider 和模型");
+  const currentEnabled = vlm?.enabled ?? false;
+  const busy = applyMutation.isPending || disableMutation.isPending;
+
+  // 开关名副其实：拨到「开」+保存=配置并启用；拨到「关」+保存=调 disable 接口禁用。
+  function handleApply() {
+    if (form.enabled) {
+      if (!form.provider.trim() || !form.model.trim()) {
+        feedback.showError("请填写 VLM provider 和模型");
+        return;
+      }
+      requestConfirm({
+        confirmLabel: "确认启用",
+        message: "确认更新并启用 VLM？这会重启 OpenViking，但不会清理向量索引。",
+        onConfirm: () => {
+          feedback.showSuccess("VLM 配置保存已提交");
+          applyMutation.mutate(buildVLMApply(form));
+        },
+        title: "确认启用 VLM",
+        tone: "warning",
+      });
       return;
     }
-    requestConfirm({
-      confirmLabel: "确认保存",
-      message: "确认更新 VLM 配置？这会重启 OpenViking，但不会清理向量索引。",
-      onConfirm: () => {
-        feedback.showSuccess("VLM 配置保存已提交");
-        applyMutation.mutate(buildVLMApply(form));
-      },
-      title: "确认更新 VLM 配置",
-      tone: "warning",
-    });
-  }
-
-  function handleDisable() {
     requestConfirm({
       confirmLabel: "确认禁用",
       message: "确认禁用 VLM？这会重启 OpenViking 并移除 ov.conf 中的 vlm 段。",
       onConfirm: () => {
         feedback.showSuccess("VLM 禁用已提交");
-        setForm((current) => ({ ...current, enabled: false }));
         disableMutation.mutate();
       },
       title: "确认禁用 VLM",
       tone: "warning",
     });
   }
-
-  const currentEnabled = vlm?.enabled ?? false;
 
   return (
     <section className="surface openviking-card openviking-card-vlm" aria-label="OpenViking VLM">
@@ -1246,23 +1366,34 @@ function OpenVikingVLMCard({
       {loading ? <p className="empty-note">正在读取 VLM 配置</p> : null}
       {!loading ? (
         <>
-          <div className="settings-diagnostic-grid settings-diagnostic-grid-compact">
-            <Metric label="状态" value={currentEnabled ? "已启用" : "未配置"} />
-            <Metric label="Provider" value={vlm?.provider ?? EMPTY_VALUE} />
-            <Metric label="模型" value={vlm?.model ?? EMPTY_VALUE} />
-            <Metric
+          <div className="ov-config-summary">
+            <ConfigStat
+              label="状态"
+              tone={currentEnabled ? "ok" : "idle"}
+              value={currentEnabled ? "已启用" : "未配置"}
+            />
+            <ConfigStat label="Provider" value={vlm?.provider ?? EMPTY_VALUE} />
+            <ConfigStat label="模型" mono value={vlm?.model ?? EMPTY_VALUE} />
+            <ConfigStat
               label="API Key"
+              mono
               value={vlm?.api_key_configured ? (vlm.api_key_masked ?? "已配置") : "未配置"}
             />
           </div>
 
           <div className="settings-openviking-model-form">
-            <SwitchControl
-              checked={form.enabled}
-              label="启用 VLM"
-              text={form.enabled ? "已启用 VLM" : "未启用 VLM"}
-              onChange={(checked) => updateForm({ enabled: checked })}
-            />
+            <div className="console-toggle-row">
+              <div className="console-toggle-text">
+                <strong>启用 VLM</strong>
+                <small>关闭后保存即移除 VLM 配置；可选能力，关闭不算故障</small>
+              </div>
+              <SwitchControl
+                checked={form.enabled}
+                label="启用 VLM"
+                text={form.enabled ? "开启" : "关闭"}
+                onChange={(checked) => updateForm({ enabled: checked })}
+              />
+            </div>
             <div className="settings-openviking-field-grid" data-disabled={form.enabled ? undefined : "true"}>
               <label className="settings-openviking-field">
                 <span>Provider</span>
@@ -1280,12 +1411,14 @@ function OpenVikingVLMCard({
               </label>
               <TextField
                 label="Base URL"
+                mono
                 value={form.base_url}
                 placeholder="可选"
                 onChange={(value) => updateForm({ base_url: value })}
               />
               <TextField
                 label="模型"
+                mono
                 value={form.model}
                 placeholder="模型名"
                 onChange={(value) => updateForm({ model: value })}
@@ -1324,31 +1457,25 @@ function OpenVikingVLMCard({
                 className="button button-secondary"
                 type="button"
                 onClick={handleTest}
-                disabled={testMutation.isPending || !form.provider.trim() || !form.model.trim()}
+                disabled={
+                  testMutation.isPending || !form.enabled || !form.provider.trim() || !form.model.trim()
+                }
               >
                 {testMutation.isPending ? "测试中…" : "测试"}
               </button>
               <button
-                className="button button-primary"
+                className={form.enabled ? "button button-primary" : "button button-danger"}
                 type="button"
-                onClick={handleSave}
-                disabled={applyMutation.isPending}
+                onClick={handleApply}
+                disabled={busy || (!form.enabled && !currentEnabled)}
               >
-                保存
-              </button>
-              <button
-                className="button button-secondary"
-                type="button"
-                onClick={handleDisable}
-                disabled={disableMutation.isPending || !currentEnabled}
-              >
-                禁用
+                {form.enabled ? "保存并启用" : "禁用 VLM"}
               </button>
             </div>
           </div>
 
           <p className="settings-openviking-muted">
-            VLM 默认关闭，未配置不算故障；「保存」与「禁用」都会重启 OpenViking，但不触发索引重建。
+            拨动开关后点「保存」即生效：启用会按当前配置写入，关闭会移除 VLM 段——两者都会重启 OpenViking，但不触发索引重建。
           </p>
           {mutationError ? <StatusError text={mutationError} /> : null}
         </>
@@ -1357,11 +1484,30 @@ function OpenVikingVLMCard({
   );
 }
 
+function ConfigStat({
+  label,
+  mono,
+  tone,
+  value,
+}: {
+  label: string;
+  mono?: boolean;
+  tone?: "ok" | "idle";
+  value: string;
+}) {
+  return (
+    <div className="console-stat" data-tone={tone}>
+      <span className="console-stat-label">{label}</span>
+      <strong className={mono ? "console-mono" : undefined}>{value}</strong>
+    </div>
+  );
+}
+
 function ReadonlyField({ label, value }: { label: string; value: string }) {
   return (
     <label className="settings-openviking-field">
       <span>{label}</span>
-      <input value={value} readOnly tabIndex={-1} aria-readonly="true" />
+      <input value={value} className="console-mono" readOnly tabIndex={-1} aria-readonly="true" />
     </label>
   );
 }
@@ -1372,17 +1518,20 @@ function TextField({
   onChange,
   placeholder,
   inputMode,
+  mono,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   inputMode?: "numeric" | "decimal" | "text";
+  mono?: boolean;
 }) {
   return (
     <label className="settings-openviking-field">
       <span>{label}</span>
       <input
+        className={mono ? "console-mono" : undefined}
         value={value}
         placeholder={placeholder}
         inputMode={inputMode}
@@ -1568,13 +1717,10 @@ function OpenVikingSyncJobsCard({
 
   const counts = summaryQuery.data?.counts ?? {};
   const jobs = jobsQuery.data?.items ?? [];
+  // 列表条数与页数都以「当前过滤后的查询结果」为准，避免和独立轮询的汇总计数节奏不一致导致页数抖动。
   const total = jobsQuery.data?.total ?? 0;
   const currentPage = jobsQuery.data?.page ?? jobPage;
-
-  const summaryTotal = statusFilter
-    ? (counts[statusFilter] ?? 0)
-    : Object.values(counts).reduce((a: number, b: number) => a + b, 0);
-  const totalPages = Math.max(1, Math.ceil(Math.max(total, summaryTotal) / jobPageSize));
+  const totalPages = Math.max(1, Math.ceil(total / jobPageSize));
   const hasNext = currentPage < totalPages;
   const hasPrevious = currentPage > 1;
   const [jumpValue, setJumpValue] = useState(String(jobPage));
@@ -1679,7 +1825,7 @@ function OpenVikingSyncJobsCard({
         />
         <StatusPill label="已索引" value={String(counts.indexed ?? 0)} tone="success" onClick={() => setStatusFilter(statusFilter === "indexed" ? "" : "indexed")} selected={statusFilter === "indexed"} />
       </div>
-      <ul className="data-list settings-config-list settings-openviking-job-list">
+      <ul className="data-list settings-config-list console-config-list settings-openviking-job-list">
         {jobs.map((job) => (
           <SyncJobItem job={job} key={job.id} onRetry={() => handleRetry(job.id)} />
         ))}
@@ -1692,7 +1838,7 @@ function OpenVikingSyncJobsCard({
       ) : null}
       <div className="settings-openviking-pagination" aria-label="同步任务分页">
         <div className="settings-openviking-pagination-summary">
-          <span>共 {summaryTotal} 条 · 第 {currentPage} / {totalPages} 页</span>
+          <span>共 {total} 条 · 第 {currentPage} / {totalPages} 页</span>
           <label>
             <span>每页</span>
             <select
@@ -1812,8 +1958,9 @@ function SyncJobItem({ job, onRetry }: { job: OpenVikingSyncJob; onRetry: () => 
         </div>
       ) : null}
       {suggestion ? (
-        <div className="settings-openviking-job-guidance" data-tone={job.status}>
-          {suggestion}
+        <div className="console-status-line ov-advice" data-tone="warning">
+          <AlertTriangle aria-hidden="true" size={15} />
+          <span>{suggestion}</span>
         </div>
       ) : null}
       {detailsOpen ? <SyncJobDetails job={job} /> : null}
@@ -1961,7 +2108,7 @@ function OpenVikingEventStream({
           </select>
         </label>
       </div>
-      <ul className="data-list settings-config-list settings-openviking-event-list">
+      <ul className="data-list settings-config-list console-config-list settings-openviking-event-list">
         {events.map((event) => (
           <EventItem
             event={event}
@@ -2127,21 +2274,28 @@ function EventItem({
     <li className="settings-openviking-row" data-event-type={event.event_type} data-outcome={event.outcome}>
       <div className="settings-openviking-event-main">
         <div className="settings-openviking-event-title">
+          <span aria-hidden="true" className="ov-event-dot" data-outcome={event.outcome} />
           <strong>{EVENT_LABELS[event.event_type] ?? event.event_type}</strong>
+          <time className="console-mono" dateTime={event.created_at ?? undefined}>
+            {formatDateTime(event.created_at)}
+          </time>
         </div>
         <span className="settings-openviking-event-description">{describeEvent(event)}</span>
         {remediation ? (
-          <div className="settings-openviking-event-remediation">
-            <small>建议：{remediation.hint}</small>
+          <div className="console-status-line ov-advice" data-tone="muted">
+            <span>建议：{remediation.hint}</span>
             {remediation.action ? (
-              <button className="button button-secondary" type="button" onClick={handleRemediationAction}>
+              <button
+                className="button button-secondary ov-advice-action"
+                type="button"
+                onClick={handleRemediationAction}
+              >
                 {remediation.label}
               </button>
             ) : null}
           </div>
         ) : null}
         {detailsOpen ? <EventDetails event={event} /> : null}
-        <time dateTime={event.created_at ?? undefined}>{formatDateTime(event.created_at)}</time>
       </div>
       <button
         aria-expanded={detailsOpen}
@@ -2192,18 +2346,20 @@ function OpenVikingTuningCard({
   feedback,
   tuning,
   preset,
-  snippet,
   onRefresh,
   requestConfirm,
 }: {
   feedback: DashboardFeedback;
   tuning?: OpenVikingTuningResponse;
   preset: string;
-  snippet: string;
   onRefresh: () => void;
   requestConfirm: DashboardConfirm;
 }) {
-  const rows = useMemo(() => flattenTuningRows(tuning), [tuning]);
+  // Ollama 已不是默认 embedding 服务，调优页不再展示 ollama_recommend 组与 Ollama snippet。
+  const rows = useMemo(
+    () => flattenTuningRows(tuning).filter((row) => row.scope !== "ollama_recommend"),
+    [tuning],
+  );
   const groups = useMemo(() => groupTuningRows(rows), [rows]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const applyMutation = useMutation({
@@ -2222,18 +2378,8 @@ function OpenVikingTuningCard({
       feedback.showSuccess("调优预设已套用");
     },
   });
-  const ollamaVerifyMutation = useMutation({
-    mutationFn: verifyOllamaSettings,
-    onError: (error) => feedback.showError(`验证 Ollama 设置失败：${messageFromApiError(error)}`),
-    onSuccess: () => {
-      onRefresh();
-      feedback.showSuccess("Ollama 设置验证完成");
-    },
-  });
   const mutationError =
-    mutationErrorMessage(applyMutation.error) ??
-    mutationErrorMessage(presetMutation.error) ??
-    mutationErrorMessage(ollamaVerifyMutation.error);
+    mutationErrorMessage(applyMutation.error) ?? mutationErrorMessage(presetMutation.error);
   const rejectedChanges = [
     ...rejectedFromMutation(applyMutation.data),
     ...rejectedFromMutation(presetMutation.data),
@@ -2246,7 +2392,7 @@ function OpenVikingTuningCard({
   function handleApply(row: TuningRow, value?: string) {
     const nextValue = value ?? drafts[tuningKey(row)] ?? row.value;
     if (valuesEqual(nextValue, row.value)) {
-      feedback.showSuccess("参数值没有变化，无需应用");
+      feedback.showToast("参数值没有变化，无需应用");
       return;
     }
     requestConfirm({
@@ -2302,123 +2448,6 @@ function OpenVikingTuningCard({
           />
         ))}
       </div>
-      <div className="settings-openviking-snippet">
-        <div>
-          <div className="settings-runtime-path-label">Ollama systemd snippet</div>
-          <p>用于在宿主机 Ollama 服务中应用当前配置的并发参数。</p>
-        </div>
-        <code>{snippet || "正在读取 snippet"}</code>
-        <div className="settings-openviking-snippet-actions">
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => copyToClipboard(snippet, "Ollama snippet", feedback)}
-          >
-            <Copy size={15} />
-            复制
-          </button>
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => {
-              feedback.showSuccess("Ollama 设置验证已提交");
-              ollamaVerifyMutation.mutate();
-            }}
-          >
-            验证 Ollama 设置
-          </button>
-          {ollamaVerifyMutation.data ? (
-            <span className="settings-openviking-verify-result">
-              {ollamaVerifyMutation.data.verified ? "验证通过" : "验证未通过"} · expected{" "}
-              {ollamaVerifyMutation.data.expected_num_parallel} / observed{" "}
-              {displayValue(ollamaVerifyMutation.data.observed_parallel)}
-            </span>
-          ) : null}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function OpenVikingMetricsCard({
-  status,
-}: {
-  status?: OpenVikingStatusResponse;
-}) {
-  const metrics = status?.metrics_5min;
-  const notCollected = metrics?.message ?? "未采集";
-  return (
-    <section className="surface openviking-card openviking-card-metrics" aria-label="OpenViking 运行指标">
-      <OpenVikingCardHeader
-        description="5 分钟窗口内的 OpenViking 运行指标。"
-        icon={<Gauge aria-hidden="true" size={16} />}
-        title="运行指标"
-      />
-      <div className="settings-diagnostic-grid settings-diagnostic-grid-metrics">
-        <Metric label="吞吐 / min" value={metrics?.throughput_per_min} />
-        <Metric label="Latency p95" value={metrics?.latency_p95_ms ?? notCollected} />
-        <Metric label="Breaker trips" value={metrics?.breaker_trips} />
-        <Metric label="Samples" value={metrics?.latency_samples} />
-      </div>
-    </section>
-  );
-}
-
-function OpenVikingIndexingCard({
-  status,
-}: {
-  status?: OpenVikingStatusResponse;
-}) {
-  const indexing = status?.indexing;
-  const queue = indexing?.embedding_queue;
-  const jobs = indexing?.sync_jobs;
-  const progressValue = indexing?.progress_percent;
-  const phaseLabel = indexing ? indexingPhaseLabel(indexing.phase) : EMPTY_VALUE;
-  const phaseTone = indexing ? indexingPhaseTone(indexing.phase) : "info";
-  return (
-    <section className="surface openviking-card openviking-card-indexing" aria-label="OpenViking 索引构建">
-      <OpenVikingCardHeader
-        description="当前 Wiki 入库、embedding 队列和预计完成时间。"
-        icon={<LoaderCircle aria-hidden="true" size={16} />}
-        title="索引构建"
-      />
-      {indexing ? (
-        <>
-          <div className="settings-openviking-indexing-head">
-            <StatusPill label="阶段" tone={phaseTone} value={phaseLabel} />
-            <StatusPill label="预计剩余" tone="info" value={indexing.eta_label ?? EMPTY_VALUE} />
-          </div>
-          <div className="settings-openviking-progress settings-openviking-progress-block">
-            <progress
-              aria-label="OpenViking 索引构建进度"
-              max={100}
-              value={progressValue ?? (indexing.phase === "indexed" ? 100 : 0)}
-            />
-            <small>
-              {progressValue === null
-                ? "目录级任务已提交，embedding 队列处理中；当前阶段无法给出精确百分比。"
-                : `${progressValue}%`}
-            </small>
-          </div>
-          <div className="settings-diagnostic-grid settings-diagnostic-grid-indexing">
-            <Metric label="Embedding 等待" value={queue?.pending} />
-            <Metric label="Embedding 处理中" value={queue?.processing} />
-            <Metric label="处理速度" value={indexing.items_per_minute === null || indexing.items_per_minute === undefined ? EMPTY_VALUE : `${indexing.items_per_minute}/min`} />
-            <Metric label="同步运行中" value={jobs?.running} />
-            <Metric label="已索引 feature" value={`${jobs?.indexed ?? 0}/${jobs?.total ?? 0}`} />
-          </div>
-          <p className="settings-openviking-muted">{indexing.message}</p>
-          {queue?.current_processing_age_seconds ? (
-            <p className="settings-openviking-muted">
-              当前 embedding 已处理 {formatSeconds(queue.current_processing_age_seconds)}
-              {indexing.eta_sample_seconds ? `；ETA 基于最近 ${formatSeconds(indexing.eta_sample_seconds)} 的平均处理速度并加 20% 余量。` : "；速度样本不足时暂不估算 ETA。"}
-            </p>
-          ) : null}
-          {queue?.error ? <StatusError text={queue.error} /> : null}
-        </>
-      ) : (
-        <p className="empty-note">正在读取索引构建状态</p>
-      )}
     </section>
   );
 }
@@ -2521,16 +2550,19 @@ function TuningParameterRow({
   return (
     <div className="tuning-advanced-row">
       <div className="tuning-row-label">
-        <strong>{row.key}</strong>
+        <strong className="console-mono">{row.key}</strong>
         <span>{description.description}</span>
         <small>{description.impact}</small>
       </div>
       <input
         aria-label={`自定义值 ${key}`}
+        className="console-mono"
         value={draftValue}
         onChange={(event) => onDraftChange(event.target.value)}
       />
-      <span>推荐 {displayValue(row.recommended)}</span>
+      <span className="tuning-recommended">
+        推荐 <span className="console-mono">{displayValue(row.recommended)}</span>
+      </span>
       <button
         aria-label={`应用 ${key}`}
         className="button button-secondary"
@@ -2659,7 +2691,7 @@ function indexingPhaseTone(
 function formatNextRetryAt(iso: string): string {
   try {
     const date = new Date(iso);
-    if (isNaN(date.getTime())) {
+    if (Number.isNaN(date.getTime())) {
       return iso;
     }
     const now = new Date();
@@ -2679,7 +2711,7 @@ function formatNextRetryAt(iso: string): string {
 function formatDisplayDateTime(iso: string): string {
   try {
     const date = new Date(iso);
-    if (isNaN(date.getTime())) {
+    if (Number.isNaN(date.getTime())) {
       return iso;
     }
     const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -3088,54 +3120,12 @@ function displayValue(value: number | string | null | undefined) {
   return String(value);
 }
 
-function Metric({ label, value }: { label: string; value: number | string | null | undefined }) {
-  const display = displayValue(value);
-  const isPlaceholder = display === "—" || display === "未采集" || display === "warming up";
-  return (
-    <div className="settings-diagnostic-item" data-metric-placeholder={isPlaceholder ? "" : undefined}>
-      <span>{label}</span>
-      <strong>{display}</strong>
-    </div>
-  );
-}
-
 function copyToClipboard(value: string, label: string, feedback: DashboardFeedback) {
   void copyTextToClipboard(value)
     .then(() => feedback.showSuccess(`${label}已复制`))
     .catch((error: unknown) =>
       feedback.showError(`复制${label}失败：${messageFromApiError(error)}`, { title: "复制失败" }),
     );
-}
-
-function PathBlock({
-  feedback,
-  label,
-  value,
-}: {
-  feedback: DashboardFeedback;
-  label: string;
-  value?: string | null;
-}) {
-  if (!value) {
-    return null;
-  }
-  return (
-    <div className="settings-runtime-path-item">
-      <div className="settings-runtime-path-label">{label}</div>
-      <code>{value}</code>
-      <div className="settings-runtime-path-action">
-        <button
-          aria-label={`复制 ${label}`}
-          className="settings-runtime-copy-button"
-          type="button"
-          onClick={() => copyToClipboard(value, label, feedback)}
-        >
-          <Copy size={14} />
-          复制
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function StatusError({ text }: { text: string }) {
