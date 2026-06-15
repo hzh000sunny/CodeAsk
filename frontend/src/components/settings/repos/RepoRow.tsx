@@ -1,12 +1,20 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { FolderGit2, GitBranch, Pencil, RefreshCw, Trash2 } from "lucide-react";
 
-import type { RepoOut } from "../../../types/api";
+import type { RepoOut, RepoStatus } from "../../../types/api";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import type { RepoSource, RepoUpdatePayload } from "../settings-types";
+
+// 与特性页关联仓库（ReposPanel）共用的状态文案/色键，保持两处仓库状态一致。
+const REPO_STATUS: Record<RepoStatus, { key: string; label: string }> = {
+  ready: { key: "ready", label: "就绪" },
+  cloning: { key: "cloning", label: "克隆中" },
+  registered: { key: "pending", label: "待同步" },
+  failed: { key: "failed", label: "同步失败" },
+};
 
 export function RepoRow({
   deleting,
@@ -50,28 +58,36 @@ export function RepoRow({
     <li data-editing={editing ? "true" : undefined}>
       {editing ? (
         <form className="inline-form repo-edit-form" onSubmit={submit}>
-          <label className="field-label compact repo-edit-field">
-            编辑仓库名称
-            <Input
-              onChange={(event) => setName(event.target.value)}
-              value={name}
-            />
-          </label>
-          <label className="field-label compact repo-edit-field">
-            编辑仓库类型
-            <select
-              className="input"
-              onChange={(event) => setSource(event.target.value as RepoSource)}
-              value={source}
-            >
-              <option value="local_dir">本地目录</option>
-              <option value="git">Git URL</option>
-            </select>
-          </label>
+          <div className="form-row">
+            <label className="field-label compact repo-edit-field">
+              编辑仓库名称
+              <Input
+                onChange={(event) => setName(event.target.value)}
+                value={name}
+              />
+            </label>
+            <label className="field-label compact repo-edit-field">
+              编辑仓库类型
+              <select
+                className="input"
+                onChange={(event) => setSource(event.target.value as RepoSource)}
+                value={source}
+              >
+                <option value="local_dir">本地目录</option>
+                <option value="git">Git URL</option>
+              </select>
+            </label>
+          </div>
           <label className="field-label compact repo-edit-field repo-location-field">
             {locationLabel}
             <Input
+              className="console-mono"
               onChange={(event) => setLocation(event.target.value)}
+              placeholder={
+                source === "local_dir"
+                  ? "/绝对路径/到/本地仓库"
+                  : "https://github.com/org/repo.git"
+              }
               value={location}
             />
           </label>
@@ -95,12 +111,27 @@ export function RepoRow({
         </form>
       ) : (
         <>
-          <div className="config-summary">
-            <span>{repo.name}</span>
-            <small>{repo.source === "git" ? repo.url : repo.local_path}</small>
-          </div>
+          <span className="console-repo-cell">
+            <span aria-hidden="true" className="console-repo-glyph">
+              {repo.source === "git" ? (
+                <GitBranch size={16} />
+              ) : (
+                <FolderGit2 size={16} />
+              )}
+            </span>
+            <span className="config-summary">
+              <span>{repo.name}</span>
+              <small className="console-mono">
+                {repo.source === "git" ? repo.url : repo.local_path}
+              </small>
+            </span>
+          </span>
           <div className="row-actions">
-            <Badge>{repo.status}</Badge>
+            <Badge
+              className={`repo-status-chip is-${REPO_STATUS[repo.status].key}`}
+            >
+              {REPO_STATUS[repo.status].label}
+            </Badge>
             <Button
               aria-label={`编辑仓库 ${repo.name}`}
               disabled={updating}

@@ -8597,6 +8597,31 @@ select.input {
   padding: 13px 0;
 }
 
+/* 仓库行：来源 glyph + 名称/路径 元信息（与特性页关联仓库同语汇） */
+.console-repo-cell {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.console-repo-glyph {
+  display: inline-flex;
+  flex: none;
+  color: #98a2b3;
+}
+
+/* repo-status-chip 基样脱离 .repos-tab-content 作用域，供 admin 仓库管理复用
+   （点 ::before 与 .is-* 颜色本就是全局规则） */
+.repo-status-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
 .console-stat-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

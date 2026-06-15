@@ -102,7 +102,7 @@ export function RepoManager() {
           <p>暂无仓库</p>
         </div>
       ) : (
-        <ul className="data-list settings-config-list">
+        <ul className="data-list settings-config-list console-config-list">
           {repos.map((repo) => (
             <RepoRow
               key={repo.id}
