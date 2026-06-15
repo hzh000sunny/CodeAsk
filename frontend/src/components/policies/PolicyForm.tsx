@@ -75,6 +75,7 @@ export function PolicyForm({
         <label className="field-label compact">
           优先级
           <Input
+            className="console-mono"
             min="0"
             onChange={(event) => onPriorityChange(event.target.value)}
             type="number"

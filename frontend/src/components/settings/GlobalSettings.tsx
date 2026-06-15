@@ -81,12 +81,15 @@ export function AdminRepoSettings() {
 }
 
 export function AdminPolicySettings() {
+  // 仅给设置页的策略管理套 console-stack 入场动效；特性页的同款组件不受影响。
   return (
-    <AnalysisPolicyManager
-      description="全局策略会注入 Agent 上下文，约束问题定位、代码调查和最终回答。"
-      scope="global"
-      title="全局分析策略"
-    />
+    <div className="console-stack">
+      <AnalysisPolicyManager
+        description="全局策略会注入 Agent 上下文，约束问题定位、代码调查和最终回答。"
+        scope="global"
+        title="全局分析策略"
+      />
+    </div>
   );
 }
 

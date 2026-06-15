@@ -53,7 +53,9 @@ export function PolicyRow({
           <span>{policy.name}</span>
           <div className="policy-meta-row">
             <span className="stage-chip">{stageLabel(policy.stage)}</span>
-            <span className="policy-priority">优先级 {policy.priority}</span>
+            <span className="policy-priority">
+              优先级 <span className="console-mono">{policy.priority}</span>
+            </span>
           </div>
         </div>
         <p className="policy-prompt-preview">{promptPreview}</p>
