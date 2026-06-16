@@ -211,7 +211,48 @@ async def test_openviking_keepalive_emits_health_failed_event_when_wrapper_is_un
         "port": 1933,
         "reason": "keepalive",
         "error": "All connection attempts failed",
+        "error_code": None,
+        "log_tail": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_openviking_keepalive_emits_error_event_with_log_tail_on_crash_loop(
+    db_factory,
+) -> None:
+    class CrashLoopManager:
+        def ensure_server(self) -> FakeHandle:
+            return FakeHandle(pid=300)
+
+        def describe(self) -> dict[str, object]:
+            return {
+                "running": True,
+                "available": False,
+                "port": 1933,
+                "pid": 300,
+                "last_error": "OpenViking 反复启动失败（连续 3 次）",
+                "last_error_code": "openviking_crash_loop",
+                "log_tail": "ERROR: failed to download local embedding model bge-small-zh-v1.5-f16",
+            }
+
+    state: dict[str, object | None] = {"pid": None, "healthy": None}
+
+    _ensure_openviking_server(
+        structlog.get_logger("test"),
+        CrashLoopManager(),
+        reason="keepalive",
+        handle_state=state,
+        session_factory=db_factory,
+    )
+    await asyncio.sleep(0.05)
+
+    async with db_factory() as session:
+        event = (await session.execute(select(OpenVikingDashboardEvent))).scalar_one()
+    assert event.event_type == "openviking_health_failed"
+    assert event.outcome == "error"
+    assert event.payload is not None
+    assert event.payload["error_code"] == "openviking_crash_loop"
+    assert "failed to download local embedding model" in str(event.payload["log_tail"])
 
 
 @pytest.mark.asyncio

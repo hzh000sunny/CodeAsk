@@ -619,15 +619,18 @@ def _ensure_openviking_server(
             error_code=last_error_code,
         )
         if session_factory is not None and should_alert:
+            log_tail = status.get("log_tail")
             _emit_dashboard_event_sync(
                 session_factory,
                 event_type="openviking_health_failed",
-                outcome="warning",
+                outcome="error" if last_error_code == "openviking_crash_loop" else "warning",
                 payload={
                     "pid": handle.pid,
                     "port": handle.port,
                     "reason": reason,
                     "error": last_error,
+                    "error_code": last_error_code or None,
+                    "log_tail": log_tail if isinstance(log_tail, str) else None,
                 },
             )
         return

@@ -477,6 +477,34 @@ def _embedding_to_dict(setting: OpenVikingEmbeddingSetting) -> dict[str, Any]:
         "previous_setting_id": setting.previous_setting_id,
         "rebuild_status": setting.rebuild_status,
         "rebuild_progress": setting.rebuild_progress,
+        "local_model_cache_dir": _local_model_cache_dir(),
+        "local_cache": _local_cache_status(setting),
+    }
+
+
+def _local_model_cache_dir() -> str:
+    """Directory where local GGUF models are cached, resolved from OpenViking's
+    default so the hint reflects reality instead of a hardcoded guess."""
+    try:
+        module = cast(Any, import_module("openviking.models.embedder.local_embedders"))
+        return str(Path(module.DEFAULT_LOCAL_MODEL_CACHE_DIR).expanduser())
+    except Exception:
+        return str(Path("~/.cache/openviking/models").expanduser())
+
+
+def _local_cache_status(setting: OpenVikingEmbeddingSetting) -> dict[str, Any] | None:
+    if setting.provider != "local":
+        return None
+    try:
+        module = cast(Any, import_module("openviking.models.embedder.local_embedders"))
+        cache_path = Path(module.get_local_model_cache_path(setting.model))
+    except Exception:
+        return None
+    cached = cache_path.exists()
+    return {
+        "model_cached": cached,
+        "will_download_on_start": not cached,
+        "cache_path": str(cache_path),
     }
 
 

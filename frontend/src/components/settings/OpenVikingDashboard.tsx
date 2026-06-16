@@ -563,6 +563,10 @@ function OpenVikingStatusBand({
 
       {error ? <StatusError text={error} /> : null}
 
+      {!healthy && status && (status.last_error || status.log_tail) ? (
+        <OpenVikingFailureBanner status={status} />
+      ) : null}
+
       {phaseActive ? (
         <div className="ov-hero-progress" data-indeterminate={indeterminate ? "true" : "false"}>
           <div className="ov-hero-progress-track">
@@ -641,7 +645,6 @@ function OpenVikingStatusBand({
               <PathRow feedback={feedback} label="工作目录" value={status.workspace_path} />
               <PathRow feedback={feedback} label="日志文件" value={status.log_file} />
             </div>
-            {status.last_error ? <StatusError text={status.last_error} /> : null}
             {status.health?.error ? <StatusError text={status.health.error} /> : null}
             {status.ollama?.error ? <StatusError text={status.ollama.error} /> : null}
           </div>
@@ -1025,6 +1028,14 @@ function OpenVikingEmbeddingCard({
                   <ReadonlyField label="维度" value={form.dimension} />
                   <p className="settings-openviking-muted settings-openviking-field-note">
                     内置 GGUF 模型，无需 Ollama；缓存缺失时首次启动会自动下载。
+                    {embedding.local_model_cache_dir ? (
+                      <>
+                        <br />
+                        缓存目录：
+                        <span className="console-mono">{embedding.local_model_cache_dir}</span>
+                        <span>，模型文件按配置存放于此。</span>
+                      </>
+                    ) : null}
                   </p>
                 </>
               ) : null}
@@ -3142,6 +3153,35 @@ function StatusError({ text }: { text: string }) {
     <div className="settings-status-error" role="alert">
       <AlertTriangle aria-hidden="true" size={16} />
       <span>{text}</span>
+    </div>
+  );
+}
+
+function OpenVikingFailureBanner({ status }: { status: OpenVikingStatusResponse }) {
+  const crashLoop = status.last_error_code === "openviking_crash_loop";
+  const headline =
+    status.last_error ?? (crashLoop ? "OpenViking 反复启动失败" : "OpenViking 未能正常运行");
+  return (
+    <div className="ov-failure-banner" data-tone={crashLoop ? "error" : "warning"} role="alert">
+      <div className="ov-failure-head">
+        <AlertTriangle aria-hidden="true" size={16} />
+        <div className="ov-failure-text">
+          <strong>{headline}</strong>
+          <small>
+            语义检索不可用，Wiki 搜索已回退到 SQL。
+            {status.log_file ? ` 完整日志见 ${status.log_file}` : ""}
+          </small>
+        </div>
+      </div>
+      {status.log_tail ? (
+        <details className="ov-failure-log">
+          <summary>
+            <span>查看启动日志（末尾）</span>
+            <ChevronDown aria-hidden="true" size={14} />
+          </summary>
+          <pre className="ov-log-tail console-mono">{status.log_tail}</pre>
+        </details>
+      ) : null}
     </div>
   );
 }

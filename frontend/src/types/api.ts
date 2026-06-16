@@ -231,6 +231,8 @@ export interface OpenVikingStatusResponse {
   verified_version?: string | null;
   last_error?: string | null;
   last_error_code?: string | null;
+  consecutive_failures?: number | null;
+  log_tail?: string | null;
   config_file?: string | null;
   workspace_path?: string | null;
   log_file?: string | null;
@@ -400,6 +402,7 @@ export interface OpenVikingEmbeddingResponse {
   api_key_configured: boolean;
   api_key_masked: string | null;
   local_cache: OpenVikingLocalCacheStatus | null;
+  local_model_cache_dir?: string | null;
   rebuild_status: string;
   rebuild_progress: unknown | null;
 }

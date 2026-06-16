@@ -84,6 +84,11 @@ class OpenVikingProcessManager:
         self._lock = RLock()
         self._last_error: str | None = None
         self._last_error_code: str | None = None
+        # Sticky reason for the most recent abnormal exit: survives the keepalive
+        # relaunch loop so the actual failure (e.g. model download error) stays
+        # observable instead of being masked by the next "starting up" probe.
+        self._last_failure_log: str | None = None
+        self._consecutive_failures = 0
         self._version: str | None = None
         self._installed_version: str | None = None
         self._installed_version_resolved = False
@@ -110,8 +115,11 @@ class OpenVikingProcessManager:
                 self._available = False
                 self._last_error_code = "openviking_health_failed"
             if self._process is not None and self._process.poll() is not None:
+                exit_code = self._process.poll()
                 self._available = False
-                self._last_error = f"OpenViking process exited with code {self._process.poll()}"
+                self._consecutive_failures += 1
+                self._last_failure_log = self._read_log_tail()
+                self._last_error = f"OpenViking process exited with code {exit_code}"
                 self._last_error_code = "openviking_process_exited"
                 self._process = None
                 self._handle = None
@@ -206,9 +214,15 @@ class OpenVikingProcessManager:
                     )
                     handle_pid = resolved_pid
             installed_version = self._resolve_installed_version()
+            available = running and self._available
+            last_error, last_error_code = self._effective_error(available)
+            # The log tail is the single source of truth for *why* a start failed
+            # (model download, port conflict, bad config, OOM …). Expose it whenever
+            # the server is not healthy so callers don't have to grep the log file.
+            log_tail = None if available else (self._last_failure_log or self._read_log_tail())
             return {
                 "running": running,
-                "available": running and self._available,
+                "available": available,
                 "base_url": self._handle.base_url if self._handle else None,
                 "port": self._port,
                 "pid": handle_pid,
@@ -219,15 +233,47 @@ class OpenVikingProcessManager:
                 "supported_version_range": ">=0.3.22,<0.4",
                 "configured_bin": self._openviking_bin,
                 "resolved_bin": shutil.which(self._openviking_bin),
-                "last_error": self._last_error,
-                "last_error_code": self._last_error_code,
+                "last_error": last_error,
+                "last_error_code": last_error_code,
+                "consecutive_failures": self._consecutive_failures,
+                "log_tail": log_tail,
                 "config_file": str(self._runtime_config.config_path),
                 "workspace_path": str(self._runtime_config.workspace_dir),
                 "log_file": str(self._server_log_path()),
             }
 
+    def _effective_error(self, available: bool) -> tuple[str | None, str | None]:
+        if available:
+            return None, None
+        # A process that keeps exiting gets relaunched within the same locked call,
+        # so the live last_error flaps to "starting up". Prefer the sticky crash-loop
+        # signal so the real failure stays visible across restarts.
+        if self._consecutive_failures >= 2 and self._last_failure_log:
+            return (
+                f"OpenViking 反复启动失败（连续 {self._consecutive_failures} 次），"
+                "请查看下方日志定位原因。",
+                "openviking_crash_loop",
+            )
+        return self._last_error, self._last_error_code
+
     def _server_log_path(self) -> Path:
         return self._runtime_config.log_dir / "openviking-server.log"
+
+    def _read_log_tail(self, *, max_bytes: int = 16384, max_lines: int = 40) -> str | None:
+        path = self._server_log_path()
+        try:
+            size = path.stat().st_size
+            with path.open("rb") as handle:
+                if size > max_bytes:
+                    handle.seek(size - max_bytes)
+                raw = handle.read()
+        except OSError:
+            return None
+        text = raw.decode("utf-8", errors="replace").strip()
+        if not text:
+            return None
+        lines = text.splitlines()
+        return "\n".join(lines[-max_lines:])
 
     def _refresh_health(self, handle: OpenVikingServerHandle) -> None:
         health = self._health_probe(handle.base_url, self._health_timeout_seconds)
@@ -235,6 +281,8 @@ class OpenVikingProcessManager:
             self._available = True
             self._last_error = None
             self._last_error_code = None
+            self._last_failure_log = None
+            self._consecutive_failures = 0
             if health.version:
                 self._version = health.version
             return

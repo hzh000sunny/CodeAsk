@@ -1394,6 +1394,24 @@ async def test_openviking_embedding_switch_encrypts_secrets(client, app) -> None
 
 
 @pytest.mark.asyncio
+async def test_openviking_embedding_exposes_local_gguf_cache_dir(client, app) -> None:
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+
+    response = await client.get("/api/admin/openviking/embedding")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # Default embedding is the built-in local GGUF model.
+    assert body["provider"] == "local"
+    assert body["local_model_cache_dir"]
+    assert body["local_model_cache_dir"].endswith("openviking/models")
+    assert body["local_cache"] is not None
+    assert body["local_cache"]["cache_path"].endswith(".gguf")
+    assert isinstance(body["local_cache"]["model_cached"], bool)
+
+
+@pytest.mark.asyncio
 async def test_openviking_embedding_reuses_saved_secret_after_switching_away(client, app) -> None:
     app.state.openviking_process_manager = FakeProcessManager()
     app.state.openviking_client = FakeOpenVikingClient()

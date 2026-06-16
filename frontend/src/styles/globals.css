@@ -4850,6 +4850,97 @@ select.input {
   margin-top: 12px;
 }
 
+/* 起不来时把真正的原因抬到状态带顶部，不再藏进折叠诊断里 */
+.ov-failure-banner {
+  position: relative;
+  z-index: 1;
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--err-border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--err-bg);
+}
+
+.ov-failure-banner[data-tone="warning"] {
+  --err-border: #fed7aa;
+  --err-bg: #fffbf5;
+  --err-text: #b54708;
+}
+
+.ov-failure-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.ov-failure-head > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--err-text);
+}
+
+.ov-failure-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ov-failure-text strong {
+  color: var(--err-text);
+  font-size: 13.5px;
+  font-weight: 680;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.ov-failure-text small {
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.ov-failure-log > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--err-text);
+  font-size: 12px;
+  font-weight: 640;
+}
+
+.ov-failure-log > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ov-failure-log > summary svg {
+  transition: transform 0.2s ease;
+}
+
+.ov-failure-log[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.ov-log-tail {
+  margin: 8px 0 0;
+  max-height: 280px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  color: #344054;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* 状态带指标分两组：服务身份 / 运行指标，各自成行，行整齐 */
 .ov-metric-groups {
   position: relative;
@@ -5098,11 +5189,27 @@ select.input {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
+/* 自绘箭头并留出右侧间距，避免原生箭头贴右边框（与 select.input 同款） */
+.settings-openviking-field select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23667085' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+}
+
 .settings-openviking-field input:focus,
 .settings-openviking-field select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+/* Provider 下拉收到合适宽度，不再撑满整张卡片 */
+.settings-openviking-model-form > .settings-openviking-field select {
+  max-width: 240px;
 }
 
 .settings-openviking-muted {
@@ -5466,7 +5573,8 @@ select.input {
 
 .settings-openviking-filter-row {
   display: grid;
-  grid-template-columns: minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(180px, 1.4fr);
+  grid-template-columns: 140px 140px 210px;
+  justify-content: start;
   gap: 10px;
   margin-top: 12px;
 }

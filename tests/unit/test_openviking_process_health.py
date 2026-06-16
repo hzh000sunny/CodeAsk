@@ -219,6 +219,110 @@ def test_process_manager_restarts_stale_unhealthy_wrapper(tmp_path: Path) -> Non
     assert manager.describe()["last_error_code"] == "openviking_health_failed"
 
 
+def test_process_manager_surfaces_log_tail_and_crash_loop_on_repeated_exit(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "openviking" / "logs" / "openviking-server.log"
+
+    class FakeExitedProcess:
+        pid = 4242
+
+        def poll(self) -> int | None:
+            return 1
+
+        def terminate(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 1
+
+    def fake_popen(_cmd: object, _env: object) -> FakeExitedProcess:
+        # Simulate the server writing its real failure reason before crashing.
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write("ERROR: failed to download local embedding model bge-small-zh-v1.5-f16\n")
+        return FakeExitedProcess()
+
+    manager = OpenVikingProcessManager(
+        data_dir=tmp_path,
+        port=1933,
+        popen_factory=fake_popen,
+        health_probe=lambda _base_url, _timeout: OpenVikingHealthStatus(
+            healthy=False,
+            version=None,
+            error="connection refused",
+        ),
+        startup_grace_seconds=0,
+    )
+
+    # Three ensures: launch → detect exit #1 + relaunch → detect exit #2 + relaunch.
+    manager.ensure_server()
+    manager.ensure_server()
+    status = manager.ensure_server() and manager.describe()
+    assert isinstance(status, dict)
+
+    assert status["available"] is False
+    assert status["consecutive_failures"] >= 2
+    assert status["last_error_code"] == "openviking_crash_loop"
+    assert "failed to download local embedding model" in str(status["log_tail"])
+
+
+def test_process_manager_clears_failure_state_after_recovery(tmp_path: Path) -> None:
+    log_path = tmp_path / "openviking" / "logs" / "openviking-server.log"
+    alive = [False]
+
+    class FakeProcess:
+        _next_pid = 5000
+
+        def __init__(self, exited: bool) -> None:
+            self.pid = FakeProcess._next_pid
+            FakeProcess._next_pid += 1
+            self._exited = exited
+
+        def poll(self) -> int | None:
+            return 1 if self._exited else None
+
+        def terminate(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 1
+
+    def fake_popen(_cmd: object, _env: object) -> FakeProcess:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("ERROR: model download failed\n", encoding="utf-8")
+        # Once recovered, the launched process stays alive so the probe can pass.
+        return FakeProcess(exited=not alive[0])
+
+    def fake_health_probe(_base_url: str, _timeout: float) -> OpenVikingHealthStatus:
+        if alive[0]:
+            return OpenVikingHealthStatus(healthy=True, version="0.3.22", error=None)
+        return OpenVikingHealthStatus(healthy=False, version=None, error="connection refused")
+
+    manager = OpenVikingProcessManager(
+        data_dir=tmp_path,
+        port=1933,
+        popen_factory=fake_popen,
+        health_probe=fake_health_probe,
+        startup_grace_seconds=0,
+    )
+
+    manager.ensure_server()
+    failed = manager.ensure_server() and manager.describe()
+    assert isinstance(failed, dict)
+    assert failed["consecutive_failures"] >= 1
+    assert failed["log_tail"] is not None
+
+    # Next launch comes up healthy → sticky failure state must be cleared.
+    alive[0] = True
+    manager.ensure_server()
+    recovered = manager.describe()
+    assert recovered["available"] is True
+    assert recovered["consecutive_failures"] == 0
+    assert recovered["last_error"] is None
+    assert recovered["log_tail"] is None
+
+
 def test_process_manager_regenerates_ov_conf_with_updated_runtime_config(tmp_path: Path) -> None:
     manager = OpenVikingProcessManager(data_dir=tmp_path, port=1933)
     config = OpenVikingRuntimeConfig(
