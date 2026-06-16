@@ -5,6 +5,7 @@ import httpx
 import pytest
 from sqlalchemy import func, select
 
+from codeask.crypto import Crypto
 from codeask.db.models import AuditLog, Feature, Report, WikiDocument, WikiNode, WikiSpace
 from codeask.rag.openviking.metrics import OpenVikingMetricsRecorder
 from codeask.rag.openviking.models import (
@@ -1390,6 +1391,106 @@ async def test_openviking_embedding_switch_encrypts_secrets(client, app) -> None
     assert str(setting.extra).find("ak-secret-value") == -1
     assert str(setting.extra).find("sk-secret-value") == -1
     assert setting.extra["region"] == "cn-beijing"
+
+
+@pytest.mark.asyncio
+async def test_openviking_embedding_reuses_saved_secret_after_switching_away(client, app) -> None:
+    app.state.openviking_process_manager = FakeProcessManager()
+    app.state.openviking_client = FakeOpenVikingClient()
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+
+    # 1. Configure OpenAI with a real key (validation requires it without api_base).
+    first = await client.post(
+        "/api/admin/openviking/embedding",
+        json={
+            "provider": "openai",
+            "model": "text-embedding-3-small",
+            "dimension": 1536,
+            "api_key": "sk-secret-123",
+        },
+    )
+    assert first.status_code == 202, first.text
+    assert first.json()["api_key_configured"] is True
+
+    # 2. Switch back to the built-in local model (no key).
+    local = await client.post(
+        "/api/admin/openviking/embedding",
+        json={"provider": "local", "model": "bge-small-zh-v1.5-f16", "dimension": 512},
+    )
+    assert local.status_code == 202, local.text
+
+    # 3. Re-select OpenAI leaving the key blank — the previously-saved key must be
+    #    carried forward instead of being dropped and rejected by validation.
+    again = await client.post(
+        "/api/admin/openviking/embedding",
+        json={"provider": "openai", "model": "text-embedding-3-small", "dimension": 1536},
+    )
+    assert again.status_code == 202, again.text
+    assert again.json()["api_key_configured"] is True
+
+    crypto = Crypto(app.state.settings.data_key)
+    async with app.state.session_factory() as session:
+        setting = (
+            await session.execute(
+                select(OpenVikingEmbeddingSetting)
+                .order_by(OpenVikingEmbeddingSetting.id.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+    assert setting.provider == "openai"
+    assert setting.api_key_encrypted
+    assert crypto.decrypt(setting.api_key_encrypted) == "sk-secret-123"
+
+    # Candidates expose the saved-secret hint the form uses for "留空复用".
+    candidates = await client.get("/api/admin/openviking/embedding/candidates")
+    assert candidates.status_code == 200, candidates.text
+    assert {"provider": "openai", "base_url": ""} in candidates.json()["configured_secrets"]
+
+
+@pytest.mark.asyncio
+async def test_openviking_embedding_switch_rejects_missing_secret_without_history(
+    client, app
+) -> None:
+    app.state.openviking_process_manager = FakeProcessManager()
+    app.state.openviking_client = FakeOpenVikingClient()
+    login = await client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+
+    response = await client.post(
+        "/api/admin/openviking/embedding",
+        json={"provider": "openai", "model": "text-embedding-3-small", "dimension": 1536},
+    )
+
+    assert response.status_code == 400, response.text
+
+
+@pytest.mark.asyncio
+async def test_runtime_config_from_active_settings_keeps_non_local_embedding(app) -> None:
+    # Startup seeds ov.conf from this; a configured non-local embedding must survive
+    # a restart/upgrade instead of being silently reset to the default local model.
+    from codeask.api.openviking_admin import runtime_config_from_active_settings
+    from codeask.app import _StateRequest
+    from codeask.rag.openviking.config import build_ov_conf
+
+    async with app.state.session_factory() as session:
+        session.add(
+            OpenVikingEmbeddingSetting(
+                provider="ollama",
+                base_url="http://127.0.0.1:11434",
+                model="bge-m3",
+                dimension=1024,
+                max_concurrent=1,
+                activated_at=_now(),
+                rebuild_status="completed",
+            )
+        )
+        await session.commit()
+
+    config = await runtime_config_from_active_settings(_StateRequest(app))  # type: ignore[arg-type]
+    dense = build_ov_conf(config)["embedding"]["dense"]
+    assert dense["provider"] == "ollama"
+    assert dense["model"] == "bge-m3"
 
 
 @pytest.mark.asyncio

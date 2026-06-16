@@ -52,7 +52,10 @@ from codeask.api.opencode_admin import load_opencode_tool_permissions
 from codeask.api.opencode_admin import router as opencode_admin_router
 from codeask.api.opencode_mcp import router as opencode_mcp_router
 from codeask.api.opencode_status import router as opencode_status_router
-from codeask.api.openviking_admin import ensure_default_embedding_setting
+from codeask.api.openviking_admin import (
+    ensure_default_embedding_setting,
+    runtime_config_from_active_settings,
+)
 from codeask.api.openviking_admin import router as openviking_admin_router
 from codeask.api.openviking_status import router as openviking_status_router
 from codeask.api.openviking_tuning import ensure_default_tuning_settings
@@ -297,6 +300,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "healthy_pid": None,
             }
             ollama_health_state: dict[str, bool | None] = {"healthy": None}
+            # Seed the runtime config from the active embedding/VLM/tuning settings
+            # before first boot. Otherwise ensure_server() writes a default `local`
+            # ov.conf and silently overwrites a configured non-local embedding on
+            # every restart/upgrade.
+            try:
+                openviking_process_manager.regenerate_ov_conf(
+                    await runtime_config_from_active_settings(cast(Request, _StateRequest(app)))
+                )
+            except Exception:
+                log.exception("openviking_runtime_config_seed_failed", reason="startup")
             _ensure_openviking_server(
                 log,
                 openviking_process_manager,

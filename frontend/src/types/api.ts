@@ -411,8 +411,14 @@ export interface OpenVikingEmbeddingCandidate {
   source: string;
 }
 
+export interface OpenVikingEmbeddingSecretRef {
+  provider: string;
+  base_url: string;
+}
+
 export interface OpenVikingEmbeddingCandidatesResponse {
   items: OpenVikingEmbeddingCandidate[];
+  configured_secrets?: OpenVikingEmbeddingSecretRef[];
   providers?: string[];
   ollama: {
     base_url?: string;

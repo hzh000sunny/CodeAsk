@@ -45,6 +45,7 @@ import type {
   OpenVikingEmbeddingApplyRequest,
   OpenVikingEmbeddingCandidate,
   OpenVikingEmbeddingResponse,
+  OpenVikingEmbeddingSecretRef,
   OpenVikingStatusResponse,
   OpenVikingSyncJob,
   OpenVikingTuningApplyResponse,
@@ -370,6 +371,7 @@ export function OpenVikingDashboard() {
         <OpenVikingEmbeddingCard
           embedding={embeddingQuery.data}
           candidates={candidatesQuery.data?.items ?? []}
+          configuredSecrets={candidatesQuery.data?.configured_secrets ?? []}
           feedback={feedback}
           loading={embeddingQuery.isLoading}
           onRefresh={refresh}
@@ -795,6 +797,7 @@ function doctorTestToast(
 function OpenVikingEmbeddingCard({
   embedding,
   candidates,
+  configuredSecrets,
   feedback,
   loading,
   onRefresh,
@@ -802,6 +805,7 @@ function OpenVikingEmbeddingCard({
 }: {
   embedding?: OpenVikingEmbeddingResponse;
   candidates: OpenVikingEmbeddingCandidate[];
+  configuredSecrets: OpenVikingEmbeddingSecretRef[];
   feedback: DashboardFeedback;
   loading: boolean;
   onRefresh: () => void;
@@ -879,10 +883,17 @@ function OpenVikingEmbeddingCard({
   const providerUnchanged = embedding?.provider === provider;
   const ollamaModelOptions = candidates.filter((candidate) => candidate.provider === "ollama");
   const ollamaSuggestions = probedModels ?? ollamaModelOptions;
-  const apiKeyPlaceholder =
-    providerUnchanged && embedding?.api_key_configured
-      ? `${embedding.api_key_masked ?? "已配置"} · 留空保持不变`
-      : "sk-…";
+  const normalizedBaseUrl = form.base_url.trim().replace(/\/+$/, "");
+  // A saved credential exists for this provider + API base, so leaving the secret
+  // blank reuses it server-side — even after switching provider away and back.
+  const hasReusableSecret = configuredSecrets.some(
+    (ref) => ref.provider === provider && ref.base_url === normalizedBaseUrl,
+  );
+  const keepSecretHint =
+    (providerUnchanged && Boolean(embedding?.api_key_configured)) || hasReusableSecret;
+  const apiKeyPlaceholder = keepSecretHint ? "已配置 · 留空复用已保存的密钥" : "sk-…";
+  const vikingSecretPlaceholder = (label: string) =>
+    keepSecretHint ? "已配置 · 留空复用已保存的密钥" : label;
 
   function updateForm(patch: Partial<EmbeddingFormState>) {
     setForm((current) => ({ ...current, ...patch }));
@@ -1103,15 +1114,13 @@ function OpenVikingEmbeddingCard({
                   <SecretField
                     label="AK"
                     value={form.ak}
-                    placeholder={
-                      providerUnchanged && embedding.api_key_configured ? "已配置 · 留空保持不变" : "Access Key"
-                    }
+                    placeholder={vikingSecretPlaceholder("Access Key")}
                     onChange={(value) => updateForm({ ak: value })}
                   />
                   <SecretField
                     label="SK"
                     value={form.sk}
-                    placeholder="Secret Key"
+                    placeholder={vikingSecretPlaceholder("Secret Key")}
                     onChange={(value) => updateForm({ sk: value })}
                   />
                   <TextField

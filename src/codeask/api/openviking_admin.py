@@ -92,6 +92,7 @@ async def switch_openviking_embedding(
     request: Request,
 ) -> dict[str, Any]:
     require_admin(request)
+    payload = await _apply_carried_secrets(request, payload)
     await _validate_embedding_candidate(request, payload)
     previous = await ensure_default_embedding_setting(request)
     subject_id = str(request.state.subject_id)
@@ -178,6 +179,7 @@ async def list_openviking_embedding_candidates(
         }
     # Only fold in previously-used models for the default listing; a targeted probe
     # stays scoped to the host actually queried so stale hosts don't pollute it.
+    configured_secrets: list[dict[str, str]] = []
     if base_url is None:
         async with request.app.state.session_factory() as session:
             rows = (
@@ -192,6 +194,7 @@ async def list_openviking_embedding_candidates(
                 .scalars()
                 .all()
             )
+        seen_secret_keys: set[tuple[str, str]] = set()
         for row in rows:
             items.setdefault(
                 row.model,
@@ -202,8 +205,14 @@ async def list_openviking_embedding_candidates(
                     "source": "history",
                 },
             )
+            if row.api_key_encrypted or _extra_has_secret(row.extra):
+                key = (row.provider, _normalize_base_url(row.base_url))
+                if key not in seen_secret_keys:
+                    seen_secret_keys.add(key)
+                    configured_secrets.append({"provider": key[0], "base_url": key[1]})
     return {
         "items": list(items.values()),
+        "configured_secrets": configured_secrets,
         "providers": list(EMBEDDING_PROVIDER_OPTIONS),
         "ollama": {
             "base_url": probe_base_url,
@@ -271,6 +280,7 @@ async def test_openviking_embedding(
     request: Request,
 ) -> dict[str, Any]:
     require_admin(request)
+    payload = await _apply_carried_secrets(request, payload)
     await _validate_embedding_candidate(request, payload)
     vlm = await latest_vlm_setting(request)
     runtime_config = await _runtime_config_for_candidate(
@@ -622,6 +632,87 @@ def _redacted_extra(extra: Mapping[str, Any] | None) -> dict[str, Any] | None:
         key: ("***" if key in _SENSITIVE_EXTRA_KEYS and value else value)
         for key, value in extra.items()
     }
+
+
+def _normalize_base_url(base_url: str | None) -> str:
+    return (base_url or "").strip().rstrip("/")
+
+
+def _extra_has_secret(extra: Mapping[str, Any] | None) -> bool:
+    if not extra:
+        return False
+    return any(
+        key in _SENSITIVE_EXTRA_KEYS and isinstance(value, str) and value.strip()
+        for key, value in extra.items()
+    )
+
+
+async def _latest_secretful_embedding_setting(
+    request: Request,
+    *,
+    provider: str,
+    base_url: str | None,
+) -> OpenVikingEmbeddingSetting | None:
+    """Most recent prior setting that shares this provider + API base and that
+    actually stored a secret. Used to carry credentials forward when the admin
+    leaves the secret field blank (the "留空保持不变" promise)."""
+    target_base = _normalize_base_url(base_url)
+    async with request.app.state.session_factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(OpenVikingEmbeddingSetting)
+                    .where(OpenVikingEmbeddingSetting.provider == provider)
+                    .order_by(
+                        OpenVikingEmbeddingSetting.activated_at.desc(),
+                        OpenVikingEmbeddingSetting.id.desc(),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    for row in rows:
+        if _normalize_base_url(row.base_url) != target_base:
+            continue
+        if row.api_key_encrypted or _extra_has_secret(row.extra):
+            return row
+    return None
+
+
+async def _apply_carried_secrets(
+    request: Request,
+    payload: EmbeddingApplyRequest,
+) -> EmbeddingApplyRequest:
+    """Resolve blank secrets against the latest matching historical setting so a
+    previously-configured key keeps working after switching provider away and
+    back, instead of being silently dropped and rejected by validation."""
+    api_key = (payload.api_key or "").strip() or None
+    extra = {key: value for key, value in (payload.extra or {}).items() if value is not None}
+    missing_extra = {
+        key for key in _SENSITIVE_EXTRA_KEYS if not str(extra.get(key) or "").strip()
+    }
+    # ak/sk only matter for vikingdb; other providers never carry them, so don't
+    # let their always-"missing" extra secrets trigger a needless history lookup.
+    extra_secret_blank = bool(missing_extra) and payload.provider == "vikingdb"
+    if api_key is not None and not extra_secret_blank:
+        return payload
+    prior = await _latest_secretful_embedding_setting(
+        request,
+        provider=payload.provider,
+        base_url=payload.base_url,
+    )
+    if prior is None:
+        return payload
+    if api_key is None and prior.api_key_encrypted:
+        api_key = _decrypt_optional_secret(request, prior.api_key_encrypted)
+    if missing_extra and prior.extra:
+        prior_extra = _decrypt_extra(request, prior.extra) or {}
+        for key in missing_extra:
+            value = prior_extra.get(key)
+            if isinstance(value, str) and value.strip():
+                extra[key] = value
+    return payload.model_copy(update={"api_key": api_key, "extra": extra or None})
 
 
 def _embedding_runtime_from_payload(
