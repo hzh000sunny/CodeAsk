@@ -1,9 +1,7 @@
 import type { LLMConfigResponse, LLMConfigTestResponse } from "../types/api";
 import { apiRequest } from "./api-client";
 
-type LlmProtocol = "openai" | "openai_compatible" | "anthropic";
-type LlmOpenCodeProviderProfile =
-  string;
+type LlmConfigMode = "catalog" | "custom";
 type LlmReasoningProfile =
   | "none"
   | "request_patch"
@@ -15,14 +13,15 @@ type LlmReasoningProfile =
   | "custom_json";
 type LlmCreatePayload = {
   name: string;
-  protocol: LlmProtocol;
+  mode: LlmConfigMode;
+  provider_id: string;
   base_url?: string | null;
   api_key: string;
+  headers?: Record<string, string> | null;
   model_name: string;
   enabled?: boolean;
   reasoning_profile?: LlmReasoningProfile;
   reasoning_profile_json?: string | null;
-  agent_runtime_profile?: LlmOpenCodeProviderProfile;
   opencode_provider_status?: "unknown" | "ok" | "failed";
   opencode_provider_tested_at?: string | null;
   opencode_provider_error?: string | null;
@@ -42,21 +41,17 @@ export function listUserLlmConfigs() {
   return apiRequest<LLMConfigResponse[]>("/api/me/llm-configs");
 }
 
-export interface LlmRuntimeProfileResponse {
+export interface LlmProviderResponse {
   id: string;
-  label: string;
-  description: string;
+  name: string;
 }
 
-export interface LlmRuntimeProfilesResponse {
-  backend: string;
-  profiles: LlmRuntimeProfileResponse[];
+export interface LlmProvidersResponse {
+  providers: LlmProviderResponse[];
 }
 
-export function listLlmRuntimeProfiles(backend = "opencode") {
-  return apiRequest<LlmRuntimeProfilesResponse>(
-    `/api/llm-runtime-profiles?backend=${encodeURIComponent(backend)}`,
-  );
+export function listLlmProviders() {
+  return apiRequest<LlmProvidersResponse>("/api/llm-providers");
 }
 
 export function createUserLlmConfig(payload: LlmCreatePayload) {

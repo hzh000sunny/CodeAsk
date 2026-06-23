@@ -9162,6 +9162,97 @@ select.input {
   box-shadow: 0 1px 2px rgba(37, 99, 235, 0.3);
 }
 
+/* ---- LLM config form: mode toggle + field affordances ---- */
+.llm-mode-segmented {
+  width: max-content;
+}
+
+.field-hint {
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+
+.field-required {
+  color: var(--err-text);
+  margin-left: 2px;
+  font-weight: 700;
+}
+
+/* ---- headers key-value editor (hairline rows, no boxes) ---- */
+.kv-editor {
+  display: grid;
+  gap: 0;
+  margin-top: 2px;
+}
+
+.kv-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) 32px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.kv-row .input {
+  border: 0;
+  border-radius: 0;
+  padding-left: 0;
+  background: transparent;
+}
+
+.kv-row .input:focus {
+  box-shadow: inset 0 -1px 0 var(--accent);
+}
+
+.kv-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.kv-remove:hover {
+  color: var(--err-text);
+  background: var(--soft);
+}
+
+.kv-add {
+  margin-top: 8px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.kv-add:hover {
+  color: var(--accent);
+}
+
+.kv-readonly {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0 2px;
+}
+
 /* ---- Bash terminal allowlist ---- */
 
 .opencode-bash-row {

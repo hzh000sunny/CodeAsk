@@ -28,7 +28,7 @@ export interface RuntimeSessionState {
   configId: string | null;
   configName: string | null;
   modelName: string;
-  protocol: string | null;
+  providerId: string | null;
   scope: string | null;
   isGlobalPool: boolean;
   contextSizeChars: number;
@@ -179,7 +179,7 @@ export function runtimeStateFromEvent(
     configId: stringData(event, "config_id"),
     configName: stringData(event, "config_name"),
     modelName: stringData(event, "model_name") ?? "unknown",
-    protocol: stringData(event, "protocol"),
+    providerId: stringData(event, "provider_id"),
     scope: stringData(event, "scope"),
     isGlobalPool: booleanData(event, "is_global_pool"),
     contextSizeChars,
@@ -216,7 +216,7 @@ export function mergeRuntimeState(
       configId: incoming.configId ?? current.configId,
       configName: incoming.configName ?? current.configName,
       modelName: incoming.modelName === "unknown" ? current.modelName : incoming.modelName,
-      protocol: incoming.protocol ?? current.protocol,
+      providerId: incoming.providerId ?? current.providerId,
       scope: incoming.scope ?? current.scope,
       isGlobalPool: incoming.isGlobalPool || current.isGlobalPool,
     };

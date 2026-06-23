@@ -10,29 +10,43 @@ describe("guest llm config storage", () => {
   it("stores a sanitized browser-local LLM config", () => {
     setGuestLlmConfig({
       name: "  Local GLM  ",
-      protocol: "openai",
+      mode: "catalog",
+      provider_id: "  deepseek  ",
       base_url: "  http://localhost:8001/v1  ",
       api_key: "  sk-test  ",
+      headers: null,
       model_name: "  glm-test  ",
-      max_tokens: 4096,
-      temperature: 0.2,
       reasoning_profile: "none",
       reasoning_profile_json: "",
-      agent_runtime_profile: "openai-compatible",
     });
 
     expect(getGuestLlmConfig()).toEqual({
       name: "Local GLM",
-      protocol: "openai",
+      mode: "catalog",
+      provider_id: "deepseek",
       base_url: "http://localhost:8001/v1",
       api_key: "sk-test",
+      headers: null,
       model_name: "glm-test",
-      max_tokens: 4096,
-      temperature: 0.2,
       reasoning_profile: "none",
       reasoning_profile_json: null,
-      agent_runtime_profile: "openai-compatible",
     });
+  });
+
+  it("keeps custom-mode headers and drops blank-keyed entries", () => {
+    setGuestLlmConfig({
+      name: "gateway",
+      mode: "custom",
+      provider_id: "my-gateway",
+      base_url: "https://relay.example.test",
+      api_key: "sk",
+      headers: { Authorization: "Bearer x", "": "ignored" },
+      model_name: "model",
+      reasoning_profile: "none",
+      reasoning_profile_json: null,
+    });
+
+    expect(getGuestLlmConfig()?.headers).toEqual({ Authorization: "Bearer x" });
   });
 
   it("clears invalid or removed guest config", () => {
@@ -41,35 +55,17 @@ describe("guest llm config storage", () => {
 
     setGuestLlmConfig({
       name: "x",
-      protocol: "anthropic",
+      mode: "catalog",
+      provider_id: "anthropic",
       base_url: null,
       api_key: "sk",
+      headers: null,
       model_name: "claude",
-      max_tokens: 1024,
-      temperature: 0,
       reasoning_profile: "none",
       reasoning_profile_json: null,
-      agent_runtime_profile: "default",
     });
     clearGuestLlmConfig();
 
     expect(getGuestLlmConfig()).toBeNull();
-  });
-
-  it("migrates legacy opencode guest runtime profile to the generic field", () => {
-    localStorage.setItem(
-      "codeask.guest_llm_config",
-      JSON.stringify({
-        name: "legacy",
-        protocol: "openai",
-        api_key: "sk",
-        model_name: "model",
-        opencode_provider_profile: "openai-compatible",
-      }),
-    );
-
-    expect(getGuestLlmConfig()).toMatchObject({
-      agent_runtime_profile: "openai-compatible",
-    });
   });
 });

@@ -2,16 +2,7 @@ const SUBJECT_KEY = "codeask.subject_id";
 const NICKNAME_KEY = "codeask.nickname";
 const GUEST_LLM_CONFIG_KEY = "codeask.guest_llm_config";
 
-export type GuestLlmProtocol = "openai" | "anthropic";
-export type GuestAgentRuntimeProfile =
-  | "default"
-  | "openai-native"
-  | "openai-compatible"
-  | "anthropic-native"
-  | "anthropic-compatible-bearer"
-  | "anthropic-compatible-v1-bearer"
-  | "openrouter";
-export type GuestOpenCodeProviderProfile = GuestAgentRuntimeProfile;
+export type GuestLlmConfigMode = "catalog" | "custom";
 export type GuestLlmReasoningProfile =
   | "none"
   | "volcengine_thinking"
@@ -21,16 +12,14 @@ export type GuestLlmReasoningProfile =
 
 export interface GuestLlmConfig {
   name: string;
-  protocol: GuestLlmProtocol;
+  mode: GuestLlmConfigMode;
+  provider_id: string;
   base_url: string | null;
   api_key: string;
+  headers: Record<string, string> | null;
   model_name: string;
-  max_tokens: number;
-  temperature: number;
   reasoning_profile: GuestLlmReasoningProfile;
   reasoning_profile_json: string | null;
-  agent_runtime_profile: GuestAgentRuntimeProfile;
-  opencode_provider_profile?: GuestOpenCodeProviderProfile;
 }
 
 function createClientId() {
@@ -91,17 +80,14 @@ function sanitizeGuestLlmConfig(value: unknown): GuestLlmConfig {
   const data = value && typeof value === "object" ? (value as Partial<GuestLlmConfig>) : {};
   return {
     name: stringValue(data.name, "访客 LLM"),
-    protocol: protocolValue(data.protocol),
+    mode: data.mode === "custom" ? "custom" : "catalog",
+    provider_id: stringValue(data.provider_id, ""),
     base_url: nullableStringValue(data.base_url),
     api_key: stringValue(data.api_key, ""),
+    headers: headersValue(data.headers),
     model_name: stringValue(data.model_name, ""),
-    max_tokens: numberValue(data.max_tokens, 4096),
-    temperature: numberValue(data.temperature, 0),
     reasoning_profile: reasoningProfileValue(data.reasoning_profile),
     reasoning_profile_json: nullableStringValue(data.reasoning_profile_json),
-    agent_runtime_profile: agentRuntimeProfileValue(
-      data.agent_runtime_profile ?? data.opencode_provider_profile,
-    ),
   };
 }
 
@@ -113,12 +99,14 @@ function nullableStringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function numberValue(value: unknown, fallback: number) {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function protocolValue(value: unknown): GuestLlmProtocol {
-  return value === "anthropic" ? "anthropic" : "openai";
+function headersValue(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([key, val]) => key.trim() && typeof val === "string")
+    .map(([key, val]) => [key.trim(), val as string] as const);
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
 function reasoningProfileValue(value: unknown): GuestLlmReasoningProfile {
@@ -132,19 +120,4 @@ function reasoningProfileValue(value: unknown): GuestLlmReasoningProfile {
   return allowed.includes(value as GuestLlmReasoningProfile)
     ? (value as GuestLlmReasoningProfile)
     : "none";
-}
-
-function agentRuntimeProfileValue(value: unknown): GuestAgentRuntimeProfile {
-  const allowed: GuestAgentRuntimeProfile[] = [
-    "default",
-    "openai-native",
-    "openai-compatible",
-    "anthropic-native",
-    "anthropic-compatible-bearer",
-    "anthropic-compatible-v1-bearer",
-    "openrouter",
-  ];
-  return allowed.includes(value as GuestAgentRuntimeProfile)
-    ? (value as GuestAgentRuntimeProfile)
-    : "default";
 }

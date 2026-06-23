@@ -163,25 +163,21 @@ export interface LLMConfigResponse {
   name: string;
   scope: "global" | "user";
   owner_subject_id: string | null;
-  protocol: string;
+  mode: "catalog" | "custom";
+  provider_id: string;
   base_url: string | null;
   api_key_masked: string;
+  headers_masked: Record<string, string>;
   model_name: string;
-  max_tokens: number;
-  temperature: number;
   is_default: boolean;
   enabled: boolean;
-  rpm_limit: number | null;
-  quota_remaining: number | null;
   reasoning_profile: string;
   reasoning_profile_json: string | null;
   agent_runtime_backend: string;
-  agent_runtime_profile: string | null;
   agent_runtime_status: string;
   agent_runtime_tested_at: string | null;
   agent_runtime_error: string | null;
   agent_runtime_test_result_json: unknown | null;
-  opencode_provider_profile: string | null;
   opencode_provider_status: string;
   opencode_provider_tested_at: string | null;
   opencode_provider_error: string | null;
@@ -190,8 +186,8 @@ export interface LLMConfigResponse {
 
 export interface LLMConfigTestResponse {
   status: "ok" | "failed";
-  profile_id: string | null;
-  provider_npm: string | null;
+  provider_id: string | null;
+  model_id: string | null;
   text_preview: string | null;
   error: string | null;
   tested_at: string;

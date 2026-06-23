@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { KeyRound, Trash2 } from "lucide-react";
+import { KeyRound, Plus, Trash2, X } from "lucide-react";
 
 import {
   clearGuestLlmConfig,
@@ -10,25 +10,44 @@ import {
 import { useAppFeedback } from "../feedback/AppFeedback";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS } from "./settings-utils";
+import { sanitizeProviderSlug } from "./settings-utils";
 
 const DEFAULT_GUEST_LLM_CONFIG: GuestLlmConfigValue = {
   name: "访客 LLM",
-  protocol: "openai",
-  base_url: "",
+  mode: "catalog",
+  provider_id: "",
+  base_url: null,
   api_key: "",
+  headers: null,
   model_name: "",
-  max_tokens: 4096,
-  temperature: 0,
   reasoning_profile: "none",
   reasoning_profile_json: null,
-  agent_runtime_profile: "default",
 };
+
+interface HeaderRow {
+  key: string;
+  value: string;
+}
+
+function headersToRows(headers: Record<string, string> | null): HeaderRow[] {
+  return headers
+    ? Object.entries(headers).map(([key, value]) => ({ key, value }))
+    : [];
+}
+
+function rowsToHeaders(rows: HeaderRow[]): Record<string, string> | null {
+  const entries = rows
+    .map((row) => [row.key.trim(), row.value] as const)
+    .filter(([key]) => key);
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
 
 export function GuestLlmConfig() {
   const { showSuccess } = useAppFeedback();
-  const [config, setConfig] = useState<GuestLlmConfigValue>(
-    () => getGuestLlmConfig() ?? DEFAULT_GUEST_LLM_CONFIG,
+  const stored = getGuestLlmConfig() ?? DEFAULT_GUEST_LLM_CONFIG;
+  const [config, setConfig] = useState<GuestLlmConfigValue>(stored);
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>(
+    headersToRows(stored.headers),
   );
 
   function update<K extends keyof GuestLlmConfigValue>(
@@ -36,6 +55,21 @@ export function GuestLlmConfig() {
     value: GuestLlmConfigValue[K],
   ) {
     setConfig((current) => ({ ...current, [key]: value }));
+  }
+
+  function save() {
+    const mode = config.mode;
+    const providerId =
+      mode === "custom"
+        ? sanitizeProviderSlug(config.provider_id)
+        : config.provider_id.trim();
+    setGuestLlmConfig({
+      ...config,
+      provider_id: providerId,
+      base_url: config.base_url?.trim() || null,
+      headers: mode === "custom" ? rowsToHeaders(headerRows) : null,
+    });
+    showSuccess("访客 LLM 配置已保存");
   }
 
   return (
@@ -53,60 +87,67 @@ export function GuestLlmConfig() {
             value={config.name}
           />
         </label>
-        <label className="field-label compact" htmlFor="guest-llm-protocol">
-          协议
-          <select
-            className="input"
-            id="guest-llm-protocol"
-            onChange={(event) =>
-              update("protocol", event.target.value === "anthropic" ? "anthropic" : "openai")
-            }
-            value={config.protocol}
+        <div className="field-label compact">
+          provider 来源
+          <div
+            aria-label="provider 来源"
+            className="opencode-segmented llm-mode-segmented"
+            role="radiogroup"
           >
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-          </select>
+            <button
+              aria-checked={config.mode === "catalog"}
+              data-tone="whitelist"
+              onClick={() => update("mode", "catalog")}
+              role="radio"
+              type="button"
+            >
+              目录 provider
+            </button>
+            <button
+              aria-checked={config.mode === "custom"}
+              data-tone="whitelist"
+              onClick={() => update("mode", "custom")}
+              role="radio"
+              type="button"
+            >
+              自建网关
+            </button>
+          </div>
+        </div>
+        <label className="field-label compact" htmlFor="guest-llm-provider">
+          {config.mode === "custom" ? "provider 标识" : "provider"}
+          <Input
+            className="console-mono"
+            id="guest-llm-provider"
+            onChange={(event) => update("provider_id", event.target.value)}
+            placeholder={config.mode === "custom" ? "my-gateway" : "deepseek / openai …"}
+            value={config.provider_id}
+          />
+        </label>
+        <label className="field-label compact" htmlFor="guest-llm-model">
+          模型名称
+          <Input
+            className="console-mono"
+            id="guest-llm-model"
+            onChange={(event) => update("model_name", event.target.value)}
+            value={config.model_name}
+          />
         </label>
         <label className="field-label compact" htmlFor="guest-llm-base-url">
           Base URL
+          {config.mode === "custom" ? <span className="field-required">*</span> : null}
           <Input
+            className="console-mono"
             id="guest-llm-base-url"
             onChange={(event) => update("base_url", event.target.value)}
             placeholder="https://..."
             value={config.base_url ?? ""}
           />
         </label>
-        <label className="field-label compact" htmlFor="guest-llm-model">
-          模型名称
-          <Input
-            id="guest-llm-model"
-            onChange={(event) => update("model_name", event.target.value)}
-            value={config.model_name}
-          />
-        </label>
-        <label className="field-label compact" htmlFor="guest-opencode-provider">
-          Agent 适配方式
-          <select
-            className="input"
-            id="guest-opencode-provider"
-            onChange={(event) =>
-              update(
-                "agent_runtime_profile",
-                event.target.value as GuestLlmConfigValue["agent_runtime_profile"],
-              )
-            }
-            value={config.agent_runtime_profile ?? "default"}
-          >
-            {FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
         <label className="field-label compact" htmlFor="guest-llm-api-key">
           API Key
           <Input
+            className="console-mono"
             id="guest-llm-api-key"
             onChange={(event) => update("api_key", event.target.value)}
             type="password"
@@ -114,15 +155,57 @@ export function GuestLlmConfig() {
           />
         </label>
       </div>
+      {config.mode === "custom" ? (
+        <div className="field-label compact guest-llm-headers">
+          请求头
+          <div className="kv-editor">
+            {headerRows.map((row, index) => (
+              <div className="kv-row" key={index}>
+                <Input
+                  aria-label={`请求头 ${index + 1} 名称`}
+                  className="console-mono"
+                  onChange={(event) => {
+                    const next = [...headerRows];
+                    next[index] = { ...row, key: event.target.value };
+                    setHeaderRows(next);
+                  }}
+                  placeholder="Header"
+                  value={row.key}
+                />
+                <Input
+                  aria-label={`请求头 ${index + 1} 值`}
+                  className="console-mono"
+                  onChange={(event) => {
+                    const next = [...headerRows];
+                    next[index] = { ...row, value: event.target.value };
+                    setHeaderRows(next);
+                  }}
+                  placeholder="value"
+                  value={row.value}
+                />
+                <button
+                  aria-label={`删除请求头 ${index + 1}`}
+                  className="kv-remove"
+                  onClick={() => setHeaderRows(headerRows.filter((_, i) => i !== index))}
+                  type="button"
+                >
+                  <X aria-hidden="true" size={15} />
+                </button>
+              </div>
+            ))}
+            <button
+              className="kv-add"
+              onClick={() => setHeaderRows([...headerRows, { key: "", value: "" }])}
+              type="button"
+            >
+              <Plus aria-hidden="true" size={14} />
+              添加请求头
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="form-actions guest-llm-actions">
-        <Button
-          onClick={() => {
-            setGuestLlmConfig(config);
-            showSuccess("访客 LLM 配置已保存");
-          }}
-          type="button"
-          variant="primary"
-        >
+        <Button onClick={save} type="button" variant="primary">
           保存访客配置
         </Button>
         <Button
@@ -130,6 +213,7 @@ export function GuestLlmConfig() {
           onClick={() => {
             clearGuestLlmConfig();
             setConfig(DEFAULT_GUEST_LLM_CONFIG);
+            setHeaderRows([]);
             showSuccess("访客 LLM 配置已清除");
           }}
           type="button"

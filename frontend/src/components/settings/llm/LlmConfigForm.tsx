@@ -1,33 +1,46 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { FormEvent } from "react";
-import { AlertTriangle, Check, PlugZap } from "lucide-react";
+import { AlertTriangle, Check, PlugZap, Plus, X } from "lucide-react";
 
 import type { LLMConfigTestResponse } from "../../../types/api";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { SwitchControl } from "../SwitchControl";
 import type {
-  LlmOpenCodeProviderProfile,
-  LlmProtocol,
+  LlmConfigMode,
+  LlmHeaders,
+  LlmProviderOption,
   LlmReasoningProfile,
-  LlmRuntimeProfileOption,
 } from "../settings-types";
-import { FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS } from "../settings-utils";
+import { sanitizeProviderSlug } from "../settings-utils";
 
 export interface LlmCreatePayload {
   name: string;
-  protocol: LlmProtocol;
+  mode: LlmConfigMode;
+  provider_id: string;
   base_url: string | null;
   api_key: string;
+  headers: LlmHeaders | null;
   model_name: string;
   enabled: boolean;
   reasoning_profile: LlmReasoningProfile;
   reasoning_profile_json: string | null;
-  agent_runtime_profile: LlmOpenCodeProviderProfile;
   opencode_provider_status?: "unknown" | "ok" | "failed";
   opencode_provider_tested_at?: string | null;
   opencode_provider_error?: string | null;
   opencode_provider_test_result_json?: unknown | null;
+}
+
+interface HeaderRow {
+  key: string;
+  value: string;
+}
+
+function rowsToHeaders(rows: HeaderRow[]): LlmHeaders | null {
+  const entries = rows
+    .map((row) => [row.key.trim(), row.value] as const)
+    .filter(([key]) => key);
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
 export function LlmConfigForm({
@@ -35,24 +48,25 @@ export function LlmConfigForm({
   onCancel,
   onTest,
   onSubmit,
-  runtimeProfileOptions = FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS,
+  providerOptions = [],
   testing,
 }: {
   disabled: boolean;
   onCancel: () => void;
   onTest: (payload: LlmCreatePayload) => Promise<LLMConfigTestResponse>;
   onSubmit: (payload: LlmCreatePayload) => void;
-  runtimeProfileOptions?: LlmRuntimeProfileOption[];
+  providerOptions?: LlmProviderOption[];
   testing: boolean;
 }) {
+  const datalistId = useId();
   const [configName, setConfigName] = useState("");
-  const [protocol, setProtocol] = useState<LlmProtocol>("openai");
+  const [mode, setMode] = useState<LlmConfigMode>("catalog");
+  const [providerId, setProviderId] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState("");
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
   const [enabled, setEnabled] = useState(true);
-  const [agentRuntimeProfile, setAgentRuntimeProfile] =
-    useState<LlmOpenCodeProviderProfile>("default");
   const [testResult, setTestResult] = useState<LLMConfigTestResponse | null>(null);
 
   function clearTestResult() {
@@ -61,25 +75,38 @@ export function LlmConfigForm({
 
   function resetCreateForm() {
     setConfigName("");
-    setProtocol("openai");
+    setMode("catalog");
+    setProviderId("");
     setBaseUrl("");
     setApiKey("");
     setModelName("");
+    setHeaderRows([]);
     setEnabled(true);
-    setAgentRuntimeProfile("default");
     setTestResult(null);
   }
 
+  function switchMode(next: LlmConfigMode) {
+    if (next === mode) {
+      return;
+    }
+    setMode(next);
+    clearTestResult();
+  }
+
+  const resolvedProviderId =
+    mode === "custom" ? sanitizeProviderSlug(providerId) : providerId.trim();
+
   const payload: LlmCreatePayload = {
     name: configName.trim(),
-    protocol,
+    mode,
+    provider_id: resolvedProviderId,
     base_url: baseUrl.trim() || null,
     api_key: apiKey,
+    headers: mode === "custom" ? rowsToHeaders(headerRows) : null,
     model_name: modelName.trim(),
     enabled,
     reasoning_profile: "none",
     reasoning_profile_json: null,
-    agent_runtime_profile: agentRuntimeProfile,
   };
   if (testResult) {
     payload.opencode_provider_status = testResult.status;
@@ -87,7 +114,13 @@ export function LlmConfigForm({
     payload.opencode_provider_error = testResult.error;
     payload.opencode_provider_test_result_json = testResult.result;
   }
-  const canSubmit = Boolean(configName.trim() && apiKey && modelName.trim());
+  const canSubmit = Boolean(
+    configName.trim()
+      && resolvedProviderId
+      && apiKey
+      && modelName.trim()
+      && (mode === "catalog" || baseUrl.trim()),
+  );
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -111,21 +144,73 @@ export function LlmConfigForm({
           value={configName}
         />
       </label>
-      <div className="form-row">
-        <label className="field-label compact">
-          消息接口协议
-          <select
-            className="input"
-            onChange={(event) => {
-              setProtocol(event.target.value as LlmProtocol);
-              clearTestResult();
-            }}
-            value={protocol}
+      <div className="field-label compact">
+        provider 来源
+        <div
+          aria-label="provider 来源"
+          className="opencode-segmented llm-mode-segmented"
+          role="radiogroup"
+        >
+          <button
+            aria-checked={mode === "catalog"}
+            data-tone="whitelist"
+            onClick={() => switchMode("catalog")}
+            role="radio"
+            type="button"
           >
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-          </select>
-        </label>
+            目录 provider
+          </button>
+          <button
+            aria-checked={mode === "custom"}
+            data-tone="whitelist"
+            onClick={() => switchMode("custom")}
+            role="radio"
+            type="button"
+          >
+            自建网关
+          </button>
+        </div>
+      </div>
+      <datalist id={datalistId}>
+        {providerOptions.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.name}
+          </option>
+        ))}
+      </datalist>
+      <div className="form-row">
+        {mode === "catalog" ? (
+          <label className="field-label compact">
+            provider
+            <Input
+              className="console-mono"
+              list={datalistId}
+              onChange={(event) => {
+                setProviderId(event.target.value);
+                clearTestResult();
+              }}
+              placeholder="deepseek / openai / anthropic …"
+              value={providerId}
+            />
+          </label>
+        ) : (
+          <label className="field-label compact">
+            provider 标识
+            <Input
+              aria-label="provider 标识"
+              className="console-mono"
+              onChange={(event) => {
+                setProviderId(event.target.value);
+                clearTestResult();
+              }}
+              placeholder="my-gateway"
+              value={providerId}
+            />
+            <span className="field-hint">
+              小写字母 / 数字 / - / _，作为 opencode provider key
+            </span>
+          </label>
+        )}
         <label className="field-label compact">
           模型名称
           <Input
@@ -140,12 +225,18 @@ export function LlmConfigForm({
       </div>
       <label className="field-label compact">
         Base URL
+        {mode === "custom" ? <span className="field-required">*</span> : null}
+        {mode === "catalog" ? (
+          <span className="field-hint">可选 · 留空走目录默认端点</span>
+        ) : null}
         <Input
+          aria-label="Base URL"
           className="console-mono"
           onChange={(event) => {
             setBaseUrl(event.target.value);
             clearTestResult();
           }}
+          placeholder="https://..."
           value={baseUrl}
         />
       </label>
@@ -161,25 +252,63 @@ export function LlmConfigForm({
           value={apiKey}
         />
       </label>
-      <label className="field-label compact">
-        Agent 适配方式
-        <select
-          className="input"
-          onChange={(event) => {
-            setAgentRuntimeProfile(
-              event.target.value as LlmOpenCodeProviderProfile,
-            );
-            clearTestResult();
-          }}
-          value={agentRuntimeProfile}
-        >
-          {runtimeProfileOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      {mode === "custom" ? (
+        <div className="field-label compact">
+          请求头
+          <span className="field-hint">
+            自建网关 / 中转站固定走 @ai-sdk/openai-compatible，可附加鉴权头
+          </span>
+          <div className="kv-editor">
+            {headerRows.map((row, index) => (
+              <div className="kv-row" key={index}>
+                <Input
+                  aria-label={`请求头 ${index + 1} 名称`}
+                  className="console-mono"
+                  onChange={(event) => {
+                    const next = [...headerRows];
+                    next[index] = { ...row, key: event.target.value };
+                    setHeaderRows(next);
+                    clearTestResult();
+                  }}
+                  placeholder="Header"
+                  value={row.key}
+                />
+                <Input
+                  aria-label={`请求头 ${index + 1} 值`}
+                  className="console-mono"
+                  onChange={(event) => {
+                    const next = [...headerRows];
+                    next[index] = { ...row, value: event.target.value };
+                    setHeaderRows(next);
+                    clearTestResult();
+                  }}
+                  placeholder="value"
+                  value={row.value}
+                />
+                <button
+                  aria-label={`删除请求头 ${index + 1}`}
+                  className="kv-remove"
+                  onClick={() => {
+                    setHeaderRows(headerRows.filter((_, i) => i !== index));
+                    clearTestResult();
+                  }}
+                  type="button"
+                >
+                  <X aria-hidden="true" size={15} />
+                </button>
+              </div>
+            ))}
+            <button
+              className="kv-add"
+              onClick={() => setHeaderRows([...headerRows, { key: "", value: "" }])}
+              type="button"
+            >
+              <Plus aria-hidden="true" size={14} />
+              添加请求头
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="form-switches">
         <SwitchControl
           checked={enabled}
@@ -200,7 +329,7 @@ export function LlmConfigForm({
           )}
           <span>
             {testResult.status === "ok"
-              ? `连接正常${testResult.profile_id ? ` · ${testResult.profile_id}` : ""}`
+              ? `连接正常${testResult.provider_id ? ` · ${testResult.provider_id}` : ""}`
               : `连接失败：${testResult.error ?? "未知错误"}`}
           </span>
         </div>

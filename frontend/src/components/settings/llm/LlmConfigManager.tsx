@@ -7,7 +7,7 @@ import {
   createUserLlmConfig,
   deleteAdminLlmConfig,
   deleteUserLlmConfig,
-  listLlmRuntimeProfiles,
+  listLlmProviders,
   listAdminLlmConfigs,
   listUserLlmConfigs,
   testAdminLlmConfig,
@@ -23,10 +23,7 @@ import type { LLMConfigResponse } from "../../../types/api";
 import { useAppFeedback } from "../../feedback/AppFeedback";
 import { Button } from "../../ui/button";
 import type { LlmScope, LlmUpdatePayload } from "../settings-types";
-import {
-  FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS,
-  messageFromApiError,
-} from "../settings-utils";
+import { messageFromApiError } from "../settings-utils";
 import { LlmConfigForm, type LlmCreatePayload } from "./LlmConfigForm";
 import { LlmConfigList } from "./LlmConfigList";
 
@@ -41,17 +38,12 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
     queryKey,
     queryFn: scope === "global" ? listAdminLlmConfigs : listUserLlmConfigs,
   });
-  const { data: runtimeProfiles } = useQuery({
-    queryKey: ["llm-runtime-profiles", "opencode"],
-    queryFn: () => listLlmRuntimeProfiles("opencode"),
+  const { data: providers } = useQuery({
+    queryKey: ["llm-providers"],
+    queryFn: listLlmProviders,
     staleTime: 5 * 60_000,
   });
-  const runtimeProfileOptions =
-    runtimeProfiles?.profiles.map((profile) => ({
-      value: profile.id,
-      label: profile.label,
-      description: profile.description,
-    })) ?? FALLBACK_AGENT_RUNTIME_PROFILE_OPTIONS;
+  const providerOptions = providers?.providers ?? [];
 
   const createMutation = useMutation({
     mutationFn: (payload: LlmCreatePayload) =>
@@ -99,7 +91,7 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
       void queryClient.invalidateQueries({ queryKey });
       if (result.status === "ok") {
         showSuccess(
-          `LLM 连接测试通过：${result.profile_id ?? "default"}${
+          `LLM 连接测试通过：${result.provider_id ?? "provider"}${
             result.text_preview ? ` · ${result.text_preview}` : ""
           }`,
         );
@@ -134,13 +126,13 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
 
   function showTestResult(result: {
     status: string;
-    profile_id: string | null;
+    provider_id: string | null;
     text_preview: string | null;
     error: string | null;
   }) {
     if (result.status === "ok") {
       showSuccess(
-        `LLM 连接测试通过：${result.profile_id ?? "default"}${
+        `LLM 连接测试通过：${result.provider_id ?? "provider"}${
           result.text_preview ? ` · ${result.text_preview}` : ""
         }`,
       );
@@ -176,7 +168,7 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
           onCancel={() => setShowForm(false)}
           onTest={(payload) => testDraftMutation.mutateAsync(payload)}
           onSubmit={(payload) => createMutation.mutate(payload)}
-          runtimeProfileOptions={runtimeProfileOptions}
+          providerOptions={providerOptions}
           testing={testDraftMutation.isPending}
         />
       ) : null}
@@ -192,7 +184,7 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
           testUpdateDraftMutation.mutateAsync({ id, payload })
         }
         onUpdate={(id, payload) => updateMutation.mutate({ id, payload })}
-        runtimeProfileOptions={runtimeProfileOptions}
+        providerOptions={providerOptions}
         onToggleEnabled={(config) =>
           updateMutation.mutate({
             id: config.id,

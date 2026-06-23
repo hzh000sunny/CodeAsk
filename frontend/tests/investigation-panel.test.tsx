@@ -11,7 +11,7 @@ describe("InvestigationPanel runtime previews", () => {
     configId: "cfg_glm",
     configName: "火山引擎 GLM-5.1",
     modelName: "glm-5.1",
-    protocol: "openai_compatible",
+    providerId: "deepseek",
     scope: "global",
     isGlobalPool: true,
     contextSizeChars: 32768,

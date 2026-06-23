@@ -169,7 +169,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function getCompleteGuestLlmConfig() {
   const config = getGuestLlmConfig();
-  if (!config?.api_key || !config.model_name) {
+  if (!config?.api_key || !config.model_name || !config.provider_id) {
     return null;
   }
   return config;

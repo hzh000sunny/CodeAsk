@@ -73,15 +73,14 @@ describe("session SSE client", () => {
   it("includes browser-local guest LLM config in the message request body", async () => {
     setGuestLlmConfig({
       name: "访客模型",
-      protocol: "anthropic",
+      mode: "custom",
+      provider_id: "guest-gateway",
       base_url: "http://guest.llm/v1",
       api_key: "sk-guest",
+      headers: { Authorization: "Bearer sk-guest" },
       model_name: "guest-model",
-      max_tokens: 4096,
-      temperature: 0.1,
       reasoning_profile: "custom_json",
       reasoning_profile_json: '{"thinking":true}',
-      agent_runtime_profile: "anthropic-compatible-v1-bearer",
     });
     const fetchMock = vi.fn(
       async () =>
@@ -107,15 +106,14 @@ describe("session SSE client", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({
       content: "你好",
       guest_llm_config: {
-        protocol: "anthropic",
+        mode: "custom",
+        provider_id: "guest-gateway",
         base_url: "http://guest.llm/v1",
         api_key: "sk-guest",
+        headers: { Authorization: "Bearer sk-guest" },
         model_name: "guest-model",
-        max_tokens: 4096,
-        temperature: 0.1,
         reasoning_profile: "custom_json",
         reasoning_profile_json: '{"thinking":true}',
-        agent_runtime_profile: "anthropic-compatible-v1-bearer",
       },
     });
   });

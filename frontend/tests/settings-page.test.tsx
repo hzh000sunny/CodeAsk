@@ -52,24 +52,22 @@ function llm(overrides: Partial<Record<string, unknown>> = {}) {
     name: "备用模型",
     scope: "global",
     owner_subject_id: null,
-    protocol: "openai",
+    mode: "catalog",
+    provider_id: "deepseek",
     base_url: "http://backup.internal/v1",
     api_key_masked: "sk-...bak",
+    headers_masked: {},
     model_name: "qwen3",
-    max_tokens: 2048,
-    temperature: 0.4,
     is_default: false,
     enabled: true,
-    rpm_limit: null,
-    quota_remaining: null,
+    reasoning_profile: "none",
+    reasoning_profile_json: null,
     agent_runtime_backend: "opencode",
-    agent_runtime_profile: overrides.opencode_provider_profile ?? "default",
     agent_runtime_status: overrides.opencode_provider_status ?? "unknown",
     agent_runtime_tested_at: overrides.opencode_provider_tested_at ?? null,
     agent_runtime_error: overrides.opencode_provider_error ?? null,
     agent_runtime_test_result_json:
       overrides.opencode_provider_test_result_json ?? null,
-    opencode_provider_profile: "default",
     opencode_provider_status: "unknown",
     opencode_provider_tested_at: null,
     opencode_provider_error: null,
@@ -238,44 +236,12 @@ const openvikingTuning = {
   preset: "small_machine",
 };
 
-const runtimeProfiles = {
-  backend: "opencode",
-  profiles: [
-    {
-      id: "default",
-      label: "Default",
-      description: "Use opencode native provider.",
-    },
-    {
-      id: "openai-native",
-      label: "OpenAI Native",
-      description: "Use @ai-sdk/openai.",
-    },
-    {
-      id: "openai-compatible",
-      label: "OpenAI Compatible",
-      description: "Use @ai-sdk/openai-compatible.",
-    },
-    {
-      id: "anthropic-native",
-      label: "Anthropic Native",
-      description: "Use @ai-sdk/anthropic.",
-    },
-    {
-      id: "anthropic-compatible-bearer",
-      label: "Anthropic Compatible Bearer",
-      description: "Use @ai-sdk/anthropic with Bearer auth.",
-    },
-    {
-      id: "anthropic-compatible-v1-bearer",
-      label: "Anthropic Compatible /v1 Bearer",
-      description: "Use @ai-sdk/anthropic with /v1 and Bearer auth.",
-    },
-    {
-      id: "openrouter",
-      label: "OpenRouter",
-      description: "Use @openrouter/ai-sdk-provider.",
-    },
+const llmProviders = {
+  providers: [
+    { id: "openai", name: "OpenAI" },
+    { id: "anthropic", name: "Anthropic" },
+    { id: "deepseek", name: "DeepSeek" },
+    { id: "openrouter", name: "OpenRouter" },
   ],
 };
 
@@ -302,8 +268,8 @@ describe("SettingsPage LLM configuration", () => {
       if (path === "/api/skills") {
         return jsonResponse([]);
       }
-      if (path === "/api/llm-runtime-profiles?backend=opencode") {
-        return jsonResponse(runtimeProfiles);
+      if (path === "/api/llm-providers") {
+        return jsonResponse(llmProviders);
       }
       if (path === "/api/admin/llm-configs") {
         return jsonResponse([llm()]);
@@ -898,8 +864,8 @@ describe("SettingsPage LLM configuration", () => {
         if (path === "/api/sessions") {
           return jsonResponse([]);
         }
-        if (path === "/api/llm-runtime-profiles?backend=opencode") {
-          return jsonResponse(runtimeProfiles);
+        if (path === "/api/llm-providers") {
+          return jsonResponse(llmProviders);
         }
         if (path === "/api/me/llm-configs" && init?.method === "POST") {
           const payload = JSON.parse(String(init.body));
@@ -915,8 +881,8 @@ describe("SettingsPage LLM configuration", () => {
         if (path === "/api/me/llm-configs/test-draft" && init?.method === "POST") {
           return jsonResponse({
             status: "ok",
-            profile_id: "openai-compatible",
-            provider_npm: "@ai-sdk/openai-compatible",
+            provider_id: "deepseek",
+            model_id: "qwen3-coder",
             text_preview: "OK",
             error: null,
             tested_at: "2026-05-15T10:00:00Z",
@@ -939,17 +905,12 @@ describe("SettingsPage LLM configuration", () => {
     fireEvent.change(screen.getByLabelText("配置名称"), {
       target: { value: "个人模型" },
     });
-    const protocolSelect = screen.getByLabelText("消息接口协议");
-    expect(protocolSelect).toHaveValue("openai");
-    expect(
-      within(protocolSelect).getByRole("option", { name: "OpenAI" }),
-    ).toHaveValue("openai");
-    expect(
-      within(protocolSelect).queryByRole("option", { name: "OpenAI Compatible" }),
-    ).not.toBeInTheDocument();
-    expect(
-      within(protocolSelect).getByRole("option", { name: "Anthropic" }),
-    ).toHaveValue("anthropic");
+    expect(screen.getByLabelText("provider 来源")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("provider"), {
+      target: { value: "deepseek" },
+    });
+    expect(screen.queryByLabelText("消息接口协议")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Agent 适配方式")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max Tokens")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Temperature")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("RPM")).not.toBeInTheDocument();
@@ -975,12 +936,12 @@ describe("SettingsPage LLM configuration", () => {
     ) as unknown as [string, RequestInit];
     expect(JSON.parse(String(draftInit.body))).toMatchObject({
       name: "个人模型",
-      protocol: "openai",
+      mode: "catalog",
+      provider_id: "deepseek",
       base_url: "http://llm.internal/v1",
       api_key: "sk-test-abc",
       model_name: "qwen3-coder",
       enabled: true,
-      agent_runtime_profile: "default",
     });
     fireEvent.click(screen.getByRole("button", { name: "保存 LLM 配置" }));
 
@@ -992,24 +953,24 @@ describe("SettingsPage LLM configuration", () => {
     ) as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
       name: "个人模型",
-      protocol: "openai",
+      mode: "catalog",
+      provider_id: "deepseek",
       base_url: "http://llm.internal/v1",
       api_key: "sk-test-abc",
       model_name: "qwen3-coder",
       enabled: true,
       reasoning_profile: "none",
       reasoning_profile_json: null,
-      agent_runtime_profile: "default",
       opencode_provider_status: "ok",
       opencode_provider_tested_at: "2026-05-15T10:00:00Z",
       opencode_provider_error: null,
       opencode_provider_test_result_json: {},
     });
+    expect(JSON.parse(String(init.body))).not.toHaveProperty("protocol");
     expect(JSON.parse(String(init.body))).not.toHaveProperty("max_tokens");
     expect(JSON.parse(String(init.body))).not.toHaveProperty("temperature");
     expect(JSON.parse(String(init.body))).not.toHaveProperty("is_default");
-    expect(JSON.parse(String(init.body))).not.toHaveProperty("rpm_limit");
-    expect(JSON.parse(String(init.body))).not.toHaveProperty("quota_remaining");
+    expect(JSON.parse(String(init.body))).not.toHaveProperty("agent_runtime_profile");
     expect(await screen.findByText("连接正常")).toBeInTheDocument();
   });
 
@@ -1048,6 +1009,9 @@ describe("SettingsPage LLM configuration", () => {
     fireEvent.change(screen.getByLabelText("配置名称"), {
       target: { value: "重复模型" },
     });
+    fireEvent.change(screen.getByLabelText("provider"), {
+      target: { value: "deepseek" },
+    });
     fireEvent.change(screen.getByLabelText("API Key"), {
       target: { value: "sk-test-abc" },
     });
@@ -1066,8 +1030,6 @@ describe("SettingsPage LLM configuration", () => {
 
   it("edits, toggles, and deletes existing global LLM configs as admin without default controls", async () => {
     let storedLlm = llm({
-      protocol: "openai_compatible",
-      opencode_provider_profile: "default",
       opencode_provider_status: "unknown",
       opencode_provider_error: null,
     });
@@ -1092,8 +1054,8 @@ describe("SettingsPage LLM configuration", () => {
         if (path === "/api/admin/opencode/permissions") {
           return jsonResponse(opencodePermissions);
         }
-        if (path === "/api/llm-runtime-profiles?backend=opencode") {
-          return jsonResponse(runtimeProfiles);
+        if (path === "/api/llm-providers") {
+          return jsonResponse(llmProviders);
         }
         if (path === "/api/admin/llm-configs" && !init?.method) {
           return jsonResponse([storedLlm]);
@@ -1103,34 +1065,24 @@ describe("SettingsPage LLM configuration", () => {
           init?.method === "PATCH"
         ) {
           const payload = JSON.parse(String(init.body));
+          const runtimeChanged = [
+            "mode",
+            "provider_id",
+            "base_url",
+            "api_key",
+            "model_name",
+            "headers",
+          ].some((key) => key in payload);
           storedLlm = {
             ...storedLlm,
             ...payload,
             enabled: payload.enabled ?? storedLlm.enabled,
             opencode_provider_status:
               payload.opencode_provider_status ??
-              (payload.protocol ||
-              payload.base_url ||
-              payload.api_key ||
-              payload.model_name ||
-              payload.agent_runtime_profile ||
-              payload.opencode_provider_profile
-                ? "unknown"
-                : storedLlm.opencode_provider_status),
-            agent_runtime_profile:
-              payload.agent_runtime_profile ??
-              payload.opencode_provider_profile ??
-              storedLlm.agent_runtime_profile,
+              (runtimeChanged ? "unknown" : storedLlm.opencode_provider_status),
             agent_runtime_status:
               payload.opencode_provider_status ??
-              (payload.protocol ||
-              payload.base_url ||
-              payload.api_key ||
-              payload.model_name ||
-              payload.agent_runtime_profile ||
-              payload.opencode_provider_profile
-                ? "unknown"
-                : storedLlm.agent_runtime_status),
+              (runtimeChanged ? "unknown" : storedLlm.agent_runtime_status),
             agent_runtime_error: payload.opencode_provider_error ?? null,
             agent_runtime_tested_at:
               payload.opencode_provider_tested_at ??
@@ -1153,8 +1105,8 @@ describe("SettingsPage LLM configuration", () => {
         ) {
           return jsonResponse({
             status: "ok",
-            profile_id: "anthropic-compatible-v1-bearer",
-            provider_npm: "@ai-sdk/anthropic",
+            provider_id: "anthropic",
+            model_id: "claude-test",
             text_preview: "OK",
             error: null,
             tested_at: "2026-05-15T10:00:00Z",
@@ -1213,7 +1165,7 @@ describe("SettingsPage LLM configuration", () => {
     ).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "LLM 配置" }));
     expect(await screen.findByText("备用模型")).toBeInTheDocument();
-    expect(screen.getByText(/OpenAI Compatible · qwen3/)).toBeInTheDocument();
+    expect(screen.getByText(/DeepSeek · qwen3/)).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([path]) => path === "/api/me/llm-configs")).toBe(
       false,
     );
@@ -1255,14 +1207,10 @@ describe("SettingsPage LLM configuration", () => {
     fireEvent.change(screen.getByLabelText("编辑配置名称"), {
       target: { value: "主力模型" },
     });
-    fireEvent.change(screen.getByLabelText("编辑消息接口协议"), {
+    fireEvent.change(screen.getByLabelText("provider"), {
       target: { value: "anthropic" },
     });
-    expect(
-      within(screen.getByLabelText("编辑消息接口协议")).queryByRole("option", {
-        name: "OpenAI Compatible",
-      }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("编辑消息接口协议")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("编辑 Reasoning 请求方式")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("编辑 Reasoning 请求 JSON")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("编辑 Base URL"), {
@@ -1290,7 +1238,7 @@ describe("SettingsPage LLM configuration", () => {
     expect(draftEditCall).toBeDefined();
     expect(JSON.parse(String(draftEditCall?.[1].body))).toMatchObject({
       name: "主力模型",
-      protocol: "anthropic",
+      provider_id: "anthropic",
       base_url: "http://llm.new/v1",
       api_key: "sk-new-key",
       model_name: "claude-test",
@@ -1332,7 +1280,7 @@ describe("SettingsPage LLM configuration", () => {
       expect(editCall).toBeDefined();
       expect(JSON.parse(String(editCall?.[1].body))).toMatchObject({
         name: "主力模型",
-        protocol: "anthropic",
+        provider_id: "anthropic",
         base_url: "http://llm.new/v1",
       api_key: "sk-new-key",
       model_name: "claude-test",
@@ -1362,14 +1310,14 @@ describe("SettingsPage LLM configuration", () => {
     });
   });
 
-  it("saves only changed LLM edit fields and keeps legacy openai compatible protocol intact", async () => {
+  it("saves only changed LLM edit fields without resending untouched runtime fields", async () => {
     const testedConfig = llm({
       id: "llm_compat",
       name: "兼容模型",
-      protocol: "openai_compatible",
+      mode: "custom",
+      provider_id: "my-gateway",
       base_url: "http://compatible.internal/v1",
       model_name: "compat-model",
-      opencode_provider_profile: "openai-compatible",
       opencode_provider_status: "ok",
       opencode_provider_tested_at: "2026-05-15T10:00:00Z",
       opencode_provider_error: null,
@@ -1395,8 +1343,8 @@ describe("SettingsPage LLM configuration", () => {
       if (path === "/api/admin/opencode/permissions") {
         return jsonResponse(opencodePermissions);
       }
-      if (path === "/api/llm-runtime-profiles?backend=opencode") {
-        return jsonResponse(runtimeProfiles);
+      if (path === "/api/llm-providers") {
+        return jsonResponse(llmProviders);
       }
       if (path === "/api/admin/llm-configs" && !init?.method) {
         return jsonResponse([testedConfig]);
@@ -1419,9 +1367,8 @@ describe("SettingsPage LLM configuration", () => {
     fireEvent.click(await screen.findByRole("button", { name: "LLM 配置" }));
     expect(await screen.findByText("连接正常")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "编辑 兼容模型" }));
-    expect(screen.getByLabelText("编辑消息接口协议")).toHaveValue(
-      "openai_compatible",
-    );
+    expect(screen.queryByLabelText("编辑消息接口协议")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("provider 标识")).toHaveValue("my-gateway");
     fireEvent.change(screen.getByLabelText("编辑配置名称"), {
       target: { value: "兼容模型重命名" },
     });

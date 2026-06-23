@@ -3,8 +3,8 @@ import { Pencil, PlugZap, Trash2 } from "lucide-react";
 import type { LLMConfigResponse, LLMConfigTestResponse } from "../../../types/api";
 import { Button } from "../../ui/button";
 import { SwitchControl } from "../SwitchControl";
-import type { LlmRuntimeProfileOption, LlmUpdatePayload } from "../settings-types";
-import { agentRuntimeProfileLabel, protocolLabel } from "../settings-utils";
+import type { LlmProviderOption, LlmUpdatePayload } from "../settings-types";
+import { modeLabel, providerLabel } from "../settings-utils";
 import { LlmConfigEditForm } from "./LlmConfigEditForm";
 
 export function LlmConfigList({
@@ -18,7 +18,7 @@ export function LlmConfigList({
   onTestUpdateDraft,
   onUpdate,
   onToggleEnabled,
-  runtimeProfileOptions,
+  providerOptions,
   testingId,
   testingUpdateDraftId,
   updating,
@@ -36,7 +36,7 @@ export function LlmConfigList({
   ) => Promise<LLMConfigTestResponse>;
   onUpdate: (id: string, payload: LlmUpdatePayload) => void;
   onToggleEnabled: (config: LLMConfigResponse) => void;
-  runtimeProfileOptions: LlmRuntimeProfileOption[];
+  providerOptions: LlmProviderOption[];
   testingId: string | null;
   testingUpdateDraftId: string | null;
   updating: boolean;
@@ -67,15 +67,12 @@ export function LlmConfigList({
                   </span>
                 </span>
                 <small className="console-mono">
-                  {protocolLabel(config.protocol)} · {config.model_name} ·{" "}
-                  {config.api_key_masked}
+                  {providerLabel(config.provider_id, providerOptions)} ·{" "}
+                  {config.model_name} · {config.api_key_masked}
                 </small>
                 <small>
-                  Agent 适配方式:{" "}
-                  {agentRuntimeProfileLabel(
-                    config.agent_runtime_profile ?? config.opencode_provider_profile,
-                    runtimeProfileOptions,
-                  )}
+                  接入方式：{modeLabel(config.mode)}
+                  {config.base_url ? ` · ${config.base_url}` : ""}
                 </small>
               </div>
               <div className="row-actions">
@@ -123,7 +120,7 @@ export function LlmConfigList({
                 onCancel={onEditCancel}
                 onTest={(payload) => onTestUpdateDraft(config.id, payload)}
                 onSubmit={(payload) => onUpdate(config.id, payload)}
-                runtimeProfileOptions={runtimeProfileOptions}
+                providerOptions={providerOptions}
                 testing={testingUpdateDraftId === config.id}
               />
             ) : null}
