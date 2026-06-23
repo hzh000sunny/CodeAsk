@@ -100,7 +100,6 @@ OpenVikingMCPResolver = Callable[
 ToolPermissionsResolver = Callable[
     [], OpencodeToolPermissions | Awaitable[OpencodeToolPermissions]
 ]
-SUPPORTED_OPENCODE_VERSIONS = {"1.14.48"}
 log = structlog.get_logger("codeask.agent.opencode_compat.backend")
 _EVENT_POLL_SECONDS = 0.5
 _TURN_NO_PROGRESS_TIMEOUT_SECONDS = 600.0
@@ -1041,17 +1040,8 @@ async def _wait_for_health(
     last_error: Exception | None = None
     for _ in range(attempts):
         try:
-            health = await client.health()
-            version = health.get("version")
-            if isinstance(version, str) and version not in SUPPORTED_OPENCODE_VERSIONS:
-                supported = ", ".join(sorted(SUPPORTED_OPENCODE_VERSIONS))
-                raise OpenCodeProcessError(
-                    "opencode_version_unsupported",
-                    f"unsupported opencode version {version}; expected {supported}",
-                )
+            await client.health()
             return
-        except OpenCodeProcessError:
-            raise
         except Exception as exc:  # pragma: no cover - exercised through fake client tests
             last_error = exc
             await asyncio.sleep(delay_seconds)
