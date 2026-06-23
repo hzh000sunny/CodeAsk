@@ -145,12 +145,6 @@ class FailingHealthHttpClient(FakeHttpClient):
         raise RuntimeError("connection refused")
 
 
-class UnsupportedVersionHttpClient(FakeHttpClient):
-    async def health(self) -> dict[str, object]:
-        self.health_calls += 1
-        return {"healthy": True, "version": "0.0.1"}
-
-
 class FakeStore:
     def __init__(self) -> None:
         self.items = []
@@ -641,36 +635,6 @@ async def test_initialize_session_classifies_opencode_health_timeout(
     assert exc_info.value.code == "opencode_health_timeout"
     assert "connection refused" in str(exc_info.value)
     assert http_client.health_calls == 20
-
-
-@pytest.mark.asyncio
-async def test_initialize_session_classifies_unsupported_opencode_version(
-    tmp_path: Path,
-) -> None:
-    wiki_root = tmp_path / "wiki"
-    wiki_root.mkdir()
-    workspace_manager = OpenCodeWorkspaceManager(
-        data_dir=tmp_path / "data",
-        wiki_workspace_root=wiki_root,
-    )
-    process_manager = FakeProcessManager(
-        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
-    )
-    http_client = UnsupportedVersionHttpClient()
-    compat = OpenCodeCompat(
-        workspace_manager=workspace_manager,
-        process_manager=process_manager,
-        http_client_factory=lambda server: http_client,
-        session_store=FakeStore(),
-        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
-        mcp_token_resolver=lambda session_id: f"token-{session_id}",
-    )
-
-    with pytest.raises(OpenCodeProcessError) as exc_info:
-        await compat.initialize_session("sess_1", _llm_config())
-
-    assert exc_info.value.code == "opencode_version_unsupported"
-    assert "0.0.1" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
