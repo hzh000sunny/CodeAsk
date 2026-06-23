@@ -1,0 +1,495 @@
+{
+  "source": "models.dev (via opencode 1.14.48 cache)",
+  "captured_at": "2026-06-23",
+  "note": "id+name only; refresh mechanism TBD. Used for catalog-mode provider dropdown.",
+  "providers": [
+    {
+      "id": "302ai",
+      "name": "302.AI"
+    },
+    {
+      "id": "abacus",
+      "name": "Abacus"
+    },
+    {
+      "id": "abliteration-ai",
+      "name": "abliteration.ai"
+    },
+    {
+      "id": "aihubmix",
+      "name": "AIHubMix"
+    },
+    {
+      "id": "alibaba",
+      "name": "Alibaba"
+    },
+    {
+      "id": "alibaba-cn",
+      "name": "Alibaba (China)"
+    },
+    {
+      "id": "alibaba-coding-plan",
+      "name": "Alibaba Coding Plan"
+    },
+    {
+      "id": "alibaba-coding-plan-cn",
+      "name": "Alibaba Coding Plan (China)"
+    },
+    {
+      "id": "amazon-bedrock",
+      "name": "Amazon Bedrock"
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic"
+    },
+    {
+      "id": "auriko",
+      "name": "Auriko"
+    },
+    {
+      "id": "azure",
+      "name": "Azure"
+    },
+    {
+      "id": "azure-cognitive-services",
+      "name": "Azure Cognitive Services"
+    },
+    {
+      "id": "bailing",
+      "name": "Bailing"
+    },
+    {
+      "id": "baseten",
+      "name": "Baseten"
+    },
+    {
+      "id": "berget",
+      "name": "Berget.AI"
+    },
+    {
+      "id": "cerebras",
+      "name": "Cerebras"
+    },
+    {
+      "id": "chutes",
+      "name": "Chutes"
+    },
+    {
+      "id": "clarifai",
+      "name": "Clarifai"
+    },
+    {
+      "id": "claudinio",
+      "name": "Claudinio"
+    },
+    {
+      "id": "cloudferro-sherlock",
+      "name": "CloudFerro Sherlock"
+    },
+    {
+      "id": "cloudflare-ai-gateway",
+      "name": "Cloudflare AI Gateway"
+    },
+    {
+      "id": "cloudflare-workers-ai",
+      "name": "Cloudflare Workers AI"
+    },
+    {
+      "id": "cohere",
+      "name": "Cohere"
+    },
+    {
+      "id": "cortecs",
+      "name": "Cortecs"
+    },
+    {
+      "id": "drun",
+      "name": "D.Run (China)"
+    },
+    {
+      "id": "databricks",
+      "name": "Databricks"
+    },
+    {
+      "id": "deepinfra",
+      "name": "Deep Infra"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek"
+    },
+    {
+      "id": "digitalocean",
+      "name": "DigitalOcean"
+    },
+    {
+      "id": "dinference",
+      "name": "DInference"
+    },
+    {
+      "id": "evroc",
+      "name": "evroc"
+    },
+    {
+      "id": "fastrouter",
+      "name": "FastRouter"
+    },
+    {
+      "id": "firepass",
+      "name": "Fireworks (Firepass)"
+    },
+    {
+      "id": "fireworks-ai",
+      "name": "Fireworks AI"
+    },
+    {
+      "id": "friendli",
+      "name": "Friendli"
+    },
+    {
+      "id": "frogbot",
+      "name": "FrogBot"
+    },
+    {
+      "id": "github-copilot",
+      "name": "GitHub Copilot"
+    },
+    {
+      "id": "github-models",
+      "name": "GitHub Models"
+    },
+    {
+      "id": "gitlab",
+      "name": "GitLab Duo"
+    },
+    {
+      "id": "google",
+      "name": "Google"
+    },
+    {
+      "id": "groq",
+      "name": "Groq"
+    },
+    {
+      "id": "helicone",
+      "name": "Helicone"
+    },
+    {
+      "id": "hpc-ai",
+      "name": "HPC-AI"
+    },
+    {
+      "id": "huggingface",
+      "name": "Hugging Face"
+    },
+    {
+      "id": "iflowcn",
+      "name": "iFlow"
+    },
+    {
+      "id": "inception",
+      "name": "Inception"
+    },
+    {
+      "id": "inference",
+      "name": "Inference"
+    },
+    {
+      "id": "io-net",
+      "name": "IO.NET"
+    },
+    {
+      "id": "jiekou",
+      "name": "Jiekou.AI"
+    },
+    {
+      "id": "kilo",
+      "name": "Kilo Gateway"
+    },
+    {
+      "id": "kimi-for-coding",
+      "name": "Kimi For Coding"
+    },
+    {
+      "id": "kuae-cloud-coding-plan",
+      "name": "KUAE Cloud Coding Plan"
+    },
+    {
+      "id": "llama",
+      "name": "Llama"
+    },
+    {
+      "id": "llmgateway",
+      "name": "LLM Gateway"
+    },
+    {
+      "id": "lmstudio",
+      "name": "LMStudio"
+    },
+    {
+      "id": "lucidquery",
+      "name": "LucidQuery AI"
+    },
+    {
+      "id": "meganova",
+      "name": "Meganova"
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax (minimax.io)"
+    },
+    {
+      "id": "minimax-cn",
+      "name": "MiniMax (minimaxi.com)"
+    },
+    {
+      "id": "minimax-coding-plan",
+      "name": "MiniMax Coding Plan (minimax.io)"
+    },
+    {
+      "id": "minimax-cn-coding-plan",
+      "name": "MiniMax Coding Plan (minimaxi.com)"
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral"
+    },
+    {
+      "id": "mixlayer",
+      "name": "Mixlayer"
+    },
+    {
+      "id": "moark",
+      "name": "Moark"
+    },
+    {
+      "id": "modelscope",
+      "name": "ModelScope"
+    },
+    {
+      "id": "moonshotai",
+      "name": "Moonshot AI"
+    },
+    {
+      "id": "moonshotai-cn",
+      "name": "Moonshot AI (China)"
+    },
+    {
+      "id": "morph",
+      "name": "Morph"
+    },
+    {
+      "id": "nano-gpt",
+      "name": "NanoGPT"
+    },
+    {
+      "id": "nebius",
+      "name": "Nebius Token Factory"
+    },
+    {
+      "id": "neuralwatt",
+      "name": "Neuralwatt"
+    },
+    {
+      "id": "nova",
+      "name": "Nova"
+    },
+    {
+      "id": "novita-ai",
+      "name": "NovitaAI"
+    },
+    {
+      "id": "nvidia",
+      "name": "Nvidia"
+    },
+    {
+      "id": "ollama-cloud",
+      "name": "Ollama Cloud"
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI"
+    },
+    {
+      "id": "opencode-go",
+      "name": "OpenCode Go"
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode Zen"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter"
+    },
+    {
+      "id": "ovhcloud",
+      "name": "OVHcloud AI Endpoints"
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity"
+    },
+    {
+      "id": "perplexity-agent",
+      "name": "Perplexity Agent"
+    },
+    {
+      "id": "poe",
+      "name": "Poe"
+    },
+    {
+      "id": "privatemode-ai",
+      "name": "Privatemode AI"
+    },
+    {
+      "id": "qihang-ai",
+      "name": "QiHang"
+    },
+    {
+      "id": "qiniu-ai",
+      "name": "Qiniu"
+    },
+    {
+      "id": "regolo-ai",
+      "name": "Regolo AI"
+    },
+    {
+      "id": "requesty",
+      "name": "Requesty"
+    },
+    {
+      "id": "sap-ai-core",
+      "name": "SAP AI Core"
+    },
+    {
+      "id": "sarvam",
+      "name": "Sarvam AI"
+    },
+    {
+      "id": "scaleway",
+      "name": "Scaleway"
+    },
+    {
+      "id": "siliconflow",
+      "name": "SiliconFlow"
+    },
+    {
+      "id": "siliconflow-cn",
+      "name": "SiliconFlow (China)"
+    },
+    {
+      "id": "stackit",
+      "name": "STACKIT"
+    },
+    {
+      "id": "stepfun",
+      "name": "StepFun"
+    },
+    {
+      "id": "submodel",
+      "name": "submodel"
+    },
+    {
+      "id": "synthetic",
+      "name": "Synthetic"
+    },
+    {
+      "id": "tencent-coding-plan",
+      "name": "Tencent Coding Plan (China)"
+    },
+    {
+      "id": "tencent-tokenhub",
+      "name": "Tencent TokenHub"
+    },
+    {
+      "id": "the-grid-ai",
+      "name": "The Grid AI"
+    },
+    {
+      "id": "togetherai",
+      "name": "Together AI"
+    },
+    {
+      "id": "upstage",
+      "name": "Upstage"
+    },
+    {
+      "id": "v0",
+      "name": "v0"
+    },
+    {
+      "id": "venice",
+      "name": "Venice AI"
+    },
+    {
+      "id": "vercel",
+      "name": "Vercel AI Gateway"
+    },
+    {
+      "id": "google-vertex",
+      "name": "Vertex"
+    },
+    {
+      "id": "google-vertex-anthropic",
+      "name": "Vertex (Anthropic)"
+    },
+    {
+      "id": "vivgrid",
+      "name": "Vivgrid"
+    },
+    {
+      "id": "vultr",
+      "name": "Vultr"
+    },
+    {
+      "id": "wafer.ai",
+      "name": "Wafer"
+    },
+    {
+      "id": "wandb",
+      "name": "Weights & Biases"
+    },
+    {
+      "id": "xai",
+      "name": "xAI"
+    },
+    {
+      "id": "xiaomi",
+      "name": "Xiaomi"
+    },
+    {
+      "id": "xiaomi-token-plan-cn",
+      "name": "Xiaomi Token Plan (China)"
+    },
+    {
+      "id": "xiaomi-token-plan-ams",
+      "name": "Xiaomi Token Plan (Europe)"
+    },
+    {
+      "id": "xiaomi-token-plan-sgp",
+      "name": "Xiaomi Token Plan (Singapore)"
+    },
+    {
+      "id": "zai",
+      "name": "Z.AI"
+    },
+    {
+      "id": "zai-coding-plan",
+      "name": "Z.AI Coding Plan"
+    },
+    {
+      "id": "zenmux",
+      "name": "ZenMux"
+    },
+    {
+      "id": "zhipuai",
+      "name": "Zhipu AI"
+    },
+    {
+      "id": "zhipuai-coding-plan",
+      "name": "Zhipu AI Coding Plan"
+    }
+  ]
+}

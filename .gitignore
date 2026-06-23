@@ -21,6 +21,9 @@ dist/
 .env.local
 ~/.codeask/
 data/
+# but keep committed package data (models.dev provider snapshot etc.)
+!src/codeask/llm/data/
+!src/codeask/llm/data/**
 *.db
 *.db-shm
 *.db-wal
