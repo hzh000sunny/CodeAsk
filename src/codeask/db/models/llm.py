@@ -7,10 +7,8 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
-    Float,
     ForeignKey,
     Index,
-    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -26,8 +24,14 @@ class LLMConfig(Base, TimestampMixin):
 
     __tablename__ = "llm_configs"
     __table_args__ = (
-        UniqueConstraint("name", name="uq_llm_configs_name"),
+        UniqueConstraint(
+            "scope",
+            "owner_subject_id",
+            "name",
+            name="uq_llm_configs_scope_owner_name",
+        ),
         CheckConstraint("scope IN ('global', 'user')", name="ck_llm_configs_scope"),
+        CheckConstraint("mode IN ('catalog', 'custom')", name="ck_llm_configs_mode"),
         Index(
             "ix_llm_configs_global_default",
             "is_default",
@@ -46,16 +50,19 @@ class LLMConfig(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     scope: Mapped[str] = mapped_column(String(16), nullable=False, default="global")
     owner_subject_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    protocol: Mapped[str] = mapped_column(String(32), nullable=False)
+    mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="catalog",
+        server_default="catalog",
+    )
+    provider_id: Mapped[str] = mapped_column(String(128), nullable=False)
     base_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     api_key_encrypted: Mapped[str] = mapped_column(String(2048), nullable=False)
+    headers_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=4096)
-    temperature: Mapped[float] = mapped_column(Float, nullable=False, default=0.2)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    rpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    quota_remaining: Mapped[float | None] = mapped_column(Float, nullable=True)
     reasoning_profile: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
@@ -63,12 +70,6 @@ class LLMConfig(Base, TimestampMixin):
         server_default="none",
     )
     reasoning_profile_json: Mapped[str | None] = mapped_column(String(4096), nullable=True)
-    opencode_provider_profile: Mapped[str] = mapped_column(
-        String(128),
-        nullable=False,
-        default="default",
-        server_default="default",
-    )
     opencode_provider_status: Mapped[str] = mapped_column(
         String(16),
         nullable=False,
