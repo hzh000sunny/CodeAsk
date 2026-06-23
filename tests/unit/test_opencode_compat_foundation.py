@@ -12,11 +12,7 @@ from codeask.agent.opencode_compat.config import (
     build_opencode_provider_entry,
     build_session_external_directory_allowlist,
 )
-from codeask.agent.opencode_compat.profiles import (
-    UnsupportedOpenCodeProtocolError,
-    provider_profile_options,
-    select_provider_profile,
-)
+from codeask.agent.opencode_compat.profiles import opencode_provider_key
 from codeask.agent.opencode_compat.prompts import build_codeask_system_prompt
 from codeask.agent.opencode_compat.workspace import OpenCodeWorkspaceManager
 from codeask.llm.repo import LLMConfigWithSecret
@@ -30,104 +26,92 @@ def _llm_config(
     *,
     cfg_id: str = "cfg_test",
     name: str = "Test Config",
-    protocol: str,
-    base_url: str = "https://gateway.example.test/api",
+    mode: str = "catalog",
+    provider_id: str = "openai",
+    base_url: str | None = None,
     model_name: str = "model-a",
     api_key: str = "secret-key",
+    headers: dict[str, str] | None = None,
 ) -> LLMConfigWithSecret:
     return LLMConfigWithSecret(
         id=cfg_id,
         name=name,
         scope="global",
         owner_subject_id=None,
-        protocol=protocol,
+        mode=mode,
+        provider_id=provider_id,
         base_url=base_url,
         api_key=api_key,
+        headers=headers or {},
         model_name=model_name,
-        max_tokens=4096,
-        temperature=0.2,
         is_default=True,
         enabled=True,
-        rpm_limit=None,
-        quota_remaining=None,
         reasoning_profile="none",
         reasoning_profile_json=None,
     )
 
 
-def test_default_provider_profile_uses_opencode_native_openai() -> None:
-    profile = select_provider_profile(_llm_config(protocol="openai"))
+def test_catalog_provider_entry_uses_bare_provider_id_no_npm() -> None:
+    entry = _typed_config(
+        build_opencode_provider_entry(
+            _llm_config(provider_id="deepseek", model_name="deepseek-chat"),
+            name_prefix="CodeAsk",
+            tool_call=True,
+        )
+    )
 
-    assert profile.id == "openai-native"
-    assert profile.provider_npm == "@ai-sdk/openai"
-    assert profile.provider_id("cfg_test") == "codeask_cfg_test"
-    assert profile.build_options(_llm_config(protocol="openai")) == {
-        "baseURL": "https://gateway.example.test/api",
+    assert "npm" not in entry  # opencode resolves catalog providers itself
+    assert entry["options"] == {"apiKey": "secret-key"}
+    assert entry["models"] == {"deepseek-chat": {"name": "deepseek-chat", "tool_call": True}}
+
+
+def test_catalog_provider_entry_includes_optional_base_url_override() -> None:
+    entry = _typed_config(
+        build_opencode_provider_entry(
+            _llm_config(provider_id="deepseek", base_url="https://proxy.example.test/v1/"),
+            name_prefix="CodeAsk",
+            tool_call=True,
+        )
+    )
+
+    assert entry["options"]["baseURL"] == "https://proxy.example.test/v1"
+    assert "npm" not in entry
+
+
+def test_custom_provider_entry_pins_openai_compatible_and_headers() -> None:
+    entry = _typed_config(
+        build_opencode_provider_entry(
+            _llm_config(
+                mode="custom",
+                provider_id="my-relay",
+                base_url="https://relay.example.test/v1",
+                model_name="gpt-4o",
+                headers={"Authorization": "Bearer relay-token"},
+            ),
+            name_prefix="CodeAsk",
+            tool_call=True,
+        )
+    )
+
+    assert entry["npm"] == "@ai-sdk/openai-compatible"
+    assert entry["options"] == {
         "apiKey": "secret-key",
+        "baseURL": "https://relay.example.test/v1",
+        "headers": {"Authorization": "Bearer relay-token"},
     }
 
 
-def test_default_provider_profile_uses_opencode_native_anthropic() -> None:
-    profile = select_provider_profile(
-        _llm_config(protocol="anthropic", base_url="https://gateway.example.test/api/coding/")
-    )
-
-    assert profile.id == "anthropic-native"
-    assert profile.provider_npm == "@ai-sdk/anthropic"
-    assert profile.build_options(_llm_config(protocol="anthropic")) == {
-        "baseURL": "https://gateway.example.test/api",
-        "apiKey": "secret-key",
-    }
-
-
-def test_explicit_compatible_profiles_are_not_selected_by_default() -> None:
-    base_url = "https://gateway.example.test/api/coding"
-
-    openai_profile = select_provider_profile(
-        _llm_config(protocol="openai", base_url=base_url),
-        profile_id="openai-compatible",
-    )
-    anthropic_profile = select_provider_profile(
-        _llm_config(protocol="anthropic", base_url=base_url),
-        profile_id="anthropic-compatible-v1-bearer",
-    )
-
-    assert openai_profile.provider_npm == "@ai-sdk/openai-compatible"
-    assert (
-        anthropic_profile.build_options(_llm_config(protocol="anthropic", base_url=base_url))[
-            "baseURL"
-        ]
-        == f"{base_url}/v1"
-    )
-    assert anthropic_profile.build_options(_llm_config(protocol="anthropic", base_url=base_url))[
-        "headers"
-    ] == {"Authorization": "Bearer secret-key"}
-
-
-def test_provider_profile_options_are_small_user_visible_list() -> None:
-    profiles = provider_profile_options()
-
-    assert [profile.id for profile in profiles] == [
-        "default",
-        "openai-native",
-        "openai-compatible",
-        "anthropic-native",
-        "anthropic-compatible-bearer",
-        "anthropic-compatible-v1-bearer",
-        "openrouter",
-    ]
-
-
-def test_select_provider_profile_rejects_unknown_protocol() -> None:
-    with pytest.raises(UnsupportedOpenCodeProtocolError):
-        select_provider_profile(_llm_config(protocol="gemini"))
+def test_opencode_provider_key_catalog_vs_custom() -> None:
+    assert opencode_provider_key(_llm_config(provider_id="deepseek")) == "deepseek"
+    custom = _llm_config(mode="custom", provider_id="My Relay!", base_url="https://x/v1")
+    assert opencode_provider_key(custom) == "my-relay-"
 
 
 def test_build_opencode_config_contains_provider_mcp_and_readonly_permissions() -> None:
     cfg = _typed_config(
         build_opencode_config(
             OpenCodeConfigInput(
-                llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
+                llm_config=_llm_config(provider_id="minimax", model_name="MiniMax-M2.7"),
                 mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
                 mcp_token="token-1",
                 session_id="sess_1",
@@ -135,8 +119,8 @@ def test_build_opencode_config_contains_provider_mcp_and_readonly_permissions() 
         )
     )
 
-    provider = cfg["provider"]["codeask_cfg_test"]
-    assert provider["npm"] == "@ai-sdk/openai"
+    provider = cfg["provider"]["minimax"]
+    assert "npm" not in provider
     assert provider["models"] == {"MiniMax-M2.7": {"name": "MiniMax-M2.7", "tool_call": True}}
     assert cfg["mcp"]["codeask"]["type"] == "remote"
     assert cfg["mcp"]["codeask"]["headers"] == {
@@ -153,18 +137,18 @@ def test_build_opencode_config_contains_provider_mcp_and_readonly_permissions() 
     }
 
 
-def test_build_opencode_config_can_keep_global_pool_providers_stable() -> None:
+def test_build_opencode_config_keys_pool_providers_by_provider_id() -> None:
     primary = _llm_config(
         cfg_id="cfg_a",
         name="Pool A",
-        protocol="openai",
+        provider_id="deepseek",
         model_name="model-a",
         api_key="sk-a",
     )
     fallback = _llm_config(
         cfg_id="cfg_b",
         name="Pool B",
-        protocol="anthropic",
+        provider_id="moonshotai",
         model_name="model-b",
         api_key="sk-b",
     )
@@ -181,11 +165,11 @@ def test_build_opencode_config_can_keep_global_pool_providers_stable() -> None:
         )
     )
 
-    assert list(cfg["provider"]) == ["codeask_cfg_a", "codeask_cfg_b"]
-    assert cfg["provider"]["codeask_cfg_a"]["models"] == {
+    assert list(cfg["provider"]) == ["deepseek", "moonshotai"]
+    assert cfg["provider"]["deepseek"]["models"] == {
         "model-a": {"name": "model-a", "tool_call": True}
     }
-    assert cfg["provider"]["codeask_cfg_b"]["models"] == {
+    assert cfg["provider"]["moonshotai"]["models"] == {
         "model-b": {"name": "model-b", "tool_call": True}
     }
 
@@ -194,7 +178,7 @@ def test_build_opencode_config_injects_openviking_mcp_with_readonly_write_tool_d
     cfg = _typed_config(
         build_opencode_config(
             OpenCodeConfigInput(
-                llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
+                llm_config=_llm_config(provider_id="minimax", model_name="MiniMax-M2.7"),
                 mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
                 mcp_token="token-1",
                 session_id="sess_1",
@@ -235,7 +219,7 @@ def test_build_opencode_config_omits_openviking_when_degraded_or_disabled() -> N
     cfg = _typed_config(
         build_opencode_config(
             OpenCodeConfigInput(
-                llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
+                llm_config=_llm_config(provider_id="minimax", model_name="MiniMax-M2.7"),
                 mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
                 mcp_token="token-1",
                 session_id="sess_1",
@@ -253,8 +237,12 @@ def test_build_opencode_config_omits_openviking_when_degraded_or_disabled() -> N
 
 
 def test_provider_entry_builder_is_shared_by_session_and_probe_configs() -> None:
-    cfg = _llm_config(protocol="anthropic")
-    profile = select_provider_profile(cfg, profile_id="anthropic-compatible-v1-bearer")
+    cfg = _llm_config(
+        mode="custom",
+        provider_id="my-relay",
+        base_url="https://gateway.example.test/v1",
+        headers={"Authorization": "Bearer secret-key"},
+    )
 
     session_entry = _typed_config(
         build_opencode_config(
@@ -263,14 +251,12 @@ def test_provider_entry_builder_is_shared_by_session_and_probe_configs() -> None
                 mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
                 mcp_token="token",
                 session_id="sess_1",
-                provider_profile=profile,
             )
         )
-    )["provider"][profile.provider_id(cfg.id)]
+    )["provider"][opencode_provider_key(cfg)]
     probe_entry = _typed_config(
         build_opencode_provider_entry(
             cfg,
-            profile=profile,
             name_prefix="CodeAsk Provider Test",
             tool_call=False,
         )
@@ -290,7 +276,7 @@ def test_build_config_allows_codeask_external_symlink_targets(tmp_path: Path) ->
     cfg = _typed_config(
         build_opencode_config(
             OpenCodeConfigInput(
-                llm_config=_llm_config(protocol="openai", model_name="MiniMax-M2.7"),
+                llm_config=_llm_config(provider_id="minimax", model_name="MiniMax-M2.7"),
                 mcp_url="http://127.0.0.1:8000/api/agent-mcp/sess_1",
                 mcp_token="token-1",
                 session_id="sess_1",

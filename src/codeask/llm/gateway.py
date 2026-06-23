@@ -5,122 +5,50 @@ import random
 import time
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
-from codeask.llm.client import (
-    AnthropicClient,
-    LLMClient,
-    OpenAIClient,
-    OpenAICompatibleClient,
-)
+from codeask.llm.client import LiteLLMClient, LLMClient
+from codeask.llm.provider_catalog import litellm_provider_for
 from codeask.llm.repo import LLMConfigRepo, LLMConfigWithSecret
 from codeask.llm.types import LLMError, LLMEvent, LLMRequest
 
 
-class ClientBuilder(Protocol):
-    def __call__(
-        self,
-        *,
-        api_key: str,
-        model_name: str,
-        base_url: str | None = None,
-        timeout_seconds: int = 600,
-        reasoning_request_profile: str | None = None,
-        reasoning_request_profile_json: str | None = None,
-    ) -> LLMClient: ...
+def _litellm_provider_for_config(*, mode: str, provider_id: str) -> str:
+    """Custom providers are always OpenAI-compatible; catalog providers map."""
 
-
-def _openai_client(
-    *,
-    api_key: str,
-    model_name: str,
-    base_url: str | None = None,
-    timeout_seconds: int = 600,
-    reasoning_request_profile: str | None = None,
-    reasoning_request_profile_json: str | None = None,
-) -> LLMClient:
-    return OpenAIClient(
-        api_key=api_key,
-        model_name=model_name,
-        base_url=base_url,
-        timeout_seconds=timeout_seconds,
-        reasoning_request_profile=reasoning_request_profile,
-        reasoning_request_profile_json=reasoning_request_profile_json,
-    )
-
-
-def _openai_compatible_client(
-    *,
-    api_key: str,
-    model_name: str,
-    base_url: str | None = None,
-    timeout_seconds: int = 600,
-    reasoning_request_profile: str | None = None,
-    reasoning_request_profile_json: str | None = None,
-) -> LLMClient:
-    return OpenAICompatibleClient(
-        api_key=api_key,
-        model_name=model_name,
-        base_url=base_url,
-        timeout_seconds=timeout_seconds,
-        reasoning_request_profile=reasoning_request_profile,
-        reasoning_request_profile_json=reasoning_request_profile_json,
-    )
-
-
-def _anthropic_client(
-    *,
-    api_key: str,
-    model_name: str,
-    base_url: str | None = None,
-    timeout_seconds: int = 600,
-    reasoning_request_profile: str | None = None,
-    reasoning_request_profile_json: str | None = None,
-) -> LLMClient:
-    return AnthropicClient(
-        api_key=api_key,
-        model_name=model_name,
-        base_url=base_url,
-        timeout_seconds=timeout_seconds,
-        reasoning_request_profile=reasoning_request_profile,
-        reasoning_request_profile_json=reasoning_request_profile_json,
-    )
+    if mode == "custom":
+        return "openai"
+    return litellm_provider_for(provider_id)
 
 
 @dataclass(frozen=True)
 class ClientFactory:
-    provider_clients: dict[str, ClientBuilder]
-
     @classmethod
     def default(cls) -> "ClientFactory":
-        return cls(
-            provider_clients={
-                "openai": _openai_client,
-                "openai_compatible": _openai_compatible_client,
-                "anthropic": _anthropic_client,
-            }
-        )
+        return cls()
 
     def create(
         self,
-        protocol: str,
         *,
+        mode: str,
+        provider_id: str,
         api_key: str,
         model_name: str,
         base_url: str | None = None,
+        headers: dict[str, str] | None = None,
         timeout_seconds: int = 600,
         reasoning_request_profile: str | None = None,
         reasoning_request_profile_json: str | None = None,
     ) -> LLMClient:
-        if protocol not in self.provider_clients:
-            raise ValueError(f"unknown protocol {protocol!r}")
-        return self.provider_clients[protocol](
+        return LiteLLMClient(
             api_key=api_key,
             model_name=model_name,
             base_url=base_url,
             timeout_seconds=timeout_seconds,
             reasoning_request_profile=reasoning_request_profile,
             reasoning_request_profile_json=reasoning_request_profile_json,
+            litellm_provider=_litellm_provider_for_config(mode=mode, provider_id=provider_id),
+            extra_headers=headers,
         )
 
 
@@ -242,10 +170,12 @@ class LLMGateway:
             return
         config, pooled_global = selected
         client = self._factory.create(
-            config.protocol,
+            mode=config.mode,
+            provider_id=config.provider_id,
             api_key=config.api_key,
             model_name=config.model_name,
             base_url=config.base_url,
+            headers=config.headers,
             timeout_seconds=self._timeout_seconds,
             reasoning_request_profile=config.reasoning_profile,
             reasoning_request_profile_json=config.reasoning_profile_json,
@@ -297,10 +227,12 @@ class LLMGateway:
                             attempt += 1
                             config, pooled_global = selected
                             client = self._factory.create(
-                                config.protocol,
+                                mode=config.mode,
+                                provider_id=config.provider_id,
                                 api_key=config.api_key,
                                 model_name=config.model_name,
                                 base_url=config.base_url,
+                                headers=config.headers,
                                 timeout_seconds=self._timeout_seconds,
                                 reasoning_request_profile=config.reasoning_profile,
                                 reasoning_request_profile_json=config.reasoning_profile_json,
@@ -414,7 +346,8 @@ def _selected_config_summary(config: Any, *, pooled_global: bool) -> dict[str, A
         "config_id": getattr(config, "id", None),
         "config_name": getattr(config, "name", None),
         "model_name": getattr(config, "model_name", "unknown"),
-        "protocol": getattr(config, "protocol", None),
+        "mode": getattr(config, "mode", None),
+        "provider_id": getattr(config, "provider_id", None),
         "scope": getattr(config, "scope", None),
         "is_global_pool": pooled_global,
     }
@@ -426,38 +359,36 @@ def _runtime_config_from_metadata(raw: Any) -> LLMConfigWithSecret | LLMEvent | 
     if not isinstance(raw, dict):
         return _invalid_runtime_config_event("runtime LLM config must be an object")
     raw_config = cast(dict[str, Any], raw)
-    protocol = _required_string(raw_config, "protocol")
+    provider_id = _required_string(raw_config, "provider_id")
     api_key = _required_string(raw_config, "api_key")
     model_name = _required_string(raw_config, "model_name")
-    if protocol is None or api_key is None or model_name is None:
+    if provider_id is None or api_key is None or model_name is None:
         return _invalid_runtime_config_event("runtime LLM config is incomplete")
-    if protocol not in {"openai", "openai_compatible", "anthropic"}:
-        return _invalid_runtime_config_event("runtime LLM config protocol is not supported")
-    agent_runtime_profile = (
-        _optional_string(raw_config, "agent_runtime_profile")
-        or _optional_string(raw_config, "opencode_provider_profile")
-        or "default"
+    mode = _optional_string(raw_config, "mode") or "catalog"
+    if mode not in {"catalog", "custom"}:
+        return _invalid_runtime_config_event("runtime LLM config mode is not supported")
+    raw_headers = raw_config.get("headers")
+    headers = (
+        {str(k): str(v) for k, v in raw_headers.items()}
+        if isinstance(raw_headers, dict)
+        else {}
     )
     return LLMConfigWithSecret(
         id="runtime_guest",
         name=_optional_string(raw_config, "name") or "访客 LLM",
         scope="runtime",
         owner_subject_id=None,
-        protocol=protocol,
+        mode=mode,
+        provider_id=provider_id,
         base_url=_optional_string(raw_config, "base_url"),
         api_key=api_key,
+        headers=headers,
         model_name=model_name,
-        max_tokens=_optional_int(raw_config, "max_tokens", 4096),
-        temperature=_optional_float(raw_config, "temperature", 0.0),
         is_default=False,
         enabled=True,
-        rpm_limit=None,
-        quota_remaining=None,
         reasoning_profile=_optional_string(raw_config, "reasoning_profile") or "none",
         reasoning_profile_json=_optional_string(raw_config, "reasoning_profile_json"),
         agent_runtime_backend="opencode",
-        agent_runtime_profile=agent_runtime_profile,
-        opencode_provider_profile=agent_runtime_profile,
     )
 
 

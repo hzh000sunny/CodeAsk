@@ -252,8 +252,13 @@ class LLMClient(Protocol):
     ) -> AsyncIterator[LLMEvent]: ...
 
 
-class _BaseClient:
-    _provider_name: str = "openai"
+class LiteLLMClient:
+    """Single LiteLLM-backed client keyed on a resolved litellm provider prefix.
+
+    ``litellm_provider`` is the prefix used to build the ``provider/model`` string
+    (e.g. ``openai``, ``deepseek``, ``gemini``, ``anthropic``). Custom providers
+    resolve to ``openai`` upstream and carry a ``base_url`` + ``extra_headers``.
+    """
 
     def __init__(
         self,
@@ -263,6 +268,8 @@ class _BaseClient:
         timeout_seconds: int = 600,
         reasoning_request_profile: str | None = None,
         reasoning_request_profile_json: str | None = None,
+        litellm_provider: str = "openai",
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         self._api_key = api_key
         self._model_name = model_name
@@ -270,19 +277,36 @@ class _BaseClient:
         self._timeout_seconds = timeout_seconds
         self._reasoning_request_profile = reasoning_request_profile or DEFAULT_REASONING_PROFILE
         self._reasoning_request_profile_json = reasoning_request_profile_json
+        self._litellm_provider = litellm_provider or "openai"
+        self._extra_headers = extra_headers or {}
+
+    @property
+    def _provider_name(self) -> str:
+        return self._litellm_provider
+
+    def _is_anthropic(self) -> bool:
+        return self._litellm_provider == "anthropic"
 
     def _model(self) -> str:
-        return self._model_name
+        return _with_provider_hint(self._litellm_provider, self._model_name)
 
     def _extra_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {"api_key": self._api_key}
-        if self._base_url:
-            kwargs["base_url"] = self._base_url
+        base_url = self._base_url
+        if base_url and self._is_anthropic():
+            normalized = base_url.rstrip("/")
+            if not normalized.endswith("/v1/messages"):
+                normalized = f"{normalized}/v1/messages"
+            base_url = normalized
+        if base_url:
+            kwargs["base_url"] = base_url
+        if self._extra_headers:
+            kwargs["extra_headers"] = dict(self._extra_headers)
         kwargs.update(
             build_reasoning_request_kwargs(
                 self._reasoning_request_profile,
                 custom_json=self._reasoning_request_profile_json,
-                protocol=self._provider_name,
+                protocol="anthropic" if self._is_anthropic() else "openai",
             )
         )
         return kwargs
@@ -482,31 +506,3 @@ class _BaseClient:
             message=str(exc),
             retryable=retryable,
         ).model_dump()
-
-
-class OpenAIClient(_BaseClient):
-    _provider_name = "openai"
-
-    def _model(self) -> str:
-        return _with_provider_hint("openai", self._model_name)
-
-
-class OpenAICompatibleClient(OpenAIClient):
-    _provider_name = "openai_compatible"
-
-
-class AnthropicClient(_BaseClient):
-    _provider_name = "anthropic"
-
-    def _model(self) -> str:
-        return _with_provider_hint("anthropic", self._model_name)
-
-    def _extra_kwargs(self) -> dict[str, Any]:
-        kwargs = super()._extra_kwargs()
-        base_url = kwargs.get("base_url")
-        if isinstance(base_url, str) and base_url:
-            normalized = base_url.rstrip("/")
-            if not normalized.endswith("/v1/messages"):
-                normalized = f"{normalized}/v1/messages"
-            kwargs["base_url"] = normalized
-        return kwargs

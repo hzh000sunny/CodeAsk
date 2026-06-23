@@ -23,16 +23,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.orm import selectinload
 
+from codeask.agent.opencode_compat.config import build_opencode_provider_entry
 from codeask.agent.opencode_compat.http import OpenCodeHttpClient
 from codeask.agent.opencode_compat.process import OpenCodeProcessManager
-from codeask.agent.opencode_compat.profiles import (
-    OpenCodeProviderProfile,
-    select_provider_profile,
-)
+from codeask.agent.opencode_compat.profiles import opencode_provider_key
 from codeask.crypto import Crypto
 from codeask.db.engine import create_engine
 from codeask.db.models import LLMConfig, LLMRuntimeAdapter
-from codeask.llm.repo import LLMConfigWithSecret
+from codeask.llm.repo import LLMConfigWithSecret, decode_headers
 from codeask.settings import Settings
 
 
@@ -40,11 +38,10 @@ from codeask.settings import Settings
 class SmokeResult:
     config_id: str
     name: str
-    protocol: str
+    provider_id: str
     model_name: str
     enabled: bool
     ok: bool
-    profile_id: str | None = None
     text_preview: str = ""
     retries: tuple[str, ...] = ()
     error: str | None = None
@@ -52,12 +49,11 @@ class SmokeResult:
     def summary(self) -> str:
         status = "PASS" if self.ok else "FAIL"
         enabled = "enabled" if self.enabled else "disabled"
-        profile_text = f" profile={self.profile_id}" if self.profile_id else ""
         retry_text = f" retries={len(self.retries)}" if self.retries else ""
         detail = self.text_preview if self.ok else self.error
         return (
             f"{status} {self.name} ({self.config_id}, {enabled}, "
-            f"{self.protocol}, {self.model_name}){profile_text}{retry_text}: {detail or ''}"
+            f"{self.provider_id}, {self.model_name}){retry_text}: {detail or ''}"
         )
 
 
@@ -147,24 +143,17 @@ async def _load_all_llm_configs(settings: Settings) -> list[LLMConfigWithSecret]
                     name=row.name,
                     scope=row.scope,
                     owner_subject_id=row.owner_subject_id,
-                    protocol=row.protocol,
+                    mode=row.mode,
+                    provider_id=row.provider_id,
                     base_url=row.base_url,
                     api_key=crypto.decrypt(row.api_key_encrypted),
+                    headers=decode_headers(row.headers_encrypted, crypto),
                     model_name=row.model_name,
-                    max_tokens=row.max_tokens,
-                    temperature=row.temperature,
                     is_default=row.is_default,
                     enabled=row.enabled,
-                    rpm_limit=row.rpm_limit,
-                    quota_remaining=row.quota_remaining,
                     reasoning_profile=row.reasoning_profile,
                     reasoning_profile_json=row.reasoning_profile_json,
                     agent_runtime_backend="opencode",
-                    agent_runtime_profile=(
-                        opencode_adapter.adapter_profile
-                        if opencode_adapter
-                        else row.opencode_provider_profile
-                    ),
                     agent_runtime_status=(
                         opencode_adapter.status
                         if opencode_adapter
@@ -182,11 +171,6 @@ async def _load_all_llm_configs(settings: Settings) -> list[LLMConfigWithSecret]
                         opencode_adapter.test_result_json
                         if opencode_adapter
                         else row.opencode_provider_test_result_json
-                    ),
-                    opencode_provider_profile=(
-                        opencode_adapter.adapter_profile
-                        if opencode_adapter
-                        else row.opencode_provider_profile
                     ),
                     opencode_provider_status=(
                         opencode_adapter.status
@@ -240,17 +224,17 @@ async def _smoke_one_config(
     index: int,
     timeout_seconds: float,
 ) -> SmokeResult:
-    profile = select_provider_profile(config)
-    workspace = workspace_root / f"{index:02d}-{_safe_name(config.id)}-{profile.id}"
+    provider_id = opencode_provider_key(config)
+    workspace = workspace_root / f"{index:02d}-{_safe_name(config.id)}-{_safe_name(provider_id)}"
     workspace.mkdir(parents=True, exist_ok=True)
-    _write_provider_only_opencode_config(workspace / "opencode.json", config, profile)
+    _write_provider_only_opencode_config(workspace / "opencode.json", config)
 
     try:
         external_session_id = await client.create_session(directory=str(workspace))
         await client.prompt_async(
             session_id=external_session_id,
             directory=str(workspace),
-            provider_id=profile.provider_id(config.id),
+            provider_id=provider_id,
             model_id=config.model_name,
             text="请只回答 OK 两个字母，不要解释，不要调用工具。",
             system="You are a smoke-test assistant. Reply with exactly: OK",
@@ -265,11 +249,10 @@ async def _smoke_one_config(
             return SmokeResult(
                 config_id=config.id,
                 name=config.name,
-                protocol=config.protocol,
+                provider_id=config.provider_id,
                 model_name=config.model_name,
                 enabled=config.enabled,
                 ok=True,
-                profile_id=profile.id,
                 text_preview=_preview(text),
                 retries=tuple(retries),
             )
@@ -279,11 +262,10 @@ async def _smoke_one_config(
     return SmokeResult(
         config_id=config.id,
         name=config.name,
-        protocol=config.protocol,
+        provider_id=config.provider_id,
         model_name=config.model_name,
         enabled=config.enabled,
         ok=False,
-        profile_id=profile.id,
         error=error,
     )
 
@@ -291,23 +273,16 @@ async def _smoke_one_config(
 def _write_provider_only_opencode_config(
     path: Path,
     config: LLMConfigWithSecret,
-    profile: OpenCodeProviderProfile,
 ) -> None:
-    provider_id = profile.provider_id(config.id)
+    provider_id = opencode_provider_key(config)
     payload: dict[str, Any] = {
         "$schema": "https://opencode.ai/config.json",
         "provider": {
-            provider_id: {
-                "npm": profile.provider_npm,
-                "name": f"CodeAsk Smoke {config.name}",
-                "options": profile.build_options(config),
-                "models": {
-                    config.model_name: {
-                        "name": config.model_name,
-                        "tool_call": False,
-                    }
-                },
-            }
+            provider_id: build_opencode_provider_entry(
+                config,
+                name_prefix="CodeAsk Smoke",
+                tool_call=False,
+            )
         },
         "permission": {
             "bash": "deny",

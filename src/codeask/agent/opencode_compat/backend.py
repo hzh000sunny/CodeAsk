@@ -27,10 +27,7 @@ from codeask.agent.opencode_compat.config import (
 from codeask.agent.opencode_compat.events import map_global_event
 from codeask.agent.opencode_compat.permissions import OpencodeToolPermissions
 from codeask.agent.opencode_compat.process import OpenCodeProcessError, OpenCodeServerHandle
-from codeask.agent.opencode_compat.profiles import (
-    OpenCodeProviderProfile,
-    select_provider_profile,
-)
+from codeask.agent.opencode_compat.profiles import opencode_provider_key
 from codeask.agent.opencode_compat.prompts import build_codeask_system_prompt
 from codeask.agent.opencode_compat.sessions import ExternalAgentSessionCreate
 from codeask.agent.opencode_compat.tool_output import (
@@ -176,10 +173,7 @@ class OpenCodeCompat:
             provider_config_pool=provider_config_pool,
             tool_permissions=tool_permissions,
         )
-        selected_profile = select_provider_profile(llm_config)
-        config = build_opencode_config(
-            _with_profile(config_input, selected_profile),
-        )
+        config = build_opencode_config(config_input)
         config_hash = _config_hash(config)
         _write_workspace_files(workspace.workspace_dir, config)
         if (
@@ -255,7 +249,7 @@ class OpenCodeCompat:
                 pid=server.pid,
                 config_hash=config_hash,
                 config_json=config,
-                provider_profile_id=selected_profile.id,
+                provider_profile_id=opencode_provider_key(llm_config),
             )
         )
 
@@ -265,21 +259,21 @@ class OpenCodeCompat:
         *,
         timeout_seconds: float = 90.0,
     ) -> dict[str, object]:
-        """Smoke-test the explicitly selected opencode provider profile."""
+        """Smoke-test the configured provider by sending a real opencode probe."""
 
-        profile = select_provider_profile(llm_config)
+        provider_key = opencode_provider_key(llm_config)
         server = self._process_manager.ensure_server()
         client = self._http_client_factory(server)
         await _wait_for_health(client)
         _record_process_health_ok(self._process_manager)
-        workspace_dir = _provider_test_workspace_dir(self._data_dir, llm_config.id, profile.id)
+        workspace_dir = _provider_test_workspace_dir(self._data_dir, llm_config.id, provider_key)
         workspace_dir.mkdir(parents=True, exist_ok=True)
-        _write_provider_test_config(workspace_dir, llm_config, profile)
+        _write_provider_test_config(workspace_dir, llm_config)
         external_session_id = await client.create_session(directory=str(workspace_dir))
         await client.prompt_async(
             session_id=external_session_id,
             directory=str(workspace_dir),
-            provider_id=profile.provider_id(llm_config.id),
+            provider_id=provider_key,
             model_id=llm_config.model_name,
             text="请只回答 OK 两个字母，不要解释，不要调用工具。",
             system="You are a smoke-test assistant. Reply with exactly: OK",
@@ -293,8 +287,8 @@ class OpenCodeCompat:
         if not text.strip():
             raise OpenCodeProviderTestError("opencode reached idle without visible text")
         return {
-            "profile_id": profile.id,
-            "provider_npm": profile.provider_npm,
+            "provider_id": provider_key,
+            "model_id": llm_config.model_name,
             "text_preview": _preview_probe_text(text),
             "retries": retries,
             "workspace_dir": str(workspace_dir),
@@ -316,8 +310,7 @@ class OpenCodeCompat:
         client = self._http_client_factory(server)
         await _wait_for_health(client)
         _record_process_health_ok(self._process_manager)
-        profile = select_provider_profile(llm_config)
-        provider_id = profile.provider_id(llm_config.id)
+        provider_id = opencode_provider_key(llm_config)
         workspace_dir = str(binding.workspace_dir)
         reasoning_lengths: dict[str, int] = {}
         reasoning_leak_part_ids: set[str] = set()
@@ -801,50 +794,27 @@ def _config_input(
     return OpenCodeConfigInput.with_openviking(base=base, openviking=openviking_mcp)
 
 
-def _with_profile(
-    config_input: OpenCodeConfigInput,
-    profile: OpenCodeProviderProfile,
-) -> OpenCodeConfigInput:
-    return OpenCodeConfigInput(
-        llm_config=config_input.llm_config,
-        mcp_url=config_input.mcp_url,
-        mcp_token=config_input.mcp_token,
-        session_id=config_input.session_id,
-        additional_provider_configs=config_input.additional_provider_configs,
-        external_directory_allowlist=config_input.external_directory_allowlist,
-        mcp_timeout_ms=config_input.mcp_timeout_ms,
-        provider_profile=profile,
-        openviking_enabled=config_input.openviking_enabled,
-        openviking_mcp_url=config_input.openviking_mcp_url,
-        openviking_mcp_token=config_input.openviking_mcp_token,
-        openviking_mcp_headers=dict(config_input.openviking_mcp_headers),
-        tool_permissions=config_input.tool_permissions,
-    )
-
-
 def _provider_test_workspace_dir(
     data_dir: Path | None,
     llm_config_id: str,
-    provider_profile_id: str,
+    provider_key: str,
 ) -> Path:
     root = data_dir or Path.cwd() / ".codeask"
     safe_config = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in llm_config_id)
-    safe_profile = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in provider_profile_id)
-    return root / "agent_sessions" / "opencode_provider_tests" / safe_config / safe_profile
+    safe_provider = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in provider_key)
+    return root / "agent_sessions" / "opencode_provider_tests" / safe_config / safe_provider
 
 
 def _write_provider_test_config(
     workspace_dir: Path,
     llm_config: LLMConfigWithSecret,
-    profile: OpenCodeProviderProfile,
 ) -> None:
-    provider_id = profile.provider_id(llm_config.id)
+    provider_id = opencode_provider_key(llm_config)
     config = {
         "$schema": "https://opencode.ai/config.json",
         "provider": {
             provider_id: build_opencode_provider_entry(
                 llm_config,
-                profile=profile,
                 name_prefix="CodeAsk Provider Test",
                 tool_call=False,
             )

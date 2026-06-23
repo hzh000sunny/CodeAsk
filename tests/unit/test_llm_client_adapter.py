@@ -1,13 +1,21 @@
 """Adapter test: LiteLLM streaming chunks -> LLMEvent."""
 
 from collections.abc import AsyncIterator
+from functools import partial
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from codeask.llm.client import AnthropicClient, OpenAIClient, OpenAICompatibleClient
+from codeask.llm.client import LiteLLMClient
 from codeask.llm.types import LLMMessage, ReasoningBlock, TextBlock, ToolDef
+
+# The three protocol clients collapsed into LiteLLMClient keyed on provider prefix.
+# OpenAI-compatible was always the OpenAI prefix; these aliases keep the existing
+# adapter tests (streaming/reasoning behaviour) intact.
+OpenAIClient = partial(LiteLLMClient, litellm_provider="openai")
+OpenAICompatibleClient = partial(LiteLLMClient, litellm_provider="openai")
+AnthropicClient = partial(LiteLLMClient, litellm_provider="anthropic")
 
 
 def _chunk(

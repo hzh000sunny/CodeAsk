@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from secrets import token_hex
 from typing import Any
@@ -14,26 +15,23 @@ from sqlalchemy.orm import selectinload
 
 from codeask.crypto import Crypto
 from codeask.db.models import LLMConfig, LLMRuntimeAdapter
-from codeask.llm.types import ProviderProtocol
+from codeask.llm.types import LLMConfigMode
 
 
 class LLMConfigInput(BaseModel):
     name: str
     scope: str = "global"
     owner_subject_id: str | None = None
-    protocol: ProviderProtocol
-    base_url: str | None
+    mode: LLMConfigMode = "catalog"
+    provider_id: str
+    base_url: str | None = None
     api_key: str
+    headers: dict[str, str] | None = None
     model_name: str
-    max_tokens: int
-    temperature: float
     is_default: bool = False
     enabled: bool = True
-    rpm_limit: int | None = None
-    quota_remaining: float | None = None
     reasoning_profile: str = "none"
     reasoning_profile_json: str | None = None
-    opencode_provider_profile: str = "default"
     opencode_provider_status: str = "unknown"
     opencode_provider_tested_at: datetime | None = None
     opencode_provider_error: str | None = None
@@ -46,25 +44,21 @@ class LLMConfigPublic:
     name: str
     scope: str
     owner_subject_id: str | None
-    protocol: str
+    mode: str
+    provider_id: str
     base_url: str | None
     api_key_masked: str
     model_name: str
-    max_tokens: int
-    temperature: float
     is_default: bool
     enabled: bool
-    rpm_limit: int | None
-    quota_remaining: float | None
     reasoning_profile: str
     reasoning_profile_json: str | None
+    headers_masked: dict[str, str] = field(default_factory=dict)
     agent_runtime_backend: str = "opencode"
-    agent_runtime_profile: str | None = None
     agent_runtime_status: str = "unknown"
     agent_runtime_tested_at: datetime | None = None
     agent_runtime_error: str | None = None
     agent_runtime_test_result_json: Any | None = None
-    opencode_provider_profile: str | None = None
     opencode_provider_status: str = "unknown"
     opencode_provider_tested_at: datetime | None = None
     opencode_provider_error: str | None = None
@@ -77,25 +71,21 @@ class LLMConfigWithSecret:
     name: str
     scope: str
     owner_subject_id: str | None
-    protocol: str
+    mode: str
+    provider_id: str
     base_url: str | None
     api_key: str
     model_name: str
-    max_tokens: int
-    temperature: float
     is_default: bool
     enabled: bool
-    rpm_limit: int | None
-    quota_remaining: float | None
     reasoning_profile: str
     reasoning_profile_json: str | None
+    headers: dict[str, str] = field(default_factory=dict)
     agent_runtime_backend: str = "opencode"
-    agent_runtime_profile: str | None = None
     agent_runtime_status: str = "unknown"
     agent_runtime_tested_at: datetime | None = None
     agent_runtime_error: str | None = None
     agent_runtime_test_result_json: Any | None = None
-    opencode_provider_profile: str | None = None
     opencode_provider_status: str = "unknown"
     opencode_provider_tested_at: datetime | None = None
     opencode_provider_error: str | None = None
@@ -108,60 +98,55 @@ def _mask_key(key: str) -> str:
     return f"{key[:3]}...{key[-3:]}"
 
 
+def encode_headers(headers: dict[str, str] | None, crypto: Crypto) -> str | None:
+    """Encrypt request headers to a stored blob; empty/None -> None."""
+
+    if not headers:
+        return None
+    return crypto.encrypt(json.dumps(headers, ensure_ascii=False))
+
+
+def decode_headers(blob: str | None, crypto: Crypto) -> dict[str, str]:
+    if not blob:
+        return {}
+    decoded = json.loads(crypto.decrypt(blob))
+    return {str(k): str(v) for k, v in decoded.items()} if isinstance(decoded, dict) else {}
+
+
 def _to_secret(row: LLMConfig, crypto: Crypto) -> LLMConfigWithSecret:
     opencode_adapter = _runtime_adapter(row, "opencode")
+    status = opencode_adapter.status if opencode_adapter else row.opencode_provider_status
+    tested_at = opencode_adapter.tested_at if opencode_adapter else row.opencode_provider_tested_at
+    error = opencode_adapter.error if opencode_adapter else row.opencode_provider_error
+    result_json = (
+        opencode_adapter.test_result_json
+        if opencode_adapter
+        else row.opencode_provider_test_result_json
+    )
     return LLMConfigWithSecret(
         id=row.id,
         name=row.name,
         scope=row.scope,
         owner_subject_id=row.owner_subject_id,
-        protocol=row.protocol,
+        mode=row.mode,
+        provider_id=row.provider_id,
         base_url=row.base_url,
         api_key=crypto.decrypt(row.api_key_encrypted),
+        headers=decode_headers(row.headers_encrypted, crypto),
         model_name=row.model_name,
-        max_tokens=row.max_tokens,
-        temperature=row.temperature,
         is_default=row.is_default,
         enabled=row.enabled,
-        rpm_limit=row.rpm_limit,
-        quota_remaining=row.quota_remaining,
         reasoning_profile=row.reasoning_profile,
         reasoning_profile_json=row.reasoning_profile_json,
         agent_runtime_backend="opencode",
-        agent_runtime_profile=(
-            opencode_adapter.adapter_profile if opencode_adapter else row.opencode_provider_profile
-        ),
-        agent_runtime_status=(
-            opencode_adapter.status if opencode_adapter else row.opencode_provider_status
-        ),
-        agent_runtime_tested_at=(
-            opencode_adapter.tested_at if opencode_adapter else row.opencode_provider_tested_at
-        ),
-        agent_runtime_error=(
-            opencode_adapter.error if opencode_adapter else row.opencode_provider_error
-        ),
-        agent_runtime_test_result_json=(
-            opencode_adapter.test_result_json
-            if opencode_adapter
-            else row.opencode_provider_test_result_json
-        ),
-        opencode_provider_profile=(
-            opencode_adapter.adapter_profile if opencode_adapter else row.opencode_provider_profile
-        ),
-        opencode_provider_status=(
-            opencode_adapter.status if opencode_adapter else row.opencode_provider_status
-        ),
-        opencode_provider_tested_at=(
-            opencode_adapter.tested_at if opencode_adapter else row.opencode_provider_tested_at
-        ),
-        opencode_provider_error=(
-            opencode_adapter.error if opencode_adapter else row.opencode_provider_error
-        ),
-        opencode_provider_test_result_json=(
-            opencode_adapter.test_result_json
-            if opencode_adapter
-            else row.opencode_provider_test_result_json
-        ),
+        agent_runtime_status=status,
+        agent_runtime_tested_at=tested_at,
+        agent_runtime_error=error,
+        agent_runtime_test_result_json=result_json,
+        opencode_provider_status=status,
+        opencode_provider_tested_at=tested_at,
+        opencode_provider_error=error,
+        opencode_provider_test_result_json=result_json,
     )
 
 
@@ -222,19 +207,16 @@ class LLMConfigRepo:
                     name=data.name,
                     scope=data.scope,
                     owner_subject_id=data.owner_subject_id,
-                    protocol=data.protocol,
+                    mode=data.mode,
+                    provider_id=data.provider_id,
                     base_url=data.base_url,
                     api_key_encrypted=self._crypto.encrypt(data.api_key),
+                    headers_encrypted=encode_headers(data.headers, self._crypto),
                     model_name=data.model_name,
-                    max_tokens=data.max_tokens,
-                    temperature=data.temperature,
                     is_default=data.is_default,
                     enabled=data.enabled,
-                    rpm_limit=data.rpm_limit,
-                    quota_remaining=data.quota_remaining,
                     reasoning_profile=data.reasoning_profile,
                     reasoning_profile_json=data.reasoning_profile_json,
-                    opencode_provider_profile=data.opencode_provider_profile,
                     opencode_provider_status=data.opencode_provider_status,
                     opencode_provider_tested_at=data.opencode_provider_tested_at,
                     opencode_provider_error=data.opencode_provider_error,
@@ -246,7 +228,7 @@ class LLMConfigRepo:
                     id=f"adapter_{token_hex(8)}",
                     llm_config_id=cfg_id,
                     runtime_backend="opencode",
-                    adapter_profile=data.opencode_provider_profile,
+                    adapter_profile=data.provider_id,
                     status=data.opencode_provider_status,
                     tested_at=data.opencode_provider_tested_at,
                     error=data.opencode_provider_error,
@@ -274,71 +256,42 @@ class LLMConfigRepo:
         for row in rows:
             plain = self._crypto.decrypt(row.api_key_encrypted)
             opencode_adapter = _runtime_adapter(row, "opencode")
+            status = opencode_adapter.status if opencode_adapter else row.opencode_provider_status
+            tested_at = (
+                opencode_adapter.tested_at if opencode_adapter else row.opencode_provider_tested_at
+            )
+            error = opencode_adapter.error if opencode_adapter else row.opencode_provider_error
+            result_json = (
+                opencode_adapter.test_result_json
+                if opencode_adapter
+                else row.opencode_provider_test_result_json
+            )
+            headers = decode_headers(row.headers_encrypted, self._crypto)
             items.append(
                 LLMConfigPublic(
                     id=row.id,
                     name=row.name,
                     scope=row.scope,
                     owner_subject_id=row.owner_subject_id,
-                    protocol=row.protocol,
+                    mode=row.mode,
+                    provider_id=row.provider_id,
                     base_url=row.base_url,
                     api_key_masked=_mask_key(plain),
+                    headers_masked={k: _mask_key(v) for k, v in headers.items()},
                     model_name=row.model_name,
-                    max_tokens=row.max_tokens,
-                    temperature=row.temperature,
                     is_default=row.is_default,
                     enabled=row.enabled,
-                    rpm_limit=row.rpm_limit,
-                    quota_remaining=row.quota_remaining,
                     reasoning_profile=row.reasoning_profile,
                     reasoning_profile_json=row.reasoning_profile_json,
                     agent_runtime_backend="opencode",
-                    agent_runtime_profile=(
-                        opencode_adapter.adapter_profile
-                        if opencode_adapter
-                        else row.opencode_provider_profile
-                    ),
-                    agent_runtime_status=(
-                        opencode_adapter.status
-                        if opencode_adapter
-                        else row.opencode_provider_status
-                    ),
-                    agent_runtime_tested_at=(
-                        opencode_adapter.tested_at
-                        if opencode_adapter
-                        else row.opencode_provider_tested_at
-                    ),
-                    agent_runtime_error=(
-                        opencode_adapter.error if opencode_adapter else row.opencode_provider_error
-                    ),
-                    agent_runtime_test_result_json=(
-                        opencode_adapter.test_result_json
-                        if opencode_adapter
-                        else row.opencode_provider_test_result_json
-                    ),
-                    opencode_provider_profile=(
-                        opencode_adapter.adapter_profile
-                        if opencode_adapter
-                        else row.opencode_provider_profile
-                    ),
-                    opencode_provider_status=(
-                        opencode_adapter.status
-                        if opencode_adapter
-                        else row.opencode_provider_status
-                    ),
-                    opencode_provider_tested_at=(
-                        opencode_adapter.tested_at
-                        if opencode_adapter
-                        else row.opencode_provider_tested_at
-                    ),
-                    opencode_provider_error=(
-                        opencode_adapter.error if opencode_adapter else row.opencode_provider_error
-                    ),
-                    opencode_provider_test_result_json=(
-                        opencode_adapter.test_result_json
-                        if opencode_adapter
-                        else row.opencode_provider_test_result_json
-                    ),
+                    agent_runtime_status=status,
+                    agent_runtime_tested_at=tested_at,
+                    agent_runtime_error=error,
+                    agent_runtime_test_result_json=result_json,
+                    opencode_provider_status=status,
+                    opencode_provider_tested_at=tested_at,
+                    opencode_provider_error=error,
+                    opencode_provider_test_result_json=result_json,
                 )
             )
         return items
@@ -493,7 +446,7 @@ class LLMConfigRepo:
                 session,
                 llm_config_id=cfg_id,
                 runtime_backend="opencode",
-                adapter_profile=row.opencode_provider_profile,
+                adapter_profile=row.provider_id,
                 status=row.opencode_provider_status,
                 tested_at=row.opencode_provider_tested_at,
                 error=row.opencode_provider_error,
@@ -522,7 +475,7 @@ class LLMConfigRepo:
                 session,
                 llm_config_id=cfg_id,
                 runtime_backend="opencode",
-                adapter_profile=row.opencode_provider_profile,
+                adapter_profile=row.provider_id,
                 status=row.opencode_provider_status,
                 tested_at=row.opencode_provider_tested_at,
                 error=row.opencode_provider_error,

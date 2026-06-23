@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from codeask.llm.types import ProviderProtocol
+from codeask.llm.types import LLMConfigMode
 
 
 def _empty_feature_ids() -> list[int]:
@@ -112,16 +112,14 @@ class RepoBindingIn(BaseModel):
 
 class GuestLLMConfigIn(BaseModel):
     name: str = Field(default="访客 LLM", min_length=1, max_length=128)
-    protocol: ProviderProtocol
+    mode: LLMConfigMode = "catalog"
+    provider_id: str = Field(..., min_length=1, max_length=128)
     base_url: str | None = Field(default=None, max_length=2000)
     api_key: str = Field(..., min_length=1, max_length=4096)
+    headers: dict[str, str] | None = None
     model_name: str = Field(..., min_length=1, max_length=256)
-    max_tokens: int = Field(default=4096, ge=1, le=131072)
-    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     reasoning_profile: str = Field(default="none", max_length=128)
     reasoning_profile_json: str | None = Field(default=None, max_length=20000)
-    agent_runtime_profile: str | None = Field(default=None, max_length=128)
-    opencode_provider_profile: str | None = Field(default=None, max_length=128)
 
 
 class MessageCreate(BaseModel):

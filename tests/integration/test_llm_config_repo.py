@@ -27,12 +27,10 @@ async def test_create_and_decrypt(repo: LLMConfigRepo) -> None:
     cfg_id = await repo.create(
         LLMConfigInput(
             name="default",
-            protocol="openai",
+            provider_id="openai",
             base_url=None,
             api_key="sk-secret",
             model_name="gpt-4o",
-            max_tokens=4096,
-            temperature=0.2,
             is_default=True,
         )
     )
@@ -47,12 +45,10 @@ async def test_create_and_list_reasoning_profile(repo: LLMConfigRepo) -> None:
     cfg_id = await repo.create(
         LLMConfigInput(
             name="reasoning",
-            protocol="openai",
+            provider_id="openai",
             base_url=None,
             api_key="sk-secret",
             model_name="gpt-4o",
-            max_tokens=4096,
-            temperature=0.2,
             reasoning_profile="custom_json",
             reasoning_profile_json='{"extra_body":{"include_reasoning":true}}',
         )
@@ -72,12 +68,10 @@ async def test_list_masks_key(repo: LLMConfigRepo) -> None:
     await repo.create(
         LLMConfigInput(
             name="a",
-            protocol="openai",
+            provider_id="openai",
             base_url=None,
             api_key="sk-aaaaaa",
             model_name="m",
-            max_tokens=1,
-            temperature=0.0,
             is_default=True,
         )
     )
@@ -91,24 +85,20 @@ async def test_only_one_default(repo: LLMConfigRepo) -> None:
     a = await repo.create(
         LLMConfigInput(
             name="a",
-            protocol="openai",
+            provider_id="openai",
             base_url=None,
             api_key="x",
             model_name="m",
-            max_tokens=1,
-            temperature=0.0,
             is_default=True,
         )
     )
     b = await repo.create(
         LLMConfigInput(
             name="b",
-            protocol="anthropic",
+            provider_id="anthropic",
             base_url=None,
             api_key="y",
             model_name="m",
-            max_tokens=1,
-            temperature=0.0,
             is_default=True,
         )
     )

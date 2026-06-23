@@ -123,7 +123,7 @@ async def test_session_message_sse_and_attachment(
         "/api/admin/llm-configs",
         json={
             "name": "default",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": None,
             "api_key": "sk-secret",
             "model_name": "gpt-test",
@@ -195,7 +195,7 @@ async def test_default_session_title_is_generated_after_first_completed_exchange
         "/api/admin/llm-configs",
         json={
             "name": "default",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": None,
             "api_key": "sk-secret",
             "model_name": "gpt-test",
@@ -264,7 +264,7 @@ async def test_manual_session_title_is_not_overwritten_by_auto_generation(
         "/api/admin/llm-configs",
         json={
             "name": "default",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": None,
             "api_key": "sk-secret",
             "model_name": "gpt-test",
@@ -324,7 +324,7 @@ async def test_explicit_session_title_generation_returns_updated_session(
         "/api/admin/llm-configs",
         json={
             "name": "default",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": None,
             "api_key": "sk-secret",
             "model_name": "gpt-test",
@@ -421,7 +421,7 @@ async def test_dynamic_opencode_context_includes_current_session_attachments(
         "/api/admin/llm-configs",
         json={
             "name": "default",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": None,
             "api_key": "sk-secret",
             "model_name": "gpt-test",
@@ -993,7 +993,7 @@ async def test_session_message_persists_repo_binding_and_streams_answer(
         "/api/admin/llm-configs",
         json={
             "name": "default",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": None,
             "api_key": "sk-secret",
             "model_name": "gpt-test",

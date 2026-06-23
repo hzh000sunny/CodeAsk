@@ -7,9 +7,9 @@ from pathlib import Path
 
 from codeask.agent.opencode_compat.permissions import OpencodeToolPermissions
 from codeask.agent.opencode_compat.profiles import (
+    OPENAI_COMPATIBLE_NPM,
     LLMConfigLike,
-    OpenCodeProviderProfile,
-    select_provider_profile,
+    opencode_provider_key,
 )
 
 READONLY_PERMISSION = {
@@ -48,7 +48,6 @@ class OpenCodeConfigInput:
     additional_provider_configs: tuple[LLMConfigLike, ...] = ()
     external_directory_allowlist: tuple[str, ...] = ()
     mcp_timeout_ms: int = 30000
-    provider_profile: OpenCodeProviderProfile | None = None
     openviking_enabled: bool = False
     openviking_mcp_url: str | None = None
     openviking_mcp_token: str | None = None
@@ -70,7 +69,6 @@ class OpenCodeConfigInput:
             additional_provider_configs=base.additional_provider_configs,
             external_directory_allowlist=base.external_directory_allowlist,
             mcp_timeout_ms=base.mcp_timeout_ms,
-            provider_profile=base.provider_profile,
             openviking_enabled=openviking is not None,
             openviking_mcp_url=openviking.url if openviking is not None else None,
             openviking_mcp_token=openviking.token if openviking is not None else None,
@@ -82,35 +80,17 @@ class OpenCodeConfigInput:
 def build_opencode_config(input_data: OpenCodeConfigInput) -> dict[str, object]:
     """Build the per-workspace ``opencode.json`` content."""
 
-    profile = input_data.provider_profile or select_provider_profile(input_data.llm_config)
     provider_configs = input_data.additional_provider_configs or (input_data.llm_config,)
     providers: dict[str, object] = {}
-    for provider_config in provider_configs:
-        provider_profile = (
-            profile
-            if provider_config.id == input_data.llm_config.id
-            else select_provider_profile(provider_config)
-        )
-        provider_id = provider_profile.provider_id(provider_config.id)
+    for provider_config in (*provider_configs, input_data.llm_config):
         providers.setdefault(
-            provider_id,
+            opencode_provider_key(provider_config),
             build_opencode_provider_entry(
                 provider_config,
-                profile=provider_profile,
                 name_prefix="CodeAsk",
                 tool_call=True,
             ),
         )
-    selected_provider_id = profile.provider_id(input_data.llm_config.id)
-    providers.setdefault(
-        selected_provider_id,
-        build_opencode_provider_entry(
-            input_data.llm_config,
-            profile=profile,
-            name_prefix="CodeAsk",
-            tool_call=True,
-        ),
-    )
 
     mcp: dict[str, object] = {
         "codeask": {
@@ -152,15 +132,17 @@ def build_opencode_config(input_data: OpenCodeConfigInput) -> dict[str, object]:
 def build_opencode_provider_entry(
     llm_config: LLMConfigLike,
     *,
-    profile: OpenCodeProviderProfile,
     name_prefix: str,
     tool_call: bool,
 ) -> dict[str, object]:
     model_name = llm_config.model_name
-    return {
-        "npm": profile.provider_npm,
+    base_url = (llm_config.base_url or "").strip().rstrip("/")
+    options: dict[str, object] = {"apiKey": llm_config.api_key}
+    if base_url:
+        options["baseURL"] = base_url
+    entry: dict[str, object] = {
         "name": f"{name_prefix} {llm_config.name}",
-        "options": profile.build_options(llm_config),
+        "options": options,
         "models": {
             model_name: {
                 "name": model_name,
@@ -168,6 +150,13 @@ def build_opencode_provider_entry(
             }
         },
     }
+    if llm_config.mode == "custom":
+        # Self-hosted gateway / third-party relay: opencode does not resolve it
+        # from the catalog, so pin the OpenAI-compatible SDK + pass-through headers.
+        entry["npm"] = OPENAI_COMPATIBLE_NPM
+        if llm_config.headers:
+            options["headers"] = dict(llm_config.headers)
+    return entry
 
 
 def build_session_external_directory_allowlist(

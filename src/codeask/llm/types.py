@@ -30,7 +30,7 @@ EventType = Literal[
     "error",
 ]
 
-ProviderProtocol = Literal["openai", "openai_compatible", "anthropic"]
+LLMConfigMode = Literal["catalog", "custom"]
 
 
 def _empty_tools() -> list[ToolDef]:

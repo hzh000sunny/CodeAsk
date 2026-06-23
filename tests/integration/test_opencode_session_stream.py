@@ -42,7 +42,7 @@ class FakeOpenCodeCompat:
                 "method": "initialize_session",
                 "session_id": session_id,
                 "model": llm_config.model_name,
-                "opencode_provider_profile": llm_config.opencode_provider_profile,
+                "provider_id": llm_config.provider_id,
                 "provider_config_pool": [config.model_name for config in provider_config_pool],
                 "force_new_external_session": force_new_external_session,
             }
@@ -71,7 +71,7 @@ class FakeOpenCodeCompat:
                 "session_id": session_id,
                 "user_message": user_message,
                 "model": llm_config.model_name,
-                "opencode_provider_profile": llm_config.opencode_provider_profile,
+                "provider_id": llm_config.provider_id,
                 "system": system,
                 "context_window_tokens": context_window_tokens,
             }
@@ -163,7 +163,7 @@ async def test_post_message_stream_uses_opencode_backend_by_setting(
         "/api/admin/llm-configs",
         json={
             "name": "opencode-default",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": "http://llm.test/v1",
             "api_key": "sk-secret",
             "model_name": "gpt-test",
@@ -245,7 +245,7 @@ async def test_opencode_read_tool_paths_are_redacted_in_sse_and_traces(
         "/api/admin/llm-configs",
         json={
             "name": "opencode-read-redaction",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": "http://llm.test/v1",
             "api_key": "sk-secret",
             "model_name": "gpt-test",
@@ -330,7 +330,7 @@ async def test_post_message_stream_passes_configured_context_window_to_opencode(
         "/api/admin/llm-configs",
         json={
             "name": "opencode-default",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": "http://llm.test/v1",
             "api_key": "sk-secret",
             "model_name": "gpt-test",
@@ -372,7 +372,7 @@ async def test_post_message_stream_uses_gateway_global_pool_for_opencode_configs
         "/api/admin/llm-configs",
         json={
             "name": "opencode-pool-a",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": "http://llm-a.test/v1",
             "api_key": "sk-a",
             "model_name": "model-a",
@@ -385,13 +385,12 @@ async def test_post_message_stream_uses_gateway_global_pool_for_opencode_configs
         "/api/admin/llm-configs",
         json={
             "name": "opencode-pool-b",
-            "protocol": "anthropic",
+            "provider_id": "anthropic",
             "base_url": "http://llm-b.test",
             "api_key": "sk-b",
             "model_name": "model-b",
             "enabled": True,
             "is_default": False,
-            "opencode_provider_profile": "anthropic-compatible-bearer",
         },
     )
     assert second.status_code == 201, second.text
@@ -416,10 +415,10 @@ async def test_post_message_stream_uses_gateway_global_pool_for_opencode_configs
     run_call = fake.calls[1]
     assert init_call["method"] == "initialize_session"
     assert init_call["model"] == "model-b"
-    assert init_call["opencode_provider_profile"] == "anthropic-compatible-bearer"
+    assert init_call["provider_id"] == "anthropic"
     assert run_call["method"] == "run_turn"
     assert run_call["model"] == "model-b"
-    assert run_call["opencode_provider_profile"] == "anthropic-compatible-bearer"
+    assert run_call["provider_id"] == "anthropic"
 
 
 @pytest.mark.asyncio
@@ -437,7 +436,7 @@ async def test_opencode_global_pool_uses_single_unhealthy_config_in_degraded_mod
         "/api/admin/llm-configs",
         json={
             "name": "opencode-single-degraded",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": "http://llm-single.test/v1",
             "api_key": "sk-single",
             "model_name": "model-single",
@@ -502,7 +501,7 @@ async def test_opencode_global_pool_retries_next_config_only_before_text(
             "/api/admin/llm-configs",
             json={
                 "name": f"opencode-pool-{suffix}",
-                "protocol": "openai",
+                "provider_id": "openai",
                 "base_url": f"http://llm-{suffix}.test/v1",
                 "api_key": f"sk-{suffix}",
                 "model_name": model_name,
@@ -585,7 +584,7 @@ async def test_opencode_global_pool_retries_next_config_after_non_text_events(
             "/api/admin/llm-configs",
             json={
                 "name": f"opencode-pool-non-text-{suffix}",
-                "protocol": "openai",
+                "provider_id": "openai",
                 "base_url": f"http://llm-non-text-{suffix}.test/v1",
                 "api_key": f"sk-{suffix}",
                 "model_name": model_name,
@@ -660,7 +659,7 @@ async def test_opencode_global_pool_can_try_all_global_configs_once(
             "/api/admin/llm-configs",
             json={
                 "name": f"opencode-pool-many-failures-{idx}",
-                "protocol": "openai",
+                "provider_id": "openai",
                 "base_url": f"http://llm-many-failures-{idx}.test/v1",
                 "api_key": f"sk-{idx}",
                 "model_name": f"model-{idx}",
@@ -733,7 +732,7 @@ async def test_opencode_global_pool_does_not_switch_after_visible_text(
             "/api/admin/llm-configs",
             json={
                 "name": f"opencode-pool-after-text-{suffix}",
-                "protocol": "openai",
+                "provider_id": "openai",
                 "base_url": f"http://llm-{suffix}.test/v1",
                 "api_key": f"sk-{suffix}",
                 "model_name": model_name,
@@ -782,7 +781,7 @@ async def test_post_message_stream_opencode_error_does_not_persist_agent_turn(
         "/api/admin/llm-configs",
         json={
             "name": "opencode-default",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": "http://llm.test/v1",
             "api_key": "sk-secret",
             "model_name": "gpt-test",
@@ -835,7 +834,7 @@ async def test_post_message_stream_opencode_exception_returns_error_event(
         "/api/admin/llm-configs",
         json={
             "name": "opencode-default",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": "http://llm.test/v1",
             "api_key": "sk-secret",
             "model_name": "gpt-test",
@@ -891,7 +890,7 @@ async def test_post_message_stream_preserves_classified_opencode_error_code(
         "/api/admin/llm-configs",
         json={
             "name": "opencode-default",
-            "protocol": "openai",
+            "provider_id": "openai",
             "base_url": "http://llm.test/v1",
             "api_key": "sk-secret",
             "model_name": "gpt-test",

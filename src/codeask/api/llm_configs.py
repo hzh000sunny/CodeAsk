@@ -8,14 +8,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import NoResultFound
 
-from codeask.agent.opencode_compat.profiles import provider_profile_options
 from codeask.api.schemas.llm_config import (
     LLMConfigCreate,
     LLMConfigResponse,
     LLMConfigTestResponse,
     LLMConfigUpdate,
-    LLMRuntimeProfileResponse,
-    LLMRuntimeProfilesResponse,
+    LLMProviderResponse,
+    LLMProvidersResponse,
 )
 from codeask.identity import require_admin
 from codeask.llm.api_service import (
@@ -25,6 +24,7 @@ from codeask.llm.api_service import (
     to_response,
     update_scoped_config,
 )
+from codeask.llm.provider_catalog import provider_catalog
 from codeask.llm.repo import LLMConfigRepo, LLMConfigWithSecret
 
 router = APIRouter()
@@ -38,23 +38,14 @@ RepoDep = Annotated[LLMConfigRepo, Depends(_repo)]
 AdminDep = Annotated[None, Depends(require_admin)]
 
 
-@router.get("/llm-runtime-profiles", response_model=LLMRuntimeProfilesResponse)
-async def list_llm_runtime_profiles(backend: str = "opencode") -> LLMRuntimeProfilesResponse:
-    if backend != "opencode":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"unknown llm runtime backend: {backend}",
-        )
-    return LLMRuntimeProfilesResponse(
-        backend="opencode",
-        profiles=[
-            LLMRuntimeProfileResponse(
-                id=profile.id,
-                label=profile.label,
-                description=profile.description,
-            )
-            for profile in provider_profile_options()
-        ],
+@router.get("/llm-providers", response_model=LLMProvidersResponse)
+async def list_llm_providers() -> LLMProvidersResponse:
+    """models.dev provider catalog for the catalog-mode dropdown."""
+
+    return LLMProvidersResponse(
+        providers=[
+            LLMProviderResponse(id=entry.id, name=entry.name) for entry in provider_catalog()
+        ]
     )
 
 
@@ -351,7 +342,8 @@ async def _test_scoped_llm_config(
     except Exception as exc:  # pragma: no cover - covered by integration behavior
         error_summary = _summarize_error(exc)
         result: dict[str, object] = {
-            "profile_id": config.opencode_provider_profile or "default",
+            "provider_id": config.provider_id,
+            "model_id": config.model_name,
             "error": error_summary,
         }
         await repo.mark_opencode_provider_test_failure(
@@ -361,7 +353,8 @@ async def _test_scoped_llm_config(
         )
         return LLMConfigTestResponse(
             status="failed",
-            profile_id=str(result["profile_id"]),
+            provider_id=config.provider_id,
+            model_id=config.model_name,
             error=error_summary,
             tested_at=datetime.now(UTC),
             result=result,
@@ -370,8 +363,8 @@ async def _test_scoped_llm_config(
     await repo.mark_opencode_provider_test_success(cfg_id, result=result)
     return LLMConfigTestResponse(
         status="ok",
-        profile_id=_optional_result_string(result, "profile_id"),
-        provider_npm=_optional_result_string(result, "provider_npm"),
+        provider_id=_optional_result_string(result, "provider_id"),
+        model_id=_optional_result_string(result, "model_id"),
         text_preview=_optional_result_string(result, "text_preview"),
         tested_at=datetime.now(UTC),
         result=result,
@@ -388,19 +381,21 @@ async def _test_draft_llm_config(
         error_summary = _summarize_error(exc)
         return LLMConfigTestResponse(
             status="failed",
-            profile_id=config.opencode_provider_profile or "default",
+            provider_id=config.provider_id,
+            model_id=config.model_name,
             error=error_summary,
             tested_at=datetime.now(UTC),
             result={
-                "profile_id": config.opencode_provider_profile or "default",
+                "provider_id": config.provider_id,
+                "model_id": config.model_name,
                 "error": error_summary,
             },
         )
 
     return LLMConfigTestResponse(
         status="ok",
-        profile_id=_optional_result_string(result, "profile_id"),
-        provider_npm=_optional_result_string(result, "provider_npm"),
+        provider_id=_optional_result_string(result, "provider_id"),
+        model_id=_optional_result_string(result, "model_id"),
         text_preview=_optional_result_string(result, "text_preview"),
         tested_at=datetime.now(UTC),
         result=result,
@@ -413,27 +408,22 @@ def _draft_config_from_create(
     scope: str,
     owner_subject_id: str | None,
 ) -> LLMConfigWithSecret:
-    agent_runtime_profile = payload.agent_runtime_profile or payload.opencode_provider_profile
     return LLMConfigWithSecret(
         id="draft",
         name=payload.name,
         scope=scope,
         owner_subject_id=owner_subject_id,
-        protocol=payload.protocol,
+        mode=payload.mode,
+        provider_id=payload.provider_id,
         base_url=payload.base_url,
         api_key=payload.api_key,
+        headers=dict(payload.headers or {}),
         model_name=payload.model_name,
-        max_tokens=payload.max_tokens,
-        temperature=payload.temperature,
         is_default=payload.is_default,
         enabled=payload.enabled,
-        rpm_limit=payload.rpm_limit,
-        quota_remaining=payload.quota_remaining,
         reasoning_profile=payload.reasoning_profile,
         reasoning_profile_json=payload.reasoning_profile_json,
         agent_runtime_backend="opencode",
-        agent_runtime_profile=agent_runtime_profile,
-        opencode_provider_profile=agent_runtime_profile,
     )
 
 
@@ -463,10 +453,11 @@ async def _draft_config_from_update(
         name=payload.name if "name" in fields and payload.name is not None else existing.name,
         scope=existing.scope,
         owner_subject_id=existing.owner_subject_id,
-        protocol=(
-            payload.protocol
-            if "protocol" in fields and payload.protocol is not None
-            else existing.protocol
+        mode=payload.mode if "mode" in fields and payload.mode is not None else existing.mode,
+        provider_id=(
+            payload.provider_id
+            if "provider_id" in fields and payload.provider_id is not None
+            else existing.provider_id
         ),
         base_url=payload.base_url if "base_url" in fields else existing.base_url,
         api_key=(
@@ -474,20 +465,15 @@ async def _draft_config_from_update(
             if "api_key" in fields and payload.api_key is not None
             else existing.api_key
         ),
+        headers=(
+            dict(payload.headers)
+            if "headers" in fields and payload.headers is not None
+            else existing.headers
+        ),
         model_name=(
             payload.model_name
             if "model_name" in fields and payload.model_name is not None
             else existing.model_name
-        ),
-        max_tokens=(
-            payload.max_tokens
-            if "max_tokens" in fields and payload.max_tokens is not None
-            else existing.max_tokens
-        ),
-        temperature=(
-            payload.temperature
-            if "temperature" in fields and payload.temperature is not None
-            else existing.temperature
         ),
         is_default=(
             payload.is_default
@@ -498,10 +484,6 @@ async def _draft_config_from_update(
             payload.enabled
             if "enabled" in fields and payload.enabled is not None
             else existing.enabled
-        ),
-        rpm_limit=payload.rpm_limit if "rpm_limit" in fields else existing.rpm_limit,
-        quota_remaining=(
-            payload.quota_remaining if "quota_remaining" in fields else existing.quota_remaining
         ),
         reasoning_profile=(
             payload.reasoning_profile
@@ -514,8 +496,6 @@ async def _draft_config_from_update(
             else existing.reasoning_profile_json
         ),
         agent_runtime_backend="opencode",
-        agent_runtime_profile=_resolve_agent_runtime_profile(payload, fields, existing),
-        opencode_provider_profile=_resolve_agent_runtime_profile(payload, fields, existing),
         opencode_provider_status=existing.opencode_provider_status,
         opencode_provider_tested_at=existing.opencode_provider_tested_at,
         opencode_provider_error=existing.opencode_provider_error,
@@ -526,18 +506,6 @@ async def _draft_config_from_update(
 def _optional_result_string(result: dict[str, object], key: str) -> str | None:
     value = result.get(key)
     return str(value) if value is not None else None
-
-
-def _resolve_agent_runtime_profile(
-    payload: LLMConfigUpdate,
-    fields: set[str],
-    existing: LLMConfigWithSecret,
-) -> str | None:
-    if "agent_runtime_profile" in fields and payload.agent_runtime_profile is not None:
-        return payload.agent_runtime_profile
-    if "opencode_provider_profile" in fields and payload.opencode_provider_profile is not None:
-        return payload.opencode_provider_profile
-    return existing.agent_runtime_profile or existing.opencode_provider_profile
 
 
 def _summarize_error(exc: Exception) -> str:

@@ -1,15 +1,32 @@
 """LLMGateway: factory dispatch + retry-before-first-token only."""
 
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import pytest
 
 from codeask.llm.client import LLMClient
-from codeask.llm.gateway import ClientBuilder, ClientFactory, LLMGateway
+from codeask.llm.gateway import LLMGateway
 from codeask.llm.repo import LLMConfigRepo
 from codeask.llm.types import LLMEvent, LLMMessage, LLMRequest, TextBlock, ToolDef
+
+ClientBuilder = Callable[..., LLMClient]
+
+
+class ClientFactory:
+    """Test double for the gateway client factory.
+
+    The production ClientFactory always builds a single LiteLLM client; tests
+    inject scripted clients via a one-entry ``provider_clients`` mapping (the key
+    is irrelevant now that protocol dispatch is gone).
+    """
+
+    def __init__(self, *, provider_clients: dict[str, ClientBuilder]) -> None:
+        self._builder = next(iter(provider_clients.values()))
+
+    def create(self, **kwargs: Any) -> LLMClient:
+        return self._builder(**kwargs)
 
 
 class _ScriptedClient:
@@ -73,18 +90,16 @@ class _CapturingFactoryClient(_ScriptedClient):
 @dataclass(frozen=True)
 class _Config:
     id: str
-    protocol: str = "openai"
+    mode: str = "catalog"
+    provider_id: str = "openai"
     api_key: str = "x"
     base_url: str | None = None
     model_name: str = "m"
-    max_tokens: int = 100
-    temperature: float = 0.0
+    headers: dict[str, str] = field(default_factory=dict)
     scope: str = "global"
     owner_subject_id: str | None = None
     is_default: bool = False
     enabled: bool = True
-    rpm_limit: int | None = None
-    quota_remaining: float | None = None
     reasoning_profile: str = "none"
     reasoning_profile_json: str | None = None
 
@@ -120,45 +135,15 @@ def _client_builder(callback: ClientBuilder) -> ClientBuilder:
 
 
 def _kwargs_client_builder(callback: Callable[..., LLMClient]) -> ClientBuilder:
-    def build_client(
-        *,
-        api_key: str,
-        model_name: str,
-        base_url: str | None = None,
-        timeout_seconds: int = 600,
-        reasoning_request_profile: str | None = None,
-        reasoning_request_profile_json: str | None = None,
-    ) -> LLMClient:
-        return callback(
-            api_key=api_key,
-            model_name=model_name,
-            base_url=base_url,
-            timeout_seconds=timeout_seconds,
-            reasoning_request_profile=reasoning_request_profile,
-            reasoning_request_profile_json=reasoning_request_profile_json,
-        )
+    def build_client(**kwargs: Any) -> LLMClient:
+        return callback(**kwargs)
 
     return build_client
 
 
 def _scripted_client_builder(client: LLMClient) -> ClientBuilder:
-    def build_client(
-        *,
-        api_key: str,
-        model_name: str,
-        base_url: str | None = None,
-        timeout_seconds: int = 600,
-        reasoning_request_profile: str | None = None,
-        reasoning_request_profile_json: str | None = None,
-    ) -> LLMClient:
-        _ = (
-            api_key,
-            model_name,
-            base_url,
-            timeout_seconds,
-            reasoning_request_profile,
-            reasoning_request_profile_json,
-        )
+    def build_client(**kwargs: Any) -> LLMClient:
+        _ = kwargs
         return client
 
     return build_client
@@ -311,12 +296,11 @@ async def test_gateway_uses_runtime_llm_config_without_persisted_repo_lookup() -
                 session_id="sess_guest",
                 runtime_llm_config={
                     "name": "访客模型",
-                    "protocol": "anthropic",
+                    "mode": "catalog",
+                    "provider_id": "anthropic",
                     "base_url": "http://guest.llm/v1",
                     "api_key": "sk-guest",
                     "model_name": "guest-model",
-                    "max_tokens": 4096,
-                    "temperature": 0.1,
                     "reasoning_profile": "custom_json",
                     "reasoning_profile_json": '{"thinking":true}',
                 },

@@ -32,12 +32,11 @@ async def test_round_trip_with_encryption(engine) -> None:  # type: ignore[no-un
             LLMConfig(
                 id="cfg_1",
                 name="default openai",
-                protocol="openai",
+                mode="catalog",
+                provider_id="openai",
                 base_url=None,
                 api_key_encrypted=cipher,
                 model_name="gpt-4o",
-                max_tokens=4096,
-                temperature=0.2,
                 is_default=True,
             )
         )
@@ -46,7 +45,7 @@ async def test_round_trip_with_encryption(engine) -> None:  # type: ignore[no-un
     async with factory() as s:
         row = (await s.execute(select(LLMConfig))).scalar_one()
         assert crypto.decrypt(row.api_key_encrypted) == "sk-real-key-123"
-        assert row.protocol == "openai"
+        assert row.provider_id == "openai"
         assert row.is_default is True
 
 
@@ -58,11 +57,10 @@ async def test_unique_name(engine) -> None:  # type: ignore[no-untyped-def]
             LLMConfig(
                 id="cfg_a",
                 name="dup",
-                protocol="openai",
+                mode="catalog",
+                provider_id="openai",
                 api_key_encrypted="x",
                 model_name="m",
-                max_tokens=1,
-                temperature=0.0,
                 is_default=False,
             )
         )
@@ -70,11 +68,10 @@ async def test_unique_name(engine) -> None:  # type: ignore[no-untyped-def]
             LLMConfig(
                 id="cfg_b",
                 name="dup",
-                protocol="openai",
+                mode="catalog",
+                provider_id="openai",
                 api_key_encrypted="x",
                 model_name="m",
-                max_tokens=1,
-                temperature=0.0,
                 is_default=False,
             )
         )

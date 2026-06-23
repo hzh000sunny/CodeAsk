@@ -37,12 +37,11 @@ async def _create_default_llm_config(client: AsyncClient) -> None:
         "/api/admin/llm-configs",
         json={
             "name": "default",
-            "protocol": "openai",
+            "mode": "catalog",
+            "provider_id": "openai",
             "base_url": None,
             "api_key": "sk-secret",
             "model_name": "gpt-test",
-            "max_tokens": 1024,
-            "temperature": 0.0,
             "is_default": True,
         },
     )
