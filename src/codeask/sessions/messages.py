@@ -560,7 +560,7 @@ def _opencode_runtime_state_event(
             "backend": "opencode",
             "config_id": llm_config.id,
             "model_name": llm_config.model_name,
-            "protocol": llm_config.protocol,
+            "provider_id": llm_config.provider_id,
             "scope": llm_config.scope,
             "context_size_chars": context_size,
             "context_window_chars": context_window,

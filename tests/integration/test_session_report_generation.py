@@ -12,7 +12,7 @@ from sqlalchemy import select
 from codeask.db.models import AgentTrace, Report, SessionTurn, WikiNode, WikiReportRef, WikiSpace
 from codeask.llm.types import LLMEvent
 from codeask.wiki.sync import LegacyWikiSyncService
-from tests.mocks.mock_llm import MockLLMClient, text_message
+from tests.mocks.mock_llm import MockLLMClient, install_mock_llm_client, text_message
 
 PAYMENT_REPORT_JSON = (
     '{"title_description":"支付服务启动失败","body_markdown":"# 问题背景\\n\\n支付服务启动失败。"}'
@@ -388,7 +388,7 @@ async def test_prepare_session_report_calls_llm_with_report_rules(
     await _seed_turns(app, session_id)
 
     mock = MockLLMClient([text_message(PAYMENT_REPORT_JSON)])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     started = await client.post(
         f"/api/sessions/{session_id}/reports/prepare",
@@ -435,7 +435,7 @@ async def test_prepare_session_report_releases_db_session_before_llm_stream(
     tracker = _SessionFactoryTracker(app.state.session_factory)
     app.state.session_factory = tracker
     mock = _OpenSessionRecordingLLMClient([text_message(PAYMENT_REPORT_JSON)], tracker)
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     started = await client.post(
         f"/api/sessions/{session_id}/reports/prepare",
@@ -466,7 +466,7 @@ async def test_prepare_session_report_infers_feature_from_scope_trace(
     await _seed_scope_trace(app, session_id, feature_id)
 
     mock = MockLLMClient([text_message(PAYMENT_REPORT_JSON)])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     started = await client.post(
         f"/api/sessions/{session_id}/reports/prepare",
@@ -515,7 +515,7 @@ async def test_prepare_session_report_ignores_feature_catalog_when_inferring_fea
     )
 
     mock = MockLLMClient([text_message(XIAOMI_REPORT_JSON)])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     started = await client.post(
         f"/api/sessions/{session_id}/reports/prepare",
@@ -562,7 +562,7 @@ async def test_prepare_session_report_prefers_strong_evidence_over_first_candida
     )
 
     mock = MockLLMClient([text_message(XIAOMI_TREND_REPORT_JSON)])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     started = await client.post(
         f"/api/sessions/{session_id}/reports/prepare",
@@ -611,7 +611,7 @@ async def test_prepare_session_report_prefers_current_evidence_over_existing_wro
     assert existing.status_code == 201, existing.text
 
     mock = MockLLMClient([text_message(ANYTHING_LLM_REPORT_JSON)])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     started = await client.post(
         f"/api/sessions/{session_id}/reports/prepare",
@@ -657,7 +657,7 @@ async def test_prepare_session_report_status_records_error_detail_when_llm_fails
             ]
         ]
     )
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     started = await client.post(
         f"/api/sessions/{session_id}/reports/prepare",
@@ -687,7 +687,7 @@ async def test_prepare_session_report_echoes_request_id_header(
     await _seed_turns(app, session_id)
 
     mock = MockLLMClient([text_message(PAYMENT_REPORT_JSON)])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     started = await client.post(
         f"/api/sessions/{session_id}/reports/prepare",
@@ -722,7 +722,7 @@ async def test_prepare_session_report_status_is_scoped_to_session(
     await _seed_turns(app, first_session_id)
 
     mock = MockLLMClient([text_message(PAYMENT_REPORT_JSON)])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     started = await client.post(
         f"/api/sessions/{first_session_id}/reports/prepare",

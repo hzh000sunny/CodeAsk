@@ -1591,7 +1591,7 @@ def _opencode_usage_runtime_state(
             "backend": "opencode",
             "config_id": llm_config.id,
             "model_name": llm_config.model_name,
-            "protocol": llm_config.protocol,
+            "provider_id": llm_config.provider_id,
             "scope": llm_config.scope,
             # Kept for frontend compatibility; opencode reports token counts.
             "context_size_chars": total,

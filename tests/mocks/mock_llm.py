@@ -7,6 +7,29 @@ from typing import Any
 from codeask.llm.types import LLMEvent, LLMMessage, ToolDef
 
 
+class _StubClientFactory:
+    """Test seam: always hand back a single pre-built client.
+
+    The production ``ClientFactory`` builds one LiteLLM client per call keyed on
+    the resolved provider; integration tests just want their scripted client
+    returned regardless of provider/model arguments.
+    """
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def create(self, **_kwargs: Any) -> Any:
+        return self._client
+
+
+def install_mock_llm_client(app: Any, client: Any) -> None:
+    """Route the app's LLM gateway through ``client`` for the rest of the test."""
+
+    # ``client_factory`` is a read-only property; swap the backing field so the
+    # gateway builds our scripted client instead of a real LiteLLM one.
+    app.state.llm_gateway._factory = _StubClientFactory(client)
+
+
 class MockLLMClient:
     """Replay a fixed list of LLMEvent sequences, one per stream() call."""
 

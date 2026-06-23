@@ -22,16 +22,13 @@ def _llm_config() -> LLMConfigWithSecret:
         name="OpenAI",
         scope="global",
         owner_subject_id=None,
-        protocol="openai",
+        mode="custom",
+        provider_id="openai",
         base_url="https://gateway.example.test/v3",
         api_key="secret",
         model_name="model-a",
-        max_tokens=4096,
-        temperature=0.2,
         is_default=True,
         enabled=True,
-        rpm_limit=None,
-        quota_remaining=None,
         reasoning_profile="none",
         reasoning_profile_json=None,
     )
@@ -655,9 +652,9 @@ async def test_initialize_session_uses_explicit_provider_without_probe(
     llm_config = LLMConfigWithSecret(
         **{
             **_llm_config().__dict__,
-            "protocol": "anthropic",
+            "mode": "custom",
+            "provider_id": "my-gateway",
             "base_url": "https://gateway.example.test/api/coding",
-            "opencode_provider_profile": "anthropic-compatible-v1-bearer",
         }
     )
     compat = OpenCodeCompat(
@@ -673,9 +670,10 @@ async def test_initialize_session_uses_explicit_provider_without_probe(
 
     workspace = _session_workspace_path(tmp_path)
     config = json.loads((workspace / "opencode.json").read_text(encoding="utf-8"))
-    provider = config["provider"]["codeask_cfg_1"]
-    assert provider["options"]["baseURL"] == "https://gateway.example.test/api/coding/v1"
-    assert store.items[0].provider_profile_id == "anthropic-compatible-v1-bearer"
+    provider = config["provider"]["my-gateway"]
+    assert provider["options"]["baseURL"] == "https://gateway.example.test/api/coding"
+    assert provider["npm"] == "@ai-sdk/openai-compatible"
+    assert store.items[0].provider_profile_id == "my-gateway"
     assert http_client.created_directories == [str(workspace)]
     assert http_client.prompts == []
 
@@ -729,9 +727,9 @@ async def test_test_llm_config_smokes_only_selected_provider(
     llm_config = LLMConfigWithSecret(
         **{
             **_llm_config().__dict__,
-            "protocol": "anthropic",
+            "mode": "custom",
+            "provider_id": "my-gateway",
             "base_url": "https://gateway.example.test/api/coding",
-            "opencode_provider_profile": "anthropic-compatible-v1-bearer",
         }
     )
     test_workspace = (
@@ -740,7 +738,7 @@ async def test_test_llm_config_smokes_only_selected_provider(
         / "agent_sessions"
         / "opencode_provider_tests"
         / "cfg_1"
-        / "anthropic-compatible-v1-bearer"
+        / "my-gateway"
     )
     http_client.event_batches = [
         [
@@ -784,11 +782,11 @@ async def test_test_llm_config_smokes_only_selected_provider(
     result = await compat.test_llm_config(llm_config)
 
     config = json.loads((test_workspace / "opencode.json").read_text(encoding="utf-8"))
-    provider = config["provider"]["codeask_cfg_1"]
-    assert provider["options"]["baseURL"] == "https://gateway.example.test/api/coding/v1"
+    provider = config["provider"]["my-gateway"]
+    assert provider["options"]["baseURL"] == "https://gateway.example.test/api/coding"
     assert http_client.created_directories == [str(test_workspace)]
-    assert http_client.prompts[0]["provider_id"] == "codeask_cfg_1"
-    assert result["profile_id"] == "anthropic-compatible-v1-bearer"
+    assert http_client.prompts[0]["provider_id"] == "my-gateway"
+    assert result["provider_id"] == "my-gateway"
     assert result["text_preview"] == "OK"
 
 
@@ -872,7 +870,7 @@ async def test_run_turn_sends_prompt_and_maps_opencode_events(tmp_path: Path) ->
         {
             "session_id": "ses_open",
             "directory": str(workspace.workspace_dir),
-            "provider_id": "codeask_cfg_1",
+            "provider_id": "openai",
             "model_id": "model-a",
             "text": "hi",
             "system": build_codeask_system_prompt(),
@@ -2071,7 +2069,9 @@ async def test_initialize_session_can_force_new_external_session_without_rewriti
             **_llm_config().__dict__,
             "id": "cfg_2",
             "name": "Anthropic",
-            "protocol": "anthropic",
+            "mode": "catalog",
+            "provider_id": "anthropic",
+            "base_url": None,
             "model_name": "model-b",
         }
     )
@@ -2492,9 +2492,10 @@ async def test_run_turn_uses_initialized_binding_after_llm_config_switch(
             **_llm_config().__dict__,
             "id": "cfg_2",
             "name": "Anthropic",
-            "protocol": "anthropic",
+            "mode": "catalog",
+            "provider_id": "anthropic",
+            "base_url": None,
             "model_name": "model-b",
-            "opencode_provider_profile": "anthropic-compatible-bearer",
         }
     )
 

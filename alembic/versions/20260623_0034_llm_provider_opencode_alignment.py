@@ -57,10 +57,6 @@ def upgrade() -> None:
         batch_op.drop_column("rpm_limit")
         batch_op.drop_column("quota_remaining")
         batch_op.drop_constraint("uq_llm_configs_name", type_="unique")
-        batch_op.create_unique_constraint(
-            "uq_llm_configs_scope_owner_name",
-            ["scope", "owner_subject_id", "name"],
-        )
         batch_op.create_check_constraint(
             "ck_llm_configs_mode",
             "mode IN ('catalog', 'custom')",
@@ -76,14 +72,25 @@ def upgrade() -> None:
             nullable=False,
         )
 
+    # Name unique within a (scope, owner) bucket. Functional index over
+    # coalesce(owner_subject_id, '') so NULL global owners still collide
+    # (SQLite treats raw NULLs as distinct in unique indexes).
+    op.create_index(
+        "uq_llm_configs_scope_owner_name",
+        "llm_configs",
+        ["scope", sa.text("coalesce(owner_subject_id, '')"), "name"],
+        unique=True,
+    )
+
 
 def downgrade() -> None:
     op.execute("DELETE FROM llm_runtime_adapters")
     op.execute("DELETE FROM llm_configs")
 
+    op.drop_index("uq_llm_configs_scope_owner_name", table_name="llm_configs")
+
     with op.batch_alter_table("llm_configs") as batch_op:
         batch_op.drop_constraint("ck_llm_configs_mode", type_="check")
-        batch_op.drop_constraint("uq_llm_configs_scope_owner_name", type_="unique")
         batch_op.create_unique_constraint("uq_llm_configs_name", ["name"])
         batch_op.add_column(
             sa.Column(

@@ -24,11 +24,15 @@ class LLMConfig(Base, TimestampMixin):
 
     __tablename__ = "llm_configs"
     __table_args__ = (
-        UniqueConstraint(
+        # Name unique within a (scope, owner) bucket. owner_subject_id is NULL for
+        # global configs; coalesce to '' so SQLite (which treats NULLs as distinct
+        # in unique indexes) still rejects duplicate global names.
+        Index(
+            "uq_llm_configs_scope_owner_name",
             "scope",
-            "owner_subject_id",
+            text("coalesce(owner_subject_id, '')"),
             "name",
-            name="uq_llm_configs_scope_owner_name",
+            unique=True,
         ),
         CheckConstraint("scope IN ('global', 'user')", name="ck_llm_configs_scope"),
         CheckConstraint("mode IN ('catalog', 'custom')", name="ck_llm_configs_mode"),

@@ -28,7 +28,7 @@ from codeask.sessions.messages import (
     persist_runtime_event_trace,
     persist_stopped_agent_turn,
 )
-from tests.mocks.mock_llm import MockLLMClient, text_message
+from tests.mocks.mock_llm import MockLLMClient, install_mock_llm_client, text_message
 
 
 class _FakeOpenCodeCompat:
@@ -219,7 +219,7 @@ async def test_default_session_title_is_generated_after_first_completed_exchange
 
     app.state.opencode_compat = _FakeOpenCodeCompat("list 是可变序列，tuple 是不可变序列。")
     mock = MockLLMClient([text_message("Python list 与 tuple 区别")])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     message = await client.post(
         f"/api/sessions/{session_id}/messages",
@@ -294,7 +294,7 @@ async def test_manual_session_title_is_not_overwritten_by_auto_generation(
 
     app.state.opencode_compat = _FakeOpenCodeCompat("这里是正常回答。")
     mock = MockLLMClient([])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     message = await client.post(
         f"/api/sessions/{session_id}/messages",
@@ -385,7 +385,7 @@ async def test_explicit_session_title_generation_returns_updated_session(
         await db.commit()
 
     mock = MockLLMClient([text_message("CodeAsk 能力介绍")])
-    app.state.llm_gateway.client_factory.provider_clients["openai"] = lambda **_: mock
+    install_mock_llm_client(app, mock)
 
     generated = await client.post(
         f"/api/sessions/{session_id}/title/generate",
