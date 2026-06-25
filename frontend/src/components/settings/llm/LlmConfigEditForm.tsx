@@ -5,12 +5,7 @@ import { AlertTriangle, Check, PlugZap, Plus, X } from "lucide-react";
 import type { LLMConfigResponse, LLMConfigTestResponse } from "../../../types/api";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
-import type {
-  LlmConfigMode,
-  LlmProviderOption,
-  LlmUpdatePayload,
-} from "../settings-types";
-import { sanitizeProviderSlug } from "../settings-utils";
+import type { LlmProviderOption, LlmUpdatePayload } from "../settings-types";
 
 interface HeaderRow {
   key: string;
@@ -35,9 +30,7 @@ export function LlmConfigEditForm({
   testing: boolean;
 }) {
   const datalistId = useId();
-  const initialMode: LlmConfigMode = config.mode === "custom" ? "custom" : "catalog";
   const [name, setName] = useState(config.name);
-  const [mode, setMode] = useState<LlmConfigMode>(initialMode);
   const [providerId, setProviderId] = useState(config.provider_id);
   const [baseUrl, setBaseUrl] = useState(config.base_url ?? "");
   const [apiKey, setApiKey] = useState("");
@@ -52,14 +45,6 @@ export function LlmConfigEditForm({
     setTestResult(null);
   }
 
-  function switchMode(next: LlmConfigMode) {
-    if (next === mode) {
-      return;
-    }
-    setMode(next);
-    clearTestResult();
-  }
-
   function beginHeaderReplace() {
     setReplacingHeaders(true);
     setHeaderRows(
@@ -70,19 +55,14 @@ export function LlmConfigEditForm({
     clearTestResult();
   }
 
-  const resolvedProviderId =
-    mode === "custom" ? sanitizeProviderSlug(providerId) : providerId.trim();
   const normalizedBaseUrl = baseUrl.trim() || null;
 
   const payload: LlmUpdatePayload = {};
   if (name.trim() !== config.name) {
     payload.name = name.trim();
   }
-  if (mode !== config.mode) {
-    payload.mode = mode;
-  }
-  if (resolvedProviderId !== config.provider_id) {
-    payload.provider_id = resolvedProviderId;
+  if (providerId.trim() !== config.provider_id) {
+    payload.provider_id = providerId.trim();
   }
   if (normalizedBaseUrl !== config.base_url) {
     payload.base_url = normalizedBaseUrl;
@@ -105,12 +85,7 @@ export function LlmConfigEditForm({
     payload.opencode_provider_error = testResult.error;
     payload.opencode_provider_test_result_json = testResult.result;
   }
-  const canSubmit = Boolean(
-    name.trim()
-      && resolvedProviderId
-      && modelName.trim()
-      && (mode === "catalog" || normalizedBaseUrl),
-  );
+  const canSubmit = Boolean(name.trim() && providerId.trim() && modelName.trim());
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -134,71 +109,25 @@ export function LlmConfigEditForm({
           value={name}
         />
       </label>
-      <div className="field-label compact">
-        provider 来源
-        <div
-          aria-label="provider 来源"
-          className="opencode-segmented llm-mode-segmented"
-          role="radiogroup"
-        >
-          <button
-            aria-checked={mode === "catalog"}
-            data-tone="whitelist"
-            onClick={() => switchMode("catalog")}
-            role="radio"
-            type="button"
-          >
-            目录 provider
-          </button>
-          <button
-            aria-checked={mode === "custom"}
-            data-tone="whitelist"
-            onClick={() => switchMode("custom")}
-            role="radio"
-            type="button"
-          >
-            自建网关
-          </button>
-        </div>
-      </div>
       <datalist id={datalistId}>
         {providerOptions.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.name}
-          </option>
+          <option key={option.id} value={option.id} />
         ))}
       </datalist>
       <div className="form-row">
-        {mode === "catalog" ? (
-          <label className="field-label compact">
-            provider
-            <Input
-              className="console-mono"
-              list={datalistId}
-              onChange={(event) => {
-                setProviderId(event.target.value);
-                clearTestResult();
-              }}
-              value={providerId}
-            />
-          </label>
-        ) : (
-          <label className="field-label compact">
-            provider 标识
-            <Input
-              aria-label="provider 标识"
-              className="console-mono"
-              onChange={(event) => {
-                setProviderId(event.target.value);
-                clearTestResult();
-              }}
-              value={providerId}
-            />
-            <span className="field-hint">
-              小写字母 / 数字 / - / _，作为 opencode provider key
-            </span>
-          </label>
-        )}
+        <label className="field-label compact">
+          编辑 provider
+          <Input
+            aria-label="编辑 provider"
+            className="console-mono"
+            list={datalistId}
+            onChange={(event) => {
+              setProviderId(event.target.value);
+              clearTestResult();
+            }}
+            value={providerId}
+          />
+        </label>
         <label className="field-label compact">
           编辑模型名称
           <Input
@@ -213,10 +142,7 @@ export function LlmConfigEditForm({
       </div>
       <label className="field-label compact">
         编辑 Base URL
-        {mode === "custom" ? <span className="field-required">*</span> : null}
-        {mode === "catalog" ? (
-          <span className="field-hint">可选 · 留空走目录默认端点</span>
-        ) : null}
+        <span className="field-hint">可选 · 留空走目录默认端点；填入即作为网关地址</span>
         <Input
           aria-label="编辑 Base URL"
           className="console-mono"
@@ -240,77 +166,71 @@ export function LlmConfigEditForm({
           value={apiKey}
         />
       </label>
-      {mode === "custom" ? (
-        <div className="field-label compact">
-          请求头
-          {replacingHeaders ? (
-            <div className="kv-editor">
-              {headerRows.map((row, index) => (
-                <div className="kv-row" key={index}>
-                  <Input
-                    aria-label={`请求头 ${index + 1} 名称`}
-                    className="console-mono"
-                    onChange={(event) => {
-                      const next = [...headerRows];
-                      next[index] = { ...row, key: event.target.value };
-                      setHeaderRows(next);
-                      clearTestResult();
-                    }}
-                    placeholder="Header"
-                    value={row.key}
-                  />
-                  <Input
-                    aria-label={`请求头 ${index + 1} 值`}
-                    className="console-mono"
-                    onChange={(event) => {
-                      const next = [...headerRows];
-                      next[index] = { ...row, value: event.target.value };
-                      setHeaderRows(next);
-                      clearTestResult();
-                    }}
-                    placeholder="value"
-                    value={row.value}
-                  />
-                  <button
-                    aria-label={`删除请求头 ${index + 1}`}
-                    className="kv-remove"
-                    onClick={() => {
-                      setHeaderRows(headerRows.filter((_, i) => i !== index));
-                      clearTestResult();
-                    }}
-                    type="button"
-                  >
-                    <X aria-hidden="true" size={15} />
-                  </button>
-                </div>
-              ))}
-              <button
-                className="kv-add"
-                onClick={() => setHeaderRows([...headerRows, { key: "", value: "" }])}
-                type="button"
-              >
-                <Plus aria-hidden="true" size={14} />
-                添加请求头
-              </button>
-            </div>
-          ) : (
-            <div className="kv-readonly">
-              <span className="field-hint">
-                {existingHeaderKeys.length > 0
-                  ? `已配置 ${existingHeaderKeys.length} 个请求头（值已脱敏）`
-                  : "未配置自定义请求头"}
-              </span>
-              <button
-                className="kv-add"
-                onClick={beginHeaderReplace}
-                type="button"
-              >
-                重设请求头
-              </button>
-            </div>
-          )}
-        </div>
-      ) : null}
+      <div className="field-label compact">
+        自定义请求头
+        {replacingHeaders ? (
+          <div className="kv-editor">
+            {headerRows.map((row, index) => (
+              <div className="kv-row" key={index}>
+                <Input
+                  aria-label={`请求头 ${index + 1} 名称`}
+                  className="console-mono"
+                  onChange={(event) => {
+                    const next = [...headerRows];
+                    next[index] = { ...row, key: event.target.value };
+                    setHeaderRows(next);
+                    clearTestResult();
+                  }}
+                  placeholder="Header"
+                  value={row.key}
+                />
+                <Input
+                  aria-label={`请求头 ${index + 1} 值`}
+                  className="console-mono"
+                  onChange={(event) => {
+                    const next = [...headerRows];
+                    next[index] = { ...row, value: event.target.value };
+                    setHeaderRows(next);
+                    clearTestResult();
+                  }}
+                  placeholder="value"
+                  value={row.value}
+                />
+                <button
+                  aria-label={`删除请求头 ${index + 1}`}
+                  className="kv-remove"
+                  onClick={() => {
+                    setHeaderRows(headerRows.filter((_, i) => i !== index));
+                    clearTestResult();
+                  }}
+                  type="button"
+                >
+                  <X aria-hidden="true" size={15} />
+                </button>
+              </div>
+            ))}
+            <button
+              className="kv-add"
+              onClick={() => setHeaderRows([...headerRows, { key: "", value: "" }])}
+              type="button"
+            >
+              <Plus aria-hidden="true" size={14} />
+              添加请求头
+            </button>
+          </div>
+        ) : (
+          <div className="kv-readonly">
+            <span className="field-hint">
+              {existingHeaderKeys.length > 0
+                ? `已配置 ${existingHeaderKeys.length} 个请求头（值已脱敏）`
+                : "未配置自定义请求头"}
+            </span>
+            <button className="kv-add" onClick={beginHeaderReplace} type="button">
+              重设请求头
+            </button>
+          </div>
+        )}
+      </div>
       {testResult ? (
         <div
           className="console-status-line"

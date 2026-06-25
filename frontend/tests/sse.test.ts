@@ -73,8 +73,8 @@ describe("session SSE client", () => {
   it("includes browser-local guest LLM config in the message request body", async () => {
     setGuestLlmConfig({
       name: "访客模型",
-      mode: "custom",
-      provider_id: "guest-gateway",
+      mode: "catalog",
+      provider_id: "openai",
       base_url: "http://guest.llm/v1",
       api_key: "sk-guest",
       headers: { Authorization: "Bearer sk-guest" },
@@ -106,8 +106,8 @@ describe("session SSE client", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({
       content: "你好",
       guest_llm_config: {
-        mode: "custom",
-        provider_id: "guest-gateway",
+        mode: "catalog",
+        provider_id: "openai",
         base_url: "http://guest.llm/v1",
         api_key: "sk-guest",
         headers: { Authorization: "Bearer sk-guest" },

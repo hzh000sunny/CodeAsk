@@ -10,7 +10,6 @@ import {
 import { useAppFeedback } from "../feedback/AppFeedback";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { sanitizeProviderSlug } from "./settings-utils";
 
 const DEFAULT_GUEST_LLM_CONFIG: GuestLlmConfigValue = {
   name: "访客 LLM",
@@ -46,6 +45,9 @@ export function GuestLlmConfig() {
   const { showSuccess } = useAppFeedback();
   const stored = getGuestLlmConfig() ?? DEFAULT_GUEST_LLM_CONFIG;
   const [config, setConfig] = useState<GuestLlmConfigValue>(stored);
+  const [showHeaders, setShowHeaders] = useState(
+    Boolean(stored.headers && Object.keys(stored.headers).length > 0),
+  );
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>(
     headersToRows(stored.headers),
   );
@@ -58,16 +60,12 @@ export function GuestLlmConfig() {
   }
 
   function save() {
-    const mode = config.mode;
-    const providerId =
-      mode === "custom"
-        ? sanitizeProviderSlug(config.provider_id)
-        : config.provider_id.trim();
     setGuestLlmConfig({
       ...config,
-      provider_id: providerId,
+      mode: "catalog",
+      provider_id: config.provider_id.trim(),
       base_url: config.base_url?.trim() || null,
-      headers: mode === "custom" ? rowsToHeaders(headerRows) : null,
+      headers: showHeaders ? rowsToHeaders(headerRows) : null,
     });
     showSuccess("访客 LLM 配置已保存");
   }
@@ -87,40 +85,13 @@ export function GuestLlmConfig() {
             value={config.name}
           />
         </label>
-        <div className="field-label compact">
-          provider 来源
-          <div
-            aria-label="provider 来源"
-            className="opencode-segmented llm-mode-segmented"
-            role="radiogroup"
-          >
-            <button
-              aria-checked={config.mode === "catalog"}
-              data-tone="whitelist"
-              onClick={() => update("mode", "catalog")}
-              role="radio"
-              type="button"
-            >
-              目录 provider
-            </button>
-            <button
-              aria-checked={config.mode === "custom"}
-              data-tone="whitelist"
-              onClick={() => update("mode", "custom")}
-              role="radio"
-              type="button"
-            >
-              自建网关
-            </button>
-          </div>
-        </div>
         <label className="field-label compact" htmlFor="guest-llm-provider">
-          {config.mode === "custom" ? "provider 标识" : "provider"}
+          provider
           <Input
             className="console-mono"
             id="guest-llm-provider"
             onChange={(event) => update("provider_id", event.target.value)}
-            placeholder={config.mode === "custom" ? "my-gateway" : "deepseek / openai …"}
+            placeholder="deepseek / openai …"
             value={config.provider_id}
           />
         </label>
@@ -135,12 +106,11 @@ export function GuestLlmConfig() {
         </label>
         <label className="field-label compact" htmlFor="guest-llm-base-url">
           Base URL
-          {config.mode === "custom" ? <span className="field-required">*</span> : null}
           <Input
             className="console-mono"
             id="guest-llm-base-url"
             onChange={(event) => update("base_url", event.target.value)}
-            placeholder="https://..."
+            placeholder="https://...（可选，填入即作为网关地址）"
             value={config.base_url ?? ""}
           />
         </label>
@@ -155,9 +125,9 @@ export function GuestLlmConfig() {
           />
         </label>
       </div>
-      {config.mode === "custom" ? (
+      {showHeaders ? (
         <div className="field-label compact guest-llm-headers">
-          请求头
+          自定义请求头
           <div className="kv-editor">
             {headerRows.map((row, index) => (
               <div className="kv-row" key={index}>
@@ -203,7 +173,21 @@ export function GuestLlmConfig() {
             </button>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <button
+          className="kv-add llm-advanced-toggle"
+          onClick={() => {
+            setShowHeaders(true);
+            if (headerRows.length === 0) {
+              setHeaderRows([{ key: "", value: "" }]);
+            }
+          }}
+          type="button"
+        >
+          <Plus aria-hidden="true" size={14} />
+          高级：自定义请求头
+        </button>
+      )}
       <div className="form-actions guest-llm-actions">
         <Button onClick={save} type="button" variant="primary">
           保存访客配置
@@ -213,6 +197,7 @@ export function GuestLlmConfig() {
           onClick={() => {
             clearGuestLlmConfig();
             setConfig(DEFAULT_GUEST_LLM_CONFIG);
+            setShowHeaders(false);
             setHeaderRows([]);
             showSuccess("访客 LLM 配置已清除");
           }}

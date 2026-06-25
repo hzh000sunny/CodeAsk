@@ -12,7 +12,6 @@ import type {
   LlmProviderOption,
   LlmReasoningProfile,
 } from "../settings-types";
-import { sanitizeProviderSlug } from "../settings-utils";
 
 export interface LlmCreatePayload {
   name: string;
@@ -60,11 +59,11 @@ export function LlmConfigForm({
 }) {
   const datalistId = useId();
   const [configName, setConfigName] = useState("");
-  const [mode, setMode] = useState<LlmConfigMode>("catalog");
   const [providerId, setProviderId] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState("");
+  const [showHeaders, setShowHeaders] = useState(false);
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
   const [enabled, setEnabled] = useState(true);
   const [testResult, setTestResult] = useState<LLMConfigTestResponse | null>(null);
@@ -75,34 +74,23 @@ export function LlmConfigForm({
 
   function resetCreateForm() {
     setConfigName("");
-    setMode("catalog");
     setProviderId("");
     setBaseUrl("");
     setApiKey("");
     setModelName("");
+    setShowHeaders(false);
     setHeaderRows([]);
     setEnabled(true);
     setTestResult(null);
   }
 
-  function switchMode(next: LlmConfigMode) {
-    if (next === mode) {
-      return;
-    }
-    setMode(next);
-    clearTestResult();
-  }
-
-  const resolvedProviderId =
-    mode === "custom" ? sanitizeProviderSlug(providerId) : providerId.trim();
-
   const payload: LlmCreatePayload = {
     name: configName.trim(),
-    mode,
-    provider_id: resolvedProviderId,
+    mode: "catalog",
+    provider_id: providerId.trim(),
     base_url: baseUrl.trim() || null,
     api_key: apiKey,
-    headers: mode === "custom" ? rowsToHeaders(headerRows) : null,
+    headers: rowsToHeaders(headerRows),
     model_name: modelName.trim(),
     enabled,
     reasoning_profile: "none",
@@ -115,11 +103,7 @@ export function LlmConfigForm({
     payload.opencode_provider_test_result_json = testResult.result;
   }
   const canSubmit = Boolean(
-    configName.trim()
-      && resolvedProviderId
-      && apiKey
-      && modelName.trim()
-      && (mode === "catalog" || baseUrl.trim()),
+    configName.trim() && providerId.trim() && apiKey && modelName.trim(),
   );
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -144,73 +128,25 @@ export function LlmConfigForm({
           value={configName}
         />
       </label>
-      <div className="field-label compact">
-        provider 来源
-        <div
-          aria-label="provider 来源"
-          className="opencode-segmented llm-mode-segmented"
-          role="radiogroup"
-        >
-          <button
-            aria-checked={mode === "catalog"}
-            data-tone="whitelist"
-            onClick={() => switchMode("catalog")}
-            role="radio"
-            type="button"
-          >
-            目录 provider
-          </button>
-          <button
-            aria-checked={mode === "custom"}
-            data-tone="whitelist"
-            onClick={() => switchMode("custom")}
-            role="radio"
-            type="button"
-          >
-            自建网关
-          </button>
-        </div>
-      </div>
       <datalist id={datalistId}>
         {providerOptions.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.name}
-          </option>
+          <option key={option.id} value={option.id} />
         ))}
       </datalist>
       <div className="form-row">
-        {mode === "catalog" ? (
-          <label className="field-label compact">
-            provider
-            <Input
-              className="console-mono"
-              list={datalistId}
-              onChange={(event) => {
-                setProviderId(event.target.value);
-                clearTestResult();
-              }}
-              placeholder="deepseek / openai / anthropic …"
-              value={providerId}
-            />
-          </label>
-        ) : (
-          <label className="field-label compact">
-            provider 标识
-            <Input
-              aria-label="provider 标识"
-              className="console-mono"
-              onChange={(event) => {
-                setProviderId(event.target.value);
-                clearTestResult();
-              }}
-              placeholder="my-gateway"
-              value={providerId}
-            />
-            <span className="field-hint">
-              小写字母 / 数字 / - / _，作为 opencode provider key
-            </span>
-          </label>
-        )}
+        <label className="field-label compact">
+          provider
+          <Input
+            className="console-mono"
+            list={datalistId}
+            onChange={(event) => {
+              setProviderId(event.target.value);
+              clearTestResult();
+            }}
+            placeholder="deepseek / openai / anthropic …"
+            value={providerId}
+          />
+        </label>
         <label className="field-label compact">
           模型名称
           <Input
@@ -225,10 +161,7 @@ export function LlmConfigForm({
       </div>
       <label className="field-label compact">
         Base URL
-        {mode === "custom" ? <span className="field-required">*</span> : null}
-        {mode === "catalog" ? (
-          <span className="field-hint">可选 · 留空走目录默认端点</span>
-        ) : null}
+        <span className="field-hint">可选 · 留空走目录默认端点；填入即作为网关地址</span>
         <Input
           aria-label="Base URL"
           className="console-mono"
@@ -252,12 +185,10 @@ export function LlmConfigForm({
           value={apiKey}
         />
       </label>
-      {mode === "custom" ? (
+      {showHeaders ? (
         <div className="field-label compact">
-          请求头
-          <span className="field-hint">
-            自建网关 / 中转站固定走 @ai-sdk/openai-compatible，可附加鉴权头
-          </span>
+          自定义请求头
+          <span className="field-hint">网关需要非 Bearer 鉴权头时填写</span>
           <div className="kv-editor">
             {headerRows.map((row, index) => (
               <div className="kv-row" key={index}>
@@ -308,7 +239,21 @@ export function LlmConfigForm({
             </button>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <button
+          className="kv-add llm-advanced-toggle"
+          onClick={() => {
+            setShowHeaders(true);
+            if (headerRows.length === 0) {
+              setHeaderRows([{ key: "", value: "" }]);
+            }
+          }}
+          type="button"
+        >
+          <Plus aria-hidden="true" size={14} />
+          高级：自定义请求头
+        </button>
+      )}
       <div className="form-switches">
         <SwitchControl
           checked={enabled}

@@ -4,7 +4,7 @@ import type { LLMConfigResponse, LLMConfigTestResponse } from "../../../types/ap
 import { Button } from "../../ui/button";
 import { SwitchControl } from "../SwitchControl";
 import type { LlmProviderOption, LlmUpdatePayload } from "../settings-types";
-import { modeLabel, providerLabel } from "../settings-utils";
+import { providerLabel } from "../settings-utils";
 import { LlmConfigEditForm } from "./LlmConfigEditForm";
 
 export function LlmConfigList({
@@ -70,10 +70,9 @@ export function LlmConfigList({
                   {providerLabel(config.provider_id, providerOptions)} ·{" "}
                   {config.model_name} · {config.api_key_masked}
                 </small>
-                <small>
-                  接入方式：{modeLabel(config.mode)}
-                  {config.base_url ? ` · ${config.base_url}` : ""}
-                </small>
+                {config.base_url ? (
+                  <small className="console-mono">{config.base_url}</small>
+                ) : null}
               </div>
               <div className="row-actions">
                 <SwitchControl

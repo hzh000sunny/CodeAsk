@@ -905,10 +905,10 @@ describe("SettingsPage LLM configuration", () => {
     fireEvent.change(screen.getByLabelText("配置名称"), {
       target: { value: "个人模型" },
     });
-    expect(screen.getByLabelText("provider 来源")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("provider"), {
       target: { value: "deepseek" },
     });
+    expect(screen.queryByLabelText("provider 来源")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("消息接口协议")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Agent 适配方式")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max Tokens")).not.toBeInTheDocument();
@@ -1207,7 +1207,7 @@ describe("SettingsPage LLM configuration", () => {
     fireEvent.change(screen.getByLabelText("编辑配置名称"), {
       target: { value: "主力模型" },
     });
-    fireEvent.change(screen.getByLabelText("provider"), {
+    fireEvent.change(screen.getByLabelText("编辑 provider"), {
       target: { value: "anthropic" },
     });
     expect(screen.queryByLabelText("编辑消息接口协议")).not.toBeInTheDocument();
@@ -1368,7 +1368,7 @@ describe("SettingsPage LLM configuration", () => {
     expect(await screen.findByText("连接正常")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "编辑 兼容模型" }));
     expect(screen.queryByLabelText("编辑消息接口协议")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("provider 标识")).toHaveValue("my-gateway");
+    expect(screen.getByLabelText("编辑 provider")).toHaveValue("my-gateway");
     fireEvent.change(screen.getByLabelText("编辑配置名称"), {
       target: { value: "兼容模型重命名" },
     });

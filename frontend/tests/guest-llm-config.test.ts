@@ -33,11 +33,11 @@ describe("guest llm config storage", () => {
     });
   });
 
-  it("keeps custom-mode headers and drops blank-keyed entries", () => {
+  it("keeps custom headers and drops blank-keyed entries", () => {
     setGuestLlmConfig({
       name: "gateway",
-      mode: "custom",
-      provider_id: "my-gateway",
+      mode: "catalog",
+      provider_id: "openai",
       base_url: "https://relay.example.test",
       api_key: "sk",
       headers: { Authorization: "Bearer x", "": "ignored" },

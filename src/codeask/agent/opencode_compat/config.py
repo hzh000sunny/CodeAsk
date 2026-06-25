@@ -152,10 +152,12 @@ def build_opencode_provider_entry(
     }
     if llm_config.mode == "custom":
         # Self-hosted gateway / third-party relay: opencode does not resolve it
-        # from the catalog, so pin the OpenAI-compatible SDK + pass-through headers.
+        # from the catalog, so pin the OpenAI-compatible SDK.
         entry["npm"] = OPENAI_COMPATIBLE_NPM
-        if llm_config.headers:
-            options["headers"] = dict(llm_config.headers)
+    # Pass-through auth headers apply to any provider (catalog providers can also
+    # sit behind a gateway that needs a non-Bearer header).
+    if llm_config.headers:
+        options["headers"] = dict(llm_config.headers)
     return entry
 
 

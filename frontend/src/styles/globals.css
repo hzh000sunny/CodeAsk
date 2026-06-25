@@ -9162,16 +9162,16 @@ select.input {
   box-shadow: 0 1px 2px rgba(37, 99, 235, 0.3);
 }
 
-/* ---- LLM config form: mode toggle + field affordances ---- */
-.llm-mode-segmented {
-  width: max-content;
-}
-
+/* ---- LLM config form: field affordances ---- */
 .field-hint {
   font-weight: 500;
   font-size: 11.5px;
   color: var(--muted);
   letter-spacing: 0.01em;
+}
+
+.llm-advanced-toggle {
+  margin-top: 14px;
 }
 
 .field-required {
