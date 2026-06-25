@@ -1264,9 +1264,9 @@ select.input {
 
 .app-feedback-toast {
   position: fixed;
-  top: 18px;
-  right: 18px;
-  left: auto;
+  top: 50%;
+  left: 50%;
+  right: auto;
   z-index: 75;
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) 24px;
@@ -1279,9 +1279,10 @@ select.input {
   background: #ffffff;
   color: var(--text);
   padding: 13px 12px 13px 15px;
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.2);
   pointer-events: auto;
   overflow: hidden;
+  transform: translate(-50%, -50%);
   animation: app-feedback-toast-in 180ms ease-out;
 }
 
@@ -1371,10 +1372,7 @@ select.input {
 
 @media (max-width: 640px) {
   .app-feedback-toast {
-    top: 12px;
-    right: 12px;
-    left: 12px;
-    width: auto;
+    width: calc(100vw - 32px);
   }
 }
 
@@ -3648,12 +3646,12 @@ select.input {
 @keyframes app-feedback-toast-in {
   from {
     opacity: 0;
-    transform: translateX(12px);
+    transform: translate(-50%, calc(-50% + 6px)) scale(0.98);
   }
 
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translate(-50%, -50%) scale(1);
   }
 }
 
