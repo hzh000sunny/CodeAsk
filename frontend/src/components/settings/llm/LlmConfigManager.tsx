@@ -31,7 +31,28 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const { showError, showSuccess } = useAppFeedback();
+  const { showError, showSuccess, showToast } = useAppFeedback();
+
+  function showTestResult(result: {
+    status: string;
+    provider_id?: string | null;
+    model_id?: string | null;
+    text_preview?: string | null;
+    error?: string | null;
+  }) {
+    if (result.status === "ok") {
+      const parts = [result.provider_id, result.model_id].filter(Boolean);
+      const preview = result.text_preview ? `“${result.text_preview}”` : null;
+      const detail = [parts.join(" · "), preview].filter(Boolean).join(" · ");
+      showToast("连接正常", { tone: "success", detail: detail || undefined });
+      return;
+    }
+    showToast("连接失败", {
+      tone: "error",
+      detail: result.error ?? "未知错误",
+      sticky: true,
+    });
+  }
   const queryKey =
     scope === "global" ? ["admin-llm-configs"] : ["user-llm-configs"];
   const { data: configs = [] } = useQuery({
@@ -89,15 +110,7 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
       scope === "global" ? testAdminLlmConfig(id) : testUserLlmConfig(id),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey });
-      if (result.status === "ok") {
-        showSuccess(
-          `LLM 连接测试通过：${result.provider_id ?? "provider"}${
-            result.text_preview ? ` · ${result.text_preview}` : ""
-          }`,
-        );
-        return;
-      }
-      showError(`LLM 连接测试失败：${result.error ?? "未知错误"}`);
+      showTestResult(result);
     },
     onError: (error) => {
       showError(`LLM 连接测试失败：${messageFromApiError(error)}`);
@@ -123,23 +136,6 @@ export function LlmConfigManager({ scope }: { scope: LlmScope }) {
       showError(`LLM 连接测试失败：${messageFromApiError(error)}`);
     },
   });
-
-  function showTestResult(result: {
-    status: string;
-    provider_id: string | null;
-    text_preview: string | null;
-    error: string | null;
-  }) {
-    if (result.status === "ok") {
-      showSuccess(
-        `LLM 连接测试通过：${result.provider_id ?? "provider"}${
-          result.text_preview ? ` · ${result.text_preview}` : ""
-        }`,
-      );
-      return;
-    }
-    showError(`LLM 连接测试失败：${result.error ?? "未知错误"}`);
-  }
 
   return (
     <section className="surface">

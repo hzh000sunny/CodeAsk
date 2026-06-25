@@ -8,26 +8,38 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, X } from "lucide-react";
 
 import { Button } from "../ui/button";
 
 export type AppFeedbackToastTone = "success" | "error";
 
+type AppFeedbackToastOptions = {
+  tone?: AppFeedbackToastTone;
+  /** Secondary muted line under the title (provider · model · preview, or an error detail). */
+  detail?: string;
+  /** Keep the toast until the user dismisses it (errors that need reading). */
+  sticky?: boolean;
+};
+
 type AppFeedbackToastState = {
+  id: number;
   message: string;
   tone: AppFeedbackToastTone;
+  detail: string | null;
+  sticky: boolean;
 };
 
 type AppFeedbackContextValue = {
   dismissError: () => void;
+  dismissToast: () => void;
   showError: (message: string, options?: { title?: string }) => void;
   showSuccess: (message: string) => void;
-  showToast: (message: string, options?: { tone?: AppFeedbackToastTone }) => void;
+  showToast: (message: string, options?: AppFeedbackToastOptions) => void;
 };
 
 const AppFeedbackContext = createContext<AppFeedbackContextValue | null>(null);
-const TOAST_DISMISS_MS = 4000;
+const TOAST_DISMISS_MS = 3800;
 
 export function AppFeedbackProvider({ children }: { children: ReactNode }) {
   const toastTimeoutRef = useRef<number | null>(null);
@@ -49,15 +61,33 @@ export function AppFeedbackProvider({ children }: { children: ReactNode }) {
     setErrorState(null);
   }, []);
 
-  const showToast = useCallback((message: string, options?: { tone?: AppFeedbackToastTone }) => {
+  const dismissToast = useCallback(() => {
     if (toastTimeoutRef.current) {
       window.clearTimeout(toastTimeoutRef.current);
-    }
-    setToastState({ message, tone: options?.tone ?? "success" });
-    toastTimeoutRef.current = window.setTimeout(() => {
-      setToastState(null);
       toastTimeoutRef.current = null;
-    }, TOAST_DISMISS_MS);
+    }
+    setToastState(null);
+  }, []);
+
+  const showToast = useCallback((message: string, options?: AppFeedbackToastOptions) => {
+    if (toastTimeoutRef.current) {
+      window.clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = null;
+    }
+    const sticky = options?.sticky ?? false;
+    setToastState({
+      id: Date.now(),
+      message,
+      tone: options?.tone ?? "success",
+      detail: options?.detail?.trim() || null,
+      sticky,
+    });
+    if (!sticky) {
+      toastTimeoutRef.current = window.setTimeout(() => {
+        setToastState(null);
+        toastTimeoutRef.current = null;
+      }, TOAST_DISMISS_MS);
+    }
   }, []);
 
   const showSuccess = useCallback((message: string) => showToast(message, { tone: "success" }), [showToast]);
@@ -75,11 +105,12 @@ export function AppFeedbackProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppFeedbackContextValue>(
     () => ({
       dismissError,
+      dismissToast,
       showError,
       showSuccess,
       showToast,
     }),
-    [dismissError, showError, showSuccess, showToast],
+    [dismissError, dismissToast, showError, showSuccess, showToast],
   );
 
   return (
@@ -90,14 +121,31 @@ export function AppFeedbackProvider({ children }: { children: ReactNode }) {
           aria-live={toastState.tone === "error" ? "assertive" : "polite"}
           className="app-feedback-toast"
           data-tone={toastState.tone}
+          key={toastState.id}
           role={toastState.tone === "error" ? "alert" : "status"}
         >
           {toastState.tone === "error" ? (
-            <AlertTriangle aria-hidden="true" size={18} />
+            <AlertTriangle aria-hidden="true" className="toast-icon" size={18} />
           ) : (
-            <CheckCircle2 aria-hidden="true" size={18} />
+            <CheckCircle2 aria-hidden="true" className="toast-icon" size={18} />
           )}
-          <span>{toastState.message}</span>
+          <div className="toast-body">
+            <span className="toast-title">{toastState.message}</span>
+            {toastState.detail ? (
+              <span className="toast-detail">{toastState.detail}</span>
+            ) : null}
+          </div>
+          <button
+            aria-label="关闭提醒"
+            className="toast-close"
+            onClick={dismissToast}
+            type="button"
+          >
+            <X aria-hidden="true" size={15} />
+          </button>
+          {toastState.sticky ? null : (
+            <span aria-hidden="true" className="toast-countdown" />
+          )}
         </div>
       ) : null}
       {errorState ? (

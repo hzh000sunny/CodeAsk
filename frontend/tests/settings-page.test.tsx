@@ -928,7 +928,7 @@ describe("SettingsPage LLM configuration", () => {
       target: { value: "qwen3-coder" },
     });
     fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
-    await screen.findByText(/LLM 连接测试通过/);
+    await screen.findByText("连接正常");
     const [, draftInit] = fetchMock.mock.calls.find(
       ([path, options]) =>
         path === "/api/me/llm-configs/test-draft" &&
@@ -971,7 +971,9 @@ describe("SettingsPage LLM configuration", () => {
     expect(JSON.parse(String(init.body))).not.toHaveProperty("temperature");
     expect(JSON.parse(String(init.body))).not.toHaveProperty("is_default");
     expect(JSON.parse(String(init.body))).not.toHaveProperty("agent_runtime_profile");
-    expect(await screen.findByText("连接正常")).toBeInTheDocument();
+    const savedRow = (await screen.findByText("个人模型")).closest("li");
+    expect(savedRow).not.toBeNull();
+    expect(within(savedRow as HTMLElement).getByText("连接正常")).toBeInTheDocument();
   });
 
   it("shows a visible message when creating a LLM config fails", async () => {
@@ -1227,7 +1229,7 @@ describe("SettingsPage LLM configuration", () => {
     fireEvent.click(
       within(editForm as HTMLElement).getByRole("button", { name: "测试连接" }),
     );
-    await screen.findByText(/LLM 连接测试通过/);
+    await screen.findByText("连接正常");
     expect(screen.queryByText(/当前表单测试通过/)).not.toBeInTheDocument();
     const draftEditCall = fetchMock.mock.calls.find(([path, options]) => {
       return (
@@ -1243,7 +1245,9 @@ describe("SettingsPage LLM configuration", () => {
       api_key: "sk-new-key",
       model_name: "claude-test",
     });
-    expect(screen.queryByText("连接正常")).not.toBeInTheDocument();
+    // 仅发起 draft 测试、尚未保存：列表里的持久状态仍是「未测试」（弹出 toast 在 body 顶层，不在 section 内）。
+    expect(within(globalSection).queryByText("连接正常")).not.toBeInTheDocument();
+    expect(within(globalSection).getByText("未测试")).toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some(([path, options]) => {
         if (
@@ -1264,9 +1268,11 @@ describe("SettingsPage LLM configuration", () => {
       ),
     ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "保存修改" }));
-    await waitFor(() =>
-      expect(screen.getByText("连接正常")).toBeInTheDocument(),
-    );
+    await waitFor(() => {
+      const savedRow = screen.getByText("主力模型").closest("li");
+      expect(savedRow).not.toBeNull();
+      expect(within(savedRow as HTMLElement).getByText("连接正常")).toBeInTheDocument();
+    });
     await waitFor(() => {
       const editCall = fetchMock.mock.calls.find(([path, options]) => {
         if (path !== "/api/admin/llm-configs/llm_2") {

@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { FormEvent } from "react";
-import { AlertTriangle, Check, PlugZap, Plus, X } from "lucide-react";
+import { PlugZap, Plus, X } from "lucide-react";
 
 import type { LLMConfigTestResponse } from "../../../types/api";
 import { Button } from "../../ui/button";
@@ -262,23 +262,6 @@ export function LlmConfigForm({
           text={enabled ? "启用" : "停用"}
         />
       </div>
-      {testResult ? (
-        <div
-          className="console-status-line"
-          data-tone={testResult.status === "ok" ? "ok" : "error"}
-        >
-          {testResult.status === "ok" ? (
-            <Check aria-hidden="true" size={15} />
-          ) : (
-            <AlertTriangle aria-hidden="true" size={15} />
-          )}
-          <span>
-            {testResult.status === "ok"
-              ? `连接正常${testResult.provider_id ? ` · ${testResult.provider_id}` : ""}`
-              : `连接失败：${testResult.error ?? "未知错误"}`}
-          </span>
-        </div>
-      ) : null}
       <div className="form-actions">
         <Button
           disabled={!canSubmit || disabled || testing}
