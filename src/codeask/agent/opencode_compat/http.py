@@ -102,6 +102,24 @@ class OpenCodeHttpClient:
             )
             response.raise_for_status()
 
+    async def dispose_instance(self, *, directory: str) -> None:
+        """Dispose opencode's cached instance for ``directory``.
+
+        opencode caches resolved provider config per directory for the server
+        process lifetime; editing ``opencode.json`` is not re-read until the
+        instance is disposed. Calling this evicts the cached instance so the
+        next request boots a fresh one that reloads the on-disk config. The
+        conversation history lives in opencode's storage keyed by session id and
+        is unaffected, so disposing is safe between turns.
+        """
+        async with self._client() as client:
+            response = await client.post(
+                "/instance/dispose",
+                params={"directory": directory},
+                json={},
+            )
+            response.raise_for_status()
+
     async def stream_global_events(self, *, directory: str) -> AsyncIterator[dict[str, Any]]:
         async with (
             self._stream_client() as client,

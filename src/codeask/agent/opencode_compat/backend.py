@@ -70,6 +70,7 @@ class HttpClientLike(Protocol):
     ) -> None: ...
     def stream_global_events(self, *, directory: str) -> AsyncIterator[dict[str, object]]: ...
     async def abort_session(self, *, session_id: str, directory: str) -> None: ...
+    async def dispose_instance(self, *, directory: str) -> None: ...
 
 
 class SessionStoreLike(Protocol):
@@ -83,6 +84,9 @@ class SessionStoreLike(Protocol):
         server_url: str,
         port: int,
         pid: int | None,
+        config_hash: str | None = None,
+        config_json: dict[str, object] | None = None,
+        workspace_dir: str | None = None,
     ) -> ExternalAgentSession: ...
 
 
@@ -174,67 +178,118 @@ class OpenCodeCompat:
         )
         config = build_opencode_config(config_input)
         config_hash = _config_hash(config)
-        _write_workspace_files(workspace.workspace_dir, config)
+
+        workspace_dir = str(workspace.workspace_dir)
+        opencode_json = workspace.workspace_dir / "opencode.json"
+        config_changed = existing is None or existing.config_hash != config_hash
+        workspace_moved = existing is not None and existing.workspace_dir != workspace_dir
+        # opencode re-reads opencode.json only when a directory's instance
+        # (re)loads; writing identical content is a no-op. Write only when the
+        # config actually changed, the dir moved, or the file is missing (e.g.
+        # after idle cleanup deleted the workspace).
+        if config_changed or workspace_moved or not opencode_json.exists():
+            _write_workspace_files(workspace.workspace_dir, config)
+
+        # One CodeAsk session == one opencode session id, created once and
+        # resumed forever. The conversation history lives in opencode's storage
+        # keyed by that id and survives workspace cleanup and config changes, so
+        # we always resume the recorded id instead of minting a new one.
         if (
             existing is not None
+            and existing.external_session_key
             and not force_new_external_session
-            and getattr(existing, "status", "active") == "active"
-            and existing.config_hash == config_hash
-            and existing.workspace_dir == str(workspace.workspace_dir)
         ):
             usable, reason = await _external_session_is_usable(
                 client,
                 session_id=str(existing.external_session_key),
-                directory=str(workspace.workspace_dir),
+                directory=workspace_dir,
             )
             if not usable:
                 _append_summary_event(
                     str(existing.session_dir),
                     {
-                        "type": "external_session_stale",
+                        "type": "external_session_resume_failed",
                         "external_session_key": str(existing.external_session_key),
-                        "directory": str(workspace.workspace_dir),
+                        "directory": workspace_dir,
                         "reason": reason,
                     },
                 )
                 log.warning(
-                    "opencode_external_session_stale",
+                    "opencode_external_session_resume_failed",
                     session_id=session_id,
                     external_session_key=str(existing.external_session_key),
-                    directory=str(workspace.workspace_dir),
+                    directory=workspace_dir,
                     reason=reason,
                 )
-            else:
-                _append_summary_event(
-                    str(existing.session_dir),
-                    {
-                        "type": "external_session_reused",
-                        "external_session_key": str(existing.external_session_key),
-                        "directory": str(workspace.workspace_dir),
-                    },
-                )
-                log.info(
-                    "opencode_external_session_reused",
-                    session_id=session_id,
-                    external_session_key=str(existing.external_session_key),
-                    directory=str(workspace.workspace_dir),
-                )
-                return await self._session_store.update_server_binding(
-                    session_id=session_id,
-                    server_url=server.base_url,
-                    port=server.port,
-                    pid=server.pid,
-                )
+                # Surface opencode's own error; never silently mint a fresh id.
+                raise OpenCodeSessionResumeError(reason or "opencode session is not resumable")
 
-        external_session_key = await client.create_session(directory=str(workspace.workspace_dir))
+            config_reloaded = False
+            if config_changed or workspace_moved:
+                # opencode caches resolved provider config per directory; dispose
+                # the cached instance so the next prompt reloads the freshly
+                # written opencode.json. Best effort: if it fails we keep the old
+                # config_hash so the next turn retries the reload.
+                try:
+                    await client.dispose_instance(directory=workspace_dir)
+                    config_reloaded = True
+                except Exception as exc:  # noqa: BLE001 - reload is best-effort
+                    log.warning(
+                        "opencode_instance_dispose_failed",
+                        session_id=session_id,
+                        directory=workspace_dir,
+                        error=str(exc) or exc.__class__.__name__,
+                    )
+
+            _append_summary_event(
+                str(existing.session_dir),
+                {
+                    "type": "external_session_reused",
+                    "external_session_key": str(existing.external_session_key),
+                    "directory": workspace_dir,
+                    "config_reloaded": config_reloaded,
+                },
+            )
+            log.info(
+                "opencode_external_session_reused",
+                session_id=session_id,
+                external_session_key=str(existing.external_session_key),
+                directory=workspace_dir,
+                config_reloaded=config_reloaded,
+            )
+            persisted = not config_changed or config_reloaded
+            return await self._session_store.update_server_binding(
+                session_id=session_id,
+                server_url=server.base_url,
+                port=server.port,
+                pid=server.pid,
+                config_hash=config_hash if persisted else None,
+                config_json=config if persisted else None,
+                workspace_dir=workspace_dir,
+            )
+
+        # First turn (no prior session) or an explicit force-new reset: mint a
+        # fresh opencode session id. Drop any stale cached instance first so the
+        # new session boots with the just-written config.
+        if existing is not None and (config_changed or workspace_moved):
+            try:
+                await client.dispose_instance(directory=workspace_dir)
+            except Exception as exc:  # noqa: BLE001 - reload is best-effort
+                log.warning(
+                    "opencode_instance_dispose_failed",
+                    session_id=session_id,
+                    directory=workspace_dir,
+                    error=str(exc) or exc.__class__.__name__,
+                )
+        external_session_key = await client.create_session(directory=workspace_dir)
         if existing is not None:
             _append_summary_event(
                 str(existing.session_dir),
                 {
                     "type": "external_session_created",
                     "external_session_key": external_session_key,
-                    "directory": str(workspace.workspace_dir),
-                    "reason": "new_or_recreated_binding",
+                    "directory": workspace_dir,
+                    "reason": "force_new" if force_new_external_session else "new_binding",
                 },
             )
         return await self._session_store.upsert(
@@ -761,6 +816,15 @@ def _binding_has_openviking_mcp(binding: Any) -> bool:
 
 class OpenCodeProviderTestError(RuntimeError):
     """Raised when the explicitly selected opencode provider test fails."""
+
+
+class OpenCodeSessionResumeError(RuntimeError):
+    """Raised when a session's prior opencode session id cannot be resumed.
+
+    Carries opencode's own error verbatim (the probe's captured failure) rather
+    than a fabricated message, so the user sees opencode's actual reason. We do
+    not silently mint a fresh session in this case.
+    """
 
 
 def _config_input(

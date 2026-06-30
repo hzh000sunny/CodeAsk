@@ -364,12 +364,15 @@ async def stream_opencode_response(
         )
 
         try:
+            # A CodeAsk session keeps one opencode session id for its lifetime.
+            # Even when the global-config pool rotates (some configs excluded),
+            # we resume the same id and reload the rotated provider config via an
+            # instance dispose inside initialize_session, so context is preserved
+            # rather than discarded with a fresh session.
             binding = await compat.initialize_session(
                 session_id,
                 llm_config,
                 provider_config_pool=pooled_provider_configs if selection.pooled_global else (),
-                force_new_external_session=selection.pooled_global
-                and bool(excluded_global_config_ids),
             )
             context_window = int(
                 getattr(request.app.state.settings, "model_context_window_tokens", 200_000)

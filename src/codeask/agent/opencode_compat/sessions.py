@@ -119,6 +119,9 @@ class ExternalAgentSessionStore:
         server_url: str,
         port: int,
         pid: int | None,
+        config_hash: str | None = None,
+        config_json: dict[str, object] | None = None,
+        workspace_dir: str | None = None,
     ) -> ExternalAgentSession:
         async with self._session_factory() as session:
             row = (
@@ -133,6 +136,14 @@ class ExternalAgentSessionStore:
             row.pid = pid
             row.status = "active"
             row.error_summary = None
+            # When resuming with a changed config, persist the new fingerprint so
+            # the next turn can tell whether another reload (dispose) is needed.
+            if config_hash is not None:
+                row.config_hash = config_hash
+            if config_json is not None:
+                row.config_json = config_json
+            if workspace_dir is not None:
+                row.workspace_dir = workspace_dir
             await session.commit()
             await session.refresh(row)
             return row

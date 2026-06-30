@@ -540,7 +540,9 @@ async def test_opencode_global_pool_retries_next_config_only_before_text(
     assert initialize_calls[0]["provider_config_pool"] == ["model-a", "model-b"]
     assert initialize_calls[0]["force_new_external_session"] is False
     assert initialize_calls[1]["provider_config_pool"] == ["model-a", "model-b"]
-    assert initialize_calls[1]["force_new_external_session"] is True
+    # Pool retry keeps the same opencode session id (one session, one id): the
+    # rotated config is reloaded via instance dispose, not by forcing a new session.
+    assert initialize_calls[1]["force_new_external_session"] is False
 
 
 @pytest.mark.asyncio

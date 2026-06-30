@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import codeask.agent.opencode_compat.backend as opencode_backend
-from codeask.agent.opencode_compat.backend import OpenCodeCompat
+from codeask.agent.opencode_compat.backend import OpenCodeCompat, OpenCodeSessionResumeError
 from codeask.agent.opencode_compat.config import OpenVikingMCPConfig
 from codeask.agent.opencode_compat.process import OpenCodeProcessError, OpenCodeServerHandle
 from codeask.agent.opencode_compat.prompts import build_codeask_system_prompt
@@ -82,6 +82,8 @@ class FakeHttpClient:
         self.missing_session_ids: set[str] = set()
         self.statuses: list[dict[str, object]] = []
         self.messages: list[dict[str, object]] = []
+        self.disposed_directories: list[str] = []
+        self.fail_dispose = False
 
     async def health(self) -> dict[str, object]:
         self.health_calls += 1
@@ -135,6 +137,11 @@ class FakeHttpClient:
             raise RuntimeError("abort failed")
         self.aborts.append({"session_id": session_id, "directory": directory})
 
+    async def dispose_instance(self, *, directory: str) -> None:
+        if getattr(self, "fail_dispose", False):
+            raise RuntimeError("dispose failed")
+        self.disposed_directories.append(directory)
+
 
 class FailingHealthHttpClient(FakeHttpClient):
     async def health(self) -> dict[str, object]:
@@ -162,11 +169,27 @@ class FakeStore:
                 return item
         return None
 
-    async def update_server_binding(self, *, session_id, server_url, port, pid):  # type: ignore[no-untyped-def]
+    async def update_server_binding(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        session_id,
+        server_url,
+        port,
+        pid,
+        config_hash=None,
+        config_json=None,
+        workspace_dir=None,
+    ):
         item = await self.get_by_session_id(session_id)
         object.__setattr__(item, "server_url", server_url)
         object.__setattr__(item, "port", port)
         object.__setattr__(item, "pid", pid)
+        if config_hash is not None:
+            object.__setattr__(item, "config_hash", config_hash)
+        if config_json is not None:
+            object.__setattr__(item, "config_json", config_json)
+        if workspace_dir is not None:
+            object.__setattr__(item, "workspace_dir", workspace_dir)
         return item
 
 
@@ -679,7 +702,8 @@ async def test_initialize_session_uses_explicit_provider_without_probe(
 
 
 @pytest.mark.asyncio
-async def test_initialize_session_recreates_cleaned_external_binding(tmp_path: Path) -> None:
+async def test_initialize_session_resumes_cleaned_external_binding(tmp_path: Path) -> None:
+    """A cleaned session resumes the same opencode id rather than minting a new one."""
     wiki_root = tmp_path / "wiki"
     wiki_root.mkdir()
     workspace_manager = OpenCodeWorkspaceManager(
@@ -702,11 +726,16 @@ async def test_initialize_session_recreates_cleaned_external_binding(tmp_path: P
 
     await compat.initialize_session("sess_1", _llm_config())
     object.__setattr__(store.items[0], "status", "cleaned")
-    await compat.initialize_session("sess_1", _llm_config())
+    result = await compat.initialize_session("sess_1", _llm_config())
 
     workspace = _session_workspace_path(tmp_path)
-    assert http_client.created_directories == [str(workspace), str(workspace)]
-    assert store.items[-1].external_session_key == "ses_open"
+    # Only the first turn created an external session; the cleaned turn resumes it.
+    assert http_client.created_directories == [str(workspace)]
+    assert result.external_session_key == "ses_open"
+    # Config is unchanged, so no instance dispose / config reload was needed.
+    assert http_client.disposed_directories == []
+    # The resume path probes that opencode still has the session.
+    assert {call["session_id"] for call in http_client.list_message_calls} == {"ses_open"}
 
 
 @pytest.mark.asyncio
@@ -2146,9 +2175,11 @@ async def test_initialize_session_reuses_external_session_after_shared_server_re
 
 
 @pytest.mark.asyncio
-async def test_initialize_session_recreates_stale_external_session(
+async def test_initialize_session_raises_when_external_session_unresumable(
     tmp_path: Path,
 ) -> None:
+    """If opencode no longer has the recorded session id, surface its error and do
+    not silently mint a new session."""
     wiki_root = tmp_path / "wiki"
     wiki_root.mkdir()
     workspace_manager = OpenCodeWorkspaceManager(
@@ -2172,12 +2203,14 @@ async def test_initialize_session_recreates_stale_external_session(
 
     first = await compat.initialize_session("sess_1", _llm_config())
     http_client.missing_session_ids.add("ses_old")
-    second = await compat.initialize_session("sess_1", _llm_config())
+    with pytest.raises(OpenCodeSessionResumeError, match="opencode session not found"):
+        await compat.initialize_session("sess_1", _llm_config())
 
     workspace = _session_workspace_path(tmp_path)
     assert first.external_session_key == "ses_old"
-    assert second.external_session_key == "ses_new"
-    assert http_client.created_directories == [str(workspace), str(workspace)]
+    # No new session minted; ses_new untouched.
+    assert http_client.created_directories == [str(workspace)]
+    assert store.items[-1].external_session_key == "ses_old"
     assert http_client.list_message_calls == [
         {"session_id": "ses_old", "directory": str(workspace)}
     ]
@@ -2185,8 +2218,7 @@ async def test_initialize_session_recreates_stale_external_session(
     summary_lines = [
         json.loads(line) for line in summary_log.read_text(encoding="utf-8").splitlines()
     ]
-    assert "external_session_stale" in [line["type"] for line in summary_lines]
-    assert "external_session_created" in [line["type"] for line in summary_lines]
+    assert "external_session_resume_failed" in [line["type"] for line in summary_lines]
 
 
 @pytest.mark.asyncio
@@ -2508,7 +2540,7 @@ async def test_run_turn_uses_initialized_binding_after_llm_config_switch(
             "payload": {
                 "type": "message.part.updated",
                 "properties": {
-                    "sessionID": "ses_new",
+                    "sessionID": "ses_old",
                     "part": {
                         "id": "text_1",
                         "messageID": "msg_1",
@@ -2522,14 +2554,14 @@ async def test_run_turn_uses_initialized_binding_after_llm_config_switch(
             "directory": str(workspace),
             "payload": {
                 "type": "message.part.delta",
-                "properties": {"sessionID": "ses_new", "delta": "new config answer"},
+                "properties": {"sessionID": "ses_old", "delta": "new config answer"},
             },
         },
         {
             "directory": str(workspace),
             "payload": {
                 "type": "session.status",
-                "properties": {"sessionID": "ses_new", "status": {"type": "idle"}},
+                "properties": {"sessionID": "ses_old", "status": {"type": "idle"}},
             },
         },
     ]
@@ -2544,9 +2576,14 @@ async def test_run_turn_uses_initialized_binding_after_llm_config_switch(
         )
     ]
 
+    # Switching LLM config keeps the SAME opencode session id (one session, one id);
+    # the new provider config is loaded by disposing the cached instance, not by
+    # minting a fresh session. ses_new is never created.
     assert first.external_session_key == "ses_old"
-    assert second.external_session_key == "ses_new"
-    assert http_client.prompts[-1]["session_id"] == "ses_new"
+    assert second.external_session_key == "ses_old"
+    assert http_client.created_directories == [str(workspace)]
+    assert http_client.disposed_directories == [str(workspace)]
+    assert http_client.prompts[-1]["session_id"] == "ses_old"
     assert http_client.prompts[-1]["model_id"] == "model-b"
     user_visible_events = _without_runtime_observation_events(events)
     assert [event.type for event in user_visible_events] == ["text_delta", "done"]
