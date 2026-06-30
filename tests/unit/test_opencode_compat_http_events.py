@@ -61,6 +61,22 @@ async def test_http_client_uses_opencode_message_paths_and_directory(httpx_mock)
         status_code=204,
     )
     await client.abort_session(session_id="ses_1", directory="/tmp/workspace")
+    httpx_mock.add_response(
+        method="GET",
+        url="http://opencode.test/session/ses_1?directory=%2Ftmp%2Fworkspace",
+        json={"id": "ses_1", "directory": "/tmp/workspace"},
+    )
+    assert await client.get_session(session_id="ses_1", directory="/tmp/workspace") == {
+        "id": "ses_1",
+        "directory": "/tmp/workspace",
+    }
+    # remove_session deletes history; a 404 (already gone) is tolerated.
+    httpx_mock.add_response(
+        method="DELETE",
+        url="http://opencode.test/session/ses_1?directory=%2Ftmp%2Fworkspace",
+        status_code=404,
+    )
+    await client.remove_session(session_id="ses_1", directory="/tmp/workspace")
 
     prompt_request = httpx_mock.get_request(
         method="POST",

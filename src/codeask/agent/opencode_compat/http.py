@@ -85,6 +85,23 @@ class OpenCodeHttpClient:
             items = cast(list[object], data)
             return [cast(dict[str, Any], item) for item in items if isinstance(item, dict)]
 
+    async def get_session(self, *, session_id: str, directory: str) -> dict[str, Any]:
+        """Fetch a session's metadata (lightweight existence check).
+
+        Used to verify a recorded opencode session id is still resumable without
+        pulling the whole message history. Raises on 404/error (= not resumable).
+        """
+        async with self._client() as client:
+            response = await client.get(
+                f"/session/{session_id}",
+                params={"directory": directory},
+            )
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict):
+                raise OpenCodeHttpError("opencode session response was not an object")
+            return cast(dict[str, Any], data)
+
     async def session_status(self, *, directory: str) -> dict[str, Any]:
         async with self._client() as client:
             response = await client.get("/session/status", params={"directory": directory})
@@ -100,6 +117,21 @@ class OpenCodeHttpClient:
                 f"/session/{session_id}/abort",
                 params={"directory": directory},
             )
+            response.raise_for_status()
+
+    async def remove_session(self, *, session_id: str, directory: str) -> None:
+        """Permanently delete an opencode session and its stored history.
+
+        Used by second-tier retention to reclaim server_data for long-idle
+        sessions. A 404 (already gone) is treated as success.
+        """
+        async with self._client() as client:
+            response = await client.delete(
+                f"/session/{session_id}",
+                params={"directory": directory},
+            )
+            if response.status_code == 404:
+                return
             response.raise_for_status()
 
     async def dispose_instance(self, *, directory: str) -> None:

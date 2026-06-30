@@ -206,7 +206,7 @@ class ExternalAgentSession(Base, TimestampMixin):
             name="ck_external_agent_sessions_backend_type",
         ),
         CheckConstraint(
-            "status IN ('active', 'error', 'cleaned')",
+            "status IN ('active', 'error', 'cleaned', 'expired')",
             name="ck_external_agent_sessions_status",
         ),
         Index("ix_external_agent_sessions_session", "session_id"),

@@ -57,6 +57,7 @@ class HttpClientLike(Protocol):
     async def list_messages(
         self, *, session_id: str, directory: str
     ) -> list[dict[str, object]]: ...
+    async def get_session(self, *, session_id: str, directory: str) -> dict[str, object]: ...
     async def session_status(self, *, directory: str) -> dict[str, object]: ...
     async def prompt_async(
         self,
@@ -71,6 +72,7 @@ class HttpClientLike(Protocol):
     def stream_global_events(self, *, directory: str) -> AsyncIterator[dict[str, object]]: ...
     async def abort_session(self, *, session_id: str, directory: str) -> None: ...
     async def dispose_instance(self, *, directory: str) -> None: ...
+    async def remove_session(self, *, session_id: str, directory: str) -> None: ...
 
 
 class SessionStoreLike(Protocol):
@@ -88,6 +90,10 @@ class SessionStoreLike(Protocol):
         config_json: dict[str, object] | None = None,
         workspace_dir: str | None = None,
     ) -> ExternalAgentSession: ...
+    async def list_expired_session_ids(
+        self, *, before: datetime, limit: int = 100
+    ) -> list[str]: ...
+    async def mark_expired(self, session_id: str) -> ExternalAgentSession: ...
 
 
 class WikiWorkspaceExporterLike(Protocol):
@@ -164,6 +170,12 @@ class OpenCodeCompat:
         await _wait_for_health(client)
         _record_process_health_ok(self._process_manager)
         existing = await self._session_store.get_by_session_id_or_none(session_id)
+        if existing is not None and getattr(existing, "status", "active") == "expired":
+            # Terminal: history was deliberately deleted by retention. Never
+            # resume or silently recreate — the user must start a new session.
+            raise OpenCodeSessionExpiredError(
+                "会话已过期：超过保留期未活动，历史已清理，请新建会话后继续。"
+            )
         openviking_mcp = await self._resolve_openviking_mcp(session_id)
         tool_permissions = await self._resolve_tool_permissions()
         config_input = _config_input(
@@ -183,10 +195,19 @@ class OpenCodeCompat:
         opencode_json = workspace.workspace_dir / "opencode.json"
         config_changed = existing is None or existing.config_hash != config_hash
         workspace_moved = existing is not None and existing.workspace_dir != workspace_dir
+        # Whether the LLM *provider* config changed — this is the only thing a
+        # dispose/reload is for. The full config_hash also moves for ambient
+        # reasons (openviking url/port, MCP token/url, worktree path) that opencode
+        # does not need reloaded; comparing just the provider block avoids tearing
+        # down a live instance on every backend/openviking restart.
+        provider_changed = existing is None or (
+            _provider_block(existing.config_json) != _provider_block(config)
+        )
         # opencode re-reads opencode.json only when a directory's instance
-        # (re)loads; writing identical content is a no-op. Write only when the
-        # config actually changed, the dir moved, or the file is missing (e.g.
-        # after idle cleanup deleted the workspace).
+        # (re)loads; writing identical content is a no-op. Write the file when the
+        # full config changed, the dir moved, or the file is missing (e.g. after
+        # idle cleanup deleted the workspace) — so it always reflects current
+        # ambient values for the next time the instance does load.
         if config_changed or workspace_moved or not opencode_json.exists():
             _write_workspace_files(workspace.workspace_dir, config)
 
@@ -199,10 +220,24 @@ class OpenCodeCompat:
             and existing.external_session_key
             and not force_new_external_session
         ):
-            usable, reason = await _external_session_is_usable(
-                client,
-                session_id=str(existing.external_session_key),
-                directory=workspace_dir,
+            # Only probe when there's reason to doubt the session is still live:
+            # it was cleaned, or the shared opencode server changed (restart). A
+            # normally-active session on the same server is obviously present, so
+            # skip the round-trip; if it vanished anyway, run_turn's prompt will
+            # surface opencode's error.
+            need_probe = (
+                getattr(existing, "status", "active") != "active"
+                or existing.server_url != server.base_url
+                or existing.pid != server.pid
+            )
+            usable, reason = (
+                await _external_session_is_usable(
+                    client,
+                    session_id=str(existing.external_session_key),
+                    directory=workspace_dir,
+                )
+                if need_probe
+                else (True, None)
             )
             if not usable:
                 _append_summary_event(
@@ -224,12 +259,13 @@ class OpenCodeCompat:
                 # Surface opencode's own error; never silently mint a fresh id.
                 raise OpenCodeSessionResumeError(reason or "opencode session is not resumable")
 
+            need_reload = provider_changed or workspace_moved
             config_reloaded = False
-            if config_changed or workspace_moved:
+            if need_reload:
                 # opencode caches resolved provider config per directory; dispose
                 # the cached instance so the next prompt reloads the freshly
-                # written opencode.json. Best effort: if it fails we keep the old
-                # config_hash so the next turn retries the reload.
+                # written opencode.json. Best effort: if it fails we withhold the
+                # new fingerprint so the next turn retries the reload.
                 try:
                     await client.dispose_instance(directory=workspace_dir)
                     config_reloaded = True
@@ -257,7 +293,9 @@ class OpenCodeCompat:
                 directory=workspace_dir,
                 config_reloaded=config_reloaded,
             )
-            persisted = not config_changed or config_reloaded
+            # Persist the new fingerprint unless a needed reload failed (then keep
+            # the old one so the next turn retries the dispose).
+            persisted = not need_reload or config_reloaded
             return await self._session_store.update_server_binding(
                 session_id=session_id,
                 server_url=server.base_url,
@@ -271,7 +309,7 @@ class OpenCodeCompat:
         # First turn (no prior session) or an explicit force-new reset: mint a
         # fresh opencode session id. Drop any stale cached instance first so the
         # new session boots with the just-written config.
-        if existing is not None and (config_changed or workspace_moved):
+        if existing is not None and (provider_changed or workspace_moved):
             try:
                 await client.dispose_instance(directory=workspace_dir)
             except Exception as exc:  # noqa: BLE001 - reload is best-effort
@@ -671,6 +709,26 @@ class OpenCodeCompat:
 
         return {"session_id": session_id, "removed": removed}
 
+    async def expire_session(self, session_id: str) -> dict[str, object]:
+        """Permanently delete the opencode session history (server_data) for a
+        long-idle session. The binding row is marked 'expired' by the caller only
+        after this succeeds, so a failed delete is retried on the next sweep.
+        """
+        binding = await self._session_store.get_by_session_id_or_none(session_id)
+        if binding is None or not binding.external_session_key:
+            return {"session_id": session_id, "removed": False, "reason": "no_binding"}
+        server = self._process_manager.ensure_server()
+        client = self._http_client_factory(server)
+        await client.remove_session(
+            session_id=str(binding.external_session_key),
+            directory=str(binding.workspace_dir),
+        )
+        return {
+            "session_id": session_id,
+            "external_session_key": str(binding.external_session_key),
+            "removed": True,
+        }
+
     async def _build_turn_system_prompt(
         self,
         *,
@@ -827,6 +885,15 @@ class OpenCodeSessionResumeError(RuntimeError):
     """
 
 
+class OpenCodeSessionExpiredError(RuntimeError):
+    """Raised when a session was permanently expired by retention.
+
+    The opencode history was deliberately deleted after a long idle window; the
+    session is terminal and cannot be resumed or silently recreated. The user
+    must start a new session.
+    """
+
+
 def _config_input(
     *,
     llm_config: LLMConfigWithSecret,
@@ -960,6 +1027,16 @@ def _config_hash(config: dict[str, object]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _provider_block(config: object) -> dict[str, object]:
+    """The LLM provider section of an opencode config (or stored config_json).
+
+    Used to decide whether an instance dispose/reload is needed: only a change in
+    the provider config (key/model/baseURL/headers/npm) requires opencode to
+    reload — ambient fields (MCP, openviking url, worktree path) do not.
+    """
+    return _object_dict(_object_dict(config).get("provider"))
+
+
 def _filter_visible_text_delta(
     *,
     message_id: str,
@@ -1091,7 +1168,8 @@ async def _external_session_is_usable(
     directory: str,
 ) -> tuple[bool, str | None]:
     try:
-        await client.list_messages(session_id=session_id, directory=directory)
+        # Lightweight existence check (session metadata), not the full history.
+        await client.get_session(session_id=session_id, directory=directory)
     except Exception as exc:  # pragma: no cover - exact opencode failure shape is integration-bound
         return False, str(exc).strip() or exc.__class__.__name__
     return True, None

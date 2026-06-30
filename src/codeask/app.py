@@ -24,7 +24,12 @@ from codeask.agent.opencode_compat.backend import (
     SessionStoreLike,
     WorkspaceManagerLike,
 )
-from codeask.agent.opencode_compat.cleanup import IdleSessionStoreLike, cleanup_idle_sessions
+from codeask.agent.opencode_compat.cleanup import (
+    ExpirableSessionStoreLike,
+    IdleSessionStoreLike,
+    cleanup_idle_sessions,
+    expire_idle_sessions,
+)
 from codeask.agent.opencode_compat.config import OpenVikingMCPConfig
 from codeask.agent.opencode_compat.context import build_dynamic_codeask_context
 from codeask.agent.opencode_compat.http import OpenCodeHttpClient
@@ -428,6 +433,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             seconds=settings.opencode_session_cleanup_interval_seconds,
             id="opencode_session_idle_cleanup",
             misfire_grace_time=settings.opencode_session_cleanup_interval_seconds,
+            coalesce=True,
+            max_instances=1,
+        )
+        scheduler.add_job(
+            lambda: _run_opencode_session_expiry(
+                log,
+                opencode_session_store,
+                opencode_compat,
+                retention_days=settings.opencode_session_history_retention_days,
+            ),
+            "interval",
+            seconds=settings.opencode_session_expiry_interval_seconds,
+            id="opencode_session_expiry",
+            misfire_grace_time=settings.opencode_session_expiry_interval_seconds,
             coalesce=True,
             max_instances=1,
         )
@@ -941,5 +960,32 @@ def _run_opencode_idle_cleanup(
         "opencode_idle_cleanup_completed",
         candidate_count=result.get("candidate_count"),
         cleaned_count=result.get("cleaned_count"),
+        failed=result.get("failed"),
+    )
+
+
+def _run_opencode_session_expiry(
+    log: structlog.BoundLogger,
+    store: ExternalAgentSessionStore,
+    compat: OpenCodeCompat,
+    *,
+    retention_days: int,
+) -> None:
+    before = datetime.now(UTC) - timedelta(days=retention_days)
+    try:
+        result = asyncio.run(
+            expire_idle_sessions(
+                store=cast(ExpirableSessionStoreLike, store),
+                compat=compat,
+                before=before,
+            )
+        )
+    except Exception:
+        log.exception("opencode_session_expiry_failed")
+        return
+    log.info(
+        "opencode_session_expiry_completed",
+        candidate_count=result.get("candidate_count"),
+        expired_count=result.get("expired_count"),
         failed=result.get("failed"),
     )

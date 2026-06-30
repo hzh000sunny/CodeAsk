@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 import codeask.agent.opencode_compat.backend as opencode_backend
-from codeask.agent.opencode_compat.backend import OpenCodeCompat, OpenCodeSessionResumeError
+from codeask.agent.opencode_compat.backend import (
+    OpenCodeCompat,
+    OpenCodeSessionExpiredError,
+    OpenCodeSessionResumeError,
+)
 from codeask.agent.opencode_compat.config import OpenVikingMCPConfig
 from codeask.agent.opencode_compat.process import OpenCodeProcessError, OpenCodeServerHandle
 from codeask.agent.opencode_compat.prompts import build_codeask_system_prompt
@@ -79,6 +83,7 @@ class FakeHttpClient:
         self.fail_abort = False
         self.session_ids: list[str] = []
         self.list_message_calls: list[dict[str, str]] = []
+        self.get_session_calls: list[dict[str, str]] = []
         self.missing_session_ids: set[str] = set()
         self.statuses: list[dict[str, object]] = []
         self.messages: list[dict[str, object]] = []
@@ -100,6 +105,12 @@ class FakeHttpClient:
         if session_id in self.missing_session_ids:
             raise RuntimeError("opencode session not found")
         return self.messages
+
+    async def get_session(self, *, session_id: str, directory: str) -> dict[str, object]:
+        self.get_session_calls.append({"session_id": session_id, "directory": directory})
+        if session_id in self.missing_session_ids:
+            raise RuntimeError("opencode session not found")
+        return {"id": session_id, "directory": directory}
 
     async def session_status(self, *, directory: str) -> dict[str, object]:
         if self.statuses:
@@ -734,8 +745,49 @@ async def test_initialize_session_resumes_cleaned_external_binding(tmp_path: Pat
     assert result.external_session_key == "ses_open"
     # Config is unchanged, so no instance dispose / config reload was needed.
     assert http_client.disposed_directories == []
-    # The resume path probes that opencode still has the session.
-    assert {call["session_id"] for call in http_client.list_message_calls} == {"ses_open"}
+    # The resume path probes (lightweight get_session) that opencode still has it.
+    assert {call["session_id"] for call in http_client.get_session_calls} == {"ses_open"}
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_reuse_skips_dispose_on_ambient_only_change(
+    tmp_path: Path,
+) -> None:
+    """Ambient config drift (MCP/openviking url, etc.) must NOT dispose the
+    instance — only a provider-block change does. The file is still rewritten."""
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    await compat.initialize_session("sess_1", _llm_config())
+    # Simulate ambient-only drift: full config_hash differs (e.g. openviking port
+    # moved) while the provider block in config_json is unchanged.
+    object.__setattr__(store.items[0], "config_hash", "stale-ambient-hash")
+    opencode_json = _session_workspace_path(tmp_path) / "opencode.json"
+    opencode_json.unlink()  # also prove the file gets rewritten
+
+    result = await compat.initialize_session("sess_1", _llm_config())
+
+    assert result.external_session_key == "ses_open"  # resumed same id
+    assert http_client.disposed_directories == []  # provider unchanged -> no reload
+    assert opencode_json.exists()  # file rewritten (hash differed / file missing)
+    assert http_client.created_directories == [str(_session_workspace_path(tmp_path))]
 
 
 @pytest.mark.asyncio
@@ -2063,9 +2115,8 @@ async def test_initialize_session_reuses_existing_binding_when_config_is_unchang
     assert first.external_session_key == "ses_open"
     assert second.external_session_key == "ses_open"
     assert http_client.created_directories == [str(_session_workspace_path(tmp_path))]
-    assert http_client.list_message_calls == [
-        {"session_id": "ses_open", "directory": str(_session_workspace_path(tmp_path))}
-    ]
+    # Active session on the same server: no need to probe (P2) — reuse directly.
+    assert http_client.get_session_calls == []
 
 
 @pytest.mark.asyncio
@@ -2169,7 +2220,9 @@ async def test_initialize_session_reuses_external_session_after_shared_server_re
     assert store.items[0].server_url == "http://127.0.0.1:4101"
     assert store.items[0].port == 4101
     assert store.items[0].pid == 456
-    assert http_client.list_message_calls == [
+    # Server changed (restart): the resume path re-probes via the lightweight
+    # get_session endpoint before reusing.
+    assert http_client.get_session_calls == [
         {"session_id": "ses_open", "directory": str(_session_workspace_path(tmp_path))}
     ]
 
@@ -2202,6 +2255,8 @@ async def test_initialize_session_raises_when_external_session_unresumable(
     )
 
     first = await compat.initialize_session("sess_1", _llm_config())
+    # Cleaned (so the resume path probes) + opencode lost the session.
+    object.__setattr__(store.items[0], "status", "cleaned")
     http_client.missing_session_ids.add("ses_old")
     with pytest.raises(OpenCodeSessionResumeError, match="opencode session not found"):
         await compat.initialize_session("sess_1", _llm_config())
@@ -2211,7 +2266,7 @@ async def test_initialize_session_raises_when_external_session_unresumable(
     # No new session minted; ses_new untouched.
     assert http_client.created_directories == [str(workspace)]
     assert store.items[-1].external_session_key == "ses_old"
-    assert http_client.list_message_calls == [
+    assert http_client.get_session_calls == [
         {"session_id": "ses_old", "directory": str(workspace)}
     ]
     summary_log = workspace.parent / "logs" / "opencode-events.summary.jsonl"
@@ -2219,6 +2274,44 @@ async def test_initialize_session_raises_when_external_session_unresumable(
         json.loads(line) for line in summary_log.read_text(encoding="utf-8").splitlines()
     ]
     assert "external_session_resume_failed" in [line["type"] for line in summary_lines]
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_expired_binding_raises_without_recreate(
+    tmp_path: Path,
+) -> None:
+    """An expired (retention-deleted) session is terminal: report expired, never
+    probe, never silently mint a new session."""
+    wiki_root = tmp_path / "wiki"
+    wiki_root.mkdir()
+    workspace_manager = OpenCodeWorkspaceManager(
+        data_dir=tmp_path / "data",
+        wiki_workspace_root=wiki_root,
+    )
+    process_manager = FakeProcessManager(
+        OpenCodeServerHandle(base_url="http://127.0.0.1:4100", port=4100, pid=123)
+    )
+    http_client = FakeHttpClient()
+    store = FakeStore()
+    compat = OpenCodeCompat(
+        workspace_manager=workspace_manager,
+        process_manager=process_manager,
+        http_client_factory=lambda server: http_client,
+        session_store=store,
+        mcp_base_url="http://127.0.0.1:8000/api/agent-mcp",
+        mcp_token_resolver=lambda session_id: f"token-{session_id}",
+    )
+
+    await compat.initialize_session("sess_1", _llm_config())
+    object.__setattr__(store.items[0], "status", "expired")
+
+    with pytest.raises(OpenCodeSessionExpiredError):
+        await compat.initialize_session("sess_1", _llm_config())
+
+    # No probe, no new session minted.
+    assert http_client.get_session_calls == []
+    assert http_client.created_directories == [str(_session_workspace_path(tmp_path))]
+    assert store.items[-1].external_session_key == "ses_open"
 
 
 @pytest.mark.asyncio

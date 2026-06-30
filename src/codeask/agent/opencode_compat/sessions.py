@@ -163,6 +163,23 @@ class ExternalAgentSessionStore:
             ).scalars()
             return list(rows)
 
+    async def list_expired_session_ids(self, *, before: datetime, limit: int = 100) -> list[str]:
+        """Sessions idle past the long retention horizon, eligible for permanent
+        expiry (history deletion). Excludes already-expired and errored rows."""
+        async with self._session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(ExternalAgentSession.session_id)
+                    .where(
+                        ExternalAgentSession.status.in_(("active", "cleaned")),
+                        ExternalAgentSession.updated_at < before,
+                    )
+                    .order_by(ExternalAgentSession.updated_at.asc())
+                    .limit(limit)
+                )
+            ).scalars()
+            return list(rows)
+
     async def count_active(self) -> int:
         async with self._session_factory() as session:
             value = (
@@ -186,6 +203,21 @@ class ExternalAgentSessionStore:
             row.status = "cleaned"
             row.pid = None
             row.error_summary = None
+            await session.commit()
+            await session.refresh(row)
+            return row
+
+    async def mark_expired(self, session_id: str) -> ExternalAgentSession:
+        async with self._session_factory() as session:
+            row = (
+                await session.execute(
+                    select(ExternalAgentSession).where(
+                        ExternalAgentSession.session_id == session_id
+                    )
+                )
+            ).scalar_one()
+            row.status = "expired"
+            row.pid = None
             await session.commit()
             await session.refresh(row)
             return row

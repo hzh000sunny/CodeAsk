@@ -95,6 +95,8 @@ async def update_scoped_config(
         old_model_name = row.model_name
         old_headers = row.headers_encrypted
         old_api_key = crypto.decrypt(row.api_key_encrypted)
+        old_reasoning_profile = row.reasoning_profile
+        old_reasoning_profile_json = row.reasoning_profile_json
 
         if payload.is_default is True:
             await session.execute(
@@ -148,6 +150,15 @@ async def update_scoped_config(
                 "headers" in fields
                 and payload.headers is not None
                 and row.headers_encrypted != old_headers
+            )
+            or (
+                "reasoning_profile" in fields
+                and payload.reasoning_profile is not None
+                and row.reasoning_profile != old_reasoning_profile
+            )
+            or (
+                "reasoning_profile_json" in fields
+                and row.reasoning_profile_json != old_reasoning_profile_json
             )
         )
         if runtime_fields_changed:

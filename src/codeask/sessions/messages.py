@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeask.agent.chat_runtime.events import ChatRuntimeEvent
+from codeask.agent.opencode_compat.backend import OpenCodeSessionExpiredError
 from codeask.agent.opencode_compat.process import OpenCodeProcessError
 from codeask.agent.sse import AgentEvent, SSEMultiplexer
 from codeask.api.schemas.session import MessageCreate
@@ -482,6 +483,8 @@ async def stream_opencode_response(
             raise
         except Exception as exc:
             error_code = exc.code if isinstance(exc, OpenCodeProcessError) else None
+            if isinstance(exc, OpenCodeSessionExpiredError):
+                error_code = "session_expired"
             error_event = ChatRuntimeEvent(
                 type="error",
                 data={

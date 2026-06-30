@@ -100,6 +100,20 @@ class Settings(BaseSettings):
         ge=60,
         description="Interval for cleaning idle opencode session resources.",
     )
+    opencode_session_history_retention_days: int = Field(
+        default=30,
+        ge=1,
+        description=(
+            "Age after which an idle opencode session is permanently expired: its "
+            "history (server_data) is deleted and the binding marked 'expired'. "
+            "Resuming an expired session reports an error rather than recovering."
+        ),
+    )
+    opencode_session_expiry_interval_seconds: int = Field(
+        default=24 * 60 * 60,
+        ge=60 * 60,
+        description="Interval for the second-tier opencode session expiry sweep.",
+    )
     openviking_enabled: bool = Field(
         default=True,
         description=(

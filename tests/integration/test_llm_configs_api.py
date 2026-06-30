@@ -311,6 +311,46 @@ async def test_update_with_unchanged_runtime_fields_preserves_test_status(
 
 
 @pytest.mark.asyncio
+async def test_update_reasoning_profile_resets_test_status(
+    client: AsyncClient,
+) -> None:
+    """Changing the reasoning profile is a runtime change: it must invalidate the
+    stored connectivity-test result (P4)."""
+    await client.post("/api/auth/admin/login", json={"password": "admin"})
+    created = await client.post(
+        "/api/admin/llm-configs",
+        json={
+            "name": "tested-reasoning",
+            "provider_id": "anthropic",
+            "base_url": "https://gateway.example.test",
+            "api_key": "sk-tested",
+            "model_name": "model-tested",
+            "opencode_provider_status": "ok",
+            "opencode_provider_tested_at": "2026-05-15T10:00:00Z",
+            "opencode_provider_test_result_json": {
+                "provider_id": "anthropic",
+                "text_preview": "OK",
+            },
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    updated = await client.patch(
+        f"/api/admin/llm-configs/{created.json()['id']}",
+        json={
+            "reasoning_profile": "custom_json",
+            "reasoning_profile_json": '{"extra_body":{"include_reasoning":true}}',
+        },
+    )
+
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["reasoning_profile"] == "custom_json"
+    assert body["opencode_provider_status"] == "unknown"
+    assert body["opencode_provider_test_result_json"] is None
+
+
+@pytest.mark.asyncio
 async def test_list_prefers_runtime_adapter_over_legacy_opencode_columns(
     app: FastAPI,
     client: AsyncClient,
