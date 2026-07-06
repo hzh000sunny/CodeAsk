@@ -143,9 +143,9 @@ export function AppFeedbackProvider({ children }: { children: ReactNode }) {
           >
             <X aria-hidden="true" size={15} />
           </button>
-          {toastState.sticky ? null : (
+          {!toastState.sticky && (toastState.detail || toastState.tone === "error") ? (
             <span aria-hidden="true" className="toast-countdown" />
-          )}
+          ) : null}
         </div>
       ) : null}
       {errorState ? (

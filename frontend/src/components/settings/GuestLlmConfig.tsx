@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { KeyRound, Plus, Trash2, X } from "lucide-react";
 
+import { listLlmProviders } from "../../lib/api";
 import {
   clearGuestLlmConfig,
   getGuestLlmConfig,
@@ -43,6 +45,13 @@ function rowsToHeaders(rows: HeaderRow[]): Record<string, string> | null {
 
 export function GuestLlmConfig() {
   const { showSuccess } = useAppFeedback();
+  const providerListId = useId();
+  const { data: providers } = useQuery({
+    queryKey: ["llm-providers"],
+    queryFn: listLlmProviders,
+    staleTime: 5 * 60 * 1000,
+  });
+  const providerOptions = providers?.providers ?? [];
   const stored = getGuestLlmConfig() ?? DEFAULT_GUEST_LLM_CONFIG;
   const [config, setConfig] = useState<GuestLlmConfigValue>(stored);
   const [showHeaders, setShowHeaders] = useState(
@@ -76,6 +85,9 @@ export function GuestLlmConfig() {
         <KeyRound aria-hidden="true" size={18} />
         <h2>访客 LLM 配置</h2>
       </div>
+      <p className="guest-llm-lede">
+        填入你自己的模型账号即可开始对话；密钥仅保存在此浏览器，不会上传服务器。
+      </p>
       <div className="guest-llm-grid">
         <label className="field-label compact" htmlFor="guest-llm-name">
           配置名称
@@ -90,10 +102,16 @@ export function GuestLlmConfig() {
           <Input
             className="console-mono"
             id="guest-llm-provider"
+            list={providerListId}
             onChange={(event) => update("provider_id", event.target.value)}
             placeholder="deepseek / openai …"
             value={config.provider_id}
           />
+          <datalist id={providerListId}>
+            {providerOptions.map((option) => (
+              <option key={option.id} value={option.id} />
+            ))}
+          </datalist>
         </label>
         <label className="field-label compact" htmlFor="guest-llm-model">
           模型名称

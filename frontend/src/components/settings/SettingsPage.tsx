@@ -94,9 +94,11 @@ const pageDescriptions: Record<AdminSettingsPageId, string> = {
 
 export function SettingsPage({
   onAdminPageChange,
+  onLoginRequest,
   routeAdminPageId,
 }: {
   onAdminPageChange?: (pageId: AdminSettingsPageId) => void;
+  onLoginRequest?: () => void;
   routeAdminPageId?: AdminSettingsPageId | null;
 }) {
   const [indexCollapsed, setIndexCollapsed] = useState(false);
@@ -161,7 +163,7 @@ export function SettingsPage({
 
       <section className="settings-content" data-scroll-region="true">
         {!me ? <SettingsLoading /> : null}
-        {me && !isAdmin ? <UserSettings /> : null}
+        {me && !isAdmin ? <UserSettings onLoginRequest={onLoginRequest} /> : null}
         {isAdmin ? (
           <AdminSettingsContent
             activePage={activeAdminPage}

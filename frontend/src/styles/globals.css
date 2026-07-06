@@ -1351,6 +1351,8 @@ select.input {
   background: var(--soft);
 }
 
+/* Read-time cue: only on auto-dismissing toasts that carry content to read
+   (a detail line or an error message) — not on plain "done" confirmations. */
 .app-feedback-toast .toast-countdown {
   position: absolute;
   left: 0;
@@ -3777,6 +3779,34 @@ select.input {
   margin-top: 0;
   margin-left: 124px;
   gap: 8px;
+  align-items: center;
+}
+
+/* In-place save confirmation — quiet, contextual, no global toast/countdown. */
+.user-profile-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 2px;
+  color: #067647;
+  font-size: 13px;
+  font-weight: 600;
+  animation: user-profile-saved-in 160ms ease-out;
+}
+
+.user-profile-saved svg {
+  color: #067647;
+}
+
+@keyframes user-profile-saved-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .guest-llm-grid {
@@ -3786,9 +3816,137 @@ select.input {
   margin-top: 16px;
 }
 
+.guest-llm-lede {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .guest-llm-actions {
   justify-content: flex-start;
   margin-top: 14px;
+}
+
+/* 游客身份卡：把原来的禁用死表单换成一句说明 + 登录 CTA，浏览器 ID 弱化到脚注。 */
+.guest-identity-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 24px;
+  margin-top: 14px;
+}
+
+.guest-identity-copy {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.guest-identity-lead {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.guest-identity-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.guest-identity-cta {
+  flex: none;
+}
+
+.guest-identity-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.guest-identity-meta dt {
+  color: var(--muted);
+}
+
+.guest-identity-meta dd {
+  margin: 0;
+  min-width: 0;
+  color: #475467;
+  overflow-wrap: anywhere;
+}
+
+/* 登录用户「用户配置」：头像 + 名字 + 角色的身份头，用户 ID 收进脚注。 */
+.profile-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.profile-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.profile-identity-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.profile-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 650;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.profile-role {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.profile-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.profile-meta dt {
+  color: var(--muted);
+}
+
+.profile-meta dd {
+  margin: 0;
+  min-width: 0;
+  color: #475467;
+  overflow-wrap: anywhere;
 }
 
 .feature-admin-search,

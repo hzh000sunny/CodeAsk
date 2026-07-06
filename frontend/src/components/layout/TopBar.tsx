@@ -17,7 +17,7 @@ export function TopBar({ onLoginRequest, onNavigate }: TopBarProps) {
   const queryClient = useQueryClient();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const { showError, showSuccess } = useAppFeedback();
+  const { showError } = useAppFeedback();
   const { data: me } = useQuery({
     queryKey: ["auth", "me"],
     queryFn: getMe,
@@ -25,7 +25,9 @@ export function TopBar({ onLoginRequest, onNavigate }: TopBarProps) {
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSuccess: () => {
-      showSuccess("已退出登录");
+      // Logout is fast; just flip auth state and let the view redirect. The
+      // top-bar chip switching to "未登录" is the confirmation — no toast,
+      // no countdown bar, no artificial delay.
       resetSubjectScopedQueries(queryClient);
       void queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     },

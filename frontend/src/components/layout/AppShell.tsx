@@ -249,6 +249,7 @@ export function AppShell() {
             <SettingsPage
               routeAdminPageId={routeState.settings.adminPageId}
               onAdminPageChange={navigateSettingsPage}
+              onLoginRequest={requestLogin}
             />
           ) : null}
           {routeState.view === "login" ? (
