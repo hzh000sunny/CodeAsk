@@ -96,9 +96,6 @@ export function WikiWorkbench({
   const [reindexCandidate, setReindexCandidate] = useState<WikiTreeNodeRecord | null>(null);
   const previousDocumentIdRef = useRef<number | null>(null);
   const previousModeRef = useRef<WikiRouteState["mode"]>(routeState.mode);
-  // 记录「冷启动」时由兜底逻辑写入的特性 id：那是技术性默认值、用户并未主动选择。
-  // 据此把它和「从特性页/深链有意带入的特性」区分开——只有后者才在树里高亮+展开。
-  const fallbackFeatureIdRef = useRef<number | null>(null);
 
   const featureQuery = useQuery({
     queryKey: ["features"],
@@ -149,18 +146,13 @@ export function WikiWorkbench({
     () => (activeFeatureRoot ? Boolean(findFirstDocumentInSubtree(activeFeatureRoot)) : false),
     [activeFeatureRoot],
   );
-  // 同步标记冷启动兜底特性：route 未显式带特性、却要回落到默认特性时，在 render 内
-  // 同步记下这个默认 id（早于下面 focusActiveFeature 读取），避免「effect 晚一拍」让
-  // 冷启动瞬间把默认特性误判为「有意带入」而错误展开。
-  if (routeState.featureId == null && fallbackFeatureId != null) {
-    fallbackFeatureIdRef.current = fallbackFeatureId;
-  }
   // 「有意带入的特性（特性页跳转 / 深链 feature=X）、且未选中具体文档」时，在树里把
-  // 该特性根节点高亮+展开，让用户一眼看出当前是哪个特性；冷启动兜底默认特性不参与。
+  // 该特性根节点高亮+展开，让用户一眼看出当前是哪个特性；冷启动回落到的兜底默认特性
+  // （fallbackFeatureId，即 features[0]）是技术性默认值、用户并未主动选择，不参与高亮。
   const focusActiveFeature =
     activeFeatureId != null &&
     routeState.nodeId == null &&
-    activeFeatureId !== fallbackFeatureIdRef.current;
+    activeFeatureId !== fallbackFeatureId;
   const activeFeatureNodeId = focusActiveFeature ? activeFeatureRoot?.id ?? null : null;
   const selectedNode = useMemo(
     () => findNodeById(tree, routeState.nodeId),

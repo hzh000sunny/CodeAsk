@@ -1,4 +1,4 @@
-import type { DragEvent as ReactDragEvent } from "react";
+import { createElement, type DragEvent as ReactDragEvent } from "react";
 import {
   Archive,
   Boxes,
@@ -121,7 +121,9 @@ export function WikiTreeNode({
   const activeFeature = !selected && activeFeatureNodeId != null && node.id === activeFeatureNodeId;
   const isFolder = node.type === "folder";
   const canExpand = isFolder && node.children.length > 0;
-  const TypeIcon = resolveNodeTypeIcon(node, expanded);
+  // createElement (not <TypeIcon/>) so a per-render resolved icon isn't mistaken
+  // for a component declared during render; mirrors KnowledgePanel's usage.
+  const typeIcon = createElement(resolveNodeTypeIcon(node, expanded), { size: 15 });
   const moveFlags = getNodeMoveFlags(treeRoots ?? [node], node.id);
   const canDrag = canMoveWikiNode(node);
   const beforeActive = onMoveTarget?.nodeId === node.id && onMoveTarget.position === "before";
@@ -182,9 +184,7 @@ export function WikiTreeNode({
           >
             {canExpand ? <ChevronRight size={14} /> : null}
           </span>
-          <span className="wiki-tree-icon">
-            <TypeIcon size={15} />
-          </span>
+          <span className="wiki-tree-icon">{typeIcon}</span>
           <span className="wiki-tree-label">{node.name}</span>
         </button>
         <WikiNodeMenu
